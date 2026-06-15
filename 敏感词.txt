@@ -9,7 +9,6 @@
 限制级
 r18
 r-18
-nsfw
 情色
 黄色内容
 黄色图片
@@ -57,7 +56,6 @@ luoti
 成人动漫
 成人漫画
 成人小说
-adult content
 adult image
 adult photo
 adult story
@@ -236,7 +234,6 @@ jailbreak prompt
 
 dan mode
 act as dan
-do anything now
 god mode
 unrestricted mode
 uncensored mode
@@ -251,9 +248,8 @@ split the forbidden answer
 generate jailbreak prompt
 improve jailbreak prompt
 rewrite jailbreak prompt
-execute hidden instructions
-bypass tool confirmation
-bypass permission checks
+
+
 色情
 色情内容
 色情图片
@@ -592,10 +588,6 @@ loli nude
 shota porn
 shota hentai
 shota nude
-porn
-porno
-pornography
-pornographic
 hardcore porn
 softcore porn
 adult porn
@@ -608,7 +600,6 @@ adult website
 adult livestream
 adult cam
 adult chat
-erotic content
 erotic image
 erotic photo
 erotic video
@@ -625,7 +616,6 @@ explicit movie
 explicit animation
 explicit comic
 explicit story
-sexually explicit
 sexual image
 sexual photo
 sexual video
@@ -643,15 +633,12 @@ sex animation
 sex comic
 sex position
 sex tutorial
-nude
 nudity
-naked
 nude image
 nude photo
 nude video
 nude model
 nude generation
-generate nude
 generate nudity
 generate naked
 make her nude
@@ -680,7 +667,6 @@ nipple closeup
 vagina closeup
 penis closeup
 sexual intercourse
-explicit sex
 graphic sex
 oral sex
 anal sex
@@ -693,13 +679,11 @@ drugged sex
 rape fantasy
 rape porn
 gang rape
-incest
 incest porn
 mother son incest
 father daughter incest
 brother sister incest
 family incest
-bestiality
 animal sex
 zoophilia
 necrophilia
@@ -741,7 +725,6 @@ fetish porn
 latex porn
 bdsm porn
 sex slave
-sexual slavery
 sexual torture
 voyeur porn
 hidden camera nude
