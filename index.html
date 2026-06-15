@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LT·GPT - 专业GPT中转站</title>
+  <meta name="description" content="LT·GPT 纯正价Pro20x号池·超高缓存·跟随官方重置周限·满血中转站">
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #f8f9fc;
+      --bg-card: #ffffff;
+      --bg-hover: #f0f1f5;
+      --border: #e5e7ed;
+      --border-active: #c5c7d5;
+      --text-primary: #1a1a2e;
+      --text-secondary: #6b6b80;
+      --text-muted: #9a9ab0;
+      --accent: #6c5ce7;
+      --accent-light: #7c6ff7;
+      --accent-bg: rgba(108, 92, 231, 0.08);
+      --green: #10b981;
+      --green-bg: rgba(16, 185, 129, 0.08);
+      --orange: #f59e0b;
+      --orange-bg: rgba(245, 158, 11, 0.08);
+      --blue: #3b82f6;
+      --blue-bg: rgba(59, 130, 246, 0.08);
+      --pink: #ec4899;
+      --pink-bg: rgba(236, 72, 153, 0.08);
+      --red: #ef4444;
+      --red-bg: rgba(239, 68, 68, 0.08);
+      --radius: 12px;
+      --radius-lg: 16px;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+      --shadow: 0 2px 8px rgba(0,0,0,0.06);
+      --shadow-lg: 0 4px 20px rgba(0,0,0,0.08);
+    }
+
+    html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Navbar */
+    .navbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: 14px 0;
+      background: rgba(248, 249, 252, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .navbar.scrolled {
+      border-color: var(--border);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .navbar .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.5px;
+    }
+
+    .logo-icon {
+      width: 34px;
+      height: 34px;
+      background: linear-gradient(135deg, var(--accent), var(--pink));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .logo span {
+      background: linear-gradient(135deg, var(--accent-light), var(--pink));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .nav-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s;
+      text-decoration: none;
+      border: none;
+    }
+
+    .nav-btn.primary {
+      background: linear-gradient(135deg, var(--accent), #7c4dff);
+      color: #fff;
+      box-shadow: 0 0 20px rgba(108, 92, 231, 0.2);
+    }
+
+    .nav-btn.primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 28px rgba(108, 92, 231, 0.35);
+    }
+
+    /* Hero */
+    .hero {
+      padding: 140px 0 80px;
+      text-align: center;
+      position: relative;
+    }
+
+    .hero-content { max-width: 720px; margin: 0 auto; }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 16px;
+      background: var(--accent-bg);
+      border: 1px solid rgba(108, 92, 231, 0.15);
+      border-radius: 100px;
+      font-size: 13px;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 28px;
+    }
+
+    .hero-badge .dot {
+      width: 6px; height: 6px;
+      background: var(--green);
+      border-radius: 50%;
+      animation: pulse-dot 2s infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .hero h1 {
+      font-size: clamp(36px, 6vw, 64px);
+      font-weight: 800;
+      line-height: 1.12;
+      letter-spacing: -1.2px;
+      margin-bottom: 16px;
+    }
+
+    .hero h1 .highlight {
+      background: linear-gradient(135deg, var(--accent-light), var(--pink));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      font-size: 17px;
+      color: var(--text-secondary);
+      max-width: 540px;
+      margin: 0 auto 32px;
+      line-height: 1.7;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 13px 30px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s;
+      text-decoration: none;
+      border: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #7c4dff);
+      color: #fff;
+      box-shadow: 0 0 24px rgba(108, 92, 231, 0.25);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 32px rgba(108, 92, 231, 0.4);
+    }
+
+    .btn-secondary {
+      background: var(--bg-card);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-hover);
+      border-color: var(--border-active);
+    }
+
+    /* Features */
+    .features { padding: 80px 0; }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .section-header h2 {
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .section-header p {
+      color: var(--text-secondary);
+      font-size: 15px;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 32px 28px;
+      transition: all 0.25s;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .feature-card:hover {
+      border-color: var(--accent);
+      box-shadow: var(--shadow);
+      transform: translateY(-2px);
+    }
+
+    .feature-icon {
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      margin-bottom: 16px;
+    }
+
+    .feature-card:nth-child(1) .feature-icon { background: var(--accent-bg); color: var(--accent); }
+    .feature-card:nth-child(2) .feature-icon { background: var(--green-bg); color: var(--green); }
+    .feature-card:nth-child(3) .feature-icon { background: var(--orange-bg); color: var(--orange); }
+    .feature-card:nth-child(4) .feature-icon { background: var(--pink-bg); color: var(--pink); }
+
+    .feature-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+
+    .feature-card p {
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+
+    /* Plans */
+    .plans { padding: 40px 0 80px; }
+
+    .plan-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .plan-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px 20px 20px;
+      transition: all 0.25s;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .plan-card:hover {
+      border-color: var(--accent);
+      box-shadow: var(--shadow);
+      transform: translateY(-2px);
+    }
+
+    .plan-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 2px;
+    }
+
+    .plan-name {
+      font-size: 17px;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+
+    .plan-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+
+    .plan-pricing {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+
+    .plan-price {
+      font-size: 30px;
+      font-weight: 800;
+    }
+
+    .plan-duration {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .plan-original {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+
+    .plan-original s {
+      text-decoration: line-through;
+    }
+
+    .plan-discount {
+      display: inline-block;
+      background: var(--red-bg);
+      color: var(--red);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 1px 8px;
+      border-radius: 4px;
+    }
+
+    .plan-divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 14px 0;
+    }
+
+    .plan-specs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 12px;
+      margin-bottom: 12px;
+    }
+
+    .plan-spec {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      padding: 3px 0;
+    }
+
+    .plan-spec .key { color: var(--text-secondary); }
+    .plan-spec .val { color: var(--text-primary); font-weight: 600; }
+
+    .plan-spec.full {
+      grid-column: 1 / -1;
+    }
+
+    .plan-spec.highlight .key { color: var(--accent); }
+    .plan-spec.highlight .val { color: var(--accent); }
+
+    .plan-btn {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      margin-top: auto;
+      text-align: center;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s;
+      text-decoration: none;
+      background: linear-gradient(135deg, var(--accent), #7c4dff);
+      color: #fff;
+      border: none;
+      box-shadow: 0 0 14px rgba(108, 92, 231, 0.15);
+    }
+
+    .plan-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 22px rgba(108, 92, 231, 0.3);
+    }
+
+    .plan-btn.outline {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      box-shadow: none;
+    }
+
+    .plan-btn.outline:hover {
+      background: var(--accent-bg);
+      box-shadow: none;
+    }
+
+    /* CTA */
+    .cta { padding: 60px 0 80px; text-align: center; }
+
+    .cta-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 56px 40px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .cta-box h2 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+
+    .cta-box p { color: var(--text-secondary); margin-bottom: 28px; }
+
+    /* Footer */
+    .footer {
+      padding: 32px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+    }
+
+    .footer p { color: var(--text-muted); font-size: 13px; }
+
+    .footer a { color: var(--accent); text-decoration: none; }
+
+    /* Responsive */
+    @media (max-width: 1100px) {
+      .plan-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 768px) {
+      .feature-grid { grid-template-columns: 1fr; }
+      .plan-grid { grid-template-columns: 1fr; max-width: 400px; margin: 0 auto; }
+      .hero h1 { font-size: 30px; }
+      .section-header h2 { font-size: 26px; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="navbar" id="navbar">
+    <div class="container">
+      <a href="#" class="logo">
+        <div class="logo-icon">LT</div>
+        LT<span>·GPT</span>
+      </a>
+      <a href="/login" class="nav-btn primary">控制台 →</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="container">
+      <div class="hero-content">
+        <div class="hero-badge">
+          <span class="dot"></span>
+          稳定运行 · 极速响应
+        </div>
+        <h1>
+          您的 <span class="highlight">满血</span> GPT<br>中转站
+        </h1>
+        <p>
+          LT·GPT 提供纯正价 Pro 20x 号池，配合超高缓存策略与官方同步重置周限，
+          支持 CCSwitch 快速导入，获取 API 密钥即可调用所有已接入模型。
+        </p>
+        <div class="hero-actions">
+          <a href="#plans" class="btn btn-primary">查看套餐 →</a>
+          <a href="#features" class="btn btn-secondary">了解更多</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="features" id="features">
+    <div class="container">
+      <div class="section-header">
+        <h2>为什么选择 <span style="background:linear-gradient(135deg,var(--accent-light),var(--pink));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">LT·GPT</span></h2>
+        <p>四大核心特色，定义 GPT 中转新标准</p>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="feature-icon">💰</div>
+          <h3>纯正价 Pro 20x 号池</h3>
+          <p>官方纯正 Pro 账号池，20 倍额度加持。无需担心账号被封或限速，稳定供应，随取随用。</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>超高缓存策略</h3>
+          <p>多层智能缓存架构，相同请求毫秒级命中。大幅降低延迟，减少 API 调用消耗，提速增效。</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔄</div>
+          <h3>跟随官方重置周限</h3>
+          <p>精确同步 OpenAI 官方周限额重置节奏，自动轮换，确保每一周都是满血状态，永不超限。</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🚀</div>
+          <h3>满血中转站</h3>
+          <p>完整兼容 OpenAI API 接口，流式传输、函数调用、多模态全覆盖。一键接入，即开即用。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="plans" id="plans">
+    <div class="container">
+      <div class="section-header">
+        <h2>Plus 配额 · 月卡</h2>
+        <p>按 Plus 配额灵活选择，用量透明</p>
+      </div>
+      <div class="plan-grid">
+
+        <div class="plan-card">
+          <div class="plan-label">Plus 配额</div>
+          <div class="plan-name">1个Plus配额-月卡</div>
+          <div class="plan-sub">OpenAI · 满血Pro20x号池</div>
+          <div class="plan-pricing">
+            <span class="plan-price">¥88</span>
+            <span class="plan-duration">/ 30天</span>
+          </div>
+          <div class="plan-original">
+            <s>¥110</s>
+            <span class="plan-discount">-20%</span>
+          </div>
+          <hr class="plan-divider">
+          <div class="plan-specs">
+            <div class="plan-spec"><span class="key">倍率</span><span class="val">×1</span></div>
+            <div class="plan-spec"><span class="key">5时限</span><span class="val">$18</span></div>
+            <div class="plan-spec"><span class="key">周限额</span><span class="val">$100</span></div>
+            <div class="plan-spec"><span class="key">月限额</span><span class="val">$9999.99</span></div>
+
+            <div class="plan-spec full highlight"><span class="key">实际日限额:</span><span class="val">$90</span></div>
+          </div>
+          <a href="/login" class="plan-btn">立即开通</a>
+        </div>
+
+        <div class="plan-card">
+          <div class="plan-label">Plus 配额</div>
+          <div class="plan-name">2个Plus配额-月卡</div>
+          <div class="plan-sub">OpenAI · 满血Pro20x号池</div>
+          <div class="plan-pricing">
+            <span class="plan-price">¥167.2</span>
+            <span class="plan-duration">/ 30天</span>
+          </div>
+          <div class="plan-original">
+            <s>¥220</s>
+            <span class="plan-discount">-24%</span>
+          </div>
+          <hr class="plan-divider">
+          <div class="plan-specs">
+            <div class="plan-spec"><span class="key">倍率</span><span class="val">×1</span></div>
+            <div class="plan-spec"><span class="key">5时限</span><span class="val">$36</span></div>
+            <div class="plan-spec"><span class="key">周限额</span><span class="val">$200</span></div>
+            <div class="plan-spec"><span class="key">月限额</span><span class="val">$9999.99</span></div>
+
+            <div class="plan-spec full highlight"><span class="key">实际日限额:</span><span class="val">$180</span></div>
+          </div>
+          <a href="/login" class="plan-btn">立即开通</a>
+        </div>
+
+        <div class="plan-card">
+          <div class="plan-label">Plus 配额</div>
+          <div class="plan-name">3个Plus配额-月卡</div>
+          <div class="plan-sub">OpenAI · 满血Pro20x号池</div>
+          <div class="plan-pricing">
+            <span class="plan-price">¥237.6</span>
+            <span class="plan-duration">/ 30天</span>
+          </div>
+          <div class="plan-original">
+            <s>¥330</s>
+            <span class="plan-discount">-28%</span>
+          </div>
+          <hr class="plan-divider">
+          <div class="plan-specs">
+            <div class="plan-spec"><span class="key">倍率</span><span class="val">×1</span></div>
+            <div class="plan-spec"><span class="key">5时限</span><span class="val">$54</span></div>
+            <div class="plan-spec"><span class="key">周限额</span><span class="val">$300</span></div>
+            <div class="plan-spec"><span class="key">月限额</span><span class="val">$9999.99</span></div>
+
+            <div class="plan-spec full highlight"><span class="key">实际日限额:</span><span class="val">$270</span></div>
+          </div>
+          <a href="/login" class="plan-btn">立即开通</a>
+        </div>
+
+        <div class="plan-card">
+          <div class="plan-label">Plus 配额</div>
+          <div class="plan-name">5个Plus配额-月卡</div>
+          <div class="plan-sub">OpenAI · 满血Pro20x号池</div>
+          <div class="plan-pricing">
+            <span class="plan-price">¥387.2</span>
+            <span class="plan-duration">/ 30天</span>
+          </div>
+          <div class="plan-original">
+            <s>¥550</s>
+            <span class="plan-discount">-30%</span>
+          </div>
+          <hr class="plan-divider">
+          <div class="plan-specs">
+            <div class="plan-spec"><span class="key">倍率</span><span class="val">×1</span></div>
+            <div class="plan-spec"><span class="key">5时限</span><span class="val">$90</span></div>
+            <div class="plan-spec"><span class="key">周限额</span><span class="val">$500</span></div>
+            <div class="plan-spec"><span class="key">月限额</span><span class="val">$9999.99</span></div>
+
+            <div class="plan-spec full highlight"><span class="key">实际日限额:</span><span class="val">$450</span></div>
+          </div>
+          <a href="/login" class="plan-btn">立即开通</a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="container">
+      <div class="cta-box">
+        <h2>开始使用 LT·GPT</h2>
+        <p>支持 CCSwitch 快速导入，获取 API 密钥即可调用所有已接入模型</p>
+        <a href="/login" class="btn btn-primary">进入控制台 →</a>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container">
+      <p>© 2026 LT·GPT — 专业 GPT 中转站 · <a href="/login">控制台</a></p>
+    </div>
+  </footer>
+
+  <script>
+    const navbar = document.getElementById('navbar');
+    window.addEventListener('scroll', () => {
+      navbar.classList.toggle('scrolled', window.scrollY > 20);
+    });
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.style.opacity = '1';
+          entry.target.style.transform = 'translateY(0)';
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.feature-card, .plan-card').forEach(el => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(20px)';
+      el.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+      observer.observe(el);
+    });
+  </script>
+</body>
+</html>
