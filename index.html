@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LT·GPT - 专业GPT中转站</title>
   <meta name="description" content="LT·GPT 纯正价Pro20x号池·超高缓存·跟随官方重置周限·满血中转站">
+  <meta name="color-scheme" content="light dark">
   <style>
     *, *::before, *::after {
       margin: 0;
@@ -41,6 +42,28 @@
       --shadow-lg: 0 4px 20px rgba(0,0,0,0.08);
     }
 
+    html.dark, html[data-immersive-translate-page-theme="dark"] {
+      --bg: #13131a;
+      --bg-card: #1c1c26;
+      --bg-hover: #252530;
+      --border: #2a2a38;
+      --border-active: #3a3a4e;
+      --text-primary: #e8e8f0;
+      --text-secondary: #9898b0;
+      --text-muted: #6b6b80;
+      --accent: #8b7cf7;
+      --accent-light: #a99cf9;
+      --accent-bg: rgba(139, 124, 247, 0.1);
+      --green-bg: rgba(16, 185, 129, 0.12);
+      --orange-bg: rgba(245, 158, 11, 0.12);
+      --blue-bg: rgba(59, 130, 246, 0.12);
+      --pink-bg: rgba(236, 72, 153, 0.12);
+      --red-bg: rgba(239, 68, 68, 0.12);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.2);
+      --shadow: 0 2px 8px rgba(0,0,0,0.3);
+      --shadow-lg: 0 4px 20px rgba(0,0,0,0.35);
+    }
+
     html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
 
     body {
@@ -51,9 +74,9 @@
     }
 
     .container {
-      max-width: 1200px;
+      max-width: 1280px;
       margin: 0 auto;
-      padding: 0 24px;
+      padding: 0 32px;
     }
 
     /* Navbar */
@@ -61,8 +84,8 @@
       position: fixed;
       top: 0; left: 0; right: 0;
       z-index: 100;
-      padding: 14px 0;
-      background: rgba(248, 249, 252, 0.85);
+      padding: 16px 0;
+      background: color-mix(in srgb, var(--bg) 92%, transparent);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border-bottom: 1px solid transparent;
@@ -85,21 +108,21 @@
       align-items: center;
       gap: 10px;
       text-decoration: none;
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 700;
       color: var(--text-primary);
       letter-spacing: -0.5px;
     }
 
     .logo-icon {
-      width: 34px;
-      height: 34px;
+      width: 38px;
+      height: 38px;
       background: linear-gradient(135deg, var(--accent), var(--pink));
       border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 16px;
+      font-size: 18px;
       font-weight: 800;
       color: #fff;
     }
@@ -115,9 +138,9 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 10px 24px;
+      padding: 12px 28px;
       border-radius: 8px;
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.25s;
@@ -136,34 +159,65 @@
       box-shadow: 0 0 28px rgba(108, 92, 231, 0.35);
     }
 
+    .lang-btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      transition: all 0.25s;
+      white-space: nowrap;
+    }
+    .lang-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
     /* Hero */
     .hero {
-      padding: 140px 0 80px;
+      padding: 150px 0 90px;
       text-align: center;
       position: relative;
     }
 
-    .hero-content { max-width: 720px; margin: 0 auto; }
+    .hero-content { max-width: 800px; margin: 0 auto; }
 
     .hero-badge {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 6px 16px;
+      gap: 8px;
+      padding: 8px 20px;
       background: var(--accent-bg);
-      border: 1px solid rgba(108, 92, 231, 0.15);
+      border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
       border-radius: 100px;
-      font-size: 13px;
+      font-size: 15px;
       color: var(--accent);
       font-weight: 600;
       margin-bottom: 28px;
     }
 
     .hero-badge .dot {
-      width: 6px; height: 6px;
+      width: 8px; height: 8px;
       background: var(--green);
       border-radius: 50%;
       animation: pulse-dot 2s infinite;
+    }
+
+    .hero-sub-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: var(--green-bg);
+      border: 1px solid color-mix(in srgb, var(--green) 15%, transparent);
+      border-radius: 100px;
+      font-size: 13px;
+      color: var(--green);
+      font-weight: 500;
+      margin-bottom: 24px;
     }
 
     @keyframes pulse-dot {
@@ -172,11 +226,11 @@
     }
 
     .hero h1 {
-      font-size: clamp(36px, 6vw, 64px);
+      font-size: clamp(42px, 6vw, 72px);
       font-weight: 800;
       line-height: 1.12;
       letter-spacing: -1.2px;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
     }
 
     .hero h1 .highlight {
@@ -187,18 +241,18 @@
     }
 
     .hero p {
-      font-size: 17px;
+      font-size: 19px;
       color: var(--text-secondary);
-      max-width: 540px;
-      margin: 0 auto 32px;
-      line-height: 1.7;
+      max-width: 640px;
+      margin: 0 auto 36px;
+      line-height: 1.75;
     }
 
     .hero-actions {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 12px;
+      gap: 14px;
       flex-wrap: wrap;
     }
 
@@ -206,9 +260,9 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 13px 30px;
+      padding: 15px 34px;
       border-radius: 10px;
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.25s;
@@ -240,83 +294,143 @@
     }
 
     /* Features */
-    .features { padding: 80px 0; }
+    .features {
+      padding: 100px 0;
+      background: linear-gradient(180deg, var(--bg) 0%, color-mix(in srgb, var(--accent) 4%, var(--bg)) 100%);
+      position: relative;
+    }
+
+    .features::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 50%; transform: translateX(-50%);
+      width: 200px; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0.4;
+    }
 
     .section-header {
       text-align: center;
-      margin-bottom: 48px;
+      margin-bottom: 52px;
     }
 
     .section-header h2 {
-      font-size: 32px;
+      font-size: 36px;
       font-weight: 700;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
 
     .section-header p {
       color: var(--text-secondary);
-      font-size: 15px;
+      font-size: 17px;
     }
 
     .feature-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
-      gap: 16px;
+      gap: 20px;
     }
 
     .feature-card {
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: 32px 28px;
-      transition: all 0.25s;
+      padding: 36px 32px;
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
       box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
     }
 
+    .feature-card::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .feature-card:nth-child(1)::after { background: linear-gradient(90deg, var(--accent), #7c4dff); }
+    .feature-card:nth-child(2)::after { background: linear-gradient(90deg, var(--green), #34d399); }
+    .feature-card:nth-child(3)::after { background: linear-gradient(90deg, var(--orange), #fbbf24); }
+    .feature-card:nth-child(4)::after { background: linear-gradient(90deg, var(--pink), #f472b6); }
+
+    .feature-card:hover::after { opacity: 1; }
+
     .feature-card:hover {
-      border-color: var(--accent);
-      box-shadow: var(--shadow);
-      transform: translateY(-2px);
+      border-color: transparent;
+      box-shadow: var(--shadow-lg);
+      transform: translateY(-4px);
     }
 
     .feature-icon {
-      width: 44px; height: 44px;
-      border-radius: 10px;
+      width: 58px; height: 58px;
+      border-radius: 14px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 20px;
-      margin-bottom: 16px;
+      font-size: 28px;
+      margin-bottom: 20px;
+      position: relative;
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 
-    .feature-card:nth-child(1) .feature-icon { background: var(--accent-bg); color: var(--accent); }
-    .feature-card:nth-child(2) .feature-icon { background: var(--green-bg); color: var(--green); }
-    .feature-card:nth-child(3) .feature-icon { background: var(--orange-bg); color: var(--orange); }
-    .feature-card:nth-child(4) .feature-icon { background: var(--pink-bg); color: var(--pink); }
+    .feature-card:hover .feature-icon {
+      transform: scale(1.1);
+    }
 
-    .feature-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+    .feature-card:nth-child(1) .feature-icon { background: linear-gradient(135deg, var(--accent-bg), rgba(108,92,231,0.18)); color: var(--accent); }
+    .feature-card:nth-child(2) .feature-icon { background: linear-gradient(135deg, var(--green-bg), rgba(16,185,129,0.18)); color: var(--green); }
+    .feature-card:nth-child(3) .feature-icon { background: linear-gradient(135deg, var(--orange-bg), rgba(245,158,11,0.18)); color: var(--orange); }
+    .feature-card:nth-child(4) .feature-icon { background: linear-gradient(135deg, var(--pink-bg), rgba(236,72,153,0.18)); color: var(--pink); }
+
+    .feature-card h3 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
 
     .feature-card p {
       color: var(--text-secondary);
-      font-size: 14px;
-      line-height: 1.65;
+      font-size: 16px;
+      line-height: 1.7;
+    }
+
+    .feature-badge {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 3px 12px;
+      border-radius: 100px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
+    .feature-card:nth-child(1) .feature-badge {
+      background: linear-gradient(135deg, var(--accent), #7c4dff);
+      color: #fff;
     }
 
 
     /* Plans */
-    .plans { padding: 40px 0 80px; }
+    .plans { padding: 60px 0 100px; }
 
     .plan-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
+      gap: 20px;
     }
 
     .plan-card {
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: 24px 20px 20px;
+      padding: 28px 24px 24px;
       transition: all 0.25s;
       box-shadow: var(--shadow-sm);
       display: flex;
@@ -330,22 +444,54 @@
     }
 
     .plan-label {
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 600;
       color: var(--accent);
       margin-bottom: 2px;
     }
 
     .plan-name {
-      font-size: 17px;
+      font-size: 19px;
       font-weight: 700;
       margin-bottom: 2px;
     }
 
     .plan-sub {
-      font-size: 12px;
+      font-size: 13px;
       color: var(--text-muted);
-      margin-bottom: 14px;
+      margin-bottom: 6px;
+    }
+
+    .plan-tag {
+      font-size: 12px;
+      color: var(--green);
+      background: var(--green-bg);
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 4px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .plan-desc {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-bottom: 16px;
+    }
+
+    .plan-desc-item {
+      font-size: 12px;
+      color: var(--text-secondary);
+      background: var(--bg-hover);
+      padding: 3px 10px;
+      border-radius: 6px;
+      line-height: 1.4;
+    }
+
+    .plan-desc-item strong {
+      color: var(--text-primary);
+      font-weight: 600;
     }
 
     .plan-pricing {
@@ -356,22 +502,22 @@
     }
 
     .plan-price {
-      font-size: 30px;
+      font-size: 34px;
       font-weight: 800;
     }
 
     .plan-duration {
-      font-size: 13px;
+      font-size: 14px;
       color: var(--text-secondary);
     }
 
     .plan-original {
       display: flex;
       align-items: center;
-      gap: 6px;
-      font-size: 13px;
+      gap: 8px;
+      font-size: 14px;
       color: var(--text-muted);
-      margin-bottom: 16px;
+      margin-bottom: 18px;
     }
 
     .plan-original s {
@@ -382,30 +528,30 @@
       display: inline-block;
       background: var(--red-bg);
       color: var(--red);
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
-      padding: 1px 8px;
+      padding: 2px 10px;
       border-radius: 4px;
     }
 
     .plan-divider {
       border: none;
       border-top: 1px solid var(--border);
-      margin: 14px 0;
+      margin: 16px 0;
     }
 
     .plan-specs {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 4px 12px;
-      margin-bottom: 12px;
+      gap: 6px 12px;
+      margin-bottom: 14px;
     }
 
     .plan-spec {
       display: flex;
       justify-content: space-between;
-      font-size: 13px;
-      padding: 3px 0;
+      font-size: 14px;
+      padding: 4px 0;
     }
 
     .plan-spec .key { color: var(--text-secondary); }
@@ -421,11 +567,11 @@
     .plan-btn {
       display: block;
       width: 100%;
-      padding: 10px;
+      padding: 12px;
       margin-top: auto;
       text-align: center;
       border-radius: 8px;
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.25s;
@@ -454,30 +600,37 @@
     }
 
     /* CTA */
-    .cta { padding: 60px 0 80px; text-align: center; }
+    .cta { padding: 80px 0 100px; text-align: center; }
 
     .cta-box {
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: 56px 40px;
+      padding: 64px 48px;
       box-shadow: var(--shadow-sm);
     }
 
-    .cta-box h2 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+    .cta-box h2 { font-size: 32px; font-weight: 700; margin-bottom: 10px; }
 
-    .cta-box p { color: var(--text-secondary); margin-bottom: 28px; }
+    .cta-box p { color: var(--text-secondary); font-size: 17px; margin-bottom: 28px; }
 
     /* Footer */
     .footer {
-      padding: 32px 0;
+      padding: 36px 0;
       border-top: 1px solid var(--border);
       text-align: center;
     }
 
-    .footer p { color: var(--text-muted); font-size: 13px; }
+    .footer p { color: var(--text-muted); font-size: 14px; }
 
     .footer a { color: var(--accent); text-decoration: none; }
+
+    .custom-note {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-top: 20px;
+    }
 
     /* Responsive */
     @media (max-width: 1100px) {
@@ -486,9 +639,10 @@
 
     @media (max-width: 768px) {
       .feature-grid { grid-template-columns: 1fr; }
-      .plan-grid { grid-template-columns: 1fr; max-width: 400px; margin: 0 auto; }
-      .hero h1 { font-size: 30px; }
-      .section-header h2 { font-size: 26px; }
+      .plan-grid { grid-template-columns: 1fr; max-width: 440px; margin: 0 auto; }
+      .hero h1 { font-size: 34px; }
+      .section-header h2 { font-size: 28px; }
+      .cta-box { padding: 40px 24px; }
     }
   </style>
 </head>
@@ -500,27 +654,31 @@
         <div class="logo-icon">LT</div>
         LT<span>·GPT</span>
       </a>
-      <a href="/login" class="nav-btn primary">控制台 →</a>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="lang-btn" id="langToggle">EN</button>
+        <a href="/login" class="nav-btn primary" data-i18n="nav_console">控制台 →</a>
+      </div>
     </div>
   </nav>
 
   <section class="hero">
     <div class="container">
       <div class="hero-content">
-        <div class="hero-badge">
+        <div class="hero-badge" data-i18n="hero_badge">
           <span class="dot"></span>
           稳定运行 · 极速响应
         </div>
-        <h1>
+        <div class="hero-sub-badge" data-i18n="hero_sub_badge" data-i18n-show="en" style="display:none">▪️High cache hit｜Cache stored OAI 30 days｜Auto quota reset▪️</div>
+        <h1 data-i18n="hero_title">
           您的 <span class="highlight">满血</span> GPT<br>中转站
         </h1>
-        <p>
+        <p data-i18n="hero_desc">
           LT·GPT 提供纯正价 Pro 20x 号池，配合超高缓存策略与官方同步重置周限，
           支持 CCSwitch 快速导入，获取 API 密钥即可调用所有已接入模型。
         </p>
         <div class="hero-actions">
-          <a href="#plans" class="btn btn-primary">查看套餐 →</a>
-          <a href="#features" class="btn btn-secondary">了解更多</a>
+          <a href="#plans" class="btn btn-primary" data-i18n="hero_btn_plans">查看套餐 →</a>
+          <a href="#features" class="btn btn-secondary" data-i18n="hero_btn_more">了解更多</a>
         </div>
       </div>
     </div>
@@ -529,29 +687,29 @@
   <section class="features" id="features">
     <div class="container">
       <div class="section-header">
-        <h2>为什么选择 <span style="background:linear-gradient(135deg,var(--accent-light),var(--pink));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">LT·GPT</span></h2>
-        <p>四大核心特色，定义 GPT 中转新标准</p>
+        <h2 data-i18n="features_title">为什么选择 <span style="background:linear-gradient(135deg,var(--accent-light),var(--pink));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">LT·GPT</span></h2>
+        <p data-i18n="features_sub">四大核心特色，定义 GPT 中转新标准</p>
       </div>
       <div class="feature-grid">
         <div class="feature-card">
           <div class="feature-icon">💰</div>
-          <h3>纯正价 Pro 20x 号池</h3>
-          <p>官方纯正 Pro 账号池，20 倍额度加持。无需担心账号被封或限速，稳定供应，随取随用。</p>
+          <h3 data-i18n="feat1_title">纯正价 Pro 20x 号池</h3>
+          <p data-i18n="feat1_desc">官方纯正 Pro 账号池，20 倍额度加持。无需担心账号被封或限速，稳定供应，随取随用。</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">⚡</div>
-          <h3>超高缓存策略</h3>
-          <p>多层智能缓存架构，相同请求毫秒级命中。大幅降低延迟，减少 API 调用消耗，提速增效。</p>
+          <h3 data-i18n="feat2_title">超高缓存策略 <span class="feature-badge" data-i18n="feat2_badge">核心优势</span></h3>
+          <p data-i18n="feat2_desc">Pro20x 号池核心优势 — 高缓存命中率意味着少切号，30天内任意请求仍确保命中缓存，极速响应。</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">🔄</div>
-          <h3>跟随官方重置周限</h3>
-          <p>精确同步 OpenAI 官方周限额重置节奏，自动轮换，确保每一周都是满血状态，永不超限。</p>
+          <h3 data-i18n="feat3_title">跟随官方重置周限</h3>
+          <p data-i18n="feat3_desc">精确同步 OpenAI 官方周限额重置节奏，自动轮换，确保每一周都是满血状态，永不超限。</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">🚀</div>
-          <h3>满血中转站</h3>
-          <p>完整兼容 OpenAI API 接口，流式传输、函数调用、多模态全覆盖。一键接入，即开即用。</p>
+          <h3 data-i18n="feat4_title">满血中转站</h3>
+          <p data-i18n="feat4_desc">完整兼容 OpenAI API 接口，流式传输、函数调用、多模态全覆盖。一键接入，即开即用。</p>
         </div>
       </div>
     </div>
@@ -560,15 +718,21 @@
   <section class="plans" id="plans">
     <div class="container">
       <div class="section-header">
-        <h2>Plus 配额 · 月卡</h2>
-        <p>按 Plus 配额灵活选择，用量透明</p>
+        <h2 data-i18n="plans_title">Plus 配额 · 月卡</h2>
+        <p data-i18n="plans_sub">按 Plus 配额灵活选择，用量透明</p>
       </div>
       <div class="plan-grid">
 
-        <div class="plan-card">
+        <div class="plan-card" data-i18n-block="plan1">
           <div class="plan-label">Plus 配额</div>
           <div class="plan-name">1个Plus配额-月卡</div>
           <div class="plan-sub">OpenAI · 满血Pro20x号池</div>
+          <div class="plan-tag">🔄 同步官方额度重置</div>
+          <div class="plan-desc">
+            <span class="plan-desc-item">⚡ 超高缓存 <strong>30天</strong>命中</span>
+            <span class="plan-desc-item">💰 纯正价 <strong>Pro20x</strong> 号池</span>
+            <span class="plan-desc-item">🚀 <strong>少切号</strong>稳如泰山</span>
+          </div>
           <div class="plan-pricing">
             <span class="plan-price">¥88</span>
             <span class="plan-duration">/ 30天</span>
@@ -582,17 +746,23 @@
             <div class="plan-spec"><span class="key">倍率</span><span class="val">×1</span></div>
             <div class="plan-spec"><span class="key">5时限</span><span class="val">$18</span></div>
             <div class="plan-spec"><span class="key">周限额</span><span class="val">$100</span></div>
-            <div class="plan-spec"><span class="key">月限额</span><span class="val">$9999.99</span></div>
-
+            <div class="plan-spec"><span class="key">月限额</span><span class="val">≥$400</span></div>
             <div class="plan-spec full highlight"><span class="key">实际日限额:</span><span class="val">$90</span></div>
+            <div class="plan-spec full" style="font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px;margin-top:4px"><span class="key">📌 月内重置 ≥4次（含活动调整）</span></div>
           </div>
-          <a href="/login" class="plan-btn">立即开通</a>
+          <a href="https://shop.ltgpt.xyz/" class="plan-btn" target="_blank">立即开通</a>
         </div>
 
-        <div class="plan-card">
+        <div class="plan-card" data-i18n-block="plan2">
           <div class="plan-label">Plus 配额</div>
           <div class="plan-name">2个Plus配额-月卡</div>
           <div class="plan-sub">OpenAI · 满血Pro20x号池</div>
+          <div class="plan-tag">🔄 同步官方额度重置</div>
+          <div class="plan-desc">
+            <span class="plan-desc-item">⚡ 超高缓存 <strong>30天</strong>命中</span>
+            <span class="plan-desc-item">💰 纯正价 <strong>Pro20x</strong> 号池</span>
+            <span class="plan-desc-item">🚀 <strong>少切号</strong>稳如泰山</span>
+          </div>
           <div class="plan-pricing">
             <span class="plan-price">¥167.2</span>
             <span class="plan-duration">/ 30天</span>
@@ -606,17 +776,23 @@
             <div class="plan-spec"><span class="key">倍率</span><span class="val">×1</span></div>
             <div class="plan-spec"><span class="key">5时限</span><span class="val">$36</span></div>
             <div class="plan-spec"><span class="key">周限额</span><span class="val">$200</span></div>
-            <div class="plan-spec"><span class="key">月限额</span><span class="val">$9999.99</span></div>
-
+            <div class="plan-spec"><span class="key">月限额</span><span class="val">≥$800</span></div>
             <div class="plan-spec full highlight"><span class="key">实际日限额:</span><span class="val">$180</span></div>
+            <div class="plan-spec full" style="font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px;margin-top:4px"><span class="key">📌 月内重置 ≥4次（含活动调整）</span></div>
           </div>
-          <a href="/login" class="plan-btn">立即开通</a>
+          <a href="https://shop.ltgpt.xyz/" class="plan-btn" target="_blank">立即开通</a>
         </div>
 
-        <div class="plan-card">
+        <div class="plan-card" data-i18n-block="plan3">
           <div class="plan-label">Plus 配额</div>
           <div class="plan-name">3个Plus配额-月卡</div>
           <div class="plan-sub">OpenAI · 满血Pro20x号池</div>
+          <div class="plan-tag">🔄 同步官方额度重置</div>
+          <div class="plan-desc">
+            <span class="plan-desc-item">⚡ 超高缓存 <strong>30天</strong>命中</span>
+            <span class="plan-desc-item">💰 纯正价 <strong>Pro20x</strong> 号池</span>
+            <span class="plan-desc-item">🚀 <strong>少切号</strong>稳如泰山</span>
+          </div>
           <div class="plan-pricing">
             <span class="plan-price">¥237.6</span>
             <span class="plan-duration">/ 30天</span>
@@ -630,17 +806,23 @@
             <div class="plan-spec"><span class="key">倍率</span><span class="val">×1</span></div>
             <div class="plan-spec"><span class="key">5时限</span><span class="val">$54</span></div>
             <div class="plan-spec"><span class="key">周限额</span><span class="val">$300</span></div>
-            <div class="plan-spec"><span class="key">月限额</span><span class="val">$9999.99</span></div>
-
+            <div class="plan-spec"><span class="key">月限额</span><span class="val">≥$1200</span></div>
             <div class="plan-spec full highlight"><span class="key">实际日限额:</span><span class="val">$270</span></div>
+            <div class="plan-spec full" style="font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px;margin-top:4px"><span class="key">📌 月内重置 ≥4次（含活动调整）</span></div>
           </div>
-          <a href="/login" class="plan-btn">立即开通</a>
+          <a href="https://shop.ltgpt.xyz/" class="plan-btn" target="_blank">立即开通</a>
         </div>
 
-        <div class="plan-card">
+        <div class="plan-card" data-i18n-block="plan4">
           <div class="plan-label">Plus 配额</div>
           <div class="plan-name">5个Plus配额-月卡</div>
           <div class="plan-sub">OpenAI · 满血Pro20x号池</div>
+          <div class="plan-tag">🔄 同步官方额度重置</div>
+          <div class="plan-desc">
+            <span class="plan-desc-item">⚡ 超高缓存 <strong>30天</strong>命中</span>
+            <span class="plan-desc-item">💰 纯正价 <strong>Pro20x</strong> 号池</span>
+            <span class="plan-desc-item">🚀 <strong>少切号</strong>稳如泰山</span>
+          </div>
           <div class="plan-pricing">
             <span class="plan-price">¥387.2</span>
             <span class="plan-duration">/ 30天</span>
@@ -654,54 +836,311 @@
             <div class="plan-spec"><span class="key">倍率</span><span class="val">×1</span></div>
             <div class="plan-spec"><span class="key">5时限</span><span class="val">$90</span></div>
             <div class="plan-spec"><span class="key">周限额</span><span class="val">$500</span></div>
-            <div class="plan-spec"><span class="key">月限额</span><span class="val">$9999.99</span></div>
-
+            <div class="plan-spec"><span class="key">月限额</span><span class="val">≥$2000</span></div>
             <div class="plan-spec full highlight"><span class="key">实际日限额:</span><span class="val">$450</span></div>
+            <div class="plan-spec full" style="font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px;margin-top:4px"><span class="key">📌 月内重置 ≥4次（含活动调整）</span></div>
           </div>
-          <a href="/login" class="plan-btn">立即开通</a>
+          <a href="https://shop.ltgpt.xyz/" class="plan-btn" target="_blank">立即开通</a>
         </div>
 
       </div>
+      <p class="custom-note" data-i18n="custom_note">📦 支持定制套餐</p>
     </div>
   </section>
 
   <section class="cta">
     <div class="container">
       <div class="cta-box">
-        <h2>开始使用 LT·GPT</h2>
-        <p>支持 CCSwitch 快速导入，获取 API 密钥即可调用所有已接入模型</p>
-        <a href="/login" class="btn btn-primary">进入控制台 →</a>
+        <h2 data-i18n="cta_title">开始使用 LT·GPT</h2>
+        <p data-i18n="cta_desc">支持 CCSwitch 快速导入，获取 API 密钥即可调用所有已接入模型</p>
+        <a href="/login" class="btn btn-primary" data-i18n="cta_btn">进入控制台 →</a>
       </div>
     </div>
   </section>
 
   <footer class="footer">
     <div class="container">
-      <p>© 2026 LT·GPT — 专业 GPT 中转站 · <a href="/login">控制台</a></p>
+      <p data-i18n="footer_text">© 2026 LT·GPT — 专业 GPT 中转站 · <a href="/login">控制台</a></p>
+      <p data-i18n-show="en" style="margin-top:6px;font-size:13px;display:none"><a href="https://ltgpt.xyz/">Official Site</a> · <a href="https://shop.ltgpt.xyz/">Buy (USDT、AliPay)</a></p>
     </div>
   </footer>
 
   <script>
-    const navbar = document.getElementById('navbar');
-    window.addEventListener('scroll', () => {
-      navbar.classList.toggle('scrolled', window.scrollY > 20);
-    });
+(function() {
 
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.style.opacity = '1';
-          entry.target.style.transform = 'translateY(0)';
-        }
-      });
-    }, { threshold: 0.1 });
+// ===== i18n translations =====
+var i18n = {
+  zh: {
+    nav_console: '控制台 →',
+    hero_badge: '稳定运行 · 极速响应',
+    hero_sub_badge: '',
+    hero_title: '您的 <span class="highlight">满血</span> GPT<br>中转站',
+    hero_desc: 'LT·GPT 提供纯正价 Pro 20x 号池，配合超高缓存策略与官方同步重置周限，支持 CCSwitch 快速导入，获取 API 密钥即可调用所有已接入模型。',
+    hero_btn_plans: '查看套餐 →',
+    hero_btn_more: '了解更多',
+    features_title: '为什么选择 <span style="background:linear-gradient(135deg,var(--accent-light),var(--pink));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">LT·GPT</span>',
+    features_sub: '四大核心特色，定义 GPT 中转新标准',
+    feat1_title: '纯正价 Pro 20x 号池',
+    feat1_desc: '官方纯正 Pro 账号池，20 倍额度加持。无需担心账号被封或限速，稳定供应，随取随用。',
+    feat2_title: '超高缓存策略 <span class="feature-badge" data-i18n="feat2_badge">核心优势</span>',
+    feat2_badge: '核心优势',
+    feat2_desc: 'Pro20x 号池核心优势 — 高缓存命中率意味着少切号，30天内任意请求仍确保命中缓存，极速响应。',
+    feat3_title: '同步官方额度重置',
+    feat3_desc: '精确同步 OpenAI 官方额度重置周期（周限与活动调整），每月重置次数不限于4次，自动轮换，确保持续满血状态，永不超限。',
+    feat4_title: '满血中转站',
+    feat4_desc: '完整兼容 OpenAI API 接口，流式传输、函数调用、多模态全覆盖。一键接入，即开即用。',
+    plans_title: 'Plus 配额 · 月卡',
+    plans_sub: '按 Plus 配额灵活选择，用量透明',
+    custom_note: '📦 支持定制套餐',
+    cta_title: '开始使用 LT·GPT',
+    cta_desc: '支持 CCSwitch 快速导入，获取 API 密钥即可调用所有已接入模型',
+    cta_btn: '进入控制台 →',
+    footer_text: '© 2026 LT·GPT — 专业 GPT 中转站 · <a href="/login">控制台</a>'
+  },
+  en: {
+    nav_console: 'Console →',
+    hero_badge: '⚡Max Performance GPT Shared Proxy | Official 20x Pool | Account zero swaps⚡',
+    hero_sub_badge: '▪️High cache hit｜Cache stored OAI 30 days｜Auto quota reset▪️',
+    hero_title: 'Your <span class="highlight">Full-Power</span> GPT<br>Proxy Service',
+    hero_desc: 'LT·GPT delivers official Pro 20x account pool with ultra-high cache strategy and synchronized weekly limit resets. Supports CCSwitch quick import. Get your API key and access all integrated models.',
+    hero_btn_plans: 'View Plans →',
+    hero_btn_more: 'Learn More',
+    features_title: 'Why Choose <span style="background:linear-gradient(135deg,var(--accent-light),var(--pink));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">LT·GPT</span>',
+    features_sub: 'Four Core Features That Redefine GPT Proxy Standards',
+    feat1_title: 'Official Pro 20x Pool',
+    feat1_desc: 'Genuine official Pro account pool with 20x quota. No worries about account bans or rate limits. Stable supply, ready when you need it.',
+    feat2_title: 'Ultra-High Cache <span class="feature-badge" style="background:linear-gradient(135deg,var(--accent),#7c4dff);color:#fff">Key Advantage</span>',
+    feat2_badge: 'Key Advantage',
+    feat2_desc: 'Core advantage of Pro 20x pool — high cache hit rate means fewer account switches. Any request within 30 days hits cache for lightning-fast response.',
+    feat3_title: 'Synced Official Reset',
+    feat3_desc: 'Precisely synchronized with OpenAI\'s official quota reset rhythm (weekly limits & event adjustments). More than 4 resets per month possible. Automatic rotation ensures full power, never exceeding limits.',
+    feat4_title: 'Full-Power Proxy',
+    feat4_desc: 'Fully compatible with OpenAI API interface. Streaming, function calls, multi-modal — full coverage. One-click integration, ready to use.',
+    plans_title: 'Plus Quota · Monthly',
+    plans_sub: 'Flexible Plus quota plans with transparent usage',
+    custom_note: '📦 Custom packages supported',
+    cta_title: 'Start Using LT·GPT',
+    cta_desc: 'Quick setup with CCSwitch import. Get your API key and access all integrated models.',
+    cta_btn: 'Go to Console →',
+    footer_text: '© 2026 LT·GPT — Professional GPT Proxy · <a href="/login">Console</a>'
+  }
+};
 
-    document.querySelectorAll('.feature-card, .plan-card').forEach(el => {
-      el.style.opacity = '0';
-      el.style.transform = 'translateY(20px)';
-      el.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-      observer.observe(el);
-    });
+// ===== EN pricing card block HTML =====
+i18n.en['block:plan1'] =
+  '<div class="plan-label">Plus Quota</div>' +
+  '<div class="plan-name">1x Plus Quota</div>' +
+  '<div class="plan-sub">Official Pro 20x Pool</div>' +
+  '<div class="plan-tag">🔄 Official reset sync</div>' +
+  '<div class="plan-desc">' +
+    '<span class="plan-desc-item">⚡ Cache hit <strong>30 days</strong></span>' +
+    '<span class="plan-desc-item">💰 Official <strong>Pro 20x</strong> Pool</span>' +
+    '<span class="plan-desc-item">🚀 Account <strong>zero</strong> swaps</span>' +
+  '</div>' +
+  '<div class="plan-pricing">' +
+    '<span class="plan-price">$13.02</span>' +
+    '<span class="plan-duration">/ month</span>' +
+  '</div>' +
+  '<hr class="plan-divider">' +
+  '<div class="plan-specs">' +
+    '<div class="plan-spec"><span class="key">Rate</span><span class="val">×1</span></div>' +
+    '<div class="plan-spec"><span class="key">T5 Limit</span><span class="val">$18</span></div>' +
+    '<div class="plan-spec"><span class="key">Weekly Limit</span><span class="val">$100</span></div>' +
+    '<div class="plan-spec"><span class="key">Monthly Limit</span><span class="val">≥$400</span></div>' +
+    '<div class="plan-spec full highlight"><span class="key">Daily Limit:</span><span class="val">$90</span></div>' +
+    '<div class="plan-spec full" style="font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px;margin-top:4px"><span class="key">📌 ≥4 resets/mo (incl. event adjustments)</span></div>' +
+  '</div>' +
+  '<a href="https://shop.ltgpt.xyz/" class="plan-btn" target="_blank">Buy Now</a>';
+
+i18n.en['block:plan2'] =
+  '<div class="plan-label">Plus Quota</div>' +
+  '<div class="plan-name">2x Plus Quota <span class="plan-discount" style="position:static;display:inline-block;margin-left:6px;vertical-align:middle">5% off</span></div>' +
+  '<div class="plan-sub">Official Pro 20x Pool</div>' +
+  '<div class="plan-tag">🔄 Official reset sync</div>' +
+  '<div class="plan-desc">' +
+    '<span class="plan-desc-item">⚡ Cache hit <strong>30 days</strong></span>' +
+    '<span class="plan-desc-item">💰 Official <strong>Pro 20x</strong> Pool</span>' +
+    '<span class="plan-desc-item">🚀 Account <strong>zero</strong> swaps</span>' +
+  '</div>' +
+  '<div class="plan-pricing">' +
+    '<span class="plan-price">$24.75</span>' +
+    '<span class="plan-duration">/ month</span>' +
+  '</div>' +
+  '<hr class="plan-divider">' +
+  '<div class="plan-specs">' +
+    '<div class="plan-spec"><span class="key">Rate</span><span class="val">×1</span></div>' +
+    '<div class="plan-spec"><span class="key">T5 Limit</span><span class="val">$36</span></div>' +
+    '<div class="plan-spec"><span class="key">Weekly Limit</span><span class="val">$200</span></div>' +
+    '<div class="plan-spec"><span class="key">Monthly Limit</span><span class="val">≥$800</span></div>' +
+    '<div class="plan-spec full highlight"><span class="key">Daily Limit:</span><span class="val">$180</span></div>' +
+    '<div class="plan-spec full" style="font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px;margin-top:4px"><span class="key">📌 ≥4 resets/mo (incl. event adjustments)</span></div>' +
+  '</div>' +
+  '<a href="https://shop.ltgpt.xyz/" class="plan-btn" target="_blank">Buy Now</a>';
+
+i18n.en['block:plan3'] =
+  '<div class="plan-label">Plus Quota</div>' +
+  '<div class="plan-name">3x Plus Quota <span class="plan-discount" style="position:static;display:inline-block;margin-left:6px;vertical-align:middle">10% off</span></div>' +
+  '<div class="plan-sub">Official Pro 20x Pool</div>' +
+  '<div class="plan-tag">🔄 Official reset sync</div>' +
+  '<div class="plan-desc">' +
+    '<span class="plan-desc-item">⚡ Cache hit <strong>30 days</strong></span>' +
+    '<span class="plan-desc-item">💰 Official <strong>Pro 20x</strong> Pool</span>' +
+    '<span class="plan-desc-item">🚀 Account <strong>zero</strong> swaps</span>' +
+  '</div>' +
+  '<div class="plan-pricing">' +
+    '<span class="plan-price">$35.17</span>' +
+    '<span class="plan-duration">/ month</span>' +
+  '</div>' +
+  '<hr class="plan-divider">' +
+  '<div class="plan-specs">' +
+    '<div class="plan-spec"><span class="key">Rate</span><span class="val">×1</span></div>' +
+    '<div class="plan-spec"><span class="key">T5 Limit</span><span class="val">$54</span></div>' +
+    '<div class="plan-spec"><span class="key">Weekly Limit</span><span class="val">$300</span></div>' +
+    '<div class="plan-spec"><span class="key">Monthly Limit</span><span class="val">≥$1200</span></div>' +
+    '<div class="plan-spec full highlight"><span class="key">Daily Limit:</span><span class="val">$270</span></div>' +
+    '<div class="plan-spec full" style="font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px;margin-top:4px"><span class="key">📌 ≥4 resets/mo (incl. event adjustments)</span></div>' +
+  '</div>' +
+  '<a href="https://shop.ltgpt.xyz/" class="plan-btn" target="_blank">Buy Now</a>';
+
+i18n.en['block:plan4'] =
+  '<div class="plan-label">Plus Quota</div>' +
+  '<div class="plan-name">5x Plus Quota <span class="plan-discount" style="position:static;display:inline-block;margin-left:6px;vertical-align:middle">12% off</span></div>' +
+  '<div class="plan-sub">Official Pro 20x Pool</div>' +
+  '<div class="plan-tag">🔄 Official reset sync</div>' +
+  '<div class="plan-desc">' +
+    '<span class="plan-desc-item">⚡ Cache hit <strong>30 days</strong></span>' +
+    '<span class="plan-desc-item">💰 Official <strong>Pro 20x</strong> Pool</span>' +
+    '<span class="plan-desc-item">🚀 Account <strong>zero</strong> swaps</span>' +
+  '</div>' +
+  '<div class="plan-pricing">' +
+    '<span class="plan-price">$55.15</span>' +
+    '<span class="plan-duration">/ month</span>' +
+  '</div>' +
+  '<hr class="plan-divider">' +
+  '<div class="plan-specs">' +
+    '<div class="plan-spec"><span class="key">Rate</span><span class="val">×1</span></div>' +
+    '<div class="plan-spec"><span class="key">T5 Limit</span><span class="val">$90</span></div>' +
+    '<div class="plan-spec"><span class="key">Weekly Limit</span><span class="val">$500</span></div>' +
+    '<div class="plan-spec"><span class="key">Monthly Limit</span><span class="val">≥$2000</span></div>' +
+    '<div class="plan-spec full highlight"><span class="key">Daily Limit:</span><span class="val">$450</span></div>' +
+    '<div class="plan-spec full" style="font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px;margin-top:4px"><span class="key">📌 ≥4 resets/mo (incl. event adjustments)</span></div>' +
+  '</div>' +
+  '<a href="https://shop.ltgpt.xyz/" class="plan-btn" target="_blank">Buy Now</a>';
+
+// ===== State =====
+var currentLang = null;
+var savedBlocks = {};
+
+// ===== Auth =====
+function applyAuth(lang) {
+  var raw = localStorage.getItem('auth_user');
+  var token = localStorage.getItem('auth_token');
+  if (!raw || !token) return;
+  var user;
+  try { user = JSON.parse(raw); } catch(e) { return; }
+  var email = user.email || user.display_name || user.username || 'User';
+
+  var consoleLabel = (lang === 'zh' ? '控制台 · ' : 'Console · ');
+  var dashLabel = (lang === 'zh' ? '前往控制台' : 'Go to Dashboard');
+
+  var navBtn = document.querySelector('.nav-btn.primary');
+  if (navBtn) {
+    navBtn.textContent = consoleLabel + email;
+    navBtn.href = '/dashboard';
+  }
+  var ctaBtn = document.querySelector('.cta-box .btn');
+  if (ctaBtn) {
+    ctaBtn.textContent = dashLabel + ' →';
+    ctaBtn.href = '/dashboard';
+  }
+}
+
+// ===== Observer for scroll animations =====
+var observer = new IntersectionObserver(function(entries) {
+  entries.forEach(function(entry) {
+    if (entry.isIntersecting) {
+      entry.target.style.opacity = '1';
+      entry.target.style.transform = 'translateY(0)';
+    }
+  });
+}, { threshold: 0.1 });
+
+function observeCards() {
+  document.querySelectorAll('.feature-card, .plan-card').forEach(function(el) {
+    if (el.style.opacity && parseFloat(el.style.opacity) !== 0) return;
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(20px)';
+    el.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+    observer.observe(el);
+  });
+}
+
+// ===== Language setter =====
+function setLanguage(lang) {
+  if (lang === currentLang && currentLang !== null) return;
+  currentLang = lang;
+  localStorage.setItem('lang', lang);
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+
+  // data-i18n elements
+  document.querySelectorAll('[data-i18n]').forEach(function(el) {
+    var key = el.dataset.i18n;
+    var text = i18n[lang] && i18n[lang][key];
+    if (text !== undefined && el.innerHTML !== text) {
+      el.innerHTML = text;
+    }
+  });
+
+  // data-i18n-block elements (pricing cards)
+  document.querySelectorAll('[data-i18n-block]').forEach(function(el) {
+    var key = el.dataset.i18nBlock;
+    if (!savedBlocks[key]) savedBlocks[key] = el.innerHTML;
+    var html = i18n[lang] && i18n[lang]['block:' + key];
+    if (html) {
+      el.innerHTML = html;
+    } else if (lang === 'zh' && savedBlocks[key]) {
+      el.innerHTML = savedBlocks[key];
+    }
+  });
+
+  // data-i18n-show elements
+  document.querySelectorAll('[data-i18n-show]').forEach(function(el) {
+    el.style.display = el.dataset.i18nShow === lang ? '' : 'none';
+  });
+
+  // Update toggle button
+  var toggle = document.getElementById('langToggle');
+  if (toggle) toggle.textContent = lang === 'zh' ? 'EN' : '中文';
+
+  applyAuth(lang);
+  observeCards();
+}
+
+// ===== Initialize =====
+var storedLang = localStorage.getItem('lang');
+var initLang;
+if (storedLang) {
+  initLang = storedLang;
+} else {
+  var navLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
+  initLang = navLang.indexOf('zh') === 0 ? 'zh' : 'en';
+  localStorage.setItem('lang', initLang);
+}
+
+setLanguage(initLang);
+
+// Toggle event
+document.getElementById('langToggle').addEventListener('click', function() {
+  setLanguage(currentLang === 'zh' ? 'en' : 'zh');
+});
+
+// Navbar scroll
+var navbar = document.getElementById('navbar');
+window.addEventListener('scroll', function() {
+  navbar.classList.toggle('scrolled', window.scrollY > 20);
+});
+
+})();
   </script>
 </body>
 </html>

@@ -41,6 +41,7 @@ async function main() {
   console.log(`[manual-quota-reset] announcement=${config.announcementID}`);
   console.log(`[manual-quota-reset] groups=${groupIDs.join(',')}`);
   console.log(`[manual-quota-reset] windows=${config.windows.join(',')}`);
+  console.log(`[manual-quota-reset] window_start_mode=${config.manualWindowStartMode}`);
   console.log(`[manual-quota-reset] subscription_status=${config.subscriptionStatus}`);
 
   const subscriptions = await listSubscriptionsByGroups(groupIDs);
@@ -75,6 +76,9 @@ async function main() {
     weekly: config.windows.includes('weekly'),
     monthly: config.windows.includes('monthly'),
   };
+  if (resettableSubscriptions.length > 0) {
+    await preflightManualWindowStartPatch(resetBody);
+  }
   const results = await runLimited(resettableSubscriptions, config.concurrency, async (sub) => {
     await apiPost(`/admin/subscriptions/${sub.id}/reset-quota`, resetBody);
     return sub.id;
@@ -91,19 +95,13 @@ async function main() {
     throw new Error(`reset finished with ${failed.length} failed subscription(s), succeeded=${succeeded.length}`);
   }
 
-  if (config.patchDailyWindowStart && resetBody.daily && succeeded.length > 0) {
-    try {
-      await patchDailyWindowStart(
-        succeeded.map((item) => item.value),
-        resetFinishedAt,
-        { resetUsage: true },
-      );
-    } catch (error) {
-      console.error(`[manual-quota-reset] daily window start patch failed: ${error.message}`);
-      if (config.patchDailyWindowStartStrict) {
-        throw new Error('daily quota was reset, but daily_window_start patch failed; check database settings');
-      }
-    }
+  if (succeeded.length > 0) {
+    await applyManualWindowStartMode(
+      succeeded.map((item) => item.value),
+      resettableSubscriptions,
+      resetBody,
+      resetFinishedAt,
+    );
   }
 
   if (config.updateAnnouncement && succeeded.length > 0) {
@@ -126,6 +124,7 @@ function buildConfig() {
     return { help: true };
   }
   const windows = parseWindows(args.windows || process.env.RESET_WINDOWS || DEFAULT_WINDOWS.join(','));
+  const manualWindowStartMode = parseManualWindowStartMode(args.windowStartMode || process.env.MANUAL_WINDOW_START_MODE || 'refresh');
   return {
     help: false,
     baseURL: normalizeBaseURL(args.baseURL || requiredEnv('SUB2API_BASE_URL')),
@@ -143,8 +142,7 @@ function buildConfig() {
     manualAnnouncementTitle: process.env.MANUAL_CREATED_ANNOUNCEMENT_TITLE || '',
     manualAnnouncementTTLHours: numberEnv('MANUAL_ANNOUNCEMENT_TTL_HOURS', 24),
     manualQuotaResetLabel: process.env.MANUAL_QUOTA_RESET_LABEL || '',
-    patchDailyWindowStart: boolEnv('PATCH_DAILY_WINDOW_START', false),
-    patchDailyWindowStartStrict: boolEnv('PATCH_DAILY_WINDOW_START_STRICT', true),
+    manualWindowStartMode,
     databaseURL: process.env.DATABASE_URL || '',
     databaseHost: process.env.DATABASE_HOST || process.env.POSTGRES_HOST || 'postgres',
     databasePort: process.env.DATABASE_PORT || process.env.POSTGRES_PORT || '5432',
@@ -201,6 +199,9 @@ function parseArgs(argv) {
         break;
       case '--concurrency':
         out.concurrency = readValue();
+        break;
+      case '--window-start-mode':
+        out.windowStartMode = readValue();
         break;
       default:
         throw new Error(`unknown argument: ${arg}`);
@@ -445,7 +446,46 @@ async function resolveGroupNames(groupIDs) {
   }
 }
 
-async function patchDailyWindowStart(subscriptionIDs, windowStart, options = {}) {
+async function applyManualWindowStartMode(subscriptionIDs, subscriptions, resetBody, resetAt) {
+  const windows = selectedWindows(resetBody);
+  if (windows.length === 0) {
+    return;
+  }
+
+  if (config.manualWindowStartMode === 'refresh') {
+    const refreshWindows = windows.filter((window) => window !== 'monthly');
+    const preserveWindows = windows.filter((window) => window === 'monthly');
+    if (refreshWindows.length > 0) {
+      await patchQuotaWindowStarts(subscriptionIDs, refreshWindows, resetAt);
+    }
+    if (preserveWindows.length > 0) {
+      await preserveQuotaWindowStarts(subscriptionIDs, subscriptions, preserveWindows);
+    }
+    return;
+  }
+
+  if (config.manualWindowStartMode === 'preserve') {
+    await preserveQuotaWindowStarts(subscriptionIDs, subscriptions, windows);
+    return;
+  }
+
+  throw new Error(`unsupported MANUAL_WINDOW_START_MODE: ${config.manualWindowStartMode}`);
+}
+
+async function preflightManualWindowStartPatch(resetBody) {
+  const windows = selectedWindows(resetBody);
+  if (windows.length === 0) {
+    return;
+  }
+  await runPsql('SELECT 1;');
+  console.log(`[manual-quota-reset] quota window start patch preflight ok windows=${windows.join(',')}`);
+}
+
+function selectedWindows(resetBody) {
+  return ['daily', 'weekly', 'monthly'].filter((window) => resetBody[window]);
+}
+
+async function patchQuotaWindowStarts(subscriptionIDs, windows, windowStart) {
   const ids = subscriptionIDs
     .map((id) => Number(id))
     .filter((id) => Number.isInteger(id) && id > 0);
@@ -453,17 +493,76 @@ async function patchDailyWindowStart(subscriptionIDs, windowStart, options = {})
     return;
   }
 
-  const setClause = options.resetUsage
-    ? "daily_usage_usd = 0, daily_window_start = TIMESTAMPTZ '" + windowStart.toISOString() + "', updated_at = NOW()"
-    : "daily_window_start = TIMESTAMPTZ '" + windowStart.toISOString() + "', updated_at = NOW()";
+  const windowStartSQL = sqlTimestamp(windowStart);
+  const setParts = [];
+  for (const window of windows) {
+    const columns = quotaWindowColumns(window);
+    setParts.push(`${columns.usage} = 0`);
+    setParts.push(`${columns.start} = ${windowStartSQL}`);
+  }
+  setParts.push('updated_at = NOW()');
   const sql = [
     'UPDATE user_subscriptions',
-    `SET ${setClause}`,
+    `SET ${setParts.join(', ')}`,
     `WHERE id IN (${ids.join(',')});`,
   ].join(' ');
 
   await runPsql(sql);
-  console.log(`[manual-quota-reset] daily_window_start patched=${ids.length} value=${windowStart.toISOString()}`);
+  console.log(`[manual-quota-reset] quota window starts refreshed=${ids.length} windows=${windows.join(',')} value=${windowStart.toISOString()}`);
+}
+
+async function preserveQuotaWindowStarts(subscriptionIDs, subscriptions, windows) {
+  const ids = subscriptionIDs
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (ids.length === 0) {
+    return;
+  }
+
+  const byID = new Map(subscriptions.map((sub) => [Number(sub.id), sub]));
+  const setParts = [];
+  for (const window of windows) {
+    const columns = quotaWindowColumns(window);
+    setParts.push(`${columns.usage} = 0`);
+    setParts.push(`${columns.start} = CASE id ${ids.map((id) => {
+      const sub = byID.get(id);
+      if (!sub) {
+        throw new Error(`subscription ${id} is missing from original reset list`);
+      }
+      return `WHEN ${id} THEN ${sqlTimestamp(sub[columns.payloadStart])}`;
+    }).join(' ')} ELSE ${columns.start} END`);
+  }
+  setParts.push('updated_at = NOW()');
+
+  const sql = [
+    'UPDATE user_subscriptions',
+    `SET ${setParts.join(', ')}`,
+    `WHERE id IN (${ids.join(',')});`,
+  ].join(' ');
+
+  await runPsql(sql);
+  console.log(`[manual-quota-reset] quota window starts preserved=${ids.length} windows=${windows.join(',')}`);
+}
+
+function quotaWindowColumns(window) {
+  switch (window) {
+    case 'daily':
+      return { usage: 'daily_usage_usd', start: 'daily_window_start', payloadStart: 'daily_window_start' };
+    case 'weekly':
+      return { usage: 'weekly_usage_usd', start: 'weekly_window_start', payloadStart: 'weekly_window_start' };
+    case 'monthly':
+      return { usage: 'monthly_usage_usd', start: 'monthly_window_start', payloadStart: 'monthly_window_start' };
+    default:
+      throw new Error(`invalid window ${window}`);
+  }
+}
+
+function sqlTimestamp(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`invalid quota window timestamp: ${value}`);
+  }
+  return `TIMESTAMPTZ '${date.toISOString()}'`;
 }
 
 async function runPsql(sql) {
@@ -555,6 +654,17 @@ function parseWindows(raw) {
   return unique;
 }
 
+function parseManualWindowStartMode(raw) {
+  const mode = String(raw || 'refresh').trim().toLowerCase();
+  if (['refresh', 'renew', 'refresh-validity'].includes(mode)) {
+    return 'refresh';
+  }
+  if (['preserve', 'keep', 'no-refresh', 'no-refresh-validity'].includes(mode)) {
+    return 'preserve';
+  }
+  throw new Error('MANUAL_WINDOW_START_MODE must be refresh or preserve');
+}
+
 function normalizeBaseURL(raw) {
   const trimmed = raw.replace(/\/+$/, '');
   return trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`;
@@ -630,6 +740,7 @@ function printHelp() {
   --dry-run                 强制预览模式。
   --announcement-id <id>    分组来源公告 ID。默认：ANNOUNCEMENT_ID 或 2。
   --windows <list>          要重置的窗口，逗号分隔。默认：daily,weekly。
+  --window-start-mode <mode> 窗口有效期模式：refresh 刷新日/周有效期，preserve 不刷新日/周有效期。月限额始终保留窗口时间。默认：refresh。
   --status <status>         订阅状态筛选。默认：active。传 all 表示不按状态筛选。
   --page-size <n>           分页大小。默认：500。
   --concurrency <n>         重置并发数。默认：5。
@@ -639,6 +750,7 @@ function printHelp() {
 示例:
   node tools/manual-reset-subscription-quota-from-announcement.mjs
   node tools/manual-reset-subscription-quota-from-announcement.mjs --yes
+  node tools/manual-reset-subscription-quota-from-announcement.mjs --yes --window-start-mode preserve
   node tools/manual-reset-subscription-quota-from-announcement.mjs --yes --windows daily,weekly,monthly
 `.trim());
 }

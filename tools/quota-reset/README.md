@@ -99,7 +99,7 @@ Sub2API 的订阅日限额窗口本身是 24 小时。官方 Admin reset API 会
 
 定时脚本和手动脚本都使用这条筛选规则。
 
-开启下面配置后，脚本会在官方 API 重置日限额后，再用 `psql` 把
+定时脚本开启下面配置后，会在官方 API 重置日限额后，再用 `psql` 把
 `daily_window_start` 修正为真实重置时间：
 
 ```ini
@@ -108,6 +108,27 @@ PATCH_DAILY_WINDOW_START_STRICT=1
 ```
 
 这样三个窗口均为空的新订阅会等到用户首次实际请求时，由 Sub2API 自己初始化三个窗口；已经完整激活的订阅，其 24 小时日窗口会从真实重置时间开始计算。
+
+手动脚本默认会对本次选择的日/周窗口执行同类修正：
+
+```ini
+MANUAL_WINDOW_START_MODE=refresh
+```
+
+`refresh` 表示刷新日/周窗口有效期。比如手动重置周限额成功后，
+`weekly_window_start` 会写成真实重置时间，下次刷新时间就是约 7 天后。
+月限额的 `monthly_window_start` 不会刷新；如果本次选择了月限额，只清零月用量并保留原月窗口时间。
+
+如果只想清零本次用量，不想刷新日/周窗口有效期，可以改成：
+
+```ini
+MANUAL_WINDOW_START_MODE=preserve
+```
+
+`preserve` 会在官方 API 重置成功后，把选中窗口的 `*_window_start`
+恢复成重置前的值，因此下次刷新时间仍沿用原来的窗口。月限额在两种模式下都会保留原窗口时间。
+
+实际执行手动重置前，脚本会先用 `psql` 检查数据库连接是否可用；检查失败时不会调用 Admin reset API。
 
 已经存在的“部分窗口有值、部分窗口为 `NULL`”记录也会被跳过，脚本不会擅自重置其周/月用量或修改窗口。
 
@@ -146,6 +167,18 @@ docker compose run --rm quota-reset manual
 
 ```bash
 docker compose run --rm quota-reset manual --yes
+```
+
+默认会刷新被重置的日/周窗口有效期。周限额重置成功后，下次刷新时间会从本次手动重置时间起重新计算 7 天；月限额只清零用量，不刷新窗口时间。
+
+也可以在命令里显式指定模式：
+
+```bash
+# 刷新有效期（默认）
+docker compose run --rm quota-reset manual --yes --window-start-mode refresh
+
+# 不刷新日/周有效期，只清零用量，保留原下次刷新时间
+docker compose run --rm quota-reset manual --yes --window-start-mode preserve
 ```
 
 成功后会新建一条公告，默认标题类似：
