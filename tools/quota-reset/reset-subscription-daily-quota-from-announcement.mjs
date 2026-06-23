@@ -41,7 +41,6 @@ async function main() {
   if (groupIDs.length === 0) {
     throw new Error(`announcement ${config.announcementID} has no targeting group_ids; refusing to reset all subscriptions`);
   }
-  const groupNames = await resolveGroupNames(groupIDs);
 
   if (config.noticeOnly) {
     const stateLastRunAt = parseDate(state.last_success_at);
@@ -64,7 +63,6 @@ async function main() {
         lastRunAt: stateLastRunAt,
         nextRunAt: stateNextRunAt,
         groupIDs,
-        groupNames,
         resetCount: Number(state.last_reset_count || 0),
         failedCount: 0,
       });
@@ -81,7 +79,6 @@ async function main() {
         lastRunAt,
         nextRunAt,
         groupIDs,
-        groupNames,
         resetCount: Number(state.last_reset_count || 0),
         failedCount: 0,
       });
@@ -154,7 +151,6 @@ async function main() {
         lastRunAt: runFinishedAt,
         nextRunAt: followingRunAt,
         groupIDs,
-        groupNames,
         resetCount: succeeded.length,
         failedCount: failed.length,
       });
@@ -170,7 +166,6 @@ async function main() {
     next_run_at: followingRunAt.toISOString(),
     announcement_id: config.announcementID,
     group_ids: groupIDs,
-    group_names: groupNames,
     last_reset_count: succeeded.length,
     daily_window_start_patch: dailyWindowStartPatch,
   });
@@ -181,7 +176,6 @@ async function main() {
       lastRunAt: runFinishedAt,
       nextRunAt: followingRunAt,
       groupIDs,
-      groupNames,
       resetCount: succeeded.length,
       failedCount: 0,
     });
@@ -411,7 +405,6 @@ function buildManagedBlock(summary) {
     waiting: '等待下次重置',
     partial_failed: '部分失败',
   }[summary.status] || summary.status;
-  const groupText = formatGroupNames(summary);
   const resetLabel = buildQuotaResetLabel(summary);
   const resetResultText = buildResetResultText(summary);
 
@@ -423,7 +416,6 @@ function buildManagedBlock(summary) {
     `- 本次重置范围：${resetLabel}`,
     `- 上次重置：${summary.lastRunAt ? formatForDisplay(summary.lastRunAt) : '暂无记录'}`,
     `- 下次预计重置：${summary.nextRunAt ? formatForDisplay(summary.nextRunAt) : '等待首次执行'}`,
-    `- 生效套餐组：${groupText}`,
     `- 处理结果：${resetResultText}`,
     '',
     MANAGED_BLOCK_END,
@@ -452,13 +444,6 @@ function formatHours(hours) {
     return `${hours}小时`;
   }
   return `${hours}小时`;
-}
-
-function formatGroupNames(summary) {
-  if (Array.isArray(summary.groupNames) && summary.groupNames.length > 0) {
-    return summary.groupNames.join(', ');
-  }
-  return summary.groupIDs.join(', ');
 }
 
 function replaceManagedBlock(content, block) {
@@ -495,25 +480,6 @@ function extractGroupIDs(value) {
         walk(val);
       }
     }
-  }
-}
-
-async function resolveGroupNames(groupIDs) {
-  try {
-    const data = await apiGet('/admin/groups/all?include_inactive=true');
-    const groups = Array.isArray(data) ? data : Array.isArray(data.items) ? data.items : [];
-    const byID = new Map();
-    for (const group of groups) {
-      const id = Number(group?.id);
-      const name = String(group?.name || '').trim();
-      if (Number.isInteger(id) && id > 0 && name !== '') {
-        byID.set(id, name);
-      }
-    }
-    return groupIDs.map((id) => byID.get(id) || `未知分组 ${id}`);
-  } catch (error) {
-    console.warn(`[quota-reset] failed to load group names: ${error.message}`);
-    return groupIDs.map((id) => `未知分组 ${id}`);
   }
 }
 

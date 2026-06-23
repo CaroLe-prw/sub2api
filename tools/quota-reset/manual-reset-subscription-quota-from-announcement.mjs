@@ -36,7 +36,6 @@ async function main() {
   if (groupIDs.length === 0) {
     throw new Error(`announcement ${config.announcementID} has no targeting group_ids; refusing to reset all subscriptions`);
   }
-  const groupNames = await resolveGroupNames(groupIDs);
 
   console.log(`[manual-quota-reset] announcement=${config.announcementID}`);
   console.log(`[manual-quota-reset] groups=${groupIDs.join(',')}`);
@@ -108,7 +107,6 @@ async function main() {
     await publishAnnouncementNotice(announcement, {
       resetAt: resetFinishedAt,
       groupIDs,
-      groupNames,
       resetCount: succeeded.length,
       failedCount: 0,
       windows: config.windows,
@@ -374,7 +372,6 @@ function buildCreatedAnnouncementTitle(summary) {
 
 function buildManagedBlock(summary) {
   const resetLabel = buildQuotaResetLabel(summary);
-  const groupText = formatGroupNames(summary);
   const lines = [
     MANAGED_BLOCK_START,
     `### ${resetLabel}手动重置通知`,
@@ -382,7 +379,6 @@ function buildManagedBlock(summary) {
     '- 当前状态：已重置',
     `- 本次重置范围：${resetLabel}`,
     `- 重置时间：${summary.resetAt ? formatForDisplay(summary.resetAt) : formatForDisplay(new Date())}`,
-    `- 生效套餐组：${groupText}`,
     '- 处理结果：重置成功',
     '',
     MANAGED_BLOCK_END,
@@ -411,13 +407,6 @@ function formatWindowLabel(window) {
   }
 }
 
-function formatGroupNames(summary) {
-  if (Array.isArray(summary.groupNames) && summary.groupNames.length > 0) {
-    return summary.groupNames.join('、');
-  }
-  return summary.groupIDs.join('、');
-}
-
 function replaceManagedBlock(content, block) {
   const start = content.indexOf(MANAGED_BLOCK_START);
   const end = content.indexOf(MANAGED_BLOCK_END);
@@ -425,25 +414,6 @@ function replaceManagedBlock(content, block) {
     return `${content.slice(0, start).trimEnd()}\n\n${block}\n\n${content.slice(end + MANAGED_BLOCK_END.length).trimStart()}`.trim();
   }
   return `${content.trimEnd()}\n\n${block}`.trim();
-}
-
-async function resolveGroupNames(groupIDs) {
-  try {
-    const data = await apiGet('/admin/groups/all?include_inactive=true');
-    const groups = Array.isArray(data) ? data : Array.isArray(data.items) ? data.items : [];
-    const byID = new Map();
-    for (const group of groups) {
-      const id = Number(group?.id);
-      const name = String(group?.name || '').trim();
-      if (Number.isInteger(id) && id > 0 && name !== '') {
-        byID.set(id, name);
-      }
-    }
-    return groupIDs.map((id) => byID.get(id) || `未知分组 ${id}`);
-  } catch (error) {
-    console.warn(`[manual-quota-reset] failed to load group names: ${error.message}`);
-    return groupIDs.map((id) => `未知分组 ${id}`);
-  }
 }
 
 async function applyManualWindowStartMode(subscriptionIDs, subscriptions, resetBody, resetAt) {
