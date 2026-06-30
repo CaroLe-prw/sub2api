@@ -27,6 +27,15 @@ async function main() {
   if (config.concurrency <= 0) {
     throw new Error('RESET_CONCURRENCY must be greater than 0');
   }
+  if (config.psqlRetryAttempts <= 0) {
+    throw new Error('PSQL_RETRY_ATTEMPTS must be greater than 0');
+  }
+  if (config.psqlRetryDelayMs < 0) {
+    throw new Error('PSQL_RETRY_DELAY_MS must be non-negative');
+  }
+  if (config.psqlRetryMaxDelayMs < config.psqlRetryDelayMs) {
+    throw new Error('PSQL_RETRY_MAX_DELAY_MS must be greater than or equal to PSQL_RETRY_DELAY_MS');
+  }
   if (!['update', 'create'].includes(config.announcementPublishMode)) {
     throw new Error('ANNOUNCEMENT_PUBLISH_MODE must be update or create');
   }
@@ -215,6 +224,9 @@ function buildConfig() {
     databasePassword: process.env.DATABASE_PASSWORD || process.env.POSTGRES_PASSWORD || '',
     databaseName: process.env.DATABASE_DBNAME || process.env.POSTGRES_DB || 'sub2api',
     databaseSSLMode: process.env.DATABASE_SSLMODE || 'disable',
+    psqlRetryAttempts: intEnv('PSQL_RETRY_ATTEMPTS', 5),
+    psqlRetryDelayMs: intEnv('PSQL_RETRY_DELAY_MS', 3000),
+    psqlRetryMaxDelayMs: intEnv('PSQL_RETRY_MAX_DELAY_MS', 30000),
   };
 }
 
@@ -298,7 +310,55 @@ async function runPsql(sql) {
     env.PGPASSWORD = config.databasePassword;
   }
 
-  await runCommand('psql', args, env);
+  await runPsqlWithRetry(args, env);
+}
+
+async function runPsqlWithRetry(args, env) {
+  for (let attempt = 1; attempt <= config.psqlRetryAttempts; attempt += 1) {
+    try {
+      await runCommand('psql', args, env);
+      if (attempt > 1) {
+        console.log(`[quota-reset] psql succeeded after retry attempt=${attempt}`);
+      }
+      return;
+    } catch (error) {
+      if (attempt >= config.psqlRetryAttempts || !isRetryablePsqlError(error)) {
+        throw error;
+      }
+
+      const delayMs = psqlRetryDelayMs(attempt);
+      console.warn(
+        `[quota-reset] psql transient failure attempt=${attempt}/${config.psqlRetryAttempts}; retrying in ${delayMs}ms: ${error.message}`,
+      );
+      await sleep(delayMs);
+    }
+  }
+}
+
+function isRetryablePsqlError(error) {
+  const message = String(error?.message || error).toLowerCase();
+  return [
+    'too many clients already',
+    'remaining connection slots are reserved',
+    'connection refused',
+    'could not connect to server',
+    'server closed the connection unexpectedly',
+    'the database system is starting up',
+    'the database system is shutting down',
+    'timeout expired',
+    'connection reset by peer',
+  ].some((pattern) => message.includes(pattern));
+}
+
+function psqlRetryDelayMs(failedAttempt) {
+  const delay = config.psqlRetryDelayMs * (2 ** (failedAttempt - 1));
+  return Math.min(delay, config.psqlRetryMaxDelayMs);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function buildPsqlArgs(sql) {

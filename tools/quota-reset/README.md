@@ -109,6 +109,14 @@ PATCH_DAILY_WINDOW_START_STRICT=1
 
 这样三个窗口均为空的新订阅会等到用户首次实际请求时，由 Sub2API 自己初始化三个窗口；已经完整激活的订阅，其 24 小时日窗口会从真实重置时间开始计算。
 
+如果 PostgreSQL 短时间连接打满，比如出现 `too many clients already`，定时脚本和手动脚本会对 `psql` 预检/窗口修正自动重试。默认配置如下：
+
+```ini
+PSQL_RETRY_ATTEMPTS=5
+PSQL_RETRY_DELAY_MS=3000
+PSQL_RETRY_MAX_DELAY_MS=30000
+```
+
 手动脚本默认会对本次选择的日/周窗口执行同类修正：
 
 ```ini
