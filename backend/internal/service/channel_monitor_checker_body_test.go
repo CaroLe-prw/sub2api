@@ -153,7 +153,10 @@ func TestRunCheckForModel_OffMode_PreservesDefaultBody(t *testing.T) {
 	endpoint := setupFakeAnthropic(t, h)
 
 	// 跑一次 off 模式（opts=nil），确认默认 body 行为未变
-	_ = runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", nil)
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", nil)
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("non-empty Anthropic response should be operational, got status=%s message=%q", res.Status, res.Message)
+	}
 
 	if h.lastBody["model"] != "claude-x" {
 		t.Errorf("default body should contain model=claude-x, got %v", h.lastBody["model"])
@@ -161,8 +164,53 @@ func TestRunCheckForModel_OffMode_PreservesDefaultBody(t *testing.T) {
 	if _, ok := h.lastBody["messages"]; !ok {
 		t.Error("default body should contain messages")
 	}
+	messages, ok := h.lastBody["messages"].([]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("default Anthropic body should contain one message, got %#v", h.lastBody["messages"])
+	}
+	message, ok := messages[0].(map[string]any)
+	if !ok {
+		t.Fatalf("default Anthropic message should be an object, got %#v", messages[0])
+	}
+	content, ok := message["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("default Anthropic message should use content blocks, got %#v", message["content"])
+	}
+	block, ok := content[0].(map[string]any)
+	if !ok || block["type"] != "text" {
+		t.Fatalf("default Anthropic content should contain a text block, got %#v", content[0])
+	}
+	prompt, _ := block["text"].(string)
+	if !challengeQuestionRegex.MatchString(prompt) {
+		t.Fatalf("Anthropic text block should carry the generated challenge, got %q", prompt)
+	}
 	if h.lastHeaders.Get("x-api-key") != "sk-fake" {
 		t.Errorf("expected adapter's x-api-key header, got %q", h.lastHeaders.Get("x-api-key"))
+	}
+}
+
+func TestRunCheckForModel_AnthropicGreetingIsOperational(t *testing.T) {
+	h := &captureHandler{respondText: "Hi! How can I help you today?"}
+	endpoint := setupFakeAnthropic(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", nil)
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("successful non-empty response should not fail channel monitoring, got status=%s message=%q", res.Status, res.Message)
+	}
+}
+
+func TestRunCheckForModel_AnthropicEmptyTextStillFails(t *testing.T) {
+	h := &captureHandler{respondText: ""}
+	endpoint := setupFakeAnthropic(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", nil)
+
+	if res.Status != MonitorStatusFailed {
+		t.Fatalf("empty response text should fail channel monitoring, got status=%s message=%q", res.Status, res.Message)
+	}
+	if !strings.Contains(res.Message, "empty text") {
+		t.Fatalf("empty response failure should explain the cause, got %q", res.Message)
 	}
 }
 

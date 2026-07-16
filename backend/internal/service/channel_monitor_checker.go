@@ -86,21 +86,16 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 		return res
 	}
 
-	// Replace 模式：跳过 challenge 校验（用户 body 是静态的，challenge 没法嵌入）。
-	// 改用「HTTP 2xx + 响应文本（adapter.textPath 抽取）非空」作为 operational 判定。
-	// 响应文本为空则降级为 failed（视为上游回了 200 但没实际内容）。
-	if mode == MonitorBodyOverrideModeReplace {
-		if strings.TrimSpace(respText) == "" {
-			res.Status = MonitorStatusFailed
-			res.Message = truncateMessage("replace-mode: upstream returned 2xx with empty text")
-			return res
-		}
-		return finalizeOperationalOrDegraded(res, latency, latencyMs)
-	}
-
-	if !validateChallenge(respText, challenge.Expected) {
+	// 渠道监测判断的是可用性，不应把模型是否遵循算术指令等同于渠道故障。
+	// 一些可正常调用的兼容中转会改写/弱化探测 prompt，但仍返回有效文本；
+	// 此时账号连接测试同样会成功。只有 2xx 但没有可提取文本时才判定 failed。
+	if strings.TrimSpace(respText) == "" {
 		res.Status = MonitorStatusFailed
-		res.Message = truncateMessage(sanitizeErrorMessage(fmt.Sprintf("challenge mismatch (expected %s, got %q)", challenge.Expected, respText)))
+		if mode == MonitorBodyOverrideModeReplace {
+			res.Message = truncateMessage("replace-mode: upstream returned 2xx with empty text")
+		} else {
+			res.Message = truncateMessage("upstream returned 2xx with empty text")
+		}
 		return res
 	}
 
@@ -174,8 +169,14 @@ var providerAdapters = map[string]providerAdapter{
 		buildPath: func(string) string { return providerAnthropicPath },
 		buildBody: func(model, prompt string) ([]byte, error) {
 			return json.Marshal(map[string]any{
-				"model":      model,
-				"messages":   []map[string]string{{"role": "user", "content": prompt}},
+				"model": model,
+				"messages": []map[string]any{{
+					"role": "user",
+					"content": []map[string]string{{
+						"type": "text",
+						"text": prompt,
+					}},
+				}},
 				"max_tokens": monitorChallengeMaxTokens,
 			})
 		},
