@@ -1,0 +1,55 @@
+name: Auto Tag
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - backend/cmd/server/VERSION
+  workflow_dispatch:
+
+concurrency:
+  group: auto-tag
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tag released version and dispatch release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          VERSION="$(tr -d ' \r\n' < backend/cmd/server/VERSION)"
+          if [ -z "${VERSION}" ]; then
+            echo "VERSION file is empty, skipping."
+            exit 0
+          fi
+
+          TAG="v${VERSION}"
+          git fetch --tags --force
+
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists, nothing to do."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "release ${TAG}"
+          git push origin "${TAG}"
+
+          echo "Dispatching release workflow for ${TAG}"
+          gh workflow run release.yml -f tag="${TAG}"
