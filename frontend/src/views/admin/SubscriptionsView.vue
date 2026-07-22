@@ -672,8 +672,16 @@
       :confirm-text="t('admin.subscriptions.resetQuota')"
       :cancel-text="t('common.cancel')"
       @confirm="confirmResetQuota"
-      @cancel="showResetQuotaConfirm = false"
-    />
+      @cancel="closeResetQuotaDialog"
+    >
+      <QuotaResetPolicyFields
+        v-model="resetQuotaPolicy"
+        id-prefix="subscription-reset"
+      />
+      <p v-if="!hasSelectedResetWindow" class="text-sm text-red-600 dark:text-red-400">
+        {{ t('admin.subscriptions.selectAtLeastOneQuota') }}
+      </p>
+    </ConfirmDialog>
     <!-- Subscription Guide Modal -->
     <teleport to="body">
       <transition name="modal">
@@ -761,6 +769,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
+import type { QuotaResetPolicy } from '@/api/admin/quotaReset'
 import type { UserSubscription, Group, GroupPlatform, SubscriptionType } from '@/types'
 import type { SimpleUser } from '@/api/admin/usage'
 import type { Column } from '@/components/common/types'
@@ -776,6 +785,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import Select from '@/components/common/Select.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
+import QuotaResetPolicyFields from '@/components/admin/subscription/QuotaResetPolicyFields.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { getRemainingDurationParts, isOneTimeDailyQuota, type RemainingDurationParts } from '@/utils/subscriptionQuota'
 
@@ -964,6 +974,15 @@ const showResetQuotaConfirm = ref(false)
 const submitting = ref(false)
 const resettingSubscription = ref<UserSubscription | null>(null)
 const resettingQuota = ref(false)
+const resetQuotaPolicy = ref<QuotaResetPolicy>({
+  daily: true,
+  weekly: true,
+  monthly: true,
+  window_start_mode: 'current'
+})
+const hasSelectedResetWindow = computed(
+  () => resetQuotaPolicy.value.daily || resetQuotaPolicy.value.weekly || resetQuotaPolicy.value.monthly
+)
 const extendingSubscription = ref<UserSubscription | null>(null)
 const revokingSubscription = ref<UserSubscription | null>(null)
 const restoringSubscription = ref<UserSubscription | null>(null)
@@ -1304,18 +1323,32 @@ const confirmRestore = async () => {
 
 const handleResetQuota = (subscription: UserSubscription) => {
   resettingSubscription.value = subscription
+  resetQuotaPolicy.value = {
+    daily: true,
+    weekly: true,
+    monthly: true,
+    window_start_mode: 'current'
+  }
   showResetQuotaConfirm.value = true
+}
+
+const closeResetQuotaDialog = () => {
+  showResetQuotaConfirm.value = false
+  resettingSubscription.value = null
 }
 
 const confirmResetQuota = async () => {
   if (!resettingSubscription.value) return
   if (resettingQuota.value) return
+  if (!hasSelectedResetWindow.value) {
+    appStore.showError(t('admin.subscriptions.selectAtLeastOneQuota'))
+    return
+  }
   resettingQuota.value = true
   try {
-    await adminAPI.subscriptions.resetQuota(resettingSubscription.value.id, { daily: true, weekly: true, monthly: true })
+    await adminAPI.subscriptions.resetQuota(resettingSubscription.value.id, resetQuotaPolicy.value)
     appStore.showSuccess(t('admin.subscriptions.quotaResetSuccess'))
-    showResetQuotaConfirm.value = false
-    resettingSubscription.value = null
+    closeResetQuotaDialog()
     await loadSubscriptions()
   } catch (error: any) {
     appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToResetQuota'))

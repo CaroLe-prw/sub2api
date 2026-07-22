@@ -34,11 +34,22 @@ var (
 	ErrSubscriptionRestoreConflict = infraerrors.Conflict("SUBSCRIPTION_RESTORE_CONFLICT", "subscription already exists for this user and group")
 	ErrGroupNotSubscriptionType    = infraerrors.BadRequest("GROUP_NOT_SUBSCRIPTION_TYPE", "group is not a subscription type")
 	ErrInvalidInput                = infraerrors.BadRequest("INVALID_INPUT", "at least one of resetDaily, resetWeekly, or resetMonthly must be true")
+	ErrInvalidQuotaWindowStartMode = infraerrors.BadRequest("INVALID_QUOTA_WINDOW_START_MODE", "window start mode must be current, natural_day, or preserve")
+	ErrQuotaWindowNotActivated     = infraerrors.BadRequest("QUOTA_WINDOW_NOT_ACTIVATED", "selected quota window is not activated")
 	ErrDailyLimitExceeded          = infraerrors.TooManyRequests("DAILY_LIMIT_EXCEEDED", "daily usage limit exceeded")
 	ErrWeeklyLimitExceeded         = infraerrors.TooManyRequests("WEEKLY_LIMIT_EXCEEDED", "weekly usage limit exceeded")
 	ErrMonthlyLimitExceeded        = infraerrors.TooManyRequests("MONTHLY_LIMIT_EXCEEDED", "monthly usage limit exceeded")
 	ErrSubscriptionNilInput        = infraerrors.BadRequest("SUBSCRIPTION_NIL_INPUT", "subscription input cannot be nil")
 	ErrAdjustWouldExpire           = infraerrors.BadRequest("ADJUST_WOULD_EXPIRE", "adjustment would result in expired subscription (remaining days must be > 0)")
+)
+
+// QuotaWindowStartMode controls how a manual reset updates selected window starts.
+type QuotaWindowStartMode string
+
+const (
+	QuotaWindowStartCurrent    QuotaWindowStartMode = "current"
+	QuotaWindowStartNaturalDay QuotaWindowStartMode = "natural_day"
+	QuotaWindowStartPreserve   QuotaWindowStartMode = "preserve"
 )
 
 // SubscriptionService 订阅服务
@@ -851,28 +862,69 @@ func (s *SubscriptionService) CheckAndActivateWindow(ctx context.Context, sub *U
 	return s.userSubRepo.ActivateWindows(ctx, sub.ID, windowStart)
 }
 
-// AdminResetQuota manually resets the daily, weekly, and/or monthly usage windows.
-// Uses startOfDay(now) as the new window start, matching automatic resets.
-func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionID int64, resetDaily, resetWeekly, resetMonthly bool) (*UserSubscription, error) {
+// AdminResetQuota manually resets the selected usage windows.
+func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionID int64, resetDaily, resetWeekly, resetMonthly bool, mode QuotaWindowStartMode) (*UserSubscription, error) {
+	return s.adminResetQuotaAt(ctx, subscriptionID, resetDaily, resetWeekly, resetMonthly, mode, time.Now())
+}
+
+// adminResetQuotaAt is the deterministic form used by batch resets so every
+// subscription in one run can share the same reset timestamp.
+func (s *SubscriptionService) adminResetQuotaAt(ctx context.Context, subscriptionID int64, resetDaily, resetWeekly, resetMonthly bool, mode QuotaWindowStartMode, resetAt time.Time) (*UserSubscription, error) {
 	if !resetDaily && !resetWeekly && !resetMonthly {
 		return nil, ErrInvalidInput
 	}
+
+	var windowStart *time.Time
+	switch mode {
+	case "", QuotaWindowStartNaturalDay:
+		naturalDay := startOfDay(resetAt)
+		windowStart = &naturalDay
+	case QuotaWindowStartCurrent:
+		windowStart = &resetAt
+	case QuotaWindowStartPreserve:
+		windowStart = nil
+	default:
+		return nil, ErrInvalidQuotaWindowStartMode
+	}
+
 	sub, err := s.userSubRepo.GetByID(ctx, subscriptionID)
 	if err != nil {
 		return nil, err
 	}
-	windowStart := startOfDay(time.Now())
+	selectedInactiveWindow := (resetDaily && sub.DailyWindowStart == nil) ||
+		(resetWeekly && sub.WeeklyWindowStart == nil) ||
+		(resetMonthly && sub.MonthlyWindowStart == nil)
+	if selectedInactiveWindow {
+		activatesEveryWindow := mode != QuotaWindowStartPreserve &&
+			(sub.DailyWindowStart != nil || resetDaily) &&
+			(sub.WeeklyWindowStart != nil || resetWeekly) &&
+			(sub.MonthlyWindowStart != nil || resetMonthly)
+		if !activatesEveryWindow {
+			return nil, ErrQuotaWindowNotActivated
+		}
+	}
 	if err := s.userSubRepo.ResetUsageWindows(ctx, sub.ID, resetDaily, resetWeekly, resetMonthly, windowStart); err != nil {
 		return nil, err
 	}
-	// Invalidate L1 ristretto cache. Ristretto's Del() is asynchronous by design,
-	// so call Wait() immediately after to flush pending operations and guarantee
-	// the deleted key is not returned on the very next Get() call.
+
+	// The database reset is already committed. Cache failures must not turn that
+	// successful mutation into an API failure, but every instance still needs the
+	// invalidation notification.
 	s.InvalidateSubCacheSync(sub.UserID, sub.GroupID)
 	if s.billingCacheService != nil {
-		_ = s.billingCacheService.InvalidateSubscription(ctx, sub.UserID, sub.GroupID)
+		cacheCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := s.billingCacheService.InvalidateSubscription(cacheCtx, sub.UserID, sub.GroupID); err != nil {
+			log.Printf("Warning: failed to invalidate subscription cache after quota reset for user %d group %d: %v", sub.UserID, sub.GroupID, err)
+		}
+		cancel()
+
+		cacheCtx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		if err := s.billingCacheService.PublishSubscriptionCacheInvalidation(cacheCtx, subCacheKey(sub.UserID, sub.GroupID)); err != nil {
+			log.Printf("Warning: failed to publish subscription cache invalidation after quota reset for user %d group %d: %v", sub.UserID, sub.GroupID, err)
+		}
+		cancel()
 	}
-	// Return the refreshed subscription from DB
+
 	return s.userSubRepo.GetByID(ctx, subscriptionID)
 }
 

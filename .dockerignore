@@ -30,6 +30,7 @@ Thumbs.db
 # Build artifacts
 dist/
 build/
+sub2api-private-*.tar.gz
 
 # Node modules (will be installed in container)
 frontend/node_modules/
@@ -52,6 +53,7 @@ coverage/
 # Local config
 config.yaml
 config.local.yaml
+tools/quota-reset/
 
 # Logs
 *.log

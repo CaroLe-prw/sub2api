@@ -14,6 +14,7 @@ import announcementsAPI from './announcements'
 import settingsAPI from './settings'
 import systemAPI from './system'
 import subscriptionsAPI from './subscriptions'
+import quotaResetAPI from './quotaReset'
 import usageAPI from './usage'
 import geminiAPI from './gemini'
 import antigravityAPI from './antigravity'
@@ -50,6 +51,7 @@ export const adminAPI = {
   settings: settingsAPI,
   system: systemAPI,
   subscriptions: subscriptionsAPI,
+  quotaReset: quotaResetAPI,
   usage: usageAPI,
   gemini: geminiAPI,
   antigravity: antigravityAPI,
@@ -84,6 +86,7 @@ export {
   settingsAPI,
   systemAPI,
   subscriptionsAPI,
+  quotaResetAPI,
   usageAPI,
   geminiAPI,
   antigravityAPI,
@@ -111,6 +114,14 @@ export default adminAPI
 // Re-export types used by components
 export type { AuditLog, AuditLogQuery, AuditLogListResponse } from './audit'
 export type { BalanceHistoryItem } from './users'
+export type {
+  QuotaResetPolicy,
+  QuotaResetWindowStartMode,
+  SubscriptionQuotaResetConfig,
+  SubscriptionQuotaResetResponse,
+  SubscriptionQuotaResetState,
+  SubscriptionQuotaResetStatus
+} from './quotaReset'
 export type { ErrorPassthroughRule, CreateRuleRequest, UpdateRuleRequest } from './errorPassthrough'
 export type { BackupAgentHealth, DataManagementConfig } from './dataManagement'
 export type { TLSFingerprintProfile, CreateProfileRequest, UpdateProfileRequest } from './tlsFingerprintProfile'

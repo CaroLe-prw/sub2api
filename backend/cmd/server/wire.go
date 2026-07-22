@@ -90,6 +90,7 @@ func provideCleanup(
 	accountExpiry *service.AccountExpiryService,
 	proxyExpiry *service.ProxyExpiryService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
+	subscriptionQuotaReset *service.SubscriptionQuotaResetService,
 	usageCleanup *service.UsageCleanupService,
 	idempotencyCleanup *service.IdempotencyCleanupService,
 	batchImageCleanup *service.BatchImageCleanupService,
@@ -241,6 +242,12 @@ func provideCleanup(
 			}},
 			{"SubscriptionExpiryService", func() error {
 				subscriptionExpiry.Stop()
+				return nil
+			}},
+			{"SubscriptionQuotaResetService", func() error {
+				if subscriptionQuotaReset != nil {
+					subscriptionQuotaReset.Stop()
+				}
 				return nil
 			}},
 			{"SubscriptionService", func() error {

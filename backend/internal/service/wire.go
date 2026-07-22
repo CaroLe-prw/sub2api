@@ -291,6 +291,15 @@ func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, se
 	return svc
 }
 
+// ProvideSubscriptionQuotaResetService creates and starts the built-in quota-reset worker.
+func ProvideSubscriptionQuotaResetService(subscriptionService *SubscriptionService, userSubRepo UserSubscriptionRepository, groupRepo GroupRepository, settingRepo SettingRepository, announcementService *AnnouncementService, lockCache LeaderLockCache, db *sql.DB) *SubscriptionQuotaResetService {
+	svc := NewSubscriptionQuotaResetService(subscriptionService, userSubRepo, groupRepo, settingRepo)
+	svc.SetAnnouncementService(announcementService)
+	svc.SetLeaderLock(lockCache, db)
+	svc.Start()
+	return svc
+}
+
 // ProvideTimingWheelService creates and starts TimingWheelService
 func ProvideTimingWheelService() (*TimingWheelService, error) {
 	svc, err := NewTimingWheelService()
@@ -755,6 +764,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAccountExpiryService,
 	ProvideProxyExpiryService,
 	ProvideSubscriptionExpiryService,
+	ProvideSubscriptionQuotaResetService,
 	ProvideTimingWheelService,
 	ProvideDashboardAggregationService,
 	ProvideUsageCleanupService,

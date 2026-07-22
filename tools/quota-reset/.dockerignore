@@ -1,5 +1,0 @@
-*.env
-quota-reset.env
-README.md
-docker-compose.yml
-quota_reset_state

@@ -503,6 +503,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/quota-reset',
+    name: 'AdminQuotaReset',
+    component: () => import('@/views/admin/QuotaResetView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Subscription Quota Reset',
+      titleKey: 'admin.quotaReset.title',
+      descriptionKey: 'admin.quotaReset.description'
+    }
+  },
+  {
     path: '/admin/accounts',
     name: 'AdminAccounts',
     component: () => import('@/views/admin/AccountsView.vue'),
@@ -887,6 +899,7 @@ router.beforeEach(async (to, _from, next) => {
     const restrictedPaths = [
       '/admin/groups',
       '/admin/subscriptions',
+      '/admin/quota-reset',
       '/admin/redeem',
       '/subscriptions',
       '/redeem'

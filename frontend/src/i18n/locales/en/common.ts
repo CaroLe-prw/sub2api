@@ -167,6 +167,7 @@ export default {
     channels: 'Channels',
     availableChannels: 'Available Channels',
     subscriptions: 'Subscriptions',
+    quotaReset: 'Quota Reset',
     accounts: 'Accounts',
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',

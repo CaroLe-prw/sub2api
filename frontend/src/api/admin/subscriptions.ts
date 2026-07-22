@@ -12,6 +12,7 @@ import type {
   ExtendSubscriptionRequest,
   PaginatedResponse
 } from '@/types'
+import type { QuotaResetPolicy } from './quotaReset'
 
 /**
  * List all subscriptions with pagination
@@ -139,7 +140,7 @@ export async function restore(id: number): Promise<UserSubscription> {
  */
 export async function resetQuota(
   id: number,
-  options: { daily: boolean; weekly: boolean; monthly: boolean }
+  options: QuotaResetPolicy
 ): Promise<UserSubscription> {
   const { data } = await apiClient.post<UserSubscription>(
     `/admin/subscriptions/${id}/reset-quota`,

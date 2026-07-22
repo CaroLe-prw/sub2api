@@ -615,6 +615,13 @@ func registerSystemRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 }
 
 func registerSubscriptionRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	quotaReset := admin.Group("/subscription-quota-reset")
+	{
+		quotaReset.GET("", h.Admin.Subscription.GetQuotaResetSettings)
+		quotaReset.PUT("", h.Admin.Subscription.UpdateQuotaResetSettings)
+		quotaReset.POST("/run", h.Admin.Subscription.RunQuotaReset)
+	}
+
 	subscriptions := admin.Group("/subscriptions")
 	{
 		subscriptions.GET("", h.Admin.Subscription.List)

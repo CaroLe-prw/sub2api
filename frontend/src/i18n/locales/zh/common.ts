@@ -167,6 +167,7 @@ export default {
     channels: '渠道管理',
     availableChannels: '可用渠道',
     subscriptions: '订阅管理',
+    quotaReset: '套餐重置',
     accounts: '账号管理',
     proxies: 'IP管理',
     redeemCodes: '兑换码',
