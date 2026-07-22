@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log"
 	"math/rand/v2"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,9 +44,11 @@ type OpsRuntimeSettingsRefreshHealth struct {
 
 // OpsService provides ingestion and query APIs for the Ops monitoring module.
 type OpsService struct {
-	opsRepo     OpsRepository
-	settingRepo SettingRepository
-	cfg         *config.Config
+	opsRepo        OpsRepository
+	settingRepo    SettingRepository
+	cfg            *config.Config
+	encryptor      SecretEncryptor
+	telegramClient *http.Client
 
 	accountRepo AccountRepository
 	userRepo    UserRepository
@@ -84,6 +87,15 @@ type OpsService struct {
 	runtimeRefreshSuccess        atomic.Uint64
 	runtimeRefreshFailure        atomic.Uint64
 	runtimeRefreshLastFailureLog atomic.Int64
+}
+
+// SetSecretEncryptor attaches the shared AES-GCM encryptor used for durable
+// Ops notification secrets. Production wiring always calls this setter.
+func (s *OpsService) SetSecretEncryptor(encryptor SecretEncryptor) {
+	if s == nil {
+		return
+	}
+	s.encryptor = encryptor
 }
 
 // CleanupReloader 由 OpsCleanupService 实现。
@@ -137,6 +149,7 @@ func NewOpsService(
 		geminiCompatService:       geminiCompatService,
 		antigravityGatewayService: antigravityGatewayService,
 		systemLogSink:             systemLogSink,
+		telegramClient:            opsTelegramHTTPClient,
 	}
 	svc.initRuntimeSettings(context.Background())
 	svc.applyRuntimeLogConfigOnStartup(context.Background())

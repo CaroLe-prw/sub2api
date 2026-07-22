@@ -49,7 +49,8 @@ type OpsAlertEvaluatorService struct {
 	mu         sync.Mutex
 	ruleStates map[int64]*opsAlertRuleState
 
-	emailLimiter *slidingWindowLimiter
+	emailLimiter    *slidingWindowLimiter
+	telegramLimiter *slidingWindowLimiter
 
 	skipLogMu sync.Mutex
 	skipLogAt time.Time
@@ -71,15 +72,16 @@ func NewOpsAlertEvaluatorService(
 	proxyRepo ProxyRepository,
 ) *OpsAlertEvaluatorService {
 	return &OpsAlertEvaluatorService{
-		opsService:   opsService,
-		opsRepo:      opsRepo,
-		emailService: emailService,
-		proxyRepo:    proxyRepo,
-		redisClient:  redisClient,
-		cfg:          cfg,
-		instanceID:   uuid.NewString(),
-		ruleStates:   map[int64]*opsAlertRuleState{},
-		emailLimiter: newSlidingWindowLimiter(0, time.Hour),
+		opsService:      opsService,
+		opsRepo:         opsRepo,
+		emailService:    emailService,
+		proxyRepo:       proxyRepo,
+		redisClient:     redisClient,
+		cfg:             cfg,
+		instanceID:      uuid.NewString(),
+		ruleStates:      map[int64]*opsAlertRuleState{},
+		emailLimiter:    newSlidingWindowLimiter(0, time.Hour),
+		telegramLimiter: newSlidingWindowLimiter(0, time.Hour),
 	}
 }
 
@@ -199,6 +201,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 	eventsCreated := 0
 	eventsResolved := 0
 	emailsSent := 0
+	telegramSent := 0
 
 	now := time.Now().UTC()
 	safeEnd := now.Truncate(time.Minute)
@@ -292,6 +295,9 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 
 			eventsCreated++
 			if created != nil && created.ID > 0 {
+				if s.maybeSendAlertTelegram(ctx, runtimeCfg, rule, created) {
+					telegramSent++
+				}
 				if s.maybeSendAlertEmail(ctx, runtimeCfg, rule, created) {
 					emailsSent++
 				}
@@ -310,7 +316,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 		}
 	}
 
-	result := truncateString(fmt.Sprintf("rules=%d enabled=%d evaluated=%d created=%d resolved=%d emails_sent=%d", rulesTotal, rulesEnabled, rulesEvaluated, eventsCreated, eventsResolved, emailsSent), 2048)
+	result := truncateString(fmt.Sprintf("rules=%d enabled=%d evaluated=%d created=%d resolved=%d emails_sent=%d telegram_sent=%d", rulesTotal, rulesEnabled, rulesEvaluated, eventsCreated, eventsResolved, emailsSent, telegramSent), 2048)
 	s.recordHeartbeatSuccess(runAt, time.Since(startedAt), result)
 }
 
@@ -745,6 +751,40 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertEmail(ctx context.Context, runt
 		_ = s.opsRepo.UpdateAlertEventEmailSent(context.Background(), event.ID, true)
 	}
 	return anySent
+}
+
+func (s *OpsAlertEvaluatorService) maybeSendAlertTelegram(ctx context.Context, runtimeCfg *OpsAlertRuntimeSettings, rule *OpsAlertRule, event *OpsAlertEvent) bool {
+	if s == nil || s.opsService == nil || event == nil || rule == nil || !rule.NotifyEmail {
+		return false
+	}
+
+	telegramCfg, err := s.opsService.GetTelegramNotificationConfig(ctx)
+	if err != nil || telegramCfg == nil || !telegramCfg.Enabled {
+		return false
+	}
+	emailCfg, err := s.opsService.GetEmailNotificationConfig(ctx)
+	if err != nil || emailCfg == nil {
+		return false
+	}
+	if !shouldSendOpsAlertEmailByMinSeverity(strings.TrimSpace(emailCfg.Alert.MinSeverity), strings.TrimSpace(rule.Severity)) {
+		return false
+	}
+	if runtimeCfg != nil && runtimeCfg.Silencing.Enabled {
+		if isOpsAlertSilenced(time.Now().UTC(), rule, event, runtimeCfg.Silencing) {
+			return false
+		}
+	}
+
+	s.telegramLimiter.SetLimit(emailCfg.Alert.RateLimitPerHour)
+	if !s.telegramLimiter.Allow(time.Now().UTC()) {
+		return false
+	}
+	sent, err := s.opsService.sendOpsTelegramAlert(ctx, rule, event)
+	if err != nil {
+		logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] send Telegram alert failed: %v", err)
+		return false
+	}
+	return sent
 }
 
 func opsAlertEmailVariables(rule *OpsAlertRule, event *OpsAlertEvent) map[string]string {

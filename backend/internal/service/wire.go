@@ -581,6 +581,7 @@ func ProvideOpsService(
 	opsRepo OpsRepository,
 	settingRepo SettingRepository,
 	cfg *config.Config,
+	encryptor SecretEncryptor,
 	accountRepo AccountRepository,
 	userRepo UserRepository,
 	concurrencyService *ConcurrencyService,
@@ -606,6 +607,7 @@ func ProvideOpsService(
 		antigravityGatewayService,
 		systemLogSink,
 	)
+	svc.SetSecretEncryptor(encryptor)
 	if settingService != nil {
 		svc.SetOpenAIQuotaAutoPauseSettingsSink(settingService.SetOpenAIQuotaAutoPauseSettings)
 		// Optional warm-up so the first scheduled request after process start observes

@@ -351,6 +351,9 @@ const (
 	// SettingKeyOpsEmailNotificationConfig stores JSON config for ops email notifications.
 	SettingKeyOpsEmailNotificationConfig = "ops_email_notification_config"
 
+	// SettingKeyOpsTelegramNotificationConfig stores encrypted Telegram notification config.
+	SettingKeyOpsTelegramNotificationConfig = "ops_telegram_notification_config"
+
 	// SettingKeyOpsAlertRuntimeSettings stores JSON config for ops alert evaluator runtime settings.
 	SettingKeyOpsAlertRuntimeSettings = "ops_alert_runtime_settings"
 

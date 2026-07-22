@@ -29,6 +29,27 @@ describe('ops locale key completeness', () => {
       expect(enKeys).toContain(key)
     })
   }
+
+  const telegramKeys = [
+    'admin.ops.telegram.title',
+    'admin.ops.telegram.enabled',
+    'admin.ops.telegram.botToken',
+    'admin.ops.telegram.chatId',
+    'admin.ops.telegram.topicId',
+    'admin.ops.telegram.baseUrl',
+    'admin.ops.telegram.disableNotification',
+    'admin.ops.telegram.protectContent',
+    'admin.ops.telegram.test',
+    'admin.ops.telegram.validation.botTokenRequired',
+    'admin.ops.telegram.validation.chatIdRequired',
+  ]
+
+  for (const key of telegramKeys) {
+    it(`en and zh locales both have ${key}`, () => {
+      expect(flattenKeys(en)).toContain(key)
+      expect(flattenKeys(zh)).toContain(key)
+    })
+  }
 })
 
 describe('groups locale key completeness', () => {

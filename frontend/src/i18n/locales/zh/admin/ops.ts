@@ -413,7 +413,7 @@ export default {
       },
       alertEvents: {
         title: '告警事件',
-        description: '最近的告警触发/恢复记录（仅邮件通知）',
+        description: '最近的告警触发、恢复与通知记录',
         loading: '加载中...',
         empty: '暂无告警事件',
         loadFailed: '加载告警事件失败',
@@ -461,7 +461,7 @@ export default {
       },
       alertRules: {
         title: '告警规则',
-        description: '创建与管理系统阈值告警（仅邮件通知）',
+        description: '创建与管理系统阈值告警及其通知策略',
         loading: '加载中...',
         empty: '暂无告警规则',
         loadFailed: '加载告警规则失败',
@@ -542,7 +542,7 @@ export default {
           sustained: '连续样本数（每分钟）',
           cooldown: '冷却期（分钟）',
           enabled: '启用',
-          notifyEmail: '发送邮件通知'
+          notifyEmail: '发送告警通知'
         },
         validation: {
           title: '请先修正以下问题',
@@ -657,6 +657,36 @@ export default {
           accountHealthThresholdRange: '账号健康错误率阈值必须在 0 到 100 之间'
         }
       },
+      telegram: {
+        title: 'Telegram Bot 告警',
+        description: '通过 Telegram Bot 发送运维告警；启用后对所有开启通知的告警规则生效。',
+        enabled: '启用 Telegram 告警',
+        botToken: 'Bot Token',
+        botTokenPlaceholder: '输入 BotFather 提供的 Token',
+        botTokenConfiguredPlaceholder: '已配置，留空保持不变',
+        botTokenHint: 'Token 仅保存在服务端，保存后不会回显。',
+        botTokenConfiguredHint: 'Token 已配置；留空不会覆盖现有值。',
+        chatId: 'Chat ID',
+        chatIdPlaceholder: '例如 -1001234567890 或 {\'@\'}channel',
+        topicId: 'Topic ID（可选）',
+        topicIdPlaceholder: '论坛话题 ID',
+        baseUrl: 'Telegram API Base URL',
+        baseUrlHint: '留空使用 Telegram 官方 API 地址；自定义地址仅支持公网 HTTPS 服务。',
+        disableNotification: '静默发送',
+        disableNotificationHint: '发送消息时不触发声音提醒。',
+        protectContent: '保护内容',
+        protectContentHint: '禁止接收方转发或保存消息内容。',
+        test: '发送测试消息',
+        testing: '发送中...',
+        testSuccess: 'Telegram 测试消息发送成功',
+        testFailed: 'Telegram 测试消息发送失败',
+        validation: {
+          botTokenRequired: '启用或测试 Telegram 告警时必须配置 Bot Token',
+          chatIdRequired: '启用或测试 Telegram 告警时必须配置 Chat ID',
+          topicIdInvalid: 'Topic ID 必须是正整数',
+          baseUrlInvalid: 'Telegram API Base URL 必须是有效的公网 HTTPS 地址'
+        }
+      },
       settings: {
         title: '运维监控设置',
         loadFailed: '加载设置失败',
@@ -665,12 +695,12 @@ export default {
         dataCollection: '数据采集',
         evaluationInterval: '评估间隔（秒）',
         evaluationIntervalHint: '检测任务的执行频率，建议保持默认',
-        alertConfig: '预警配置',
-        enableAlert: '开启预警',
-        alertRecipients: '预警接收邮箱',
+        alertConfig: '告警通知策略',
+        enableAlert: '启用邮件告警',
+        alertRecipients: '邮件告警接收邮箱',
         emailPlaceholder: '输入邮箱地址',
         recipientsHint: '若为空，系统将使用第一个管理员邮箱作为默认收件人',
-        minSeverity: '最低级别',
+        minSeverity: '最低通知级别',
         reportConfig: '评估报告配置',
         enableReport: '开启评估报告',
         reportRecipients: '评估报告接收邮箱',

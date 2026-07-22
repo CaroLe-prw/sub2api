@@ -413,7 +413,7 @@ export default {
       },
       alertEvents: {
         title: 'Alert Events',
-        description: 'Recent alert firing/resolution records (email-only)',
+        description: 'Recent alert firing, resolution, and notification records',
         loading: 'Loading...',
         empty: 'No alert events',
         loadFailed: 'Failed to load alert events',
@@ -461,7 +461,7 @@ export default {
       },
       alertRules: {
         title: 'Alert Rules',
-        description: 'Create and manage threshold-based system alerts (email-only)',
+        description: 'Create and manage threshold-based alerts and notification policies',
         loading: 'Loading...',
         empty: 'No alert rules',
         loadFailed: 'Failed to load alert rules',
@@ -542,7 +542,7 @@ export default {
           sustained: 'Sustained (samples)',
           cooldown: 'Cooldown (minutes)',
           enabled: 'Enabled',
-          notifyEmail: 'Send email notifications'
+          notifyEmail: 'Send alert notifications'
         },
         validation: {
           title: 'Please fix the following issues',
@@ -657,6 +657,36 @@ export default {
           accountHealthThresholdRange: 'Account health threshold must be between 0 and 100'
         }
       },
+      telegram: {
+        title: 'Telegram Bot Alerts',
+        description: 'Send Ops alerts through a Telegram Bot. Applies to every alert rule with notifications enabled.',
+        enabled: 'Enable Telegram alerts',
+        botToken: 'Bot Token',
+        botTokenPlaceholder: 'Enter the token from BotFather',
+        botTokenConfiguredPlaceholder: 'Configured; leave blank to keep it',
+        botTokenHint: 'The token is stored only on the server and is never shown after saving.',
+        botTokenConfiguredHint: 'A token is configured. Leave this blank to keep the current value.',
+        chatId: 'Chat ID',
+        chatIdPlaceholder: 'For example, -1001234567890 or {\'@\'}channel',
+        topicId: 'Topic ID (optional)',
+        topicIdPlaceholder: 'Forum topic ID',
+        baseUrl: 'Telegram API Base URL',
+        baseUrlHint: 'Leave blank for the official Telegram API; custom endpoints must use public HTTPS.',
+        disableNotification: 'Send silently',
+        disableNotificationHint: 'Send the message without a notification sound.',
+        protectContent: 'Protect content',
+        protectContentHint: 'Prevent recipients from forwarding or saving the message.',
+        test: 'Send test message',
+        testing: 'Sending...',
+        testSuccess: 'Telegram test message sent',
+        testFailed: 'Failed to send Telegram test message',
+        validation: {
+          botTokenRequired: 'A Bot Token is required to enable or test Telegram alerts',
+          chatIdRequired: 'A Chat ID is required to enable or test Telegram alerts',
+          topicIdInvalid: 'Topic ID must be a positive integer',
+          baseUrlInvalid: 'Telegram API Base URL must be a valid public HTTPS URL'
+        }
+      },
       settings: {
         title: 'Ops Monitoring Settings',
         loadFailed: 'Failed to load settings',
@@ -665,12 +695,12 @@ export default {
         dataCollection: 'Data Collection',
         evaluationInterval: 'Evaluation Interval (seconds)',
         evaluationIntervalHint: 'Frequency of detection tasks, recommended to keep default',
-        alertConfig: 'Alert Configuration',
-        enableAlert: 'Enable Alerts',
-        alertRecipients: 'Alert Recipient Emails',
+        alertConfig: 'Alert Notification Policy',
+        enableAlert: 'Enable email alerts',
+        alertRecipients: 'Email Alert Recipients',
         emailPlaceholder: 'Enter email address',
         recipientsHint: 'If empty, the system will use the first admin email as default recipient',
-        minSeverity: 'Minimum Severity',
+        minSeverity: 'Minimum Notification Severity',
         reportConfig: 'Report Configuration',
         enableReport: 'Enable Reports',
         reportRecipients: 'Report Recipient Emails',
