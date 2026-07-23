@@ -296,6 +296,11 @@ export default {
       apiKey: 'API Key',
       deleteConfirm: "确定要删除账号 '{name}' 吗？此操作无法撤销。",
       failedToClearRateLimit: '清除速率限制失败',
+      pauseScheduling: '暂停调度',
+      pauseSchedulingPrompt: '请输入暂停账号「{name}」调度的分钟数（1-1440）：',
+      pauseSchedulingInvalid: '暂停时长必须是 1-1440 之间的整数分钟',
+      pauseSchedulingSuccess: '账号已暂停调度 {minutes} 分钟',
+      pauseSchedulingFailed: '暂停账号调度失败',
       platforms: {
         claude: 'Claude',
         openai: 'OpenAI',

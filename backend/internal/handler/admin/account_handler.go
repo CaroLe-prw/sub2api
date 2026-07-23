@@ -2243,6 +2243,34 @@ func (h *AccountHandler) GetTempUnschedulable(c *gin.Context) {
 	})
 }
 
+type pauseSchedulingRequest struct {
+	Minutes int `json:"minutes" binding:"required,gte=1,lte=1440"`
+}
+
+// PauseScheduling temporarily removes an account from scheduling.
+// POST /api/v1/admin/accounts/:id/temp-unschedulable
+func (h *AccountHandler) PauseScheduling(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	var req pauseSchedulingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "minutes must be between 1 and 1440")
+		return
+	}
+
+	account, err := h.rateLimitService.PauseAccountScheduling(c.Request.Context(), accountID, time.Duration(req.Minutes)*time.Minute)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
 // ClearTempUnschedulable handles clearing temporary unschedulable status
 // DELETE /api/v1/admin/accounts/:id/temp-unschedulable
 func (h *AccountHandler) ClearTempUnschedulable(c *gin.Context) {

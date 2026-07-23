@@ -176,7 +176,7 @@ const isActive = computed(() => {
 })
 
 const ruleIndexDisplay = computed(() => {
-  if (!state.value) return '-'
+  if (!state.value || state.value.rule_index < 0) return '-'
   return state.value.rule_index + 1
 })
 

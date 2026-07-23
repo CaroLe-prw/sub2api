@@ -363,6 +363,14 @@ export async function getTempUnschedulableStatus(id: number): Promise<TempUnsche
   return data
 }
 
+export async function pauseScheduling(id: number, minutes: number): Promise<Account> {
+  const { data } = await apiClient.post<Account>(
+    `/admin/accounts/${id}/temp-unschedulable`,
+    { minutes }
+  )
+  return data
+}
+
 /**
  * Reset temporary unschedulable status
  * @param id - Account ID
@@ -950,6 +958,7 @@ export const accountsAPI = {
   recoverState,
   resetAccountQuota,
   getTempUnschedulableStatus,
+  pauseScheduling,
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,

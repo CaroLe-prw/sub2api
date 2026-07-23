@@ -263,6 +263,11 @@ export default {
       privacyAntigravitySet: 'Telemetry and marketing emails disabled',
       privacyAntigravityFailed: 'Privacy setting failed',
       setPrivacy: 'Set Privacy',
+      pauseScheduling: 'Pause Scheduling',
+      pauseSchedulingPrompt: 'Pause scheduling for account "{name}" for how many minutes (1-1440)?',
+      pauseSchedulingInvalid: 'Pause duration must be an integer between 1 and 1440 minutes',
+      pauseSchedulingSuccess: 'Account scheduling paused for {minutes} minutes',
+      pauseSchedulingFailed: 'Failed to pause account scheduling',
       subscriptionAbnormal: 'Abnormal',
       subscriptionExpires: 'Expires',
       // Capacity status tooltips

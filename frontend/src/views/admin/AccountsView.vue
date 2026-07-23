@@ -437,7 +437,7 @@
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @pause-scheduling="handlePauseScheduling" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -1932,6 +1932,23 @@ const handleRefresh = async (a: Account) => {
     enterAutoRefreshSilentWindow()
   } catch (error) {
     console.error('Failed to refresh credentials:', error)
+  }
+}
+const handlePauseScheduling = async (a: Account) => {
+  const value = window.prompt(t('admin.accounts.pauseSchedulingPrompt', { name: a.name }), '10')
+  if (value === null) return
+  const minutes = Number(value)
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
+    appStore.showError(t('admin.accounts.pauseSchedulingInvalid'))
+    return
+  }
+  try {
+    const updated = await adminAPI.accounts.pauseScheduling(a.id, minutes)
+    patchAccountInList(updated)
+    enterAutoRefreshSilentWindow()
+    appStore.showSuccess(t('admin.accounts.pauseSchedulingSuccess', { minutes }))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.accounts.pauseSchedulingFailed'))
   }
 }
 const handleRecoverState = async (a: Account) => {
