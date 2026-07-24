@@ -454,6 +454,12 @@
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
     <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
     <ConfirmDialog :show="showCreateShadowDialog" :title="t('admin.accounts.createSparkShadow')" :message="t('admin.accounts.createSparkShadowConfirm', { name: creatingShadowAcc?.name })" @confirm="confirmCreateSparkShadow" @cancel="showCreateShadowDialog = false" />
+    <ConfirmDialog :show="showPauseSchedulingDialog" :title="t('admin.accounts.pauseScheduling')" :message="t('admin.accounts.pauseSchedulingPrompt', { name: pauseSchedulingAcc?.name })" @confirm="confirmPauseScheduling" @cancel="closePauseSchedulingDialog">
+      <label class="block">
+        <span class="input-label">{{ t('admin.accounts.tempUnschedulable.durationMinutes') }}</span>
+        <input v-model.number="pauseSchedulingMinutes" type="number" min="1" max="1440" step="1" class="input mt-1 w-full" @keydown.enter.prevent="confirmPauseScheduling" />
+      </label>
+    </ConfirmDialog>
     <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
       <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
         <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" v-model="includeProxyOnExport" />
@@ -571,6 +577,7 @@ const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
+const showPauseSchedulingDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
@@ -580,6 +587,9 @@ const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
 const creatingShadowAcc = ref<Account | null>(null)
+const pauseSchedulingAcc = ref<Account | null>(null)
+const pauseSchedulingMinutes = ref<number | null>(10)
+const pausingScheduling = ref(false)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
@@ -1062,6 +1072,7 @@ const isAnyModalOpen = computed(() => {
     showBulkEdit.value ||
     showTempUnsched.value ||
     showDeleteDialog.value ||
+    showPauseSchedulingDialog.value ||
     showReAuth.value ||
     showTest.value ||
     showStats.value ||
@@ -1934,21 +1945,33 @@ const handleRefresh = async (a: Account) => {
     console.error('Failed to refresh credentials:', error)
   }
 }
-const handlePauseScheduling = async (a: Account) => {
-  const value = window.prompt(t('admin.accounts.pauseSchedulingPrompt', { name: a.name }), '10')
-  if (value === null) return
-  const minutes = Number(value)
+const handlePauseScheduling = (a: Account) => {
+  pauseSchedulingAcc.value = a
+  pauseSchedulingMinutes.value = 10
+  showPauseSchedulingDialog.value = true
+}
+const closePauseSchedulingDialog = () => {
+  showPauseSchedulingDialog.value = false
+  pauseSchedulingAcc.value = null
+}
+const confirmPauseScheduling = async () => {
+  if (!pauseSchedulingAcc.value || pausingScheduling.value) return
+  const minutes = Number(pauseSchedulingMinutes.value)
   if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
     appStore.showError(t('admin.accounts.pauseSchedulingInvalid'))
     return
   }
+  pausingScheduling.value = true
   try {
-    const updated = await adminAPI.accounts.pauseScheduling(a.id, minutes)
+    const updated = await adminAPI.accounts.pauseScheduling(pauseSchedulingAcc.value.id, minutes)
     patchAccountInList(updated)
     enterAutoRefreshSilentWindow()
+    closePauseSchedulingDialog()
     appStore.showSuccess(t('admin.accounts.pauseSchedulingSuccess', { minutes }))
   } catch (error: any) {
     appStore.showError(error?.message || t('admin.accounts.pauseSchedulingFailed'))
+  } finally {
+    pausingScheduling.value = false
   }
 }
 const handleRecoverState = async (a: Account) => {
