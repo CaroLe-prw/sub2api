@@ -135,6 +135,7 @@ security:
     # Allowed hosts for pricing data download
     # 允许下载定价数据的主机列表
     pricing_hosts:
+      - "api.github.com"
       - "raw.githubusercontent.com"
     # Allowed hosts for CRS sync (required when using CRS sync)
     # 允许 CRS 同步的主机列表（使用 CRS 同步功能时必须配置）
@@ -1100,9 +1101,14 @@ rate_limit:
 pricing:
   # URL to fetch model pricing data (default: pinned model-price-repo commit)
   # 获取模型定价数据的 URL（默认：固定 commit 的 model-price-repo）
+  # Private GitHub repositories: use Contents API URLs and provide a read-only
+  # fine-grained PAT through PRICING_GITHUB_TOKEN; never put the token here.
+  # 私有 GitHub 仓库：使用 Contents API，并通过 PRICING_GITHUB_TOKEN 提供只读 PAT。
+  # remote_url: "https://api.github.com/repos/OWNER/REPO/contents/model_prices_and_context_window.json?ref=main"
   remote_url: "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/refs/heads/main//model_prices_and_context_window.json"
   # Hash verification URL (optional)
   # 哈希校验 URL（可选）
+  # hash_url: "https://api.github.com/repos/OWNER/REPO/contents/model_prices_and_context_window.sha256?ref=main"
   hash_url: "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/refs/heads/main//model_prices_and_context_window.sha256"
   # Local data directory for caching
   # 本地数据缓存目录
