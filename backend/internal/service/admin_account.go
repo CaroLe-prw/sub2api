@@ -838,7 +838,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 
 	// 绑定分组
 	if input.GroupIDs != nil {
-		if err := s.accountRepo.BindGroups(ctx, account.ID, *input.GroupIDs); err != nil {
+		if err := s.bindAccountGroups(ctx, account.ID, *input.GroupIDs, input.GroupPriorities); err != nil {
 			return nil, err
 		}
 	}
@@ -849,6 +849,40 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		return nil, err
 	}
 	return updated, nil
+}
+
+type accountGroupPriorityBinder interface {
+	BindGroupsWithPriorities(ctx context.Context, accountID int64, groupIDs []int64, priorities map[int64]int) error
+}
+
+func (s *adminServiceImpl) bindAccountGroups(
+	ctx context.Context,
+	accountID int64,
+	groupIDs []int64,
+	priorities *map[int64]int,
+) error {
+	if priorities == nil {
+		return s.accountRepo.BindGroups(ctx, accountID, groupIDs)
+	}
+
+	selected := make(map[int64]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		selected[groupID] = struct{}{}
+	}
+	for groupID, priority := range *priorities {
+		if _, ok := selected[groupID]; !ok {
+			return fmt.Errorf("group priority references unselected group %d", groupID)
+		}
+		if priority < 1 {
+			return fmt.Errorf("group priority for group %d must be >= 1", groupID)
+		}
+	}
+
+	binder, ok := s.accountRepo.(accountGroupPriorityBinder)
+	if !ok {
+		return errors.New("account repository does not support group priorities")
+	}
+	return binder.BindGroupsWithPriorities(ctx, accountID, groupIDs, *priorities)
 }
 
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键

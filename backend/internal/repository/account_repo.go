@@ -1705,6 +1705,10 @@ func (r *accountRepository) GetGroups(ctx context.Context, accountID int64) ([]s
 }
 
 func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
+	return r.BindGroupsWithPriorities(ctx, accountID, groupIDs, nil)
+}
+
+func (r *accountRepository) BindGroupsWithPriorities(ctx context.Context, accountID int64, groupIDs []int64, priorities map[int64]int) error {
 	existingGroupIDs, err := r.loadAccountGroupIDs(ctx, accountID)
 	if err != nil {
 		return err
@@ -1735,12 +1739,32 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 		return nil
 	}
 
+	defaultPriority := 0
+	for _, groupID := range groupIDs {
+		if _, ok := priorities[groupID]; ok {
+			continue
+		}
+		account, err := txClient.Account.Query().
+			Where(dbaccount.IDEQ(accountID)).
+			Select(dbaccount.FieldPriority).
+			Only(ctx)
+		if err != nil {
+			return err
+		}
+		defaultPriority = account.Priority
+		break
+	}
+
 	builders := make([]*dbent.AccountGroupCreate, 0, len(groupIDs))
-	for i, groupID := range groupIDs {
+	for _, groupID := range groupIDs {
+		priority := defaultPriority
+		if configured, ok := priorities[groupID]; ok {
+			priority = configured
+		}
 		builders = append(builders, txClient.AccountGroup.Create().
 			SetAccountID(accountID).
 			SetGroupID(groupID).
-			SetPriority(i+1),
+			SetPriority(priority),
 		)
 	}
 

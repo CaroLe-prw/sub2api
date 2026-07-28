@@ -2530,7 +2530,10 @@
       <!-- Group Selection - 仅标准模式显示 -->
       <GroupSelector
         v-if="!authStore.isSimpleMode"
+        :key="account?.id"
         v-model="form.group_ids"
+        v-model:priorities="form.group_priorities"
+        :default-priority="form.priority"
         :groups="groups"
         :platform="account?.platform"
         :mixed-scheduling="mixedScheduling"
@@ -3155,6 +3158,7 @@ const form = reactive({
   rate_multiplier: 1,
   status: 'active' as 'active' | 'inactive' | 'error',
   group_ids: [] as number[],
+  group_priorities: {} as Record<number, number>,
   expires_at: null as number | null
 })
 
@@ -3246,6 +3250,15 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     ? newAccount.status
     : 'active'
   form.group_ids = newAccount.group_ids || []
+  form.group_priorities = Object.fromEntries(
+    (newAccount.account_groups || []).map((accountGroup) => [
+      accountGroup.group_id,
+      accountGroup.priority
+    ])
+  )
+  form.group_ids.forEach((groupID) => {
+    form.group_priorities[groupID] ??= newAccount.priority
+  })
   form.expires_at = newAccount.expires_at ?? null
 
   // Load intercept warmup requests setting (applies to all account types)

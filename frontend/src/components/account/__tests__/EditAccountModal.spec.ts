@@ -541,6 +541,25 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.base_url).toBe('https://api.x.ai/v1')
   })
 
+  it('submits the account priority for each selected group', async () => {
+    const account = buildAccount()
+    account.group_ids = [7, 8]
+    account.account_groups = [
+      { account_id: 1, group_id: 7, priority: 100 },
+      { account_id: 1, group_id: 8, priority: 10 }
+    ]
+    updateAccountMock.mockReset()
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.group_priorities).toEqual({
+      7: 100,
+      8: 10
+    })
+  })
+
   it('only submits model mapping credentials when saving an OpenAI spark shadow account', async () => {
     authIsSimpleMode.value = false
     const account = buildOpenAISparkShadowAccount()

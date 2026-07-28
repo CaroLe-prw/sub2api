@@ -145,6 +145,7 @@ type UpdateAccountRequest struct {
 	LoadFactor              *int           `json:"load_factor"`
 	Status                  string         `json:"status" binding:"omitempty,oneof=active inactive error"`
 	GroupIDs                *[]int64       `json:"group_ids"`
+	GroupPriorities         *map[int64]int `json:"group_priorities"`
 	ExpiresAt               *int64         `json:"expires_at"`
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
@@ -267,9 +268,9 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	return item
 }
 
-// scoreOpenAIAccountSchedulerPool 对池内 OpenAI 账号计算调度分数快照。
+// scoreOpenAIAccountSchedulerPool 对池内 OpenAI 账号按指定分组计算调度分数快照。
 // loadMap 为共享的账号负载数据（含池内全部账号即可，多余条目无害）；传 nil 时自行批查。
-func (h *AccountHandler) scoreOpenAIAccountSchedulerPool(ctx context.Context, accounts []service.Account, loadMap map[int64]*service.AccountLoadInfo) map[int64]AccountSchedulerScore {
+func (h *AccountHandler) scoreOpenAIAccountSchedulerPool(ctx context.Context, groupID *int64, accounts []service.Account, loadMap map[int64]*service.AccountLoadInfo) map[int64]AccountSchedulerScore {
 	if len(accounts) == 0 {
 		return nil
 	}
@@ -292,9 +293,9 @@ func (h *AccountHandler) scoreOpenAIAccountSchedulerPool(ctx context.Context, ac
 
 	var scores map[int64]service.OpenAIAccountSchedulerScoreSnapshot
 	if h.rateLimitService != nil {
-		scores = h.rateLimitService.BuildOpenAIAccountSchedulerScoreSnapshot(ctx, openAIAccounts, loadMap)
+		scores = h.rateLimitService.BuildOpenAIAccountSchedulerScoreSnapshot(ctx, openAIAccounts, loadMap, groupID)
 	} else {
-		scores = service.BuildOpenAIAccountSchedulerScoreSnapshot(openAIAccounts, loadMap)
+		scores = service.BuildOpenAIAccountSchedulerScoreSnapshot(openAIAccounts, loadMap, groupID)
 	}
 	result := make(map[int64]AccountSchedulerScore, len(scores))
 	for accountID, score := range scores {
@@ -342,6 +343,7 @@ func (h *AccountHandler) buildOpenAIAccountSchedulerScores(
 	ctx context.Context,
 	accounts []service.Account,
 	filterPool []service.Account,
+	filterGroupID *int64,
 ) (map[int64]*AccountSchedulerScore, map[int64][]AccountSchedulerGroupScore) {
 	if len(accounts) == 0 {
 		return nil, nil
@@ -412,7 +414,7 @@ func (h *AccountHandler) buildOpenAIAccountSchedulerScores(
 	loadMap := h.fetchOpenAIAccountLoadMap(ctx, loadUnion)
 
 	baseScores := make(map[int64]*AccountSchedulerScore)
-	for accountID, score := range h.scoreOpenAIAccountSchedulerPool(ctx, filterPool, loadMap) {
+	for accountID, score := range h.scoreOpenAIAccountSchedulerPool(ctx, filterGroupID, filterPool, loadMap) {
 		copiedScore := score
 		baseScores[accountID] = &copiedScore
 	}
@@ -422,7 +424,7 @@ func (h *AccountHandler) buildOpenAIAccountSchedulerScores(
 		if len(pool) == 0 {
 			return
 		}
-		scores := h.scoreOpenAIAccountSchedulerPool(ctx, pool, loadMap)
+		scores := h.scoreOpenAIAccountSchedulerPool(ctx, groupID, pool, loadMap)
 		for accountID, schedulerScore := range scores {
 			if _, ok := pageOpenAIAccountIDs[accountID]; !ok {
 				continue
@@ -569,7 +571,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 	if includeSchedulerScore && pageHasOpenAIAccounts {
 		schedulerFilterPool := h.listAccountSchedulerScoreFilterPool(c.Request.Context(), platform, accountType, status, search, groupID, privacyMode)
-		schedulerScores, schedulerGroupScores = h.buildOpenAIAccountSchedulerScores(c.Request.Context(), accounts, schedulerFilterPool)
+		var schedulerFilterGroupID *int64
+		if groupID > 0 {
+			schedulerFilterGroupID = &groupID
+		}
+		schedulerScores, schedulerGroupScores = h.buildOpenAIAccountSchedulerScores(c.Request.Context(), accounts, schedulerFilterPool, schedulerFilterGroupID)
 	}
 
 	// 始终获取并发数（Redis ZCARD，极低开销）
@@ -985,6 +991,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		LoadFactor:            req.LoadFactor,
 		Status:                req.Status,
 		GroupIDs:              req.GroupIDs,
+		GroupPriorities:       req.GroupPriorities,
 		ExpiresAt:             req.ExpiresAt,
 		AutoPauseOnExpired:    req.AutoPauseOnExpired,
 		SkipMixedChannelCheck: skipCheck,

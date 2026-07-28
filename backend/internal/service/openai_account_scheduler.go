@@ -564,9 +564,16 @@ func openAIStickyAccountMatchesGroup(account *Account, groupID *int64) bool {
 	return false
 }
 
-func openAIAccountSchedulingPriority(account *Account) int {
+func openAIAccountSchedulingPriority(account *Account, groupID *int64) int {
 	if account == nil {
 		return 0
+	}
+	if groupID != nil {
+		for _, accountGroup := range account.AccountGroups {
+			if accountGroup.GroupID == *groupID {
+				return accountGroup.Priority
+			}
+		}
 	}
 	return account.Priority
 }
@@ -839,7 +846,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		return plan
 	}
 
-	minPriority, maxPriority := openAIAccountSchedulingPriority(candidates[0].account), openAIAccountSchedulingPriority(candidates[0].account)
+	minPriority, maxPriority := openAIAccountSchedulingPriority(candidates[0].account, req.GroupID), openAIAccountSchedulingPriority(candidates[0].account, req.GroupID)
 	maxWaiting := 1
 	loadRateSum := 0.0
 	loadRateSumSquares := 0.0
@@ -847,7 +854,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	hasTTFTSample := false
 	for i := range candidates {
 		candidate := &candidates[i]
-		candidate.priority = openAIAccountSchedulingPriority(candidate.account)
+		candidate.priority = openAIAccountSchedulingPriority(candidate.account, req.GroupID)
 		if candidate.priority < minPriority {
 			minPriority = candidate.priority
 		}
@@ -2389,6 +2396,7 @@ func (s *RateLimitService) BuildOpenAIAccountSchedulerScoreSnapshot(
 	ctx context.Context,
 	accounts []*Account,
 	loadMap map[int64]*AccountLoadInfo,
+	groupID *int64,
 ) map[int64]OpenAIAccountSchedulerScoreSnapshot {
 	gateway := &OpenAIGatewayService{cfg: nil, rateLimitService: s}
 	if s != nil {
@@ -2400,15 +2408,17 @@ func (s *RateLimitService) BuildOpenAIAccountSchedulerScoreSnapshot(
 		gateway.openAIWSSchedulerWeightsForRequest(ctx),
 		gateway.isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx),
 		gateway.openAIOAuthSchedulingRateMultiplier(ctx),
+		groupID,
 	)
 }
 
 func BuildOpenAIAccountSchedulerScoreSnapshot(
 	accounts []*Account,
 	loadMap map[int64]*AccountLoadInfo,
+	groupID *int64,
 ) map[int64]OpenAIAccountSchedulerScoreSnapshot {
 	gateway := &OpenAIGatewayService{}
-	return buildOpenAIAccountSchedulerScoreSnapshot(accounts, loadMap, gateway.openAIWSSchedulerWeights(), false, defaultOpenAIOAuthSchedulingRateMultiplier)
+	return buildOpenAIAccountSchedulerScoreSnapshot(accounts, loadMap, gateway.openAIWSSchedulerWeights(), false, defaultOpenAIOAuthSchedulingRateMultiplier, groupID)
 }
 
 func buildOpenAIAccountSchedulerScoreSnapshot(
@@ -2417,6 +2427,7 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 	weights GatewayOpenAIWSSchedulerScoreWeightsView,
 	stickyWeightedEnabled bool,
 	oauthSchedulingRateMultiplier float64,
+	groupID *int64,
 ) map[int64]OpenAIAccountSchedulerScoreSnapshot {
 	if len(accounts) == 0 {
 		return nil
@@ -2442,11 +2453,11 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 		return nil
 	}
 
-	minPriority, maxPriority := openAIAccountSchedulingPriority(candidates[0].account), openAIAccountSchedulingPriority(candidates[0].account)
+	minPriority, maxPriority := openAIAccountSchedulingPriority(candidates[0].account, groupID), openAIAccountSchedulingPriority(candidates[0].account, groupID)
 	maxWaiting := 1
 	for i := range candidates {
 		candidate := &candidates[i]
-		candidate.priority = openAIAccountSchedulingPriority(candidate.account)
+		candidate.priority = openAIAccountSchedulingPriority(candidate.account, groupID)
 		if candidate.priority < minPriority {
 			minPriority = candidate.priority
 		}

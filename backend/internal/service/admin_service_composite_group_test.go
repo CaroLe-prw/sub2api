@@ -145,6 +145,32 @@ func TestAdminService_UpdateAccountAllowsCompositeGroupAssignment(t *testing.T) 
 	require.ElementsMatch(t, []int64{99}, accountRepo.bindGroupsByAccount[7])
 }
 
+func TestAdminService_UpdateAccountPersistsPerGroupPriorities(t *testing.T) {
+	accountRepo := &accountRepoStubForBulkUpdate{
+		getByIDAccounts: map[int64]*Account{
+			7: {ID: 7, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Extra: map[string]any{}},
+		},
+	}
+	groupRepo := &groupRepoStubForAdmin{
+		getByIDByID: map[int64]*Group{
+			10: {ID: 10, Platform: PlatformOpenAI},
+			20: {ID: 20, Platform: PlatformOpenAI},
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: accountRepo, groupRepo: groupRepo}
+	groupIDs := []int64{10, 20}
+	priorities := map[int64]int{10: 100, 20: 10}
+
+	_, err := svc.UpdateAccount(context.Background(), 7, &UpdateAccountInput{
+		GroupIDs:              &groupIDs,
+		GroupPriorities:       &priorities,
+		SkipMixedChannelCheck: true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, priorities, accountRepo.groupPrioritiesByAccount[7])
+}
+
 func TestAdminService_CompositeModelsListCandidatesIncludeConcreteAccountMappings(t *testing.T) {
 	accountRepo := &accountRepoStubForCompositeModelsList{
 		accounts: []Account{

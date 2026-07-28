@@ -2556,9 +2556,9 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SubscriptionPriorityDis
 	}
 }
 
-func TestOpenAIGatewayService_SelectAccountWithScheduler_UsesAccountPriorityWithinGroupPool(t *testing.T) {
+func TestOpenAIGatewayService_SelectAccountWithScheduler_UsesGroupPriorityWithinGroupPools(t *testing.T) {
 	ctx := context.Background()
-	groupID := int64(10123)
+	groupID, otherGroupID := int64(10123), int64(10124)
 	accounts := []Account{
 		{
 			ID:          21631,
@@ -2570,8 +2570,9 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_UsesAccountPriorityWith
 			Priority:    1,
 			AccountGroups: []AccountGroup{
 				{AccountID: 21631, GroupID: groupID, Priority: 100},
+				{AccountID: 21631, GroupID: otherGroupID, Priority: 1},
 			},
-			GroupIDs: []int64{groupID},
+			GroupIDs: []int64{groupID, otherGroupID},
 		},
 		{
 			ID:          21632,
@@ -2583,8 +2584,9 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_UsesAccountPriorityWith
 			Priority:    100000,
 			AccountGroups: []AccountGroup{
 				{AccountID: 21632, GroupID: groupID, Priority: 1},
+				{AccountID: 21632, GroupID: otherGroupID, Priority: 100},
 			},
-			GroupIDs: []int64{groupID},
+			GroupIDs: []int64{groupID, otherGroupID},
 		},
 	}
 	cfg := newSchedulerTestSubscriptionPriorityConfig()
@@ -2598,14 +2600,23 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_UsesAccountPriorityWith
 		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
 	}
 
-	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_group_priority", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
-	require.NoError(t, err)
-	require.NotNil(t, selection)
-	require.NotNil(t, selection.Account)
-	require.Equal(t, int64(21631), selection.Account.ID)
-	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
-	if selection.ReleaseFunc != nil {
-		selection.ReleaseFunc()
+	for _, tc := range []struct {
+		groupID   int64
+		expected  int64
+		sessionID string
+	}{
+		{groupID: groupID, expected: 21632, sessionID: "session_group_priority_a"},
+		{groupID: otherGroupID, expected: 21631, sessionID: "session_group_priority_b"},
+	} {
+		selection, decision, err := svc.SelectAccountWithScheduler(ctx, &tc.groupID, "", tc.sessionID, "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
+		require.NoError(t, err)
+		require.NotNil(t, selection)
+		require.NotNil(t, selection.Account)
+		require.Equal(t, tc.expected, selection.Account.ID)
+		require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
+		if selection.ReleaseFunc != nil {
+			selection.ReleaseFunc()
+		}
 	}
 }
 

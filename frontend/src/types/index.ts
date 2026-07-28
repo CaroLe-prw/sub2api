@@ -1029,6 +1029,13 @@ export interface OllamaCloudUsageSettings {
   debounce_minutes: number
 }
 
+export interface AccountGroup {
+  account_id: number
+  group_id: number
+  priority: number
+  created_at: string
+}
+
 export interface Account {
   id: number
   name: string
@@ -1072,6 +1079,7 @@ export interface Account {
   created_at: string
   updated_at: string
   proxy?: Proxy
+  account_groups?: AccountGroup[]
   group_ids?: number[] // Groups this account belongs to
   groups?: Group[] // Preloaded group objects
 
@@ -1348,6 +1356,7 @@ export interface UpdateAccountRequest {
   schedulable?: boolean
   status?: 'active' | 'inactive' | 'error'
   group_ids?: number[]
+  group_priorities?: Record<number, number>
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   confirm_mixed_channel_risk?: boolean
