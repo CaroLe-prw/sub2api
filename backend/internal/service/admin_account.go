@@ -359,11 +359,32 @@ func ValidateOpenAILongContextBillingExtra(platform string, extra map[string]any
 	return nil
 }
 
+// ValidateOpenAIForceFastModeExtra validates the upstream-only Fast override.
+func ValidateOpenAIForceFastModeExtra(platform string, extra map[string]any) error {
+	if platform != PlatformOpenAI {
+		return nil
+	}
+	raw, exists := extra[openAIForceFastModeExtraKey]
+	if !exists {
+		return nil
+	}
+	if _, ok := raw.(bool); !ok {
+		return infraerrors.BadRequest(
+			"OPENAI_FORCE_FAST_MODE_INVALID",
+			"openai_force_fast_mode must be a boolean",
+		)
+	}
+	return nil
+}
+
 func normalizeOpenAILongContextBillingExtra(platform string, extra map[string]any) (map[string]any, error) {
 	if platform != PlatformOpenAI {
 		return extra, nil
 	}
 	if err := ValidateOpenAILongContextBillingExtra(platform, extra); err != nil {
+		return nil, err
+	}
+	if err := ValidateOpenAIForceFastModeExtra(platform, extra); err != nil {
 		return nil, err
 	}
 
@@ -389,6 +410,11 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 	if !provided {
 		if hasCurrent {
 			normalized[openAILongContextBillingEnabledKey] = current
+		}
+	}
+	if _, provided := input.Extra[openAIForceFastModeExtraKey]; !provided {
+		if current, ok := account.Extra[openAIForceFastModeExtraKey].(bool); ok {
+			normalized[openAIForceFastModeExtraKey] = current
 		}
 	}
 	return normalized, nil
@@ -891,12 +917,17 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	delete(updates, OllamaCloudUsageSessionExtraKey)
 	delete(updates, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(updates, OllamaCloudUsageSnapshotExtraKey)
-	if _, exists := updates[openAILongContextBillingEnabledKey]; exists {
+	_, hasLongContextBilling := updates[openAILongContextBillingEnabledKey]
+	_, hasForceFastMode := updates[openAIForceFastModeExtraKey]
+	if hasLongContextBilling || hasForceFastMode {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {
 			return err
 		}
 		if err := ValidateOpenAILongContextBillingExtra(account.Platform, updates); err != nil {
+			return err
+		}
+		if err := ValidateOpenAIForceFastModeExtra(account.Platform, updates); err != nil {
 			return err
 		}
 	}
@@ -941,10 +972,11 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	needMixedChannelCheck := input.GroupIDs != nil && !input.SkipMixedChannelCheck
 	_, hasLongContextBillingUpdate := input.Extra[openAILongContextBillingEnabledKey]
+	_, hasForceFastModeUpdate := input.Extra[openAIForceFastModeExtraKey]
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || hasForceFastModeUpdate || input.ProbeEnabled != nil {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -968,12 +1000,15 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			}
 		}
 	}
-	if hasLongContextBillingUpdate {
+	if hasLongContextBillingUpdate || hasForceFastModeUpdate {
 		for _, account := range cachedTargets {
 			if account == nil || account.Platform != PlatformOpenAI {
 				continue
 			}
 			if err := ValidateOpenAILongContextBillingExtra(account.Platform, input.Extra); err != nil {
+				return nil, err
+			}
+			if err := ValidateOpenAIForceFastModeExtra(account.Platform, input.Extra); err != nil {
 				return nil, err
 			}
 			break

@@ -83,7 +83,10 @@ type Account struct {
 
 type OpenAIEndpointCapability string
 
-const openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"
+const (
+	openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"
+	openAIForceFastModeExtraKey        = "openai_force_fast_mode"
+)
 
 const (
 	OpenAIEndpointCapabilityChatCompletions OpenAIEndpointCapability = "chat_completions"
@@ -148,6 +151,16 @@ func (a *Account) BillingRateMultiplier() float64 {
 		return 1.0
 	}
 	return *a.RateMultiplier
+}
+
+// IsOpenAIForceFastModeEnabled reports whether this account should always send
+// service_tier=priority to its OpenAI upstream.
+func (a *Account) IsOpenAIForceFastModeEnabled() bool {
+	if a == nil || a.Platform != PlatformOpenAI {
+		return false
+	}
+	enabled, _ := a.Extra[openAIForceFastModeExtraKey].(bool)
+	return enabled
 }
 
 func (a *Account) EffectiveLoadFactor() int {

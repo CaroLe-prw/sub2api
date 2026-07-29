@@ -816,6 +816,19 @@ func extractOpenAIServiceTierFromBody(body []byte) *string {
 	return normalizeOpenAIServiceTier(gjson.GetBytes(body, "service_tier").String())
 }
 
+// applyOpenAIAccountForceFastModeToBody changes only the outbound copy. Callers
+// must keep deriving billing metadata from their pre-transport body.
+func applyOpenAIAccountForceFastModeToBody(account *Account, body []byte) ([]byte, error) {
+	if len(body) == 0 || !account.IsOpenAIForceFastModeEnabled() {
+		return body, nil
+	}
+	updated, err := sjson.SetBytes(body, "service_tier", OpenAIFastTierPriority)
+	if err != nil {
+		return body, fmt.Errorf("force account upstream service_tier priority: %w", err)
+	}
+	return updated, nil
+}
+
 func normalizeOpenAIServiceTier(raw string) *string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	if value == "" {

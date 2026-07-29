@@ -395,6 +395,26 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it('loads and submits the per-account upstream Fast override', async () => {
+    const account = buildAccount()
+    account.extra = {
+      openai_force_fast_mode: true
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const toggle = wrapper.get('[data-testid="openai-force-fast-mode-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_force_fast_mode).toBe(true)
+  })
+
   it('loads and submits the per-account OpenAI long-context billing toggle', async () => {
     const account = buildAccount()
     account.extra = {
