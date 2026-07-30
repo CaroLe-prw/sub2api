@@ -12,9 +12,12 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -59,6 +62,7 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 	"passive_usage_",
 	"upstream_billing_probe",
 	"ollama_cloud_usage",
+	"newapi_",
 }
 
 var schedulerNeutralExtraKeys = map[string]struct{}{
@@ -2545,27 +2549,32 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 	return nil
 }
 
-// UpdateUpstreamBillingProbeSnapshot stores a probe result only while the
-// network identity used by that probe is still current.
+// UpdateUpstreamBillingProbeSnapshot stores a probe result and, on successful
+// discovery, its calibrated account cost multiplier only while the network
+// identity used by that probe is still current.
 func (r *accountRepository) UpdateUpstreamBillingProbeSnapshot(
 	ctx context.Context,
 	account *service.Account,
 	snapshot *service.UpstreamBillingProbeSnapshot,
+	rateMultiplier *float64,
 ) error {
 	if account == nil || snapshot == nil {
 		return service.ErrAccountNilInput
 	}
+	if rateMultiplier != nil && (*rateMultiplier < 0 || math.IsNaN(*rateMultiplier) || math.IsInf(*rateMultiplier, 0)) {
+		return errors.New("invalid upstream billing probe ratio")
+	}
 	if dbent.TxFromContext(ctx) == nil {
 		tx, err := r.client.Tx(ctx)
 		if errors.Is(err, dbent.ErrTxStarted) {
-			return r.updateUpstreamBillingProbeSnapshotInTx(ctx, account, snapshot)
+			return r.updateUpstreamBillingProbeSnapshotInTx(ctx, account, snapshot, rateMultiplier)
 		}
 		if err != nil {
 			return err
 		}
 		defer func() { _ = tx.Rollback() }()
 
-		if err := r.updateUpstreamBillingProbeSnapshotInTx(dbent.NewTxContext(ctx, tx), account, snapshot); err != nil {
+		if err := r.updateUpstreamBillingProbeSnapshotInTx(dbent.NewTxContext(ctx, tx), account, snapshot, rateMultiplier); err != nil {
 			return err
 		}
 		if err := tx.Commit(); err != nil {
@@ -2576,13 +2585,14 @@ func (r *accountRepository) UpdateUpstreamBillingProbeSnapshot(
 		r.syncSchedulerAccountSnapshot(ctx, account.ID)
 		return nil
 	}
-	return r.updateUpstreamBillingProbeSnapshotInTx(ctx, account, snapshot)
+	return r.updateUpstreamBillingProbeSnapshotInTx(ctx, account, snapshot, rateMultiplier)
 }
 
 func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 	ctx context.Context,
 	account *service.Account,
 	snapshot *service.UpstreamBillingProbeSnapshot,
+	rateMultiplier *float64,
 ) error {
 	payload, err := json.Marshal(map[string]any{service.UpstreamBillingProbeExtraKey: snapshot})
 	if err != nil {
@@ -2622,7 +2632,9 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 	}
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
-		SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb, updated_at = NOW()
+		SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb,
+			rate_multiplier = COALESCE($9, rate_multiplier),
+			updated_at = NOW()
 		WHERE id = $2
 			AND platform = $3
 			AND type = $4
@@ -2631,7 +2643,7 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 			AND COALESCE(extra -> 'upstream_billing_probe', 'null'::jsonb) = $7::jsonb
 			AND COALESCE(extra -> 'upstream_billing_probe_enabled', 'null'::jsonb) = $8::jsonb
 			AND deleted_at IS NULL
-	`, string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expectedSnapshotJSON), string(expectedEnabledJSON))
+	`, string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expectedSnapshotJSON), string(expectedEnabledJSON), rateMultiplier)
 	if err != nil {
 		return err
 	}
@@ -2643,6 +2655,179 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 		return service.ErrUpstreamBillingProbeIdentityChanged
 	}
 	return enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, nil)
+}
+
+// UpdateNewAPISyncResult atomically commits sanitized synchronization state and,
+// only when it changed, the account cost multiplier. The identity hash prevents
+// an in-flight request from applying after an administrator changed credentials.
+func (r *accountRepository) UpdateNewAPISyncResult(
+	ctx context.Context,
+	write *service.NewAPISyncWrite,
+) (*service.NewAPISyncWriteResult, error) {
+	if write == nil || write.AccountID <= 0 {
+		return nil, service.ErrAccountNilInput
+	}
+	if write.Ratio != nil && (*write.Ratio < 0 || math.IsNaN(*write.Ratio) || math.IsInf(*write.Ratio, 0)) {
+		return nil, errors.New("invalid NewAPI synchronization ratio")
+	}
+	if dbent.TxFromContext(ctx) == nil {
+		tx, err := r.client.Tx(ctx)
+		if errors.Is(err, dbent.ErrTxStarted) {
+			return r.updateNewAPISyncResultInTx(ctx, write)
+		}
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		result, err := r.updateNewAPISyncResultInTx(dbent.NewTxContext(ctx, tx), write)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		if result.Changed || write.SchedulingSnapshot != nil {
+			r.syncSchedulerAccountSnapshot(ctx, write.AccountID)
+		}
+		return result, nil
+	}
+	return r.updateNewAPISyncResultInTx(ctx, write)
+}
+
+func (r *accountRepository) updateNewAPISyncResultInTx(
+	ctx context.Context,
+	write *service.NewAPISyncWrite,
+) (*service.NewAPISyncWriteResult, error) {
+	client := clientFromContext(ctx, r.client)
+	rows, err := client.QueryContext(ctx, `
+		SELECT
+			rate_multiplier,
+			COALESCE(extra ->> $2, ''),
+			COALESCE(credentials ->> 'base_url', ''),
+			COALESCE(credentials ->> 'api_key', '')
+		FROM accounts
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE
+	`, write.AccountID, "newapi_sync_identity_hash")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var oldRatio float64
+	var currentIdentity string
+	var currentAccountBaseURL string
+	var currentAccountAPIKey string
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, service.ErrAccountNotFound
+	}
+	if err := rows.Scan(&oldRatio, &currentIdentity, &currentAccountBaseURL, &currentAccountAPIKey); err != nil {
+		return nil, err
+	}
+	// A transaction is pinned to one PostgreSQL connection. Close the SELECT
+	// result before issuing UPDATE on that same connection, otherwise lib/pq can
+	// observe interleaved protocol messages (for example, Parse response 'C').
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if currentIdentity == "" || currentIdentity != write.ExpectedIdentity {
+		return nil, service.ErrNewAPISyncIdentityChanged
+	}
+	if write.ExpectedAccountBaseURL != nil &&
+		strings.TrimSpace(currentAccountBaseURL) != strings.TrimSpace(*write.ExpectedAccountBaseURL) {
+		return nil, service.ErrNewAPISyncIdentityChanged
+	}
+	if hashNewAPIAccountAPIKey(currentAccountAPIKey) != write.ExpectedAccountAPIKeyHash {
+		return nil, service.ErrNewAPISyncIdentityChanged
+	}
+
+	updates := map[string]any{
+		service.NewAPILastSyncAtExtraKey:     write.AttemptedAt.UTC(),
+		service.NewAPILastSyncStatusExtraKey: write.Status,
+		service.NewAPILastSyncErrorExtraKey:  write.Error,
+	}
+	if write.Status != service.NewAPISyncStatusFailed {
+		updates[service.NewAPIResolvedUserGroupExtraKey] = stringPointerValue(write.UserGroup)
+		updates[service.NewAPIResolvedTokenGroupExtraKey] = stringPointerValue(write.TokenGroup)
+		updates[service.NewAPIResolvedActualGroupExtraKey] = stringPointerValue(write.ActualGroup)
+		updates[service.NewAPIRatioSourceExtraKey] = stringPointerValue(write.RatioSource)
+		updates[service.NewAPICrossGroupRetryExtraKey] = boolPointerValue(write.CrossGroupRetry)
+		if write.SchedulingSnapshot != nil {
+			updates[service.UpstreamBillingProbeExtraKey] = write.SchedulingSnapshot
+		}
+	}
+	payload, err := json.Marshal(updates)
+	if err != nil {
+		return nil, err
+	}
+
+	newRatio := oldRatio
+	changed := false
+	var result sql.Result
+	if write.Ratio != nil {
+		newRatio = *write.Ratio
+		changed = math.Abs(oldRatio-newRatio) > 1e-9
+	}
+	if changed {
+		result, err = client.ExecContext(ctx, `
+			UPDATE accounts
+			SET rate_multiplier = $1,
+				extra = COALESCE(extra, '{}'::jsonb) || $2::jsonb,
+				updated_at = NOW()
+			WHERE id = $3
+				AND COALESCE(extra ->> $4, '') = $5
+				AND deleted_at IS NULL
+		`, newRatio, string(payload), write.AccountID, "newapi_sync_identity_hash", write.ExpectedIdentity)
+	} else {
+		result, err = client.ExecContext(ctx, `
+			UPDATE accounts
+			SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb,
+				updated_at = NOW()
+			WHERE id = $2
+				AND COALESCE(extra ->> $3, '') = $4
+				AND deleted_at IS NULL
+		`, string(payload), write.AccountID, "newapi_sync_identity_hash", write.ExpectedIdentity)
+	}
+	if err != nil {
+		return nil, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		return nil, service.ErrNewAPISyncIdentityChanged
+	}
+	if changed || write.SchedulingSnapshot != nil {
+		if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &write.AccountID, nil, nil); err != nil {
+			return nil, err
+		}
+	}
+	return &service.NewAPISyncWriteResult{
+		Changed:  changed,
+		OldRatio: oldRatio,
+		NewRatio: newRatio,
+	}, nil
+}
+
+func hashNewAPIAccountAPIKey(value string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(value)))
+	return hex.EncodeToString(sum[:])
+}
+
+func stringPointerValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func boolPointerValue(value *bool) bool {
+	return value != nil && *value
 }
 
 func lockAndMatchProbeProxyIdentity(ctx context.Context, client *dbent.Client, account *service.Account) (bool, error) {
@@ -3408,6 +3593,7 @@ func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Cont
 				AND platform = 'openai'
 				AND type = 'apikey'
 				AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb
+				AND NOT (extra @> '{"newapi_sync_enabled": true}'::jsonb)
 		), parsed AS MATERIALIZED (
 			SELECT
 				id,

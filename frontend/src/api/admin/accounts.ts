@@ -23,6 +23,9 @@ import type {
   CheckMixedChannelResponse,
   UpstreamBillingProbeResult,
   UpstreamBillingProbeSettings,
+  NewAPISyncConfig,
+  NewAPISyncConfigUpdate,
+  NewAPISyncResult,
   OllamaCloudUsageSettings,
   OllamaCloudUsageState
 } from '@/types'
@@ -892,6 +895,36 @@ export async function probeUpstreamBillingBatch(accountIds: number[]): Promise<U
   return data.results
 }
 
+export async function getNewAPISyncConfig(id: number): Promise<NewAPISyncConfig> {
+  const { data } = await apiClient.get<NewAPISyncConfig>(`/admin/accounts/${id}/newapi-sync`)
+  return data
+}
+
+export async function updateNewAPISyncConfig(
+  id: number,
+  config: NewAPISyncConfigUpdate
+): Promise<NewAPISyncConfig> {
+  const { data } = await apiClient.put<NewAPISyncConfig>(
+    `/admin/accounts/${id}/newapi-sync`,
+    config
+  )
+  return data
+}
+
+export async function testNewAPISyncConnection(id: number): Promise<NewAPISyncResult> {
+  const { data } = await apiClient.post<NewAPISyncResult>(
+    `/admin/accounts/${id}/newapi-sync/test`
+  )
+  return data
+}
+
+export async function syncNewAPIRatio(id: number): Promise<NewAPISyncResult> {
+  const { data } = await apiClient.post<NewAPISyncResult>(
+    `/admin/accounts/${id}/newapi-sync/run`
+  )
+  return data
+}
+
 export async function getOllamaCloudUsageSettings(): Promise<OllamaCloudUsageSettings> {
   const { data } = await apiClient.get<OllamaCloudUsageSettings>('/admin/accounts/ollama-cloud-usage/settings')
   return data
@@ -989,6 +1022,10 @@ export const accountsAPI = {
   setUpstreamBillingProbeEnabled,
   probeUpstreamBilling,
   probeUpstreamBillingBatch,
+  getNewAPISyncConfig,
+  updateNewAPISyncConfig,
+  testNewAPISyncConnection,
+  syncNewAPIRatio,
   getOllamaCloudUsageSettings,
   updateOllamaCloudUsageSettings,
   getOllamaCloudUsage,

@@ -61,8 +61,9 @@ func TestSchedulerMetadataAccountProjectsUpstreamBillingProbe(t *testing.T) {
 	account := service.Account{
 		ID: 42,
 		Extra: map[string]any{
-			"upstream_billing_probe": probe,
-			"unused_large_field":     "drop-me",
+			"upstream_billing_probe":           probe,
+			"openai_upstream_rate_calibration": 0.1,
+			"unused_large_field":               "drop-me",
 		},
 	}
 
@@ -90,6 +91,7 @@ func TestSchedulerMetadataAccountProjectsUpstreamBillingProbe(t *testing.T) {
 	require.NotContains(t, filteredData, "effective_rate_multiplier")
 	require.NotContains(t, filteredData, "remote_diagnostic")
 	require.NotContains(t, metadata.Extra, "unused_large_field")
+	require.Equal(t, 0.1, metadata.Extra[service.OpenAIUpstreamRateCalibrationExtraKey])
 	require.Contains(t, string(fullPayload), lastError)
 	require.NotContains(t, string(metaPayload), "last_error")
 	require.Less(t, len(metaPayload)*4, len(fullPayload))

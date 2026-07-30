@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMaskAuditCredential(t *testing.T) {
@@ -60,6 +62,19 @@ func TestRedactAuditBody_JSONRedactsSecrets(t *testing.T) {
 	if !strings.Contains(out, "acc1") {
 		t.Fatalf("name should be preserved: %s", out)
 	}
+}
+
+func TestRedactAuditBody_RedactsNewAPISyncCredentials(t *testing.T) {
+	raw := []byte(`{
+		"newapi_base_url":"https://newapi.example.test",
+		"newapi_user_access_token":"pat-obviously-fake",
+		"newapi_api_key":"sk-obviously-fake"
+	}`)
+	out := RedactAuditBody(raw, "application/json")
+	require.Contains(t, out, "https://newapi.example.test")
+	require.NotContains(t, out, "pat-obviously-fake")
+	require.NotContains(t, out, "sk-obviously-fake")
+	require.Contains(t, out, `"***"`)
 }
 
 // 裸键 "session"（Ollama Cloud 会话保存的请求体字段）值整体就是浏览器 Cookie 明文，

@@ -589,7 +589,7 @@
           <input
             v-model.number="createForm.rate_multiplier"
             type="number"
-            step="0.001"
+            step="any"
             min="0.001"
             required
             class="input"
@@ -902,7 +902,7 @@
             <input
               v-model.number="createForm.image_rate_multiplier"
               type="number"
-              step="0.0001"
+              step="any"
               min="0"
               class="input"
               placeholder="1"
@@ -984,7 +984,7 @@
                 <input
                   v-model.number="createForm.batch_image_discount_multiplier"
                   type="number"
-                  step="0.0001"
+                  step="any"
                   min="0"
                   class="input"
                   placeholder="0.5"
@@ -997,7 +997,7 @@
                 <input
                   v-model.number="createForm.batch_image_hold_multiplier"
                   type="number"
-                  step="0.0001"
+                  step="any"
                   min="0"
                   class="input"
                   placeholder="0.6"
@@ -1046,7 +1046,7 @@
             <input
               v-model.number="createForm.video_rate_multiplier"
               type="number"
-              step="0.0001"
+              step="any"
               min="0"
               class="input"
               placeholder="1"
@@ -1142,7 +1142,7 @@
               <input
                 v-model.number="createForm.peak_rate_multiplier"
                 type="number"
-                step="0.001"
+                step="any"
                 min="0"
                 class="input"
                 placeholder="1"
@@ -2143,7 +2143,7 @@
           <input
             v-model.number="editForm.rate_multiplier"
             type="number"
-            step="0.001"
+            step="any"
             min="0.001"
             required
             class="input"
@@ -2457,7 +2457,7 @@
             <input
               v-model.number="editForm.image_rate_multiplier"
               type="number"
-              step="0.0001"
+              step="any"
               min="0"
               class="input"
               placeholder="1"
@@ -2539,7 +2539,7 @@
                 <input
                   v-model.number="editForm.batch_image_discount_multiplier"
                   type="number"
-                  step="0.0001"
+                  step="any"
                   min="0"
                   class="input"
                   placeholder="0.5"
@@ -2552,7 +2552,7 @@
                 <input
                   v-model.number="editForm.batch_image_hold_multiplier"
                   type="number"
-                  step="0.0001"
+                  step="any"
                   min="0"
                   class="input"
                   placeholder="0.6"
@@ -2601,7 +2601,7 @@
             <input
               v-model.number="editForm.video_rate_multiplier"
               type="number"
-              step="0.0001"
+              step="any"
               min="0"
               class="input"
               placeholder="1"
@@ -2697,7 +2697,7 @@
               <input
                 v-model.number="editForm.peak_rate_multiplier"
                 type="number"
-                step="0.001"
+                step="any"
                 min="0"
                 class="input"
                 placeholder="1"

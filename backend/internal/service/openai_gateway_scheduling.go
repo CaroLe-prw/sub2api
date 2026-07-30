@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -846,6 +847,7 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 }
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, useUpstreamTokenCost bool) (*AccountSelectionResult, error) {
+	ctx = s.withOpenAIGroupRateGuardContext(ctx, groupID, useUpstreamTokenCost)
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
@@ -1278,6 +1280,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 		if s.isOpenAIProxyStreamQuarantined(account) {
 			return nil
 		}
+		if s.isOpenAIAccountUnprofitableForGroup(ctx, account) {
+			return nil
+		}
 		return account
 	}
 
@@ -1300,7 +1305,51 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 	if s.isOpenAIProxyStreamQuarantined(latest) {
 		return nil
 	}
+	if s.isOpenAIAccountUnprofitableForGroup(ctx, latest) {
+		return nil
+	}
 	return latest
+}
+
+func (s *OpenAIGatewayService) withOpenAIGroupRateGuardContext(ctx context.Context, groupID *int64, enabled bool) context.Context {
+	guard := openAIGroupRateGuard{}
+	if !enabled || groupID == nil || *groupID <= 0 {
+		return context.WithValue(ctx, openAIGroupRateGuardContextKey{}, guard)
+	}
+	if current, ok := ctx.Value(openAIGroupRateGuardContextKey{}).(openAIGroupRateGuard); ok && current.enabled && current.groupID == *groupID {
+		return ctx
+	}
+
+	var group *Group
+	if s != nil && s.channelService != nil && s.channelService.groupRepo != nil {
+		group, _ = s.channelService.groupRepo.GetByIDLite(ctx, *groupID)
+	}
+	if group == nil && s != nil && s.schedulerSnapshot != nil {
+		group, _ = s.schedulerSnapshot.GetGroupByID(ctx, *groupID)
+	}
+	if group == nil {
+		return context.WithValue(ctx, openAIGroupRateGuardContextKey{}, guard)
+	}
+
+	now := time.Now()
+	saleRate := group.RateMultiplier * group.PeakMultiplierAt(now)
+	if saleRate < 0 || math.IsNaN(saleRate) || math.IsInf(saleRate, 0) {
+		return context.WithValue(ctx, openAIGroupRateGuardContextKey{}, guard)
+	}
+	guard = openAIGroupRateGuard{groupID: *groupID, saleRate: saleRate, now: now, enabled: true}
+	return context.WithValue(ctx, openAIGroupRateGuardContextKey{}, guard)
+}
+
+func (s *OpenAIGatewayService) isOpenAIAccountUnprofitableForGroup(ctx context.Context, account *Account) bool {
+	if account == nil {
+		return false
+	}
+	guard, ok := ctx.Value(openAIGroupRateGuardContextKey{}).(openAIGroupRateGuard)
+	if !ok || !guard.enabled {
+		return false
+	}
+	rate, ok := openAICalibratedFreshUpstreamBillingRate(account, guard.now)
+	return ok && rate > guard.saleRate
 }
 
 func (s *OpenAIGatewayService) openAIAccountMatchesSchedulingGroup(account *Account, groupID *int64) bool {

@@ -692,7 +692,7 @@
             id="bulk-edit-rate-multiplier"
             type="number"
             min="0"
-            step="0.01"
+            step="any"
             :disabled="!enableRateMultiplier"
             class="input"
             :class="!enableRateMultiplier && 'cursor-not-allowed opacity-50'"
@@ -890,6 +890,40 @@
             :options="upstreamBillingAutoProbeOptions"
             aria-labelledby="bulk-edit-upstream-billing-auto-probe-label"
           />
+        </div>
+      </div>
+
+      <div v-if="allOpenAIAPIKey" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-3 flex items-center justify-between">
+          <label
+            id="bulk-edit-upstream-rate-calibration-label"
+            class="input-label mb-0"
+            for="bulk-edit-upstream-rate-calibration-enabled"
+          >
+            {{ t('admin.accounts.upstreamBilling.calibrationFactor') }}
+          </label>
+          <input
+            v-model="enableUpstreamRateCalibration"
+            id="bulk-edit-upstream-rate-calibration-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-upstream-rate-calibration"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+        <div
+          id="bulk-edit-upstream-rate-calibration"
+          :class="!enableUpstreamRateCalibration && 'pointer-events-none opacity-50'"
+        >
+          <input
+            v-model.number="upstreamRateCalibration"
+            type="number"
+            min="0"
+            step="any"
+            required
+            class="input"
+            :disabled="!enableUpstreamRateCalibration"
+          />
+          <p class="input-hint">{{ t('admin.accounts.upstreamBilling.calibrationHint') }}</p>
         </div>
       </div>
 
@@ -1401,6 +1435,7 @@ const enableOpenAIPassthrough = ref(false)
 const enableOpenAIWSMode = ref(false)
 const enableOpenAIAPIKeyWSMode = ref(false)
 const enableUpstreamBillingAutoProbe = ref(false)
+const enableUpstreamRateCalibration = ref(false)
 const enableCodexCLIOnly = ref(false)
 const enableCodexCLIOnlyAppServer = ref(false)
 const enableOpenAICompactMode = ref(false)
@@ -1432,6 +1467,7 @@ const openaiPassthroughEnabled = ref(false)
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const upstreamBillingAutoProbeMode = ref<'enabled' | 'disabled'>('enabled')
+const upstreamRateCalibration = ref(1)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
@@ -1697,6 +1733,10 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     updates.upstream_billing_probe_enabled = upstreamBillingAutoProbeMode.value === 'enabled'
   }
 
+  if (enableUpstreamRateCalibration.value) {
+    ensureExtra().openai_upstream_rate_calibration = upstreamRateCalibration.value
+  }
+
   if (enableCodexCLIOnly.value) {
     const extra = ensureExtra()
     extra.codex_cli_only = codexCLIOnlyEnabled.value
@@ -1820,6 +1860,7 @@ const handleSubmit = async () => {
     enableOpenAIWSMode.value ||
     enableOpenAIAPIKeyWSMode.value ||
     enableUpstreamBillingAutoProbe.value ||
+    enableUpstreamRateCalibration.value ||
     enableCodexCLIOnly.value ||
     enableCodexCLIOnlyAppServer.value ||
     enableOpenAICompactMode.value ||
@@ -1949,6 +1990,7 @@ watch(
       enableOpenAIWSMode.value = false
       enableOpenAIAPIKeyWSMode.value = false
       enableUpstreamBillingAutoProbe.value = false
+      enableUpstreamRateCalibration.value = false
       enableCodexCLIOnly.value = false
       enableCodexCLIOnlyAppServer.value = false
       enableOpenAICompactMode.value = false
@@ -1976,6 +2018,7 @@ watch(
       openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       upstreamBillingAutoProbeMode.value = 'enabled'
+      upstreamRateCalibration.value = 1
       codexCLIOnlyEnabled.value = false
       codexCLIOnlyAppServerEnabled.value = false
       openAICompactMode.value = 'auto'

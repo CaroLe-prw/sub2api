@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 
 const componentPath = resolve(dirname(fileURLToPath(import.meta.url)), '../AppSidebar.vue')
 const componentSource = readFileSync(componentPath, 'utf8')
+const versionBadgePath = resolve(dirname(fileURLToPath(import.meta.url)), '../../common/VersionBadge.vue')
+const versionBadgeSource = readFileSync(versionBadgePath, 'utf8')
 const stylePath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../style.css')
 const styleSource = readFileSync(stylePath, 'utf8')
 
@@ -43,6 +45,17 @@ describe('AppSidebar scroll position persistence', () => {
 })
 
 describe('AppSidebar header styles', () => {
+  it('constrains long version labels to the available sidebar width', () => {
+    expect(componentSource).toContain(
+      '<VersionBadge class="min-w-0 max-w-full" :version="siteVersion" />'
+    )
+    expect(versionBadgeSource).toContain('class="relative min-w-0 max-w-full"')
+    expect(versionBadgeSource).toContain(
+      'class="flex w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden'
+    )
+    expect(versionBadgeSource).toContain('class="min-w-0 truncate font-medium"')
+  })
+
   it('does not clip the version badge dropdown', () => {
     const sidebarHeaderBlockMatch = styleSource.match(/\.sidebar-header\s*\{[\s\S]*?\n {2}\}/)
     const sidebarBrandBlockMatch = componentSource.match(/\.sidebar-brand\s*\{[\s\S]*?\n\}/)

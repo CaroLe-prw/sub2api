@@ -93,6 +93,31 @@ func TestAccountFromServiceShallow_RedactsOllamaCloudManagedExtra(t *testing.T) 
 	require.Contains(t, src.Extra, service.OllamaCloudUsageSessionExtraKey)
 }
 
+func TestAccountFromServiceShallow_MasksNewAPISyncSecretsAndHidesIdentity(t *testing.T) {
+	src := &service.Account{
+		ID: 10, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Extra: map[string]any{
+			service.NewAPISyncEnabledExtraKey:     true,
+			service.NewAPIUserAccessTokenExtraKey: "encrypted-access-token",
+			service.NewAPIAPIKeyExtraKey:          "encrypted-api-key",
+			service.NewAPISyncIdentityExtraKey:    "identity-hash",
+			service.NewAPILastSyncStatusExtraKey:  service.NewAPISyncStatusOK,
+		},
+	}
+
+	got := AccountFromServiceShallow(src)
+	require.Equal(t, service.NewAPISecretMask, got.Extra[service.NewAPIUserAccessTokenExtraKey])
+	require.Equal(t, service.NewAPISecretMask, got.Extra[service.NewAPIAPIKeyExtraKey])
+	require.NotContains(t, got.Extra, service.NewAPISyncIdentityExtraKey)
+	require.Equal(t, service.NewAPISyncStatusOK, got.Extra[service.NewAPILastSyncStatusExtraKey])
+
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "encrypted-access-token")
+	require.NotContains(t, string(raw), "encrypted-api-key")
+	require.NotContains(t, string(raw), "identity-hash")
+}
+
 func TestAccountFromServiceShallow_NilCredentialsOmitsStatus(t *testing.T) {
 	src := &service.Account{ID: 1, Name: "n", Platform: "anthropic", Type: "oauth"}
 	got := AccountFromServiceShallow(src)

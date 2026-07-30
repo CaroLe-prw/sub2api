@@ -69,6 +69,15 @@ type upstreamCostCountingAccountRepo struct {
 	getCalls int
 }
 
+type upstreamCostGroupRepo struct {
+	GroupRepository
+	group *Group
+}
+
+func (r *upstreamCostGroupRepo) GetByIDLite(context.Context, int64) (*Group, error) {
+	return r.group, nil
+}
+
 func (r *upstreamCostCountingAccountRepo) GetByID(_ context.Context, accountID int64) (*Account, error) {
 	r.getCalls++
 	account := r.accounts[accountID]
@@ -108,6 +117,72 @@ func upstreamCostTestAccount(id int64, status string, rate float64, receivedAt t
 
 func upstreamCostTestOAuthAccount(id int64) *Account {
 	return &Account{ID: id, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+}
+
+func TestOpenAISchedulingRateCalibratesFreshRateAndFallsBackToAccountRate(t *testing.T) {
+	now := time.Now()
+	account := upstreamCostTestAccount(1, UpstreamBillingProbeStatusOK, 1, now.Add(-time.Minute), 30*time.Minute)
+	fallback := 0.04
+	account.RateMultiplier = &fallback
+	account.Extra[OpenAIUpstreamRateCalibrationExtraKey] = 0.03
+
+	rate, ok := openAISchedulingRate(account, now, 1)
+	require.True(t, ok)
+	require.InDelta(t, 0.03, rate, 1e-12)
+
+	rate, ok = openAISchedulingRate(account, now.Add(2*time.Hour), 1)
+	require.True(t, ok)
+	require.Equal(t, fallback, rate)
+}
+
+func TestValidateOpenAIUpstreamRateCalibrationExtra(t *testing.T) {
+	require.NoError(t, ValidateOpenAIUpstreamRateCalibrationExtra(
+		PlatformOpenAI,
+		map[string]any{OpenAIUpstreamRateCalibrationExtraKey: 0.03},
+	))
+	require.Error(t, ValidateOpenAIUpstreamRateCalibrationExtra(
+		PlatformOpenAI,
+		map[string]any{OpenAIUpstreamRateCalibrationExtraKey: -0.01},
+	))
+}
+
+func TestOpenAIGroupRateGuardBlocksOnlyFreshCalibratedLoss(t *testing.T) {
+	now := time.Now()
+	account := upstreamCostTestAccount(1, UpstreamBillingProbeStatusOK, 1, now.Add(-time.Minute), 30*time.Minute)
+	account.Extra[OpenAIUpstreamRateCalibrationExtraKey] = 0.08
+	groupID := int64(7)
+	service := &OpenAIGatewayService{
+		channelService: &ChannelService{
+			groupRepo: &upstreamCostGroupRepo{group: &Group{ID: groupID, RateMultiplier: 0.07}},
+		},
+	}
+	ctx := service.withOpenAIGroupRateGuardContext(context.Background(), &groupID, true)
+
+	require.True(t, service.isOpenAIAccountUnprofitableForGroup(ctx, account))
+	compatible, reason := (&defaultOpenAIAccountScheduler{service: service}).isAccountRequestCompatibleReason(
+		ctx,
+		account,
+		OpenAIAccountScheduleRequest{UseUpstreamTokenCost: true},
+	)
+	require.False(t, compatible)
+	require.Equal(t, "upstream_rate_above_group", reason)
+
+	equalCtx := context.WithValue(context.Background(), openAIGroupRateGuardContextKey{}, openAIGroupRateGuard{
+		groupID: groupID, saleRate: 0.08, now: now, enabled: true,
+	})
+	require.False(t, service.isOpenAIAccountUnprofitableForGroup(equalCtx, account))
+
+	staleCtx := context.WithValue(context.Background(), openAIGroupRateGuardContextKey{}, openAIGroupRateGuard{
+		groupID: groupID, saleRate: 0.07, now: now.Add(2 * time.Hour), enabled: true,
+	})
+	require.False(t, service.isOpenAIAccountUnprofitableForGroup(staleCtx, account))
+
+	compatible, _ = (&defaultOpenAIAccountScheduler{service: service}).isAccountRequestCompatibleReason(
+		ctx,
+		account,
+		OpenAIAccountScheduleRequest{UseUpstreamTokenCost: false},
+	)
+	require.True(t, compatible)
 }
 
 func TestAdvancedCostSchedulerUsesTopKOverflowWhenPreferredAccountIsKnownFull(t *testing.T) {

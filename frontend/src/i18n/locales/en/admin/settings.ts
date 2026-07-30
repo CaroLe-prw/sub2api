@@ -360,11 +360,11 @@ export default {
       },
       upstreamBillingProbe: {
         title: 'Upstream Rate Auto Detection',
-        description: 'Periodically retrieve billing rates declared by upstream Sub2API sites connected to OpenAI API keys.',
+        description: 'Centrally schedule Sub2API declared-rate detection and NewAPI group-ratio synchronization.',
         enabled: 'Enable global auto detection',
-        enabledHint: 'When enabled, scheduled detection runs only for accounts that also enable automatic detection. Disabling stops all scheduled detection; manual detection remains available.',
-        intervalMinutes: 'Detection interval (minutes)',
-        intervalHint: 'Range: 5–1440 minutes. A successful result remains valid for two detection intervals.',
+        enabledHint: 'Only accounts that opt in to detection or synchronization are processed. Disabling stops scheduled jobs; manual actions remain available.',
+        intervalMinutes: 'Detection and sync interval (minutes)',
+        intervalHint: 'Range: 5–1440 minutes. NewAPI accounts are synchronized on this schedule using their effective user-group configuration.',
         saved: 'Upstream rate auto detection settings saved',
         saveFailed: 'Failed to save upstream rate auto detection settings'
       },
@@ -1202,7 +1202,7 @@ export default {
         ttftWeight: 'TTFT',
         resetWeight: 'Reset window',
         quotaHeadroomWeight: 'Quota headroom',
-        upstreamCostWeight: 'Billing rate',
+        upstreamCostWeight: 'Scheduling cost rate',
         previousResponseWeight: 'previous_response sticky',
         sessionStickyWeight: 'session_hash sticky'
       },

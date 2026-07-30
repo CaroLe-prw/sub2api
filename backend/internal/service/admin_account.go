@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -377,6 +378,24 @@ func ValidateOpenAIForceFastModeExtra(platform string, extra map[string]any) err
 	return nil
 }
 
+// ValidateOpenAIUpstreamRateCalibrationExtra validates the multiplier applied to fresh upstream rates.
+func ValidateOpenAIUpstreamRateCalibrationExtra(platform string, extra map[string]any) error {
+	if platform != PlatformOpenAI {
+		return nil
+	}
+	if _, exists := extra[OpenAIUpstreamRateCalibrationExtraKey]; !exists {
+		return nil
+	}
+	value, ok := resolveAccountExtraNumber(extra, OpenAIUpstreamRateCalibrationExtraKey)
+	if !ok || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		return infraerrors.BadRequest(
+			"OPENAI_UPSTREAM_RATE_CALIBRATION_INVALID",
+			"openai_upstream_rate_calibration must be a finite number >= 0",
+		)
+	}
+	return nil
+}
+
 func normalizeOpenAILongContextBillingExtra(platform string, extra map[string]any) (map[string]any, error) {
 	if platform != PlatformOpenAI {
 		return extra, nil
@@ -385,6 +404,9 @@ func normalizeOpenAILongContextBillingExtra(platform string, extra map[string]an
 		return nil, err
 	}
 	if err := ValidateOpenAIForceFastModeExtra(platform, extra); err != nil {
+		return nil, err
+	}
+	if err := ValidateOpenAIUpstreamRateCalibrationExtra(platform, extra); err != nil {
 		return nil, err
 	}
 
@@ -639,6 +661,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if err != nil {
 			return nil, err
 		}
+		normalizedExtra = preserveNewAPISyncManagedExtra(account, normalizedExtra)
 	}
 	previousProbeIdentity := upstreamBillingProbeIdentity(account)
 	previousOllamaUsageIdentity := ollamaCloudUsageIdentity(account)
@@ -919,7 +942,8 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	delete(updates, OllamaCloudUsageSnapshotExtraKey)
 	_, hasLongContextBilling := updates[openAILongContextBillingEnabledKey]
 	_, hasForceFastMode := updates[openAIForceFastModeExtraKey]
-	if hasLongContextBilling || hasForceFastMode {
+	_, hasUpstreamRateCalibration := updates[OpenAIUpstreamRateCalibrationExtraKey]
+	if hasLongContextBilling || hasForceFastMode || hasUpstreamRateCalibration {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {
 			return err
@@ -928,6 +952,9 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 			return err
 		}
 		if err := ValidateOpenAIForceFastModeExtra(account.Platform, updates); err != nil {
+			return err
+		}
+		if err := ValidateOpenAIUpstreamRateCalibrationExtra(account.Platform, updates); err != nil {
 			return err
 		}
 	}
@@ -973,10 +1000,11 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	needMixedChannelCheck := input.GroupIDs != nil && !input.SkipMixedChannelCheck
 	_, hasLongContextBillingUpdate := input.Extra[openAILongContextBillingEnabledKey]
 	_, hasForceFastModeUpdate := input.Extra[openAIForceFastModeExtraKey]
+	_, hasUpstreamRateCalibrationUpdate := input.Extra[OpenAIUpstreamRateCalibrationExtraKey]
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || hasForceFastModeUpdate || input.ProbeEnabled != nil {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || hasForceFastModeUpdate || hasUpstreamRateCalibrationUpdate || input.ProbeEnabled != nil {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -1000,7 +1028,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			}
 		}
 	}
-	if hasLongContextBillingUpdate || hasForceFastModeUpdate {
+	if hasLongContextBillingUpdate || hasForceFastModeUpdate || hasUpstreamRateCalibrationUpdate {
 		for _, account := range cachedTargets {
 			if account == nil || account.Platform != PlatformOpenAI {
 				continue
@@ -1009,6 +1037,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 				return nil, err
 			}
 			if err := ValidateOpenAIForceFastModeExtra(account.Platform, input.Extra); err != nil {
+				return nil, err
+			}
+			if err := ValidateOpenAIUpstreamRateCalibrationExtra(account.Platform, input.Extra); err != nil {
 				return nil, err
 			}
 			break

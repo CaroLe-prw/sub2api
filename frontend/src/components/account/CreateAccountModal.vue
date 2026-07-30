@@ -1159,6 +1159,19 @@
             :aria-label="t('admin.accounts.upstreamBilling.autoProbe')"
           />
         </div>
+        <div v-if="form.platform === 'openai'">
+          <label class="input-label">{{ t('admin.accounts.upstreamBilling.calibrationFactor') }}</label>
+          <input
+            v-model.number="upstreamRateCalibration"
+            type="number"
+            min="0"
+            step="any"
+            required
+            class="input"
+            data-testid="upstream-rate-calibration"
+          />
+          <p class="input-hint">{{ t('admin.accounts.upstreamBilling.calibrationHint') }}</p>
+        </div>
 
         <!-- Gemini API Key tier selection -->
         <div v-if="form.platform === 'gemini'">
@@ -2741,7 +2754,14 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.billingRateMultiplier') }}</label>
-          <input v-model.number="form.rate_multiplier" type="number" min="0" step="0.001" class="input" />
+          <input
+            v-model.number="form.rate_multiplier"
+            type="number"
+            min="0"
+            step="any"
+            class="input"
+            data-testid="account-rate-multiplier"
+          />
           <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
         </div>
       </div>
@@ -3687,6 +3707,7 @@ const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
 const upstreamBillingAutoProbeEnabled = ref(true)
+const upstreamRateCalibration = ref(1)
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -4624,6 +4645,7 @@ const resetForm = () => {
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
   upstreamBillingAutoProbeEnabled.value = true
+  upstreamRateCalibration.value = 1
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4730,6 +4752,7 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   } else if (accountCategory.value === 'apikey') {
     extra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
     extra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
+    extra.openai_upstream_rate_calibration = upstreamRateCalibration.value
   }
   // 清理兼容旧键，统一改用分类型开关。
   delete extra.responses_websockets_v2_enabled

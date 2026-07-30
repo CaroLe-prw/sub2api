@@ -62,13 +62,18 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
-// Render the scheduler-score cell slot for every row so the fallback logic is observable.
+// Render the relevant cells for every row so their formatting is observable.
 const DataTableStub = {
   props: ['columns', 'data'],
   template: `
     <div data-test="data-table">
-      <div v-for="row in data" :key="row.id" :data-test="'scheduler-score-' + row.id">
-        <slot name="cell-scheduler_score" :row="row" />
+      <div v-for="row in data" :key="row.id">
+        <div :data-test="'scheduler-score-' + row.id">
+          <slot name="cell-scheduler_score" :row="row" />
+        </div>
+        <span :data-test="'rate-multiplier-' + row.id">
+          <slot name="cell-rate_multiplier" :row="row" />
+        </span>
       </div>
     </div>
   `
@@ -145,6 +150,7 @@ describe('admin AccountsView scheduler score column', () => {
           ...baseAccount,
           id: 1,
           name: 'ungrouped-openai',
+          rate_multiplier: 0.065,
           // 未分组账号：后端只返回基础分（scheduler_score），无分组维度分数
           scheduler_score: {
             base_score: 1.234567,
@@ -216,6 +222,13 @@ describe('admin AccountsView scheduler score column', () => {
     expect(groupedCell.exists()).toBe(true)
     expect(groupedCell.text()).toContain('group-five')
     expect(groupedCell.text()).toContain('2')
+  })
+
+  it('keeps the account billing multiplier precision in the list', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="rate-multiplier-1"]').text()).toBe('0.065x')
   })
 
   it('keeps scheduler score hidden for old saved column settings until the admin opts in again', async () => {

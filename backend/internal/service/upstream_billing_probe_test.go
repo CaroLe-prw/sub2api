@@ -110,7 +110,12 @@ func (r *upstreamBillingProbeAccountRepo) UpdateExtra(_ context.Context, id int6
 	return nil
 }
 
-func (r *upstreamBillingProbeAccountRepo) UpdateUpstreamBillingProbeSnapshot(_ context.Context, expected *Account, snapshot *UpstreamBillingProbeSnapshot) error {
+func (r *upstreamBillingProbeAccountRepo) UpdateUpstreamBillingProbeSnapshot(
+	_ context.Context,
+	expected *Account,
+	snapshot *UpstreamBillingProbeSnapshot,
+	rateMultiplier *float64,
+) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	account := r.accounts[expected.ID]
@@ -121,6 +126,10 @@ func (r *upstreamBillingProbeAccountRepo) UpdateUpstreamBillingProbeSnapshot(_ c
 		account.Extra = make(map[string]any)
 	}
 	account.Extra[UpstreamBillingProbeExtraKey] = snapshot
+	if rateMultiplier != nil {
+		ratio := *rateMultiplier
+		account.RateMultiplier = &ratio
+	}
 	return nil
 }
 
@@ -315,6 +324,48 @@ func TestUpstreamBillingProbeSuccessPersistsSanitizedSnapshot(t *testing.T) {
 	persisted := decodeUpstreamBillingProbeSnapshot(account.Extra)
 	require.NotNil(t, persisted)
 	require.Equal(t, snapshot.Status, persisted.Status)
+	require.NotNil(t, account.RateMultiplier)
+	require.InDelta(t, 0.9, *account.RateMultiplier, 1e-12)
+}
+
+func TestUpstreamBillingProbeSuccessPersistsCalibratedAccountRate(t *testing.T) {
+	initialRate := 0.04
+	account := &Account{
+		ID:             171,
+		Platform:       PlatformOpenAI,
+		Type:           AccountTypeAPIKey,
+		Status:         StatusActive,
+		Concurrency:    1,
+		RateMultiplier: &initialRate,
+		Credentials: map[string]any{
+			"api_key":  "sk-test",
+			"base_url": "https://upstream.example",
+		},
+		Extra: map[string]any{OpenAIUpstreamRateCalibrationExtraKey: 2.0},
+	}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{
+			"object":"sub2api.key_billing",
+			"schema_version":1,
+			"billing_scope":"token",
+			"group_rate_multiplier":0.0325,
+			"resolved_rate_multiplier":0.0325,
+			"peak_rate_enabled":false,
+			"effective_rate_multiplier":0.0325,
+			"observed_at":"2026-07-13T01:00:00Z"
+		}`)),
+	}}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+	svc.now = func() time.Time { return time.Date(2026, time.July, 13, 2, 0, 0, 0, time.UTC) }
+
+	_, err := svc.ProbeAccount(context.Background(), account.ID)
+
+	require.NoError(t, err)
+	require.NotNil(t, account.RateMultiplier)
+	require.InDelta(t, 0.065, *account.RateMultiplier, 1e-12)
 }
 
 func TestUpstreamBillingProbeRejectsMissingRequiredMultiplier(t *testing.T) {
@@ -456,6 +507,7 @@ func TestUpstreamBillingRateAtHandlesDST(t *testing.T) {
 
 func TestUpstreamBillingProbeFailurePreservesLastSuccessAndRetryAfter(t *testing.T) {
 	receivedAt := time.Date(2026, time.July, 12, 12, 0, 0, 0, time.UTC)
+	originalRate := 0.04
 	previous := &UpstreamBillingProbeSnapshot{
 		Status:       UpstreamBillingProbeStatusOK,
 		Data:         map[string]any{"effective_rate_multiplier": 0.5},
@@ -463,13 +515,14 @@ func TestUpstreamBillingProbeFailurePreservesLastSuccessAndRetryAfter(t *testing
 		FailureCount: 1,
 	}
 	account := &Account{
-		ID:          18,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Status:      StatusActive,
-		Concurrency: 1,
-		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://upstream.example"},
-		Extra:       map[string]any{UpstreamBillingProbeExtraKey: previous},
+		ID:             18,
+		Platform:       PlatformOpenAI,
+		Type:           AccountTypeAPIKey,
+		Status:         StatusActive,
+		Concurrency:    1,
+		RateMultiplier: &originalRate,
+		Credentials:    map[string]any{"api_key": "sk-test", "base_url": "https://upstream.example"},
+		Extra:          map[string]any{UpstreamBillingProbeExtraKey: previous},
 	}
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
@@ -492,6 +545,7 @@ func TestUpstreamBillingProbeFailurePreservesLastSuccessAndRetryAfter(t *testing
 	require.Equal(t, "http_error", snapshot.LastError)
 	require.False(t, snapshot.NextProbeAt.Before(fixedNow.Add(4*time.Hour)))
 	require.NotContains(t, snapshot.LastError, "do not persist")
+	require.Equal(t, originalRate, *account.RateMultiplier)
 }
 
 func TestUpstreamBillingProbeRetryAfterIsNotShortened(t *testing.T) {
@@ -535,6 +589,12 @@ func TestUpstreamBillingProbeUnsupportedAndAccountToggle(t *testing.T) {
 		Status:      StatusActive,
 		Concurrency: 1,
 		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://upstream.example"},
+		Extra: map[string]any{
+			NewAPISyncEnabledExtraKey: true,
+			UpstreamBillingProbeExtraKey: map[string]any{
+				"status": UpstreamBillingProbeStatusOK,
+			},
+		},
 	}
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
@@ -548,6 +608,8 @@ func TestUpstreamBillingProbeUnsupportedAndAccountToggle(t *testing.T) {
 
 	require.NoError(t, svc.SetAccountEnabled(context.Background(), account.ID, true))
 	require.Equal(t, true, account.Extra[UpstreamBillingProbeEnabledExtraKey])
+	require.Equal(t, false, account.Extra[NewAPISyncEnabledExtraKey])
+	require.Nil(t, account.Extra[UpstreamBillingProbeExtraKey])
 	snapshot, err := svc.ProbeAccount(context.Background(), account.ID)
 	require.NoError(t, err)
 	require.Equal(t, UpstreamBillingProbeStatusUnsupported, snapshot.Status)
@@ -921,6 +983,30 @@ func TestUpstreamBillingProbeScheduledRechecksAfterWaitingForSlot(t *testing.T) 
 	<-svc.probeSlots
 
 	require.NoError(t, <-result)
+	require.Zero(t, upstream.calls.Load())
+}
+
+func TestUpstreamBillingProbeScheduledSkipsNewAPISyncAccounts(t *testing.T) {
+	account := &Account{
+		ID:          48,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://upstream.example"},
+		Extra: map[string]any{
+			UpstreamBillingProbeEnabledExtraKey: true,
+			NewAPISyncEnabledExtraKey:           true,
+		},
+	}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	upstream := &upstreamBillingProbeHTTPStub{}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+
+	snapshot, err := svc.probeScheduledAccount(context.Background(), account.ID, 30)
+
+	require.NoError(t, err)
+	require.Nil(t, snapshot)
 	require.Zero(t, upstream.calls.Load())
 }
 

@@ -941,8 +941,9 @@ export interface TempUnschedulableStatus {
 }
 
 export interface UpstreamBillingData {
-  object: 'sub2api.key_billing'
+  object: 'sub2api.key_billing' | 'newapi.group_ratio'
   schema_version: 1
+  source?: 'newapi'
   billing_scope: 'token'
   group_rate_multiplier: number
   user_rate_multiplier?: number
@@ -955,6 +956,7 @@ export interface UpstreamBillingData {
   effective_rate_multiplier: number
   timezone?: string
   observed_at: string
+  newapi_group?: string
 }
 
 export type UpstreamBillingProbeStatus = 'ok' | 'unsupported' | 'failed'
@@ -979,6 +981,56 @@ export interface UpstreamBillingProbeSettings {
 export interface UpstreamBillingProbeResult {
   account_id: number
   snapshot?: UpstreamBillingProbeSnapshot
+  newapi_sync?: NewAPISyncResult
+  error?: string
+}
+
+export type NewAPISyncStatus = 'never' | 'ok' | 'failed'
+
+export type NewAPIRatioSource = 'configured_group' | ''
+
+export interface NewAPISyncConfig {
+  newapi_sync_enabled: boolean
+  newapi_base_url: string
+  newapi_user_access_token: string
+  newapi_user_id: number
+  newapi_last_sync_at?: string
+  newapi_last_sync_status: NewAPISyncStatus
+  newapi_last_sync_error?: string
+  newapi_resolved_user_group?: string
+  newapi_resolved_token_group?: string
+  newapi_resolved_actual_group?: string
+  newapi_ratio_source?: NewAPIRatioSource
+  newapi_cross_group_retry: boolean
+  current_ratio: number
+  has_newapi_user_access_token: boolean
+}
+
+export type NewAPISyncConfigUpdate = Pick<
+  NewAPISyncConfig,
+  | 'newapi_sync_enabled'
+  | 'newapi_base_url'
+  | 'newapi_user_access_token'
+  | 'newapi_user_id'
+>
+
+export interface NewAPIResolution {
+  user_group: string
+  token_group: string
+  actual_group: string
+  cross_group_retry: boolean
+  ratio?: number
+  ratio_source?: NewAPIRatioSource
+}
+
+export interface NewAPISyncResult {
+  account_id: number
+  status: NewAPISyncStatus
+  changed: boolean
+  old_ratio: number
+  new_ratio?: number
+  resolution?: NewAPIResolution
+  scheduling_snapshot?: UpstreamBillingProbeSnapshot
   error?: string
 }
 
@@ -1058,6 +1110,8 @@ export interface Account {
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
     upstream_billing_probe_enabled?: boolean
     upstream_billing_probe?: UpstreamBillingProbeSnapshot
+    openai_upstream_rate_calibration?: number
+    newapi_sync_enabled?: boolean
   } & Record<string, unknown>)
   proxy_id: number | null
   proxy_fallback_origin_id?: number | null

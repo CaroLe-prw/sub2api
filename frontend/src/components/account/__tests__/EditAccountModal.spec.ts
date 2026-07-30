@@ -140,6 +140,23 @@ const GroupSelectorStub = defineComponent({
   `
 })
 
+const NewAPISyncSettingsStub = defineComponent({
+  name: 'NewAPISyncSettings',
+  props: {
+    enabled: {
+      type: Boolean,
+      default: false
+    }
+  },
+  emits: ['synced'],
+  setup(_, { expose }) {
+    expose({
+      persistConfig: () => Promise.resolve(true)
+    })
+  },
+  template: '<div v-if="enabled" data-testid="newapi-sync-settings" />'
+})
+
 function buildAccount() {
   return {
     id: 1,
@@ -305,7 +322,8 @@ function mountModal(account = buildAccount()) {
         Icon: true,
         ProxySelector: true,
         GroupSelector: GroupSelectorStub,
-        ModelWhitelistSelector: ModelWhitelistSelectorStub
+        ModelWhitelistSelector: ModelWhitelistSelectorStub,
+        NewAPISyncSettings: NewAPISyncSettingsStub
       }
     }
   })
@@ -314,6 +332,23 @@ function mountModal(account = buildAccount()) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+  })
+
+  it('accepts account rate multipliers with arbitrary decimal precision', async () => {
+    const wrapper = mountModal({
+      ...buildAccount(),
+      rate_multiplier: 0.0325
+    })
+    const input = wrapper.get<HTMLInputElement>('[data-testid="account-rate-multiplier"]')
+
+    expect(input.attributes('step')).toBe('any')
+    expect(input.element.value).toBe('0.0325')
+    expect(input.element.validity.stepMismatch).toBe(false)
+
+    await input.setValue('0.03255')
+
+    expect(input.element.value).toBe('0.03255')
+    expect(input.element.validity.stepMismatch).toBe(false)
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
@@ -627,7 +662,7 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_responses_supported).toBe(false)
   })
 
-  it('submits the account upstream billing auto-probe setting', async () => {
+  it('selects Sub2API as the exclusive upstream billing source', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()
     checkMixedChannelRiskMock.mockReset()
@@ -635,14 +670,38 @@ describe('EditAccountModal', () => {
     updateAccountMock.mockResolvedValue(account)
 
     const wrapper = mountModal(account)
-    const toggle = wrapper.get('[data-testid="upstream-billing-auto-probe"]')
-    expect(toggle.attributes('aria-checked')).toBe('false')
+    const mode = wrapper.get<HTMLSelectElement>('[data-testid="upstream-billing-mode"]')
+    expect(mode.element.value).toBe('off')
+    expect(wrapper.find('[data-testid="upstream-rate-calibration"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="newapi-sync-settings"]').exists()).toBe(false)
 
-    await toggle.trigger('click')
+    await mode.setValue('sub2api')
+    expect(wrapper.find('[data-testid="upstream-rate-calibration"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="newapi-sync-settings"]').exists()).toBe(false)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_billing_probe_enabled).toBe(true)
+  })
+
+  it('prefers NewAPI for legacy dual-enabled data and only shows NewAPI settings', async () => {
+    const account = buildAccount()
+    account.extra = {
+      upstream_billing_probe_enabled: true,
+      newapi_sync_enabled: true
+    }
+
+    const wrapper = mountModal(account)
+    const mode = wrapper.get<HTMLSelectElement>('[data-testid="upstream-billing-mode"]')
+
+    expect(mode.element.value).toBe('newapi')
+    expect(wrapper.find('[data-testid="upstream-rate-calibration"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="newapi-sync-settings"]').exists()).toBe(true)
+
+    await mode.setValue('off')
+
+    expect(wrapper.find('[data-testid="upstream-rate-calibration"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="newapi-sync-settings"]').exists()).toBe(false)
   })
 
   it('clears OpenAI APIKey Responses override when set back to auto', async () => {

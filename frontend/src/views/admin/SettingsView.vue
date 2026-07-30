@@ -4592,7 +4592,7 @@
                     data-testid="openai-oauth-scheduling-rate-multiplier"
                     min="0"
                     required
-                    step="0.01"
+                    step="any"
                     type="number"
                   />
                   <span
@@ -4681,7 +4681,7 @@
                     data-testid="openai-oauth-scheduling-rate-multiplier"
                     min="0"
                     required
-                    step="0.01"
+                    step="any"
                     type="number"
                   />
                   <span
@@ -7155,7 +7155,7 @@
                           ) || 1
                       "
                       type="number"
-                      step="0.01"
+                      step="any"
                       min="0.01"
                       class="input"
                     />

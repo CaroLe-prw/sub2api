@@ -353,11 +353,11 @@ export default {
       },
       upstreamBillingProbe: {
         title: '上游倍率自动探测',
-        description: '定期获取 OpenAI API Key 所连接上游 Sub2API 站点声明的计费倍率。',
+        description: '统一控制 Sub2API 声明倍率探测和 NewAPI 分组倍率同步的定时任务。',
         enabled: '启用全局自动探测',
-        enabledHint: '开启后，仅对账号自身已启用自动检测的账号执行定时探测；关闭后停止所有定时探测，手动探测不受影响。',
-        intervalMinutes: '探测周期（分钟）',
-        intervalHint: '范围 5–1440 分钟。成功探测结果的有效期为两个探测周期。',
+        enabledHint: '开启后，仅处理账号自身已启用的倍率探测或同步；关闭后停止所有定时任务，手动操作不受影响。',
+        intervalMinutes: '探测与同步周期（分钟）',
+        intervalHint: '范围 5–1440 分钟。NewAPI 账号会按此周期从用户有效分组配置同步倍率。',
         saved: '上游倍率自动探测设置已保存',
         saveFailed: '保存上游倍率自动探测设置失败'
       },
@@ -1196,7 +1196,7 @@ export default {
         ttftWeight: '首包延迟',
         resetWeight: '重置窗口',
         quotaHeadroomWeight: '额度余量',
-        upstreamCostWeight: '计费倍率',
+        upstreamCostWeight: '调度成本倍率',
         previousResponseWeight: 'previous_response 粘性',
         sessionStickyWeight: 'session_hash 粘性'
       },

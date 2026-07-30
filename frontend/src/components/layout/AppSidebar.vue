@@ -25,7 +25,7 @@
           {{ siteName }}
         </router-link>
         <!-- Version Badge -->
-        <VersionBadge :version="siteVersion" />
+        <VersionBadge class="min-w-0 max-w-full" :version="siteVersion" />
       </div>
     </div>
 

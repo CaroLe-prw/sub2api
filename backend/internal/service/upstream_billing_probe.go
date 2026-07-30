@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -27,8 +28,9 @@ import (
 
 const (
 	// These values live in accounts.extra so PR2 does not require a schema migration.
-	UpstreamBillingProbeExtraKey        = "upstream_billing_probe"
-	UpstreamBillingProbeEnabledExtraKey = "upstream_billing_probe_enabled"
+	UpstreamBillingProbeExtraKey          = "upstream_billing_probe"
+	UpstreamBillingProbeEnabledExtraKey   = "upstream_billing_probe_enabled"
+	OpenAIUpstreamRateCalibrationExtraKey = "openai_upstream_rate_calibration"
 
 	upstreamBillingProbeDefaultIntervalMinutes = 30
 	upstreamBillingProbeMinIntervalMinutes     = 5
@@ -86,9 +88,10 @@ type UpstreamBillingProbeSnapshot struct {
 
 // UpstreamBillingProbeResult is returned by manual probe endpoints.
 type UpstreamBillingProbeResult struct {
-	AccountID int64                         `json:"account_id"`
-	Snapshot  *UpstreamBillingProbeSnapshot `json:"snapshot,omitempty"`
-	Error     string                        `json:"error,omitempty"`
+	AccountID  int64                         `json:"account_id"`
+	Snapshot   *UpstreamBillingProbeSnapshot `json:"snapshot,omitempty"`
+	NewAPISync *NewAPISyncResult             `json:"newapi_sync,omitempty"`
+	Error      string                        `json:"error,omitempty"`
 }
 
 type upstreamBillingProbeResponse struct {
@@ -176,23 +179,28 @@ type UpstreamBillingProbeService struct {
 	accountTestService *AccountTestService
 	settingService     *SettingService
 
-	parentCtx    context.Context
-	parentCancel context.CancelFunc
-	wg           sync.WaitGroup
-	mu           sync.Mutex
-	started      bool
-	stopped      bool
-	cycleMu      sync.Mutex
-	probeGroup   singleflight.Group
-	probeSlots   chan struct{}
-	now          func() time.Time
-	lockCache    LeaderLockCache
-	db           *sql.DB
-	instanceID   string
+	parentCtx           context.Context
+	parentCancel        context.CancelFunc
+	wg                  sync.WaitGroup
+	mu                  sync.Mutex
+	started             bool
+	stopped             bool
+	cycleMu             sync.Mutex
+	probeGroup          singleflight.Group
+	newAPIGroup         singleflight.Group
+	probeSlots          chan struct{}
+	now                 func() time.Time
+	lockCache           LeaderLockCache
+	db                  *sql.DB
+	instanceID          string
+	encryptor           SecretEncryptor
+	cfg                 *config.Config
+	newAPICycleMu       sync.Mutex
+	newAPIClientFactory func(*Account) (*NewAPIClient, error)
 }
 
 type upstreamBillingProbeSnapshotWriter interface {
-	UpdateUpstreamBillingProbeSnapshot(context.Context, *Account, *UpstreamBillingProbeSnapshot) error
+	UpdateUpstreamBillingProbeSnapshot(context.Context, *Account, *UpstreamBillingProbeSnapshot, *float64) error
 }
 
 type upstreamBillingProbeDueAccountLister interface {
@@ -225,6 +233,14 @@ func (s *UpstreamBillingProbeService) SetLeaderLock(lockCache LeaderLockCache, d
 	s.db = db
 }
 
+func (s *UpstreamBillingProbeService) SetNewAPIDependencies(encryptor SecretEncryptor, cfg *config.Config) {
+	if s == nil {
+		return
+	}
+	s.encryptor = encryptor
+	s.cfg = cfg
+}
+
 // ProvideUpstreamBillingProbeService starts the process-wide periodic runner.
 func ProvideUpstreamBillingProbeService(
 	accountRepo AccountRepository,
@@ -232,9 +248,12 @@ func ProvideUpstreamBillingProbeService(
 	settingService *SettingService,
 	lockCache LeaderLockCache,
 	db *sql.DB,
+	encryptor SecretEncryptor,
+	cfg *config.Config,
 ) *UpstreamBillingProbeService {
 	svc := NewUpstreamBillingProbeService(accountRepo, accountTestService, settingService)
 	svc.SetLeaderLock(lockCache, db)
+	svc.SetNewAPIDependencies(encryptor, cfg)
 	svc.Start()
 	return svc
 }
@@ -272,6 +291,7 @@ func (s *UpstreamBillingProbeService) Stop() {
 func (s *UpstreamBillingProbeService) runLoop() {
 	defer s.wg.Done()
 	_ = s.RunDue(s.parentCtx)
+	_ = s.RunNewAPIDue(s.parentCtx)
 	ticker := time.NewTicker(upstreamBillingProbeCycleInterval)
 	defer ticker.Stop()
 	for {
@@ -281,6 +301,9 @@ func (s *UpstreamBillingProbeService) runLoop() {
 		case <-ticker.C:
 			if err := s.RunDue(s.parentCtx); err != nil {
 				logger.LegacyPrintf("service.upstream_billing_probe", "run_due_failed: err=%v", err)
+			}
+			if err := s.RunNewAPIDue(s.parentCtx); err != nil {
+				logger.LegacyPrintf("service.newapi_sync", "run_due_failed: err=%v", err)
 			}
 		}
 	}
@@ -328,7 +351,8 @@ func (s *UpstreamBillingProbeService) RunDue(ctx context.Context) error {
 	due := make([]Account, 0, len(accounts))
 	for i := range accounts {
 		account := accounts[i]
-		if !isUpstreamBillingProbeAccount(&account) || !account.IsActive() || !upstreamBillingProbeEnabled(&account) {
+		if !isUpstreamBillingProbeAccount(&account) || !account.IsActive() ||
+			!upstreamBillingProbeEnabled(&account) || newAPISyncEnabled(&account) {
 			continue
 		}
 		snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra)
@@ -434,7 +458,7 @@ func (s *UpstreamBillingProbeService) probeAccountWithMode(ctx context.Context, 
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
 		if requireEnabled {
-			if !account.IsActive() || !upstreamBillingProbeEnabled(account) {
+			if !account.IsActive() || !upstreamBillingProbeEnabled(account) || newAPISyncEnabled(account) {
 				return nil, nil
 			}
 			if snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra); snapshot != nil &&
@@ -494,6 +518,96 @@ func (s *UpstreamBillingProbeService) ProbeAccounts(ctx context.Context, account
 	return results
 }
 
+// RefreshSchedulingCost dispatches to the account's configured discovery
+// mechanism. NewAPI accounts synchronize their effective group ratio; other
+// OpenAI API key accounts retain the Sub2API billing endpoint probe.
+func (s *UpstreamBillingProbeService) RefreshSchedulingCost(
+	ctx context.Context,
+	accountID int64,
+) (*UpstreamBillingProbeResult, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, ErrUpstreamBillingProbeUnavailable
+	}
+	settings, err := s.getSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.refreshSchedulingCost(ctx, accountID, settings.IntervalMinutes)
+}
+
+func (s *UpstreamBillingProbeService) refreshSchedulingCost(
+	ctx context.Context,
+	accountID int64,
+	intervalMinutes int,
+) (*UpstreamBillingProbeResult, error) {
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if newAPISyncEnabled(account) {
+		syncResult, syncErr := s.syncNewAPIAccount(ctx, accountID, false, intervalMinutes)
+		if syncErr != nil {
+			return nil, newAPISyncAPIError(syncErr)
+		}
+		return &UpstreamBillingProbeResult{
+			AccountID:  accountID,
+			Snapshot:   syncResult.SchedulingSnapshot,
+			NewAPISync: syncResult,
+		}, nil
+	}
+	snapshot, err := s.probeAccount(ctx, accountID, intervalMinutes)
+	if err != nil {
+		return nil, err
+	}
+	return &UpstreamBillingProbeResult{AccountID: accountID, Snapshot: snapshot}, nil
+}
+
+// RefreshSchedulingCosts performs a bounded mixed NewAPI/Sub2API refresh.
+func (s *UpstreamBillingProbeService) RefreshSchedulingCosts(
+	ctx context.Context,
+	accountIDs []int64,
+) []UpstreamBillingProbeResult {
+	if len(accountIDs) > upstreamBillingProbeMaxPerCycle {
+		accountIDs = accountIDs[:upstreamBillingProbeMaxPerCycle]
+	}
+	results := make([]UpstreamBillingProbeResult, len(accountIDs))
+	if s == nil || s.accountRepo == nil {
+		for i, accountID := range accountIDs {
+			results[i] = UpstreamBillingProbeResult{
+				AccountID: accountID,
+				Error:     ErrUpstreamBillingProbeUnavailable.Error(),
+			}
+		}
+		return results
+	}
+	settings, settingsErr := s.getSettings(ctx)
+	if settingsErr != nil {
+		for i, accountID := range accountIDs {
+			results[i] = UpstreamBillingProbeResult{
+				AccountID: accountID,
+				Error:     safeProbeError(settingsErr),
+			}
+		}
+		return results
+	}
+	var group errgroup.Group
+	for i, accountID := range accountIDs {
+		i, accountID := i, accountID
+		results[i].AccountID = accountID
+		group.Go(func() error {
+			result, err := s.refreshSchedulingCost(ctx, accountID, settings.IntervalMinutes)
+			if err != nil {
+				results[i].Error = safeSchedulingCostRefreshError(err)
+				return nil
+			}
+			results[i] = *result
+			return nil
+		})
+	}
+	_ = group.Wait()
+	return results
+}
+
 func upstreamBillingProbeLeaderLockKeyAt(now time.Time) string {
 	return fmt.Sprintf("%s:%d", upstreamBillingProbeLeaderLockKey, now.Unix()/int64(upstreamBillingProbeCycleInterval/time.Second))
 }
@@ -541,9 +655,14 @@ func (s *UpstreamBillingProbeService) SetAccountEnabled(ctx context.Context, acc
 	if !isUpstreamBillingProbeAccount(account) {
 		return ErrUpstreamBillingProbeAccountInvalid
 	}
-	return s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{
+	updates := map[string]any{
 		UpstreamBillingProbeEnabledExtraKey: enabled,
-	})
+	}
+	if enabled {
+		updates[NewAPISyncEnabledExtraKey] = false
+		updates[UpstreamBillingProbeExtraKey] = nil
+	}
+	return s.accountRepo.UpdateExtra(ctx, accountID, updates)
 }
 
 func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, account *Account, intervalMinutes int) (*UpstreamBillingProbeSnapshot, error) {
@@ -623,7 +742,15 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 		NextProbeAt:   now.Add(nextProbeDelay(intervalMinutes, 0)),
 		HTTPStatus:    resp.StatusCode,
 	}
-	if err := s.updateSnapshot(ctx, account, snapshot); err != nil {
+	rateMultiplier, ok := upstreamBillingRateAt(data, now)
+	if !ok {
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "invalid_response", retryAfter(resp.Header, now))
+	}
+	rateMultiplier *= openAIUpstreamRateCalibration(account)
+	if rateMultiplier < 0 || math.IsNaN(rateMultiplier) || math.IsInf(rateMultiplier, 0) {
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "invalid_response", retryAfter(resp.Header, now))
+	}
+	if err := s.updateSnapshot(ctx, account, snapshot, &rateMultiplier); err != nil {
 		return nil, err
 	}
 	return snapshot, nil
@@ -663,18 +790,23 @@ func (s *UpstreamBillingProbeService) persistProbeFailure(
 			snapshot.FreshUntil = probeTimePtr(previous.ReceivedAt.Add(2 * time.Duration(intervalMinutes) * time.Minute))
 		}
 	}
-	if err := s.updateSnapshot(ctx, account, snapshot); err != nil {
+	if err := s.updateSnapshot(ctx, account, snapshot, nil); err != nil {
 		return nil, err
 	}
 	return snapshot, nil
 }
 
-func (s *UpstreamBillingProbeService) updateSnapshot(ctx context.Context, account *Account, snapshot *UpstreamBillingProbeSnapshot) error {
+func (s *UpstreamBillingProbeService) updateSnapshot(
+	ctx context.Context,
+	account *Account,
+	snapshot *UpstreamBillingProbeSnapshot,
+	rateMultiplier *float64,
+) error {
 	writer, ok := s.accountRepo.(upstreamBillingProbeSnapshotWriter)
 	if !ok {
 		return ErrUpstreamBillingProbeUnavailable
 	}
-	return writer.UpdateUpstreamBillingProbeSnapshot(ctx, account, snapshot)
+	return writer.UpdateUpstreamBillingProbeSnapshot(ctx, account, snapshot, rateMultiplier)
 }
 
 func parseUpstreamBillingProbeResponse(body []byte) (map[string]any, error) {

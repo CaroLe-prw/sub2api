@@ -403,6 +403,12 @@ func redactAccountManagedExtra(extra map[string]any) map[string]any {
 			service.OllamaCloudUsageAutoRefreshExtraKey,
 			service.OllamaCloudUsageSnapshotExtraKey:
 			continue
+		case service.NewAPISyncIdentityExtraKey:
+			continue
+		case service.NewAPIUserAccessTokenExtraKey, service.NewAPIAPIKeyExtraKey:
+			if raw, ok := value.(string); ok && raw != "" {
+				redacted[key] = service.NewAPISecretMask
+			}
 		default:
 			redacted[key] = value
 		}

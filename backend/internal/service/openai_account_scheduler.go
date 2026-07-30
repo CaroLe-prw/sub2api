@@ -85,6 +85,15 @@ type OpenAIAccountScheduleRequest struct {
 	ExcludedIDs             map[int64]struct{}
 }
 
+type openAIGroupRateGuardContextKey struct{}
+
+type openAIGroupRateGuard struct {
+	groupID  int64
+	saleRate float64
+	now      time.Time
+	enabled  bool
+}
+
 type OpenAIAccountScheduleDecision struct {
 	Layer               string
 	StickyPreviousHit   bool
@@ -1688,6 +1697,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if s != nil && s.service != nil && s.service.isOpenAIProxyStreamQuarantined(account) {
 		return false, "proxy_stream_quarantined"
 	}
+	if req.UseUpstreamTokenCost && s != nil && s.service != nil && s.service.isOpenAIAccountUnprofitableForGroup(ctx, account) {
+		return false, "upstream_rate_above_group"
+	}
 	// Quota auto-pause must be evaluated during the initial filter too. Without it the
 	// TopK candidate pool can be filled with paused accounts and the later fresh/DB
 	// rechecks won't reach healthy accounts that fell outside TopK — manifesting as
@@ -2058,6 +2070,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
+	ctx = s.withOpenAIGroupRateGuardContext(ctx, groupID, useUpstreamTokenCost)
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	decision := OpenAIAccountScheduleDecision{}
 	scheduler := s.getOpenAIAccountScheduler(ctx)
@@ -2640,7 +2653,33 @@ func openAISchedulingRate(account *Account, now time.Time, oauthSchedulingRateMu
 	if account != nil && account.IsOpenAIOAuth() {
 		return oauthSchedulingRateMultiplier, true
 	}
-	return openAIFreshUpstreamBillingRate(account, now)
+	if rate, ok := openAICalibratedFreshUpstreamBillingRate(account, now); ok {
+		return rate, true
+	}
+	if account != nil && account.RateMultiplier != nil {
+		rate := *account.RateMultiplier
+		return rate, rate >= 0 && !math.IsNaN(rate) && !math.IsInf(rate, 0)
+	}
+	return 0, false
+}
+
+func openAICalibratedFreshUpstreamBillingRate(account *Account, now time.Time) (float64, bool) {
+	rate, ok := openAIFreshUpstreamBillingRate(account, now)
+	if !ok {
+		return 0, false
+	}
+	rate *= openAIUpstreamRateCalibration(account)
+	return rate, rate >= 0 && !math.IsNaN(rate) && !math.IsInf(rate, 0)
+}
+
+func openAIUpstreamRateCalibration(account *Account) float64 {
+	if account != nil {
+		if value, exists := resolveAccountExtraNumber(account.Extra, OpenAIUpstreamRateCalibrationExtraKey); exists &&
+			value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0) {
+			return value
+		}
+	}
+	return 1
 }
 
 // compare returns -1 when a should be selected before b, 1 when b should be
