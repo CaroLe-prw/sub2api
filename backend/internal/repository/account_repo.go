@@ -1039,6 +1039,8 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 
 func upstreamBillingRateSortExpression(extra string) string {
 	status := extra + " #>> '{upstream_billing_probe,status}'"
+	calibrationJSON := extra + " #> '{" + service.OpenAIUpstreamRateCalibrationExtraKey + "}'"
+	calibration := extra + " #>> '{" + service.OpenAIUpstreamRateCalibrationExtraKey + "}'"
 	effectiveJSON := extra + " #> '{upstream_billing_probe,data,effective_rate_multiplier}'"
 	effective := extra + " #>> '{upstream_billing_probe,data,effective_rate_multiplier}'"
 	resolvedJSON := extra + " #> '{upstream_billing_probe,data,resolved_rate_multiplier}'"
@@ -1065,10 +1067,13 @@ func upstreamBillingRateSortExpression(extra string) string {
 		" THEN (" + resolved + ")::numeric * CASE WHEN " + localMinute + " >= " + startMinute + " AND " + localMinute + " < " + endMinute +
 		" THEN " + peakMultiplierValue + " ELSE 1 END ELSE NULL END"
 	legacySnapshot := "jsonb_typeof(" + resolvedJSON + ") IS NULL AND jsonb_typeof(" + peakEnabledJSON + ") IS NULL"
+	calibrationValue := "(CASE WHEN jsonb_typeof(" + calibrationJSON + ") = 'number' AND (" + calibration + ")::numeric >= 0 THEN (" +
+		calibration + ")::numeric ELSE 1 END)"
 
-	return "CASE WHEN " + status + " IN ('ok', 'failed') AND (jsonb_typeof(" + resolvedJSON + ") = 'number' OR jsonb_typeof(" + effectiveJSON + ") = 'number') THEN CASE WHEN jsonb_typeof(" +
+	rate := "CASE WHEN " + status + " IN ('ok', 'failed') AND (jsonb_typeof(" + resolvedJSON + ") = 'number' OR jsonb_typeof(" + effectiveJSON + ") = 'number') THEN CASE WHEN jsonb_typeof(" +
 		resolvedJSON + ") = 'number' AND jsonb_typeof(" + peakEnabledJSON + ") = 'boolean' THEN CASE WHEN " + billingScope + " = 'token' THEN " + dynamicRate + " ELSE NULL END WHEN " + legacySnapshot +
 		" AND jsonb_typeof(" + effectiveJSON + ") = 'number' THEN (" + effective + ")::numeric END END"
+	return "(" + rate + ") * " + calibrationValue
 }
 
 func (r *accountRepository) ListByGroup(ctx context.Context, groupID int64) ([]service.Account, error) {

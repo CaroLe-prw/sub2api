@@ -138,3 +138,33 @@ func (s *AccountRepoSuite) TestListWithFilters_SortByCurrentUpstreamBillingRateD
 		}
 	}
 }
+
+func (s *AccountRepoSuite) TestListWithFilters_SortByCalibratedUpstreamBillingRate() {
+	makeAccount := func(name string, rate, calibration float64) {
+		mustCreateAccount(s.T(), s.client, &service.Account{
+			Name: name,
+			Extra: map[string]any{
+				service.OpenAIUpstreamRateCalibrationExtraKey: calibration,
+				service.UpstreamBillingProbeExtraKey: map[string]any{
+					"status": service.UpstreamBillingProbeStatusOK,
+					"data": map[string]any{
+						"billing_scope":             "token",
+						"resolved_rate_multiplier":  rate,
+						"effective_rate_multiplier": rate,
+						"peak_rate_enabled":         false,
+					},
+				},
+			},
+		})
+	}
+	makeAccount("raw-cheap-calibrated-expensive", 0.03, 3)
+	makeAccount("raw-expensive-calibrated-cheap", 0.8, 0.1)
+
+	accounts, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{
+		Page: 1, PageSize: 10, SortBy: "upstream_billing_rate", SortOrder: "asc",
+	}, "", "", "", "", 0, "")
+	s.Require().NoError(err)
+	s.Require().Len(accounts, 2)
+	s.Require().Equal("raw-expensive-calibrated-cheap", accounts[0].Name)
+	s.Require().Equal("raw-cheap-calibrated-expensive", accounts[1].Name)
+}
