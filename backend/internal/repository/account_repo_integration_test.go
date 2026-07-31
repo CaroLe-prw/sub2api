@@ -1655,6 +1655,41 @@ func (s *AccountRepoSuite) TestBulkUpdate() {
 	s.Require().Equal(99, got2.Priority)
 }
 
+func (s *AccountRepoSuite) TestBulkUpdatePriorityKeepsDefaultGroupPrioritiesInSync() {
+	followingGroup := mustCreateGroup(s.T(), s.client, &service.Group{Name: "bulk-priority-following"})
+	customGroup := mustCreateGroup(s.T(), s.client, &service.Group{Name: "bulk-priority-custom"})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:     "bulk-priority-account",
+		Priority: 10,
+	})
+	s.Require().NoError(s.repo.BindGroupsWithPriorities(
+		s.ctx,
+		account.ID,
+		[]int64{followingGroup.ID, customGroup.ID},
+		map[int64]int{
+			followingGroup.ID: 10,
+			customGroup.ID:    40,
+		},
+	))
+
+	newPriority := 25
+	_, err := s.repo.BulkUpdate(s.ctx, []int64{account.ID}, service.AccountBulkUpdate{
+		Priority: &newPriority,
+	})
+	s.Require().NoError(err)
+
+	got, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(25, got.Priority)
+
+	priorities := make(map[int64]int, len(got.AccountGroups))
+	for _, accountGroup := range got.AccountGroups {
+		priorities[accountGroup.GroupID] = accountGroup.Priority
+	}
+	s.Require().Equal(25, priorities[followingGroup.ID])
+	s.Require().Equal(40, priorities[customGroup.ID])
+}
+
 func (s *AccountRepoSuite) TestBulkUpdate_MergeCredentials() {
 	a1 := mustCreateAccount(s.T(), s.client, &service.Account{
 		Name:        "bulk-cred",

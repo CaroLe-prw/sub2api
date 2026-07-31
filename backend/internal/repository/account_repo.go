@@ -3074,6 +3074,27 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 	}
 
+	if updates.Priority != nil {
+		// A binding whose priority still equals the account's old priority is
+		// following the account default. Move those bindings before changing the
+		// account row so bulk edits do not turn them into accidental overrides.
+		_, err := exec.ExecContext(
+			ctx,
+			`UPDATE account_groups AS ag
+SET priority = $1
+FROM accounts AS a
+WHERE ag.account_id = a.id
+  AND ag.account_id = ANY($2)
+  AND a.deleted_at IS NULL
+  AND ag.priority = a.priority`,
+			*updates.Priority,
+			pq.Array(ids),
+		)
+		if err != nil {
+			return 0, err
+		}
+	}
+
 	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err

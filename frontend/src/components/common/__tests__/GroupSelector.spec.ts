@@ -105,4 +105,48 @@ describe('GroupSelector', () => {
     expect(wrapper.emitted('update:priorities')?.at(-1)).toEqual([{ 1: 37 }])
     expect(wrapper.find('input[type="number"]').exists()).toBe(false)
   })
+
+  it('moves priorities that followed the old account priority to the new default', async () => {
+    const wrapper = mount(GroupSelector, {
+      props: {
+        modelValue: [1, 2],
+        priorities: { 1: 37, 2: 100 },
+        defaultPriority: 37,
+        groups
+      },
+      global: {
+        stubs: {
+          GroupBadge: true,
+          Icon: true
+        }
+      }
+    })
+
+    await wrapper.setProps({ defaultPriority: 50 })
+
+    expect(wrapper.emitted('update:priorities')?.at(-1)).toEqual([{ 1: 50, 2: 100 }])
+  })
+
+  it('keeps priorities unchanged after custom mode is explicitly enabled', async () => {
+    const wrapper = mount(GroupSelector, {
+      props: {
+        modelValue: [1],
+        priorities: { 1: 37 },
+        defaultPriority: 37,
+        groups
+      },
+      global: {
+        stubs: {
+          GroupBadge: true,
+          Icon: true
+        }
+      }
+    })
+
+    await wrapper.get('[data-testid="custom-group-priority-toggle"]').trigger('click')
+    await wrapper.setProps({ defaultPriority: 50 })
+
+    expect(wrapper.emitted('update:priorities')).toBeUndefined()
+    expect((wrapper.get('input[type="number"]').element as HTMLInputElement).value).toBe('37')
+  })
 })

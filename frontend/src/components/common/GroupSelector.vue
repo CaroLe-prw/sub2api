@@ -160,8 +160,27 @@ const customizePriorities = computed({
 
 watch(
   () => props.defaultPriority,
-  () => {
-    if (props.priorities !== undefined && !customizePriorities.value) resetSelectedPriorities()
+  (nextPriority, previousPriority) => {
+    if (
+      props.priorities === undefined ||
+      nextPriority === previousPriority ||
+      manuallyCustomizePriorities.value === true
+    ) {
+      return
+    }
+
+    const nextPriorities = { ...props.priorities }
+    let changed = false
+    for (const groupID of props.modelValue) {
+      const currentPriority = nextPriorities[groupID] ?? previousPriority
+      if (currentPriority === previousPriority && currentPriority !== nextPriority) {
+        nextPriorities[groupID] = nextPriority
+        changed = true
+      }
+    }
+    if (changed) {
+      emit('update:priorities', nextPriorities)
+    }
   }
 )
 

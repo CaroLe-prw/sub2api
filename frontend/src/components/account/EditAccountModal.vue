@@ -2614,7 +2614,7 @@
       <!-- Group Selection - 仅标准模式显示 -->
       <GroupSelector
         v-if="!authStore.isSimpleMode"
-        :key="account?.id"
+        :key="`${account?.id ?? 'none'}:${show ? 'open' : 'closed'}`"
         v-model="form.group_ids"
         v-model:priorities="form.group_priorities"
         :default-priority="form.priority"
