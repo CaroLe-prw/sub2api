@@ -764,7 +764,14 @@ const getSchedulerScoreRows = (account: Account): AccountSchedulerGroupScore[] =
     ? account.scheduler_scores.filter(score => score.group_id != null)
     : []
   if (groupRows.length) return groupRows
-  // 未分组账号没有分组维度分数，回退展示后端返回的基础分
+  const hasGroups = Boolean(
+    account.group_ids?.length ||
+    account.account_groups?.length ||
+    account.groups?.length
+  )
+  // 有分组但无分组评分表示该账号未通过对应分组的调度准入，不回退展示总评分。
+  if (hasGroups) return []
+  // 未分组账号没有分组维度分数，回退展示后端返回的基础分。
   if (account.scheduler_score) {
     return [{ group_id: null, ...account.scheduler_score }]
   }

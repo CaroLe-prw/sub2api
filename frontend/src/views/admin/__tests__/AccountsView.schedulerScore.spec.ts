@@ -162,6 +162,7 @@ describe('admin AccountsView scheduler score column', () => {
           ...baseAccount,
           id: 2,
           name: 'grouped-openai',
+          group_ids: [5],
           scheduler_score: {
             base_score: 2,
             sticky_score: 3,
@@ -179,12 +180,24 @@ describe('admin AccountsView scheduler score column', () => {
         },
         {
           ...baseAccount,
+          id: 4,
+          name: 'cost-ineligible-grouped-openai',
+          group_ids: [6],
+          scheduler_score: {
+            base_score: 4,
+            sticky_score: 5,
+            sticky_weighted_enabled: true
+          },
+          scheduler_scores: []
+        },
+        {
+          ...baseAccount,
           id: 3,
           name: 'no-score',
           platform: 'anthropic'
         }
       ],
-      total: 3,
+      total: 4,
       page: 1,
       page_size: 20,
       pages: 1
@@ -222,6 +235,15 @@ describe('admin AccountsView scheduler score column', () => {
     expect(groupedCell.exists()).toBe(true)
     expect(groupedCell.text()).toContain('group-five')
     expect(groupedCell.text()).toContain('2')
+  })
+
+  it('does not fall back to the base score when a grouped account has no eligible group score', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const ineligibleCell = wrapper.find('[data-test="scheduler-score-4"]')
+    expect(ineligibleCell.exists()).toBe(true)
+    expect(ineligibleCell.text()).toBe('-')
   })
 
   it('keeps the account billing multiplier precision in the list', async () => {

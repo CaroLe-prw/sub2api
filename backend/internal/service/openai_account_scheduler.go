@@ -2568,12 +2568,19 @@ func (s *RateLimitService) BuildOpenAIAccountSchedulerScoreSnapshotForGroup(
 			ctx = context.WithValue(ctx, openAIGroupSchedulerPolicyContextKey{}, policy)
 		}
 	}
+	oauthSchedulingRateMultiplier := gateway.openAIOAuthSchedulingRateMultiplier(ctx)
+	accounts = filterOpenAIAccountsByGroupCost(
+		accounts,
+		schedulerGroup,
+		time.Now(),
+		oauthSchedulingRateMultiplier,
+	)
 	return buildOpenAIAccountSchedulerScoreSnapshot(
 		accounts,
 		loadMap,
 		gateway.openAIWSSchedulerWeightsForRequest(ctx),
 		gateway.isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx),
-		gateway.openAIOAuthSchedulingRateMultiplier(ctx),
+		oauthSchedulingRateMultiplier,
 		groupID,
 	)
 }
@@ -2814,6 +2821,40 @@ func openAISchedulingRate(account *Account, now time.Time, oauthSchedulingRateMu
 		return rate, rate >= 0 && !math.IsNaN(rate) && !math.IsInf(rate, 0)
 	}
 	return 0, false
+}
+
+func filterOpenAIAccountsByGroupCost(
+	accounts []*Account,
+	group *Group,
+	now time.Time,
+	oauthSchedulingRateMultiplier float64,
+) []*Account {
+	if len(accounts) == 0 || group == nil || group.MaxAccountCostMultiplier == nil {
+		return accounts
+	}
+	maxCostRate := *group.MaxAccountCostMultiplier
+	if maxCostRate < 0 || math.IsNaN(maxCostRate) || math.IsInf(maxCostRate, 0) {
+		return accounts
+	}
+
+	filtered := make([]*Account, 0, len(accounts))
+	for _, account := range accounts {
+		if openAIAccountExceedsSchedulingCost(account, maxCostRate, now, oauthSchedulingRateMultiplier) {
+			continue
+		}
+		filtered = append(filtered, account)
+	}
+	return filtered
+}
+
+func openAIAccountExceedsSchedulingCost(
+	account *Account,
+	maxCostRate float64,
+	now time.Time,
+	oauthSchedulingRateMultiplier float64,
+) bool {
+	rate, ok := openAISchedulingRate(account, now, oauthSchedulingRateMultiplier)
+	return ok && rate > maxCostRate
 }
 
 func openAICalibratedFreshUpstreamBillingRate(account *Account, now time.Time) (float64, bool) {

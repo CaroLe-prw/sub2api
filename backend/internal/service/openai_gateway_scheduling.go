@@ -1357,17 +1357,17 @@ func (s *OpenAIGatewayService) isOpenAIAccountUnprofitableForGroup(ctx context.C
 	if !ok || !guard.enabled {
 		return false
 	}
-	var (
-		rate   float64
-		rateOK bool
-	)
 	if guard.explicitLimit {
-		rate, rateOK = openAISchedulingRate(account, guard.now, guard.oauthSchedulingRateMultiplier)
-	} else {
-		// Preserve the legacy guard for groups without an explicit limit:
-		// only a fresh upstream billing probe can veto an account.
-		rate, rateOK = openAICalibratedFreshUpstreamBillingRate(account, guard.now)
+		return openAIAccountExceedsSchedulingCost(
+			account,
+			guard.maxCostRate,
+			guard.now,
+			guard.oauthSchedulingRateMultiplier,
+		)
 	}
+	// Preserve the legacy guard for groups without an explicit limit:
+	// only a fresh upstream billing probe can veto an account.
+	rate, rateOK := openAICalibratedFreshUpstreamBillingRate(account, guard.now)
 	return rateOK && rate > guard.maxCostRate
 }
 

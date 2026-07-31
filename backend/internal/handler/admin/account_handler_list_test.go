@@ -17,7 +17,8 @@ func setupAccountListRouter() (*gin.Engine, *stubAdminService) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	adminSvc := newStubAdminService()
-	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	rateLimitService := service.NewRateLimitService(nil, nil, nil, nil, nil)
+	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, rateLimitService, nil, nil, nil, nil, nil, nil, nil)
 	router.GET("/api/v1/admin/accounts", handler.List)
 	return router, adminSvc
 }
@@ -145,6 +146,71 @@ func TestAccountHandlerListReturnsSchedulerScoresPerGroup(t *testing.T) {
 	require.Equal(t, 100, *high.SchedulerScores[0].GroupPriority)
 	require.Equal(t, 1, *low.SchedulerScores[0].GroupPriority)
 	require.Less(t, high.SchedulerScores[0].BaseScore, low.SchedulerScores[0].BaseScore)
+}
+
+func TestAccountHandlerListOnlyReturnsCostEligibleGroupScores(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+	now := time.Now().UTC()
+	groupID := int64(43)
+	maxCost := 0.05
+	cheapRate := 0.03
+	equalRate := maxCost
+	expensiveRate := 0.4
+	group := service.Group{
+		ID:                       groupID,
+		Name:                     "cost-limited",
+		Status:                   service.StatusActive,
+		MaxAccountCostMultiplier: &maxCost,
+	}
+	adminSvc.groups = []service.Group{group}
+
+	accountForRate := func(id int64, name string, rate *float64) service.Account {
+		return service.Account{
+			ID:             id,
+			Name:           name,
+			Platform:       service.PlatformOpenAI,
+			Type:           service.AccountTypeAPIKey,
+			Status:         service.StatusActive,
+			Schedulable:    true,
+			Concurrency:    10,
+			RateMultiplier: rate,
+			AccountGroups: []service.AccountGroup{
+				{AccountID: id, GroupID: groupID, Priority: 1, Group: &group},
+			},
+			GroupIDs:  []int64{groupID},
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+	}
+	adminSvc.accounts = []service.Account{
+		accountForRate(111, "cheap", &cheapRate),
+		accountForRate(112, "equal", &equalRate),
+		accountForRate(113, "expensive", &expensiveRate),
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=20&platform=openai&include_scheduler_score=1", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var payload struct {
+		Data struct {
+			Items []struct {
+				ID              int64                        `json:"id"`
+				SchedulerScores []AccountSchedulerGroupScore `json:"scheduler_scores"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Len(t, payload.Data.Items, 3)
+
+	scoresByAccount := make(map[int64][]AccountSchedulerGroupScore, len(payload.Data.Items))
+	for _, item := range payload.Data.Items {
+		scoresByAccount[item.ID] = item.SchedulerScores
+	}
+	require.Len(t, scoresByAccount[111], 1)
+	require.Len(t, scoresByAccount[112], 1, "cost equal to the group limit remains eligible")
+	require.Empty(t, scoresByAccount[113])
 }
 
 func TestAccountHandlerListSkipsSchedulerScoresByDefault(t *testing.T) {
