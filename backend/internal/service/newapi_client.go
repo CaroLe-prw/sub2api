@@ -401,7 +401,10 @@ func newAPIAccountBalance(user *newAPIUser) (*NewAPIBalanceAccount, error) {
 	if user == nil {
 		return nil, newAPIClientError("user_self_invalid_response")
 	}
-	remaining, err := parseNewAPIQuota(user.Quota)
+	// NewAPI permits an account to overdraw, so the remaining account quota can
+	// legitimately be negative. Keep the safe-integer bound because snapshots
+	// are serialized to JavaScript numbers in the admin UI.
+	remaining, err := parseNewAPIQuotaWithNegative(user.Quota, true)
 	if err != nil {
 		return nil, newAPIClientError("account_remaining_quota_invalid")
 	}

@@ -199,6 +199,23 @@ func TestNewAPIBalanceUnlimitedTokenStillRequiresAccountBalance(t *testing.T) {
 	require.False(t, balance.OverallAvailable)
 }
 
+func TestNewAPIBalanceAcceptsOverdrawnAccount(t *testing.T) {
+	doer := &newAPITestDoer{}
+	doer.handle = newAPIBalanceHandler(
+		t,
+		`{"success":true,"data":{"id":42,"group":"Basic","quota":-500000,"used_quota":2500000}}`,
+		validNewAPITokenBalanceBody(),
+	)
+
+	_, balance, err := NewNewAPIClient(doer).ResolveWithBalance(t.Context(), newAPITestConnection())
+
+	require.NoError(t, err)
+	require.Equal(t, int64(-500000), balance.Account.RemainingQuota)
+	require.Equal(t, int64(2000000), balance.Account.TotalQuota)
+	require.False(t, balance.AccountAvailable)
+	require.False(t, balance.OverallAvailable)
+}
+
 func TestNewAPIBalanceQuotaMismatchIsWarning(t *testing.T) {
 	doer := &newAPITestDoer{}
 	doer.handle = newAPIBalanceHandler(
