@@ -1,5 +1,5 @@
 <template>
-  <div v-if="eligible" class="flex h-6 min-w-[7rem] items-center gap-1">
+  <div v-if="eligible" class="flex min-h-6 min-w-[8rem] items-center gap-1">
     <HelpTooltip class="-ml-1" width-class="w-max max-w-[calc(100vw-2rem)]" data-testid="upstream-billing-details">
       <template #trigger>
         <span
@@ -48,6 +48,17 @@
             </p>
           </template>
           <p>{{ t('admin.accounts.upstreamBilling.effectiveRate', { value: currentEffectiveRate ?? '-' }) }}</p>
+          <p v-if="balance != null" data-testid="upstream-billing-balance-detail">
+            {{ t(balanceTranslationKey, { value: formatBalance(balance) }) }}
+          </p>
+          <p v-if="balanceAlertActive" class="text-red-400">
+            {{
+              t('admin.accounts.upstreamBilling.balanceLow', {
+                value: formatBalance(balance ?? 0),
+                threshold: formatBalance(snapshot?.balance_alert?.threshold ?? 0)
+              })
+            }}
+          </p>
           <p>{{ t('admin.accounts.upstreamBilling.updatedAt', { value: formatDate(snapshot?.received_at) }) }}</p>
         </template>
         <template v-else-if="stale && lastDetectedRate != null">
@@ -84,6 +95,14 @@
         </p>
       </div>
     </HelpTooltip>
+    <span
+      v-if="balance != null"
+      :class="balanceAlertActive ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'"
+      class="whitespace-nowrap font-mono text-xs"
+      data-testid="upstream-billing-balance"
+    >
+      {{ formatBalance(balance) }}
+    </span>
     <span v-if="statusLabel" :class="statusClass" class="whitespace-nowrap text-[10px] font-medium">
       {{ statusLabel }}
     </span>
@@ -127,6 +146,14 @@ const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000
 const eligible = computed(() => props.account.platform === 'openai' && props.account.type === 'apikey')
 const snapshot = computed<UpstreamBillingProbeSnapshot | undefined>(() => props.account.extra?.upstream_billing_probe)
 const data = computed(() => snapshot.value?.data)
+const balance = computed(() => {
+  const value = data.value?.balance
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+})
+const balanceAlertActive = computed(() => snapshot.value?.balance_alert?.active === true)
+const balanceTranslationKey = computed(() => data.value?.balance_kind === 'subscription_remaining'
+  ? 'admin.accounts.upstreamBilling.subscriptionRemaining'
+  : 'admin.accounts.upstreamBilling.walletBalance')
 const isNewAPISnapshot = computed(() => data.value?.source === 'newapi')
 const probeEnabled = computed(() => props.account.extra?.newapi_sync_enabled === true
   || props.account.extra?.upstream_billing_probe_enabled === true)
@@ -243,6 +270,7 @@ const statusClass = computed(() => {
   return ''
 })
 const primaryValue = computed(() => `${schedulingRate.value}x`)
+const formatBalance = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
 const formatDate = (value?: string) => value
   ? new Date(value).toLocaleString(undefined, {
       month: '2-digit',

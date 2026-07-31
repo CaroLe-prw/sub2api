@@ -82,6 +82,9 @@ func (r *newAPISyncTestRepo) UpdateNewAPISyncResult(
 		if write.SchedulingSnapshot != nil {
 			account.Extra[UpstreamBillingProbeExtraKey] = write.SchedulingSnapshot
 		}
+		if write.BalanceSnapshot != nil {
+			account.Extra[NewAPIBalanceSnapshotExtraKey] = write.BalanceSnapshot
+		}
 	}
 	return &NewAPISyncWriteResult{Changed: changed, OldRatio: oldRatio, NewRatio: newRatio}, nil
 }
@@ -289,6 +292,8 @@ func TestRefreshSchedulingCostUsesNewAPISnapshotAndCalibration(t *testing.T) {
 	require.Equal(t, "newapi", result.Snapshot.Data["source"])
 	require.Equal(t, "VIP", result.Snapshot.Data["newapi_group"])
 	require.Equal(t, 0.0325, result.Snapshot.Data["resolved_rate_multiplier"])
+	require.InDelta(t, 16.0, result.Snapshot.Data["balance"], 1e-12)
+	require.Equal(t, "wallet", result.Snapshot.Data["balance_kind"])
 	require.Equal(t, now.Add(30*time.Minute), result.Snapshot.NextProbeAt)
 	require.Equal(t, now.Add(time.Hour), *result.Snapshot.FreshUntil)
 	require.Same(t, result.Snapshot, account.Extra[UpstreamBillingProbeExtraKey])
@@ -298,6 +303,36 @@ func TestRefreshSchedulingCostUsesNewAPISnapshotAndCalibration(t *testing.T) {
 	schedulingRate, ok := openAISchedulingRate(account, now, 1)
 	require.True(t, ok)
 	require.InDelta(t, 0.065, schedulingRate, 1e-12)
+}
+
+func TestNewAPISyncAppliesSharedUpstreamBalanceAlert(t *testing.T) {
+	account := newAPISyncTestAccount(1, 0.0325)
+	account.Extra[UpstreamBalanceAlertEnabledExtraKey] = true
+	account.Extra[UpstreamBalanceAlertThresholdExtraKey] = 20.0
+	repo := &newAPISyncTestRepo{upstreamBillingProbeAccountRepo: &upstreamBillingProbeAccountRepo{
+		accounts: map[int64]*Account{1: account},
+	}}
+	doer := &newAPITestDoer{}
+	doer.handle = newAPITestSuccessHandler(t, "Basic", "VIP", false, "0.0325")
+	service := newAPISyncTestService(t, repo, func(*Account) (*NewAPIClient, error) {
+		return NewNewAPIClient(doer), nil
+	})
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+
+	first, err := service.SyncNewAPIAccount(t.Context(), account.ID)
+	require.NoError(t, err)
+	require.NotNil(t, first.SchedulingSnapshot.BalanceAlert)
+	require.True(t, first.SchedulingSnapshot.BalanceAlert.Active)
+	require.Equal(t, 20.0, first.SchedulingSnapshot.BalanceAlert.Threshold)
+	require.Equal(t, &now, first.SchedulingSnapshot.BalanceAlert.TriggeredAt)
+
+	service.now = func() time.Time { return now.Add(time.Hour) }
+	second, err := service.SyncNewAPIAccount(t.Context(), account.ID)
+	require.NoError(t, err)
+	require.NotNil(t, second.SchedulingSnapshot.BalanceAlert)
+	require.True(t, second.SchedulingSnapshot.BalanceAlert.Active)
+	require.Equal(t, &now, second.SchedulingSnapshot.BalanceAlert.TriggeredAt)
 }
 
 func TestNewAPISyncZeroCalibrationStoresZeroAccountCost(t *testing.T) {
@@ -412,7 +447,7 @@ func TestConcurrentNewAPISyncProducesOnlyOneRateUpdate(t *testing.T) {
 	require.Positive(t, repo.writeCalls.Load())
 	require.Equal(t, int64(1), repo.rateChanges.Load())
 	require.Equal(t, 0.0325, account.BillingRateMultiplier())
-	require.Zero(t, len(doer.requests)%3)
+	require.Zero(t, len(doer.requests)%5)
 }
 
 func TestNewAPIPeriodicFailuresDoNotStopOtherAccounts(t *testing.T) {

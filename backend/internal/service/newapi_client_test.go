@@ -57,12 +57,23 @@ func newAPITestSuccessHandler(
 ) func(*http.Request) (*http.Response, error) {
 	t.Helper()
 	return func(req *http.Request) (*http.Response, error) {
-		require.Equal(t, "Bearer "+newAPITestAccessToken, req.Header.Get("Authorization"))
 		switch req.URL.Path {
 		case "/api/user/self":
+			require.Equal(t, "Bearer "+newAPITestAccessToken, req.Header.Get("Authorization"))
 			return newAPITestResponse(http.StatusOK,
-				`{"success":true,"data":{"id":42,"group":"`+userGroup+`"}}`), nil
+				`{"success":true,"data":{"id":42,"group":"`+userGroup+`","quota":8000000,"used_quota":2000000}}`), nil
+		case "/api/status":
+			require.Empty(t, req.Header.Get("Authorization"))
+			require.Empty(t, req.Header.Get("New-Api-User"))
+			return newAPITestResponse(http.StatusOK,
+				`{"success":true,"data":{"quota_display_type":"USD","quota_per_unit":500000}}`), nil
+		case "/api/usage/token/":
+			require.Empty(t, req.Header.Get("New-Api-User"))
+			require.Equal(t, "Bearer "+newAPITestAPIKey, req.Header.Get("Authorization"))
+			return newAPITestResponse(http.StatusOK,
+				`{"code":true,"message":"ok","data":{"name":"gpt-plus","total_granted":10000000,"total_used":2000000,"total_available":8000000,"unlimited_quota":false,"expires_at":0}}`), nil
 		case "/api/token/search":
+			require.Equal(t, "Bearer "+newAPITestAccessToken, req.Header.Get("Authorization"))
 			require.Equal(t, newAPITestAPIKey, req.URL.Query().Get("token"))
 			require.Equal(t, "1", req.URL.Query().Get("p"))
 			require.Equal(t, "10", req.URL.Query().Get("size"))
@@ -70,6 +81,7 @@ func newAPITestSuccessHandler(
 				`{"success":true,"data":{"total":1,"items":[{"user_id":42,"status":1,"group":"`+
 					tokenGroup+`","cross_group_retry":`+boolJSON(crossGroupRetry)+`}]}}`), nil
 		case "/api/user/self/groups":
+			require.Equal(t, "Bearer "+newAPITestAccessToken, req.Header.Get("Authorization"))
 			return newAPITestResponse(http.StatusOK,
 				`{"success":true,"data":{"`+userGroup+`":{"ratio":0.04},"`+
 					tokenGroup+`":{"ratio":`+groupRatio+`}}}`), nil

@@ -1172,6 +1172,11 @@
           />
           <p class="input-hint">{{ t('admin.accounts.upstreamBilling.calibrationHint') }}</p>
         </div>
+        <UpstreamBalanceAlertFields
+          v-if="form.platform === 'openai' && upstreamBillingAutoProbeEnabled"
+          v-model:enabled="upstreamBalanceAlertEnabled"
+          v-model:threshold="upstreamBalanceAlertThreshold"
+        />
 
         <!-- Gemini API Key tier selection -->
         <div v-if="form.platform === 'gemini'">
@@ -1850,6 +1855,7 @@
           :totalLimit="editQuotaLimit"
           :dailyLimit="editQuotaDailyLimit"
           :weeklyLimit="editQuotaWeeklyLimit"
+          :quotaUsageMultiplier="editQuotaUsageMultiplier"
           :quotaNotifyGlobalEnabled="quotaNotifyGlobalEnabled"
           :quotaNotifyDailyEnabled="quotaNotifyState.daily.enabled"
           :quotaNotifyDailyThreshold="quotaNotifyState.daily.threshold"
@@ -1869,6 +1875,7 @@
           @update:totalLimit="editQuotaLimit = $event"
           @update:dailyLimit="editQuotaDailyLimit = $event"
           @update:weeklyLimit="editQuotaWeeklyLimit = $event"
+          @update:quotaUsageMultiplier="editQuotaUsageMultiplier = $event"
           @update:quotaNotifyDailyEnabled="quotaNotifyState.daily.enabled = $event"
           @update:quotaNotifyDailyThreshold="quotaNotifyState.daily.threshold = $event"
           @update:quotaNotifyDailyThresholdType="quotaNotifyState.daily.thresholdType = $event"
@@ -1902,6 +1909,7 @@
           :totalLimit="editQuotaLimit"
           :dailyLimit="editQuotaDailyLimit"
           :weeklyLimit="editQuotaWeeklyLimit"
+          :quotaUsageMultiplier="editQuotaUsageMultiplier"
           :quotaNotifyGlobalEnabled="quotaNotifyGlobalEnabled"
           :quotaNotifyDailyEnabled="quotaNotifyState.daily.enabled"
           :quotaNotifyDailyThreshold="quotaNotifyState.daily.threshold"
@@ -1921,6 +1929,7 @@
           @update:totalLimit="editQuotaLimit = $event"
           @update:dailyLimit="editQuotaDailyLimit = $event"
           @update:weeklyLimit="editQuotaWeeklyLimit = $event"
+          @update:quotaUsageMultiplier="editQuotaUsageMultiplier = $event"
           @update:quotaNotifyDailyEnabled="quotaNotifyState.daily.enabled = $event"
           @update:quotaNotifyDailyThreshold="quotaNotifyState.daily.threshold = $event"
           @update:quotaNotifyDailyThresholdType="quotaNotifyState.daily.thresholdType = $event"
@@ -3516,7 +3525,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, shallowRef, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import {
@@ -3565,6 +3574,7 @@ import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
+import UpstreamBalanceAlertFields from '@/components/account/UpstreamBalanceAlertFields.vue'
 import {
   applyAntigravityProjectID,
   applyHeaderOverride,
@@ -3708,6 +3718,8 @@ const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
 const upstreamBillingAutoProbeEnabled = ref(true)
 const upstreamRateCalibration = ref(1)
+const upstreamBalanceAlertEnabled = ref(false)
+const upstreamBalanceAlertThreshold = ref<number | null>(10)
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -3722,6 +3734,7 @@ const syncPreviewCredentials = computed(() => {
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
 const editQuotaWeeklyLimit = ref<number | null>(null)
+const editQuotaUsageMultiplier = shallowRef(1)
 const editDailyResetMode = ref<'rolling' | 'fixed' | null>(null)
 const editDailyResetHour = ref<number | null>(null)
 const editWeeklyResetMode = ref<'rolling' | 'fixed' | null>(null)
@@ -4646,9 +4659,12 @@ const resetForm = () => {
   apiKeyValue.value = ''
   upstreamBillingAutoProbeEnabled.value = true
   upstreamRateCalibration.value = 1
+  upstreamBalanceAlertEnabled.value = false
+  upstreamBalanceAlertThreshold.value = 10
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
+  editQuotaUsageMultiplier.value = 1
   editDailyResetMode.value = null
   editDailyResetHour.value = null
   editWeeklyResetMode.value = null
@@ -4753,6 +4769,18 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
     extra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
     extra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
     extra.openai_upstream_rate_calibration = upstreamRateCalibration.value
+    extra.upstream_balance_alert_enabled =
+      upstreamBillingAutoProbeEnabled.value && upstreamBalanceAlertEnabled.value
+    if (
+      extra.upstream_balance_alert_enabled === true &&
+      upstreamBalanceAlertThreshold.value != null &&
+      Number.isFinite(upstreamBalanceAlertThreshold.value) &&
+      upstreamBalanceAlertThreshold.value >= 0
+    ) {
+      extra.upstream_balance_alert_threshold = upstreamBalanceAlertThreshold.value
+    } else {
+      delete extra.upstream_balance_alert_threshold
+    }
   }
   // 清理兼容旧键，统一改用分类型开关。
   delete extra.responses_websockets_v2_enabled
@@ -5220,6 +5248,13 @@ const createAccountAndFinish = async (
     }
     if (editQuotaWeeklyLimit.value != null && editQuotaWeeklyLimit.value > 0) {
       quotaExtra.quota_weekly_limit = editQuotaWeeklyLimit.value
+    }
+    if (
+      (editQuotaLimit.value != null && editQuotaLimit.value > 0) ||
+      (editQuotaDailyLimit.value != null && editQuotaDailyLimit.value > 0) ||
+      (editQuotaWeeklyLimit.value != null && editQuotaWeeklyLimit.value > 0)
+    ) {
+      quotaExtra.quota_usage_multiplier = editQuotaUsageMultiplier.value
     }
     // Quota reset mode config
     if (editDailyResetMode.value === 'fixed') {

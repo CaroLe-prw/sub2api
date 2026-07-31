@@ -17,6 +17,7 @@ import (
 const (
 	newAPIRequestTimeout = 10 * time.Second
 	newAPIMaxBodyBytes   = 256 * 1024
+	newAPIMaxSafeInteger = int64(1<<53 - 1)
 
 	newAPITokenStatusEnabled = 1
 )
@@ -43,8 +44,46 @@ type NewAPIResolution struct {
 	RatioSource     string   `json:"ratio_source,omitempty"`
 }
 
-// NewAPIClient implements only the NewAPI calls needed by ratio synchronization.
-// It deliberately disables redirects so credentials cannot cross origins.
+type NewAPIBalanceAccount struct {
+	UserID         int64  `json:"user_id"`
+	Group          string `json:"group"`
+	RemainingQuota int64  `json:"remaining_quota"`
+	UsedQuota      int64  `json:"used_quota"`
+	TotalQuota     int64  `json:"total_quota"`
+}
+
+type NewAPIBalanceToken struct {
+	Name           string `json:"name"`
+	RemainingQuota int64  `json:"remaining_quota"`
+	UsedQuota      int64  `json:"used_quota"`
+	TotalQuota     int64  `json:"total_quota"`
+	UnlimitedQuota bool   `json:"unlimited_quota"`
+	ExpiresAt      int64  `json:"expires_at"`
+}
+
+type NewAPIQuotaDisplay struct {
+	DisplayType  string  `json:"display_type"`
+	Symbol       string  `json:"symbol,omitempty"`
+	QuotaPerUnit float64 `json:"quota_per_unit"`
+	ExchangeRate float64 `json:"exchange_rate"`
+}
+
+type NewAPIBalanceSnapshot struct {
+	Account          NewAPIBalanceAccount `json:"account"`
+	Token            NewAPIBalanceToken   `json:"token"`
+	QuotaDisplay     *NewAPIQuotaDisplay  `json:"quota_display,omitempty"`
+	TokenAvailable   bool                 `json:"token_available"`
+	AccountAvailable bool                 `json:"account_available"`
+	OverallAvailable bool                 `json:"overall_available"`
+	Warnings         []string             `json:"warnings,omitempty"`
+	SyncedAt         time.Time            `json:"synced_at"`
+	FreshUntil       time.Time            `json:"fresh_until"`
+}
+
+// NewAPIClient implements the NewAPI calls needed by ratio and balance
+// synchronization. Same-origin redirects are allowed for endpoint slash
+// compatibility; cross-origin redirects are stopped before credentials leave
+// the configured origin.
 type NewAPIClient struct {
 	doer         newAPIHTTPDoer
 	requestLimit int64
@@ -54,8 +93,15 @@ type NewAPIClient struct {
 func NewNewAPIClient(doer newAPIHTTPDoer) *NewAPIClient {
 	if client, ok := doer.(*http.Client); ok && client != nil {
 		clone := *client
-		clone.CheckRedirect = func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
+		previousCheckRedirect := clone.CheckRedirect
+		clone.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 4 || len(via) == 0 || !sameHTTPOrigin(via[0].URL, req.URL) {
+				return http.ErrUseLastResponse
+			}
+			if previousCheckRedirect != nil {
+				return previousCheckRedirect(req, via)
+			}
+			return nil
 		}
 		doer = &clone
 	}
@@ -73,8 +119,25 @@ type newAPIEnvelope struct {
 }
 
 type newAPIUser struct {
-	ID    int64  `json:"id"`
-	Group string `json:"group"`
+	ID        int64           `json:"id"`
+	Group     string          `json:"group"`
+	Quota     json.RawMessage `json:"quota"`
+	UsedQuota json.RawMessage `json:"used_quota"`
+}
+
+type newAPITokenUsageEnvelope struct {
+	Code    bool                  `json:"code"`
+	Message string                `json:"message"`
+	Data    *newAPITokenUsageData `json:"data"`
+}
+
+type newAPITokenUsageData struct {
+	Name           string          `json:"name"`
+	TotalGranted   json.RawMessage `json:"total_granted"`
+	TotalUsed      json.RawMessage `json:"total_used"`
+	TotalAvailable json.RawMessage `json:"total_available"`
+	UnlimitedQuota bool            `json:"unlimited_quota"`
+	ExpiresAt      json.RawMessage `json:"expires_at"`
 }
 
 type newAPITokenSearchPage struct {
@@ -87,6 +150,15 @@ type newAPIToken struct {
 	Status          int    `json:"status"`
 	Group           string `json:"group"`
 	CrossGroupRetry bool   `json:"cross_group_retry"`
+}
+
+type newAPIStatusData struct {
+	DisplayInCurrency          *bool           `json:"display_in_currency"`
+	QuotaDisplayType           string          `json:"quota_display_type"`
+	QuotaPerUnit               json.RawMessage `json:"quota_per_unit"`
+	USDExchangeRate            json.RawMessage `json:"usd_exchange_rate"`
+	CustomCurrencySymbol       string          `json:"custom_currency_symbol"`
+	CustomCurrencyExchangeRate json.RawMessage `json:"custom_currency_exchange_rate"`
 }
 
 type newAPIGroup struct {
@@ -111,7 +183,120 @@ func (c *NewAPIClient) Resolve(ctx context.Context, connection NewAPIConnection)
 	if user.ID != connection.UserID {
 		return nil, newAPIClientError("user_id_mismatch")
 	}
+	return c.resolveWithUser(ctx, connection, user)
+}
 
+func (c *NewAPIClient) ResolveWithBalance(
+	ctx context.Context,
+	connection NewAPIConnection,
+) (*NewAPIResolution, *NewAPIBalanceSnapshot, error) {
+	if c == nil || c.doer == nil {
+		return nil, nil, newAPIClientError("client_unavailable")
+	}
+	if strings.TrimSpace(connection.BaseURL) == "" ||
+		strings.TrimSpace(connection.UserAccessToken) == "" ||
+		connection.UserID <= 0 ||
+		strings.TrimSpace(connection.APIKey) == "" {
+		return nil, nil, newAPIClientError("configuration_incomplete")
+	}
+
+	user, err := c.getUser(ctx, connection)
+	if err != nil {
+		return nil, nil, err
+	}
+	if user.ID != connection.UserID {
+		return nil, nil, newAPIClientError("user_id_mismatch")
+	}
+	quotaDisplay := c.getQuotaDisplay(ctx, connection.BaseURL)
+	accountBalance, err := newAPIAccountBalance(user)
+	if err != nil {
+		return nil, nil, err
+	}
+	tokenBalance, warnings, err := c.getTokenUsage(ctx, connection)
+	if err != nil {
+		return nil, nil, err
+	}
+	resolution, err := c.resolveWithUser(ctx, connection, user)
+	if err != nil {
+		return nil, nil, err
+	}
+	tokenAvailable := tokenBalance.UnlimitedQuota || tokenBalance.RemainingQuota > 0
+	accountAvailable := accountBalance.RemainingQuota > 0
+	return resolution, &NewAPIBalanceSnapshot{
+		Account:          *accountBalance,
+		Token:            *tokenBalance,
+		QuotaDisplay:     quotaDisplay,
+		TokenAvailable:   tokenAvailable,
+		AccountAvailable: accountAvailable,
+		OverallAvailable: tokenAvailable && accountAvailable,
+		Warnings:         warnings,
+	}, nil
+}
+
+func (c *NewAPIClient) getQuotaDisplay(ctx context.Context, baseURL string) *NewAPIQuotaDisplay {
+	status, body, err := c.get(ctx, baseURL, "/api/status", nil, "", 0)
+	if err != nil || status < http.StatusOK || status >= http.StatusMultipleChoices {
+		return nil
+	}
+	var data newAPIStatusData
+	if err := decodeNewAPIEnvelope(body, &data); err != nil {
+		return nil
+	}
+	return normalizeNewAPIQuotaDisplay(&data)
+}
+
+func normalizeNewAPIQuotaDisplay(data *newAPIStatusData) *NewAPIQuotaDisplay {
+	if data == nil {
+		return nil
+	}
+	quotaPerUnit, err := parseNewAPIPositiveNumber(data.QuotaPerUnit)
+	if err != nil {
+		return nil
+	}
+
+	displayType := strings.ToUpper(strings.TrimSpace(data.QuotaDisplayType))
+	if displayType == "" {
+		if data.DisplayInCurrency != nil && !*data.DisplayInCurrency {
+			displayType = "TOKENS"
+		} else {
+			displayType = "USD"
+		}
+	}
+
+	display := &NewAPIQuotaDisplay{
+		DisplayType:  displayType,
+		QuotaPerUnit: quotaPerUnit,
+		ExchangeRate: 1,
+	}
+	switch displayType {
+	case "USD":
+		display.Symbol = "$"
+	case "CNY":
+		exchangeRate, parseErr := parseNewAPIPositiveNumber(data.USDExchangeRate)
+		if parseErr != nil {
+			return nil
+		}
+		display.Symbol = "¥"
+		display.ExchangeRate = exchangeRate
+	case "CUSTOM":
+		exchangeRate, parseErr := parseNewAPIPositiveNumber(data.CustomCurrencyExchangeRate)
+		if parseErr != nil || strings.TrimSpace(data.CustomCurrencySymbol) == "" {
+			return nil
+		}
+		display.Symbol = strings.TrimSpace(data.CustomCurrencySymbol)
+		display.ExchangeRate = exchangeRate
+	case "TOKENS":
+	default:
+		return nil
+	}
+	return display
+}
+
+func (c *NewAPIClient) resolveWithUser(
+	ctx context.Context,
+	connection NewAPIConnection,
+	user *newAPIUser,
+) (*NewAPIResolution, error) {
 	token, err := c.searchToken(ctx, connection)
 	if err != nil {
 		return nil, err
@@ -155,6 +340,85 @@ func (c *NewAPIClient) Resolve(ctx context.Context, connection NewAPIConnection)
 	result.RatioSource = NewAPIRatioSourceConfiguredGroup
 	result.ActualGroup = usingGroup
 	return result, nil
+}
+
+func (c *NewAPIClient) getTokenUsage(
+	ctx context.Context,
+	connection NewAPIConnection,
+) (*NewAPIBalanceToken, []string, error) {
+	status, body, err := c.get(
+		ctx,
+		connection.BaseURL,
+		"/api/usage/token/",
+		nil,
+		connection.APIKey,
+		0,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+		return nil, nil, newAPIHTTPError("token_usage", status)
+	}
+	var envelope newAPITokenUsageEnvelope
+	if err := json.Unmarshal(body, &envelope); err != nil || !envelope.Code || envelope.Data == nil {
+		return nil, nil, newAPIClientError("token_usage_invalid_response")
+	}
+	remaining, err := parseNewAPIQuotaWithNegative(
+		envelope.Data.TotalAvailable,
+		envelope.Data.UnlimitedQuota,
+	)
+	if err != nil {
+		return nil, nil, newAPIClientError("token_remaining_quota_invalid")
+	}
+	used, err := parseNewAPIQuota(envelope.Data.TotalUsed)
+	if err != nil {
+		return nil, nil, newAPIClientError("token_used_quota_invalid")
+	}
+	total, err := parseNewAPIQuota(envelope.Data.TotalGranted)
+	if err != nil {
+		return nil, nil, newAPIClientError("token_total_quota_invalid")
+	}
+	expiresAt, err := parseNewAPIQuota(envelope.Data.ExpiresAt)
+	if err != nil {
+		return nil, nil, newAPIClientError("token_expires_at_invalid")
+	}
+	warnings := make([]string, 0, 1)
+	if remaining > newAPIMaxSafeInteger-used || total != remaining+used {
+		warnings = append(warnings, "newapi_token_quota_mismatch")
+	}
+	return &NewAPIBalanceToken{
+		Name:           strings.TrimSpace(envelope.Data.Name),
+		RemainingQuota: remaining,
+		UsedQuota:      used,
+		TotalQuota:     total,
+		UnlimitedQuota: envelope.Data.UnlimitedQuota,
+		ExpiresAt:      expiresAt,
+	}, warnings, nil
+}
+
+func newAPIAccountBalance(user *newAPIUser) (*NewAPIBalanceAccount, error) {
+	if user == nil {
+		return nil, newAPIClientError("user_self_invalid_response")
+	}
+	remaining, err := parseNewAPIQuota(user.Quota)
+	if err != nil {
+		return nil, newAPIClientError("account_remaining_quota_invalid")
+	}
+	used, err := parseNewAPIQuota(user.UsedQuota)
+	if err != nil {
+		return nil, newAPIClientError("account_used_quota_invalid")
+	}
+	if remaining > newAPIMaxSafeInteger-used {
+		return nil, newAPIClientError("account_total_quota_invalid")
+	}
+	return &NewAPIBalanceAccount{
+		UserID:         user.ID,
+		Group:          strings.TrimSpace(user.Group),
+		RemainingQuota: remaining,
+		UsedQuota:      used,
+		TotalQuota:     remaining + used,
+	}, nil
 }
 
 func (c *NewAPIClient) getUser(ctx context.Context, connection NewAPIConnection) (*newAPIUser, error) {
@@ -256,7 +520,9 @@ func (c *NewAPIClient) get(
 		return 0, nil, newAPIClientError("request_build_failed")
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+bearerToken)
+	if strings.TrimSpace(bearerToken) != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
 	if userID > 0 {
 		req.Header.Set("New-Api-User", strconv.FormatInt(userID, 10))
 	}
@@ -295,6 +561,9 @@ func decodeNewAPIEnvelope(body []byte, target any) error {
 
 func newAPIRequiresUserHeader(status int, body []byte) bool {
 	const marker = "new-api-user header not provided"
+	if status != http.StatusUnauthorized && status != http.StatusForbidden {
+		return false
+	}
 	if strings.Contains(strings.ToLower(string(body)), marker) {
 		return true
 	}
@@ -302,8 +571,7 @@ func newAPIRequiresUserHeader(status int, body []byte) bool {
 	if json.Unmarshal(body, &envelope) != nil {
 		return false
 	}
-	return (status == http.StatusUnauthorized || !envelope.Success) &&
-		strings.Contains(strings.ToLower(envelope.Message), marker)
+	return strings.Contains(strings.ToLower(envelope.Message), marker)
 }
 
 func parsePositiveRatio(raw json.RawMessage) (float64, error) {
@@ -316,6 +584,61 @@ func parsePositiveRatio(raw json.RawMessage) (float64, error) {
 		return 0, errors.New("ratio must be finite and greater than zero")
 	}
 	return value, nil
+}
+
+func parseNewAPIPositiveNumber(raw json.RawMessage) (float64, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return 0, errors.New("number is missing")
+	}
+	if strings.HasPrefix(trimmed, `"`) {
+		var numeric string
+		if err := json.Unmarshal(raw, &numeric); err != nil {
+			return 0, errors.New("number is not numeric")
+		}
+		trimmed = strings.TrimSpace(numeric)
+	}
+	value, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
+		return 0, errors.New("number must be finite and greater than zero")
+	}
+	return value, nil
+}
+
+func parseNewAPIQuota(raw json.RawMessage) (int64, error) {
+	return parseNewAPIQuotaWithNegative(raw, false)
+}
+
+func parseNewAPIQuotaWithNegative(raw json.RawMessage, allowNegative bool) (int64, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return 0, errors.New("quota is missing")
+	}
+	if strings.HasPrefix(trimmed, `"`) {
+		var numeric string
+		if err := json.Unmarshal(raw, &numeric); err != nil {
+			return 0, errors.New("quota is not numeric")
+		}
+		trimmed = strings.TrimSpace(numeric)
+	}
+	value, err := strconv.ParseFloat(trimmed, 64)
+	minimum := float64(0)
+	if allowNegative {
+		minimum = -float64(newAPIMaxSafeInteger)
+	}
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) ||
+		value < minimum || value > float64(newAPIMaxSafeInteger) || math.Trunc(value) != value {
+		return 0, errors.New("quota is not a safe integer")
+	}
+	return int64(value), nil
+}
+
+func sameHTTPOrigin(left, right *url.URL) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	return strings.EqualFold(left.Scheme, right.Scheme) &&
+		strings.EqualFold(left.Host, right.Host)
 }
 
 func float64Pointer(value float64) *float64 {

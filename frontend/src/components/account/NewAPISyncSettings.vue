@@ -56,6 +56,35 @@
           />
           <p class="input-hint">{{ t('admin.accounts.newapiSync.secretHint') }}</p>
         </div>
+
+        <div>
+          <label class="input-label" for="newapi-api-key">
+            {{ t('admin.accounts.newapiSync.apiKey') }}
+          </label>
+          <input
+            id="newapi-api-key"
+            type="text"
+            class="input font-mono"
+            :value="config?.has_newapi_api_key ? '********' : ''"
+            :placeholder="t('admin.accounts.newapiSync.apiKeyMissing')"
+            disabled
+          />
+          <p class="input-hint">{{ t('admin.accounts.newapiSync.apiKeyHint') }}</p>
+        </div>
+
+        <div>
+          <label class="input-label" for="newapi-sync-interval">
+            {{ t('admin.accounts.newapiSync.syncInterval') }}
+          </label>
+          <input
+            id="newapi-sync-interval"
+            type="number"
+            class="input"
+            :value="config?.newapi_balance_sync_interval || 30"
+            disabled
+          />
+          <p class="input-hint">{{ t('admin.accounts.newapiSync.syncIntervalHint') }}</p>
+        </div>
       </div>
 
       <div class="flex flex-wrap gap-2">
@@ -119,6 +148,11 @@
         >
           {{ errorLabel(config.newapi_last_sync_error) }}
         </p>
+
+        <NewAPIBalanceSnapshotView
+          :snapshot="displayBalanceSnapshot"
+          :stale="displayBalanceStale"
+        />
       </div>
     </template>
   </section>
@@ -132,11 +166,13 @@ import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 import type {
   NewAPIRatioSource,
+  NewAPIBalanceSnapshot,
   NewAPISyncConfig,
   NewAPISyncConfigUpdate,
   NewAPISyncResult
 } from '@/types'
 import Icon from '@/components/icons/Icon.vue'
+import NewAPIBalanceSnapshotView from '@/components/account/NewAPIBalanceSnapshot.vue'
 
 const props = defineProps<{
   accountId: number
@@ -269,6 +305,12 @@ const syncNow = async () => {
 }
 
 const resolution = computed(() => preview.value?.resolution)
+const displayBalanceSnapshot = computed<NewAPIBalanceSnapshot | undefined>(() =>
+  preview.value?.balance_snapshot || config.value?.newapi_balance_snapshot
+)
+const displayBalanceStale = computed(() =>
+  preview.value?.balance_snapshot ? false : (config.value?.newapi_balance_stale ?? true)
+)
 const resolvedUserGroup = computed(() =>
   resolution.value?.user_group || config.value?.newapi_resolved_user_group || ''
 )

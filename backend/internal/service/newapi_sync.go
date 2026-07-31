@@ -33,6 +33,7 @@ const (
 	NewAPILastSyncAtExtraKey          = "newapi_last_sync_at"
 	NewAPILastSyncStatusExtraKey      = "newapi_last_sync_status"
 	NewAPILastSyncErrorExtraKey       = "newapi_last_sync_error"
+	NewAPIBalanceSnapshotExtraKey     = "newapi_balance_snapshot"
 	NewAPIResolvedUserGroupExtraKey   = "newapi_resolved_user_group"
 	NewAPIResolvedTokenGroupExtraKey  = "newapi_resolved_token_group"
 	NewAPIResolvedActualGroupExtraKey = "newapi_resolved_actual_group"
@@ -65,6 +66,7 @@ var newAPISyncManagedExtraKeys = [...]string{
 	NewAPILastSyncAtExtraKey,
 	NewAPILastSyncStatusExtraKey,
 	NewAPILastSyncErrorExtraKey,
+	NewAPIBalanceSnapshotExtraKey,
 	NewAPIResolvedUserGroupExtraKey,
 	NewAPIResolvedTokenGroupExtraKey,
 	NewAPIResolvedActualGroupExtraKey,
@@ -114,20 +116,25 @@ func newAPIInfraError(status int, code, message string) error {
 }
 
 type NewAPISyncConfig struct {
-	Enabled             bool       `json:"newapi_sync_enabled"`
-	BaseURL             string     `json:"newapi_base_url"`
-	UserAccessToken     string     `json:"newapi_user_access_token"`
-	UserID              int64      `json:"newapi_user_id"`
-	LastSyncAt          *time.Time `json:"newapi_last_sync_at,omitempty"`
-	LastSyncStatus      string     `json:"newapi_last_sync_status"`
-	LastSyncError       string     `json:"newapi_last_sync_error,omitempty"`
-	ResolvedUserGroup   string     `json:"newapi_resolved_user_group,omitempty"`
-	ResolvedTokenGroup  string     `json:"newapi_resolved_token_group,omitempty"`
-	ResolvedActualGroup string     `json:"newapi_resolved_actual_group,omitempty"`
-	RatioSource         string     `json:"newapi_ratio_source,omitempty"`
-	CrossGroupRetry     bool       `json:"newapi_cross_group_retry"`
-	CurrentRatio        float64    `json:"current_ratio"`
-	HasUserAccessToken  bool       `json:"has_newapi_user_access_token"`
+	Enabled             bool                   `json:"newapi_sync_enabled"`
+	BaseURL             string                 `json:"newapi_base_url"`
+	UserAccessToken     string                 `json:"newapi_user_access_token"`
+	UserID              int64                  `json:"newapi_user_id"`
+	LastSyncAt          *time.Time             `json:"newapi_last_sync_at,omitempty"`
+	LastSyncStatus      string                 `json:"newapi_last_sync_status"`
+	LastSyncError       string                 `json:"newapi_last_sync_error,omitempty"`
+	ResolvedUserGroup   string                 `json:"newapi_resolved_user_group,omitempty"`
+	ResolvedTokenGroup  string                 `json:"newapi_resolved_token_group,omitempty"`
+	ResolvedActualGroup string                 `json:"newapi_resolved_actual_group,omitempty"`
+	RatioSource         string                 `json:"newapi_ratio_source,omitempty"`
+	CrossGroupRetry     bool                   `json:"newapi_cross_group_retry"`
+	CurrentRatio        float64                `json:"current_ratio"`
+	HasUserAccessToken  bool                   `json:"has_newapi_user_access_token"`
+	HasAPIKey           bool                   `json:"has_newapi_api_key"`
+	BalanceSyncEnabled  bool                   `json:"newapi_balance_sync_enabled"`
+	BalanceSyncInterval int                    `json:"newapi_balance_sync_interval"`
+	BalanceSnapshot     *NewAPIBalanceSnapshot `json:"newapi_balance_snapshot,omitempty"`
+	BalanceStale        bool                   `json:"newapi_balance_stale"`
 }
 
 type NewAPISyncConfigUpdate struct {
@@ -144,6 +151,7 @@ type NewAPISyncResult struct {
 	OldRatio           float64                       `json:"old_ratio"`
 	NewRatio           *float64                      `json:"new_ratio,omitempty"`
 	Resolution         *NewAPIResolution             `json:"resolution,omitempty"`
+	BalanceSnapshot    *NewAPIBalanceSnapshot        `json:"balance_snapshot,omitempty"`
 	SchedulingSnapshot *UpstreamBillingProbeSnapshot `json:"scheduling_snapshot,omitempty"`
 	Error              string                        `json:"error,omitempty"`
 }
@@ -170,6 +178,7 @@ type NewAPISyncWrite struct {
 	RatioSource               *string
 	CrossGroupRetry           *bool
 	Ratio                     *float64
+	BalanceSnapshot           *NewAPIBalanceSnapshot
 	SchedulingSnapshot        *UpstreamBillingProbeSnapshot
 }
 
@@ -194,7 +203,12 @@ func (s *UpstreamBillingProbeService) GetNewAPISyncConfig(ctx context.Context, a
 	if !isNewAPISyncAccount(account) {
 		return nil, ErrNewAPISyncAccountInvalid
 	}
-	return newAPIPublicConfigFromAccount(account), nil
+	config := newAPIPublicConfigFromAccount(account)
+	if settings, settingsErr := s.getSettings(ctx); settingsErr == nil {
+		config.BalanceSyncInterval = settings.IntervalMinutes
+	}
+	config.BalanceStale = newAPIBalanceIsStale(config, s.currentTime())
+	return config, nil
 }
 
 func (s *UpstreamBillingProbeService) UpdateNewAPISyncConfig(
@@ -266,6 +280,7 @@ func (s *UpstreamBillingProbeService) UpdateNewAPISyncConfig(
 		updates[NewAPIResolvedActualGroupExtraKey] = ""
 		updates[NewAPIRatioSourceExtraKey] = ""
 		updates[NewAPICrossGroupRetryExtraKey] = false
+		updates[NewAPIBalanceSnapshotExtraKey] = nil
 	}
 	if identityChanged || enabledChanged {
 		updates[UpstreamBillingProbeExtraKey] = nil
@@ -277,11 +292,16 @@ func (s *UpstreamBillingProbeService) UpdateNewAPISyncConfig(
 	if err != nil {
 		return nil, err
 	}
-	return newAPIPublicConfigFromAccount(updated), nil
+	config := newAPIPublicConfigFromAccount(updated)
+	if settings, settingsErr := s.getSettings(ctx); settingsErr == nil {
+		config.BalanceSyncInterval = settings.IntervalMinutes
+	}
+	config.BalanceStale = newAPIBalanceIsStale(config, s.currentTime())
+	return config, nil
 }
 
 func (s *UpstreamBillingProbeService) TestNewAPIConnection(ctx context.Context, accountID int64) (*NewAPISyncResult, error) {
-	account, resolution, err := s.resolveNewAPIAccount(ctx, accountID)
+	account, resolution, balance, err := s.resolveNewAPIAccountWithBalance(ctx, accountID)
 	if err != nil {
 		return nil, newAPISyncAPIError(err)
 	}
@@ -289,12 +309,18 @@ func (s *UpstreamBillingProbeService) TestNewAPIConnection(ctx context.Context, 
 	if err != nil {
 		return nil, newAPISyncAPIError(err)
 	}
+	settings, err := s.getSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stampNewAPIBalanceSnapshot(balance, s.currentTime(), settings.IntervalMinutes)
 	return &NewAPISyncResult{
-		AccountID:  account.ID,
-		Status:     newAPIResolutionStatus(resolution),
-		OldRatio:   account.BillingRateMultiplier(),
-		NewRatio:   &calibratedRatio,
-		Resolution: resolution,
+		AccountID:       account.ID,
+		Status:          newAPIResolutionStatus(resolution),
+		OldRatio:        account.BillingRateMultiplier(),
+		NewRatio:        &calibratedRatio,
+		Resolution:      resolution,
+		BalanceSnapshot: balance,
 	}, nil
 }
 
@@ -364,7 +390,7 @@ func (s *UpstreamBillingProbeService) syncLoadedNewAPIAccount(
 	account *Account,
 	intervalMinutes int,
 ) (*NewAPISyncResult, error) {
-	resolution, err := s.resolveLoadedNewAPIAccount(ctx, account)
+	resolution, balance, err := s.resolveLoadedNewAPIAccountWithBalance(ctx, account)
 	if err != nil {
 		return s.persistNewAPISyncFailure(ctx, account, err)
 	}
@@ -380,8 +406,17 @@ func (s *UpstreamBillingProbeService) syncLoadedNewAPIAccount(
 	ratioSource := resolution.RatioSource
 	crossGroupRetry := resolution.CrossGroupRetry
 	stored := newAPIStoredConfigFromAccount(account)
+	previousSync := newAPIPublicConfigFromAccount(account)
+	previousSchedulingSnapshot := decodeUpstreamBillingProbeSnapshot(account.Extra)
 	attemptedAt := s.currentTime().UTC()
-	schedulingSnapshot := newAPISchedulingSnapshot(resolution, attemptedAt, intervalMinutes)
+	stampNewAPIBalanceSnapshot(balance, attemptedAt, intervalMinutes)
+	schedulingSnapshot := newAPISchedulingSnapshot(resolution, balance, attemptedAt, intervalMinutes)
+	balanceValue, balanceThreshold, notifyBalanceLow := applyUpstreamBalanceAlertSnapshot(
+		account,
+		previousSchedulingSnapshot,
+		schedulingSnapshot,
+		attemptedAt,
+	)
 	write := &NewAPISyncWrite{
 		AccountID:                 account.ID,
 		ExpectedIdentity:          stored.IdentityHash,
@@ -396,6 +431,7 @@ func (s *UpstreamBillingProbeService) syncLoadedNewAPIAccount(
 		RatioSource:               &ratioSource,
 		CrossGroupRetry:           &crossGroupRetry,
 		Ratio:                     &calibratedRatio,
+		BalanceSnapshot:           balance,
 		SchedulingSnapshot:        schedulingSnapshot,
 	}
 	writeResult, err := s.writeNewAPISyncResult(ctx, write)
@@ -409,6 +445,7 @@ func (s *UpstreamBillingProbeService) syncLoadedNewAPIAccount(
 		OldRatio:           writeResult.OldRatio,
 		NewRatio:           &calibratedRatio,
 		Resolution:         resolution,
+		BalanceSnapshot:    balance,
 		SchedulingSnapshot: schedulingSnapshot,
 	}
 	if writeResult.Changed && resolution.Ratio != nil {
@@ -423,6 +460,23 @@ func (s *UpstreamBillingProbeService) syncLoadedNewAPIAccount(
 			"actual_group", resolution.ActualGroup,
 			"ratio_source", resolution.RatioSource,
 		)
+		if s.opsService != nil && previousSync.LastSyncAt != nil {
+			s.opsService.notifyUpstreamRateChange(account, writeResult.OldRatio, writeResult.NewRatio, "NewAPI ratio sync")
+		}
+	}
+	if notifyBalanceLow && s.opsService != nil {
+		s.opsService.notifyUpstreamBalanceLow(account, balanceValue, balanceThreshold)
+	}
+	if newAPIBalanceChanged(previousSync.BalanceSnapshot, balance) {
+		slog.Info("newapi_balance_sync_updated",
+			"account_id", account.ID,
+			"account_remaining_quota", balance.Account.RemainingQuota,
+			"token_remaining_quota", balance.Token.RemainingQuota,
+			"token_unlimited_quota", balance.Token.UnlimitedQuota,
+		)
+	}
+	for _, warning := range balance.Warnings {
+		slog.Warn("newapi_balance_sync_warning", "account_id", account.ID, "warning", warning)
 	}
 	return result, nil
 }
@@ -455,54 +509,75 @@ func (s *UpstreamBillingProbeService) persistNewAPISyncFailure(
 	}, syncErr
 }
 
-func (s *UpstreamBillingProbeService) resolveNewAPIAccount(
+func (s *UpstreamBillingProbeService) resolveNewAPIAccountWithBalance(
 	ctx context.Context,
 	accountID int64,
-) (*Account, *NewAPIResolution, error) {
+) (*Account, *NewAPIResolution, *NewAPIBalanceSnapshot, error) {
 	if s == nil || s.accountRepo == nil {
-		return nil, nil, ErrNewAPISyncUnavailable
+		return nil, nil, nil, ErrNewAPISyncUnavailable
 	}
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if !isNewAPISyncAccount(account) {
-		return nil, nil, ErrNewAPISyncAccountInvalid
+		return nil, nil, nil, ErrNewAPISyncAccountInvalid
 	}
-	resolution, err := s.resolveLoadedNewAPIAccount(ctx, account)
-	return account, resolution, err
+	resolution, balance, err := s.resolveLoadedNewAPIAccountWithBalance(ctx, account)
+	return account, resolution, balance, err
 }
 
 func (s *UpstreamBillingProbeService) resolveLoadedNewAPIAccount(
 	ctx context.Context,
 	account *Account,
 ) (*NewAPIResolution, error) {
+	client, connection, err := s.newAPIConnectionForAccount(account)
+	if err != nil {
+		return nil, err
+	}
+	return client.Resolve(ctx, connection)
+}
+
+func (s *UpstreamBillingProbeService) resolveLoadedNewAPIAccountWithBalance(
+	ctx context.Context,
+	account *Account,
+) (*NewAPIResolution, *NewAPIBalanceSnapshot, error) {
+	client, connection, err := s.newAPIConnectionForAccount(account)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client.ResolveWithBalance(ctx, connection)
+}
+
+func (s *UpstreamBillingProbeService) newAPIConnectionForAccount(
+	account *Account,
+) (*NewAPIClient, NewAPIConnection, error) {
 	if s.encryptor == nil {
-		return nil, ErrNewAPISyncUnavailable
+		return nil, NewAPIConnection{}, ErrNewAPISyncUnavailable
 	}
 	stored := newAPIStoredConfigFromAccount(account)
 	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 	if stored.UserID <= 0 || stored.UserAccessToken == "" || apiKey == "" {
-		return nil, newAPIClientError("configuration_incomplete")
+		return nil, NewAPIConnection{}, newAPIClientError("configuration_incomplete")
 	}
 	baseURL, err := s.resolveNewAPIBaseURL(account, stored.BaseURL)
 	if err != nil {
-		return nil, newAPIClientError("base_url_invalid")
+		return nil, NewAPIConnection{}, newAPIClientError("base_url_invalid")
 	}
 	accessToken, err := s.encryptor.Decrypt(stored.UserAccessToken)
 	if err != nil {
-		return nil, newAPIClientError("credential_decrypt_failed")
+		return nil, NewAPIConnection{}, newAPIClientError("credential_decrypt_failed")
 	}
 	client, err := s.newAPIClientForAccount(account)
 	if err != nil {
-		return nil, newAPIClientError("client_unavailable")
+		return nil, NewAPIConnection{}, newAPIClientError("client_unavailable")
 	}
-	return client.Resolve(ctx, NewAPIConnection{
+	return client, NewAPIConnection{
 		BaseURL:         baseURL,
 		UserAccessToken: accessToken,
 		UserID:          stored.UserID,
 		APIKey:          apiKey,
-	})
+	}, nil
 }
 
 func (s *UpstreamBillingProbeService) newAPIClientForAccount(account *Account) (*NewAPIClient, error) {
@@ -659,6 +734,7 @@ func newAPIPublicConfigFromAccount(account *Account) *NewAPISyncConfig {
 		return config
 	}
 	config.CurrentRatio = account.BillingRateMultiplier()
+	config.HasAPIKey = strings.TrimSpace(account.GetCredential("api_key")) != ""
 	if account.Extra != nil {
 		raw, err := json.Marshal(account.Extra)
 		if err == nil {
@@ -666,6 +742,7 @@ func newAPIPublicConfigFromAccount(account *Account) *NewAPISyncConfig {
 		}
 	}
 	stored := newAPIStoredConfigFromAccount(account)
+	config.BalanceSyncEnabled = stored.Enabled
 	config.HasUserAccessToken = stored.UserAccessToken != ""
 	if config.HasUserAccessToken {
 		config.UserAccessToken = NewAPISecretMask
@@ -681,6 +758,36 @@ func newAPIPublicConfigFromAccount(account *Account) *NewAPISyncConfig {
 		config.RatioSource = ""
 	}
 	return config
+}
+
+func stampNewAPIBalanceSnapshot(snapshot *NewAPIBalanceSnapshot, now time.Time, intervalMinutes int) {
+	if snapshot == nil {
+		return
+	}
+	settings := UpstreamBillingProbeSettings{IntervalMinutes: intervalMinutes}
+	normalizeUpstreamBillingProbeSettings(&settings)
+	now = now.UTC()
+	snapshot.SyncedAt = now
+	snapshot.FreshUntil = now.Add(2 * time.Duration(settings.IntervalMinutes) * time.Minute)
+}
+
+func newAPIBalanceIsStale(config *NewAPISyncConfig, now time.Time) bool {
+	if config == nil || config.BalanceSnapshot == nil || config.BalanceSnapshot.SyncedAt.IsZero() {
+		return true
+	}
+	return config.LastSyncStatus == NewAPISyncStatusFailed ||
+		config.BalanceSnapshot.FreshUntil.IsZero() ||
+		!now.Before(config.BalanceSnapshot.FreshUntil)
+}
+
+func newAPIBalanceChanged(left, right *NewAPIBalanceSnapshot) bool {
+	if right == nil {
+		return false
+	}
+	if left == nil {
+		return true
+	}
+	return left.Account != right.Account || left.Token != right.Token
 }
 
 func newAPIStoredConfigFromAccount(account *Account) newAPISyncStoredConfig {
@@ -819,6 +926,7 @@ func safeSchedulingCostRefreshError(err error) string {
 
 func newAPISchedulingSnapshot(
 	resolution *NewAPIResolution,
+	balance *NewAPIBalanceSnapshot,
 	now time.Time,
 	intervalMinutes int,
 ) *UpstreamBillingProbeSnapshot {
@@ -833,26 +941,46 @@ func newAPISchedulingSnapshot(
 	normalizeUpstreamBillingProbeSettings(&settings)
 	interval := time.Duration(settings.IntervalMinutes) * time.Minute
 	now = now.UTC()
+	data := map[string]any{
+		"object":                    "newapi.group_ratio",
+		"schema_version":            1,
+		"source":                    "newapi",
+		"billing_scope":             "token",
+		"group_rate_multiplier":     ratio,
+		"resolved_rate_multiplier":  ratio,
+		"peak_rate_enabled":         false,
+		"effective_rate_multiplier": ratio,
+		"observed_at":               now.Format(time.RFC3339Nano),
+		"newapi_group":              resolution.ActualGroup,
+	}
+	if accountBalance, ok := newAPIAccountBalanceUSD(balance); ok {
+		data["balance"] = accountBalance
+		data["balance_kind"] = "wallet"
+	}
 	return &UpstreamBillingProbeSnapshot{
-		Status: UpstreamBillingProbeStatusOK,
-		Data: map[string]any{
-			"object":                    "newapi.group_ratio",
-			"schema_version":            1,
-			"source":                    "newapi",
-			"billing_scope":             "token",
-			"group_rate_multiplier":     ratio,
-			"resolved_rate_multiplier":  ratio,
-			"peak_rate_enabled":         false,
-			"effective_rate_multiplier": ratio,
-			"observed_at":               now.Format(time.RFC3339Nano),
-			"newapi_group":              resolution.ActualGroup,
-		},
+		Status:        UpstreamBillingProbeStatusOK,
+		Data:          data,
 		ReceivedAt:    probeTimePtr(now),
 		FreshUntil:    probeTimePtr(now.Add(2 * interval)),
 		LastAttemptAt: now,
 		NextProbeAt:   now.Add(interval),
 		HTTPStatus:    http.StatusOK,
 	}
+}
+
+func newAPIAccountBalanceUSD(balance *NewAPIBalanceSnapshot) (float64, bool) {
+	if balance == nil || balance.QuotaDisplay == nil || balance.Account.RemainingQuota < 0 {
+		return 0, false
+	}
+	quotaPerUnit := balance.QuotaDisplay.QuotaPerUnit
+	if quotaPerUnit <= 0 || math.IsNaN(quotaPerUnit) || math.IsInf(quotaPerUnit, 0) {
+		return 0, false
+	}
+	value := float64(balance.Account.RemainingQuota) / quotaPerUnit
+	if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, false
+	}
+	return value, true
 }
 
 func calibratedNewAPIAccountRatio(account *Account, resolution *NewAPIResolution) (float64, error) {

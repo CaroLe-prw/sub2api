@@ -696,12 +696,35 @@ describe('EditAccountModal', () => {
 
     expect(mode.element.value).toBe('newapi')
     expect(wrapper.find('[data-testid="upstream-rate-calibration"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="upstream-balance-alert-fields"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="newapi-sync-settings"]').exists()).toBe(true)
 
     await mode.setValue('off')
 
     expect(wrapper.find('[data-testid="upstream-rate-calibration"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="newapi-sync-settings"]').exists()).toBe(false)
+  })
+
+  it('saves the shared upstream balance alert for NewAPI', async () => {
+    const account = buildAccount()
+    account.extra = {
+      newapi_sync_enabled: true,
+      upstream_balance_alert_enabled: true,
+      upstream_balance_alert_threshold: 20
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    expect(wrapper.get<HTMLInputElement>('[data-testid="upstream-balance-alert-threshold"]').element.value).toBe('20')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_balance_alert_enabled).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_balance_alert_threshold).toBe(20)
   })
 
   it('clears OpenAI APIKey Responses override when set back to auto', async () => {

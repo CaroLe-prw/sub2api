@@ -33,6 +33,10 @@ const config = (overrides: Partial<NewAPISyncConfig> = {}): NewAPISyncConfig => 
   newapi_cross_group_retry: false,
   current_ratio: 0.04,
   has_newapi_user_access_token: true,
+  has_newapi_api_key: true,
+  newapi_balance_sync_enabled: true,
+  newapi_balance_sync_interval: 30,
+  newapi_balance_stale: true,
   ...overrides
 })
 
@@ -75,6 +79,82 @@ describe('NewAPISyncSettings', () => {
     await flushPromises()
 
     expect(api.updateNewAPISyncConfig).not.toHaveBeenCalled()
+  })
+
+  it('renders the last raw quota snapshot without treating it as currency', async () => {
+    api.getNewAPISyncConfig.mockResolvedValue(config({
+      newapi_balance_stale: false,
+      newapi_balance_snapshot: {
+        account: {
+          user_id: 42,
+          group: 'Basic',
+          remaining_quota: 8_000_000,
+          used_quota: 2_000_000,
+          total_quota: 10_000_000
+        },
+        token: {
+          name: 'gpt-plus',
+          remaining_quota: 8_000_000,
+          used_quota: 2_000_000,
+          total_quota: 10_000_000,
+          unlimited_quota: false,
+          expires_at: 0
+        },
+        token_available: true,
+        account_available: true,
+        overall_available: true,
+        synced_at: '2026-07-31T04:00:00Z',
+        fresh_until: '2026-07-31T05:00:00Z'
+      }
+    }))
+    const wrapper = mount(NewAPISyncSettings, { props: { accountId: 7, enabled: true } })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('gpt-plus')
+    expect(wrapper.text()).toContain('8,000,000')
+    expect(wrapper.text()).not.toContain('$8,000,000')
+    expect(wrapper.text()).toContain('admin.accounts.newapiSync.balance.rawQuotaHint')
+  })
+
+  it('renders the upstream display amount while preserving raw quota', async () => {
+    api.getNewAPISyncConfig.mockResolvedValue(config({
+      newapi_balance_stale: false,
+      newapi_balance_snapshot: {
+        account: {
+          user_id: 42,
+          group: 'Basic',
+          remaining_quota: 9_932_273,
+          used_quota: 17_567_727,
+          total_quota: 27_500_000
+        },
+        token: {
+          name: 'gpt-plus',
+          remaining_quota: -15_563_169,
+          used_quota: 17_560_977,
+          total_quota: 1_997_191,
+          unlimited_quota: true,
+          expires_at: 0
+        },
+        quota_display: {
+          display_type: 'USD',
+          symbol: '$',
+          quota_per_unit: 500_000,
+          exchange_rate: 1
+        },
+        token_available: true,
+        account_available: true,
+        overall_available: true,
+        synced_at: '2026-07-31T04:30:12Z',
+        fresh_until: '2026-07-31T05:30:12Z'
+      }
+    }))
+    const wrapper = mount(NewAPISyncSettings, { props: { accountId: 7, enabled: true } })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('$19.86 (9,932,273 quota)')
+    expect(wrapper.text()).toContain('$35.14 (17,567,727 quota)')
+    expect(wrapper.text()).toContain('$55 (27,500,000 quota)')
+    expect(wrapper.text()).toContain('admin.accounts.newapiSync.balance.convertedQuotaHint')
   })
 
   it('persists disabling an existing NewAPI synchronization without showing its fields', async () => {

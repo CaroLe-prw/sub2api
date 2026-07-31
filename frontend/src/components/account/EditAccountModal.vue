@@ -1659,6 +1659,11 @@
           />
           <p class="input-hint">{{ t('admin.accounts.upstreamBilling.calibrationHint') }}</p>
         </div>
+        <UpstreamBalanceAlertFields
+          v-if="upstreamBillingMode !== 'off'"
+          v-model:enabled="upstreamBalanceAlertEnabled"
+          v-model:threshold="upstreamBalanceAlertThreshold"
+        />
 
         <p
           v-if="upstreamBillingMode === 'newapi'"
@@ -1763,6 +1768,7 @@
           :totalLimit="editQuotaLimit"
           :dailyLimit="editQuotaDailyLimit"
           :weeklyLimit="editQuotaWeeklyLimit"
+          :quotaUsageMultiplier="editQuotaUsageMultiplier"
           :dailyResetMode="editDailyResetMode"
           :dailyResetHour="editDailyResetHour"
           :weeklyResetMode="editWeeklyResetMode"
@@ -1782,6 +1788,7 @@
           @update:totalLimit="editQuotaLimit = $event"
           @update:dailyLimit="editQuotaDailyLimit = $event"
           @update:weeklyLimit="editQuotaWeeklyLimit = $event"
+          @update:quotaUsageMultiplier="editQuotaUsageMultiplier = $event"
           @update:dailyResetMode="editDailyResetMode = $event"
           @update:dailyResetHour="editDailyResetHour = $event"
           @update:weeklyResetMode="editWeeklyResetMode = $event"
@@ -1814,6 +1821,7 @@
           :totalLimit="editQuotaLimit"
           :dailyLimit="editQuotaDailyLimit"
           :weeklyLimit="editQuotaWeeklyLimit"
+          :quotaUsageMultiplier="editQuotaUsageMultiplier"
           :dailyResetMode="editDailyResetMode"
           :dailyResetHour="editDailyResetHour"
           :weeklyResetMode="editWeeklyResetMode"
@@ -1833,6 +1841,7 @@
           @update:totalLimit="editQuotaLimit = $event"
           @update:dailyLimit="editQuotaDailyLimit = $event"
           @update:weeklyLimit="editQuotaWeeklyLimit = $event"
+          @update:quotaUsageMultiplier="editQuotaUsageMultiplier = $event"
           @update:dailyResetMode="editDailyResetMode = $event"
           @update:dailyResetHour="editDailyResetHour = $event"
           @update:weeklyResetMode="editWeeklyResetMode = $event"
@@ -2669,7 +2678,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, shallowRef, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
@@ -2699,6 +2708,7 @@ import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
 import NewAPISyncSettings from '@/components/account/NewAPISyncSettings.vue'
+import UpstreamBalanceAlertFields from '@/components/account/UpstreamBalanceAlertFields.vue'
 import {
   applyAntigravityProjectID,
   applyHeaderOverride,
@@ -2880,6 +2890,8 @@ type NewAPISyncSettingsExpose = {
 
 const upstreamBillingMode = ref<UpstreamBillingMode>('off')
 const upstreamRateCalibration = ref(1)
+const upstreamBalanceAlertEnabled = ref(false)
+const upstreamBalanceAlertThreshold = ref<number | null>(10)
 const newapiSyncSettings = ref<NewAPISyncSettingsExpose | null>(null)
 const upstreamBillingModeOptions = computed(() => [
   { value: 'off', label: t('admin.accounts.upstreamBilling.modes.off') },
@@ -2972,6 +2984,7 @@ loadQuotaNotifyGlobal()
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
 const editQuotaWeeklyLimit = ref<number | null>(null)
+const editQuotaUsageMultiplier = shallowRef(1)
 const editDailyResetMode = ref<'rolling' | 'fixed' | null>(null)
 const editDailyResetHour = ref<number | null>(null)
 const editWeeklyResetMode = ref<'rolling' | 'fixed' | null>(null)
@@ -3389,6 +3402,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 		extra.openai_upstream_rate_calibration >= 0
 			? extra.openai_upstream_rate_calibration
 			: 1
+	upstreamBalanceAlertEnabled.value = extra?.upstream_balance_alert_enabled === true
+	upstreamBalanceAlertThreshold.value =
+		typeof extra?.upstream_balance_alert_threshold === 'number' &&
+		Number.isFinite(extra.upstream_balance_alert_threshold) &&
+		extra.upstream_balance_alert_threshold >= 0
+			? extra.upstream_balance_alert_threshold
+			: 10
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
@@ -3483,6 +3503,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editQuotaDailyLimit.value = (dailyVal && dailyVal > 0) ? dailyVal : null
     const weeklyVal = extra?.quota_weekly_limit as number | undefined
     editQuotaWeeklyLimit.value = (weeklyVal && weeklyVal > 0) ? weeklyVal : null
+    editQuotaUsageMultiplier.value =
+      typeof newAccount.quota_usage_multiplier === 'number'
+        ? newAccount.quota_usage_multiplier
+        : 1
     // Load quota reset mode config
     editDailyResetMode.value = (extra?.quota_daily_reset_mode as 'rolling' | 'fixed') || null
     editDailyResetHour.value = (extra?.quota_daily_reset_hour as number) ?? null
@@ -3496,6 +3520,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editQuotaLimit.value = null
     editQuotaDailyLimit.value = null
     editQuotaWeeklyLimit.value = null
+    editQuotaUsageMultiplier.value = 1
     editDailyResetMode.value = null
     editDailyResetHour.value = null
     editWeeklyResetMode.value = null
@@ -3629,6 +3654,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editQuotaLimit.value = typeof bedrockExtra.quota_limit === 'number' ? bedrockExtra.quota_limit : null
     editQuotaDailyLimit.value = typeof bedrockExtra.quota_daily_limit === 'number' ? bedrockExtra.quota_daily_limit : null
     editQuotaWeeklyLimit.value = typeof bedrockExtra.quota_weekly_limit === 'number' ? bedrockExtra.quota_weekly_limit : null
+    editQuotaUsageMultiplier.value =
+      typeof newAccount.quota_usage_multiplier === 'number'
+        ? newAccount.quota_usage_multiplier
+        : 1
     // Load quota notify for bedrock
     loadQuotaNotifyFromExtra(bedrockExtra)
 
@@ -4679,6 +4708,18 @@ const handleSubmit = async () => {
         }
 			newExtra.upstream_billing_probe_enabled = upstreamBillingMode.value === 'sub2api'
 			newExtra.openai_upstream_rate_calibration = upstreamRateCalibration.value
+			newExtra.upstream_balance_alert_enabled =
+				upstreamBillingMode.value !== 'off' && upstreamBalanceAlertEnabled.value
+			if (
+				newExtra.upstream_balance_alert_enabled === true &&
+				upstreamBalanceAlertThreshold.value != null &&
+				Number.isFinite(upstreamBalanceAlertThreshold.value) &&
+				upstreamBalanceAlertThreshold.value >= 0
+			) {
+				newExtra.upstream_balance_alert_threshold = upstreamBalanceAlertThreshold.value
+			} else {
+				delete newExtra.upstream_balance_alert_threshold
+			}
 		}
 		if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
 			newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100
@@ -4764,6 +4805,15 @@ const handleSubmit = async () => {
         delete newExtra.quota_weekly_limit
         delete newExtra.quota_weekly_used
         delete newExtra.quota_weekly_start
+      }
+      if (
+        (editQuotaLimit.value != null && editQuotaLimit.value > 0) ||
+        (editQuotaDailyLimit.value != null && editQuotaDailyLimit.value > 0) ||
+        (editQuotaWeeklyLimit.value != null && editQuotaWeeklyLimit.value > 0)
+      ) {
+        newExtra.quota_usage_multiplier = editQuotaUsageMultiplier.value
+      } else {
+        delete newExtra.quota_usage_multiplier
       }
       // Quota reset mode config
       if (editDailyResetMode.value === 'fixed') {

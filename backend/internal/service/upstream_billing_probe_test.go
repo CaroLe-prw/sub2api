@@ -182,6 +182,8 @@ func (u *upstreamBillingProbeHTTPStub) Do(req *http.Request, proxyURL string, ac
 			"resolved_rate_multiplier":0.8,
 			"peak_rate_enabled":false,
 			"effective_rate_multiplier":0.8,
+			"balance":100,
+			"balance_kind":"wallet",
 			"observed_at":"2026-07-13T01:00:00Z"
 		}`)),
 	}, nil
@@ -296,6 +298,8 @@ func TestUpstreamBillingProbeSuccessPersistsSanitizedSnapshot(t *testing.T) {
 			"peak_rate_multiplier":1.5,
 			"applied_peak_multiplier":1.5,
 			"effective_rate_multiplier":0.9,
+			"balance":374.5,
+			"balance_kind":"subscription_remaining",
 			"timezone":"Asia/Shanghai",
 			"observed_at":"2026-07-13T01:00:00Z",
 			"unexpected_secret":"must-not-persist"
@@ -309,6 +313,8 @@ func TestUpstreamBillingProbeSuccessPersistsSanitizedSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, UpstreamBillingProbeStatusOK, snapshot.Status)
 	require.Equal(t, 0.9, snapshot.Data["effective_rate_multiplier"])
+	require.Equal(t, 374.5, snapshot.Data["balance"])
+	require.Equal(t, "subscription_remaining", snapshot.Data["balance_kind"])
 	require.NotContains(t, snapshot.Data, "unexpected_secret")
 	require.NotNil(t, snapshot.ReceivedAt)
 	require.Equal(t, fixedNow, *snapshot.ReceivedAt)
@@ -326,6 +332,102 @@ func TestUpstreamBillingProbeSuccessPersistsSanitizedSnapshot(t *testing.T) {
 	require.Equal(t, snapshot.Status, persisted.Status)
 	require.NotNil(t, account.RateMultiplier)
 	require.InDelta(t, 0.9, *account.RateMultiplier, 1e-12)
+}
+
+func TestUpstreamBillingProbeFallsBackToLegacyUsageBalance(t *testing.T) {
+	account := &Account{
+		ID:          18,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-sensitive",
+			"base_url": "https://upstream.example",
+		},
+	}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{
+				"object":"sub2api.key_billing",
+				"schema_version":1,
+				"billing_scope":"token",
+				"group_rate_multiplier":1,
+				"resolved_rate_multiplier":1,
+				"peak_rate_enabled":false,
+				"effective_rate_multiplier":1,
+				"observed_at":"2026-07-31T03:00:00Z"
+			}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{
+				"mode":"unrestricted",
+				"remaining":375.5,
+				"unit":"USD",
+				"subscription":{"daily_usage_usd":124.5}
+			}`)),
+		},
+	}}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+
+	snapshot, err := svc.ProbeAccount(context.Background(), account.ID)
+
+	require.NoError(t, err)
+	require.Equal(t, 375.5, snapshot.Data["balance"])
+	require.Equal(t, "subscription_remaining", snapshot.Data["balance_kind"])
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "/v1/sub2api/billing", upstream.requests[0].URL.Path)
+	require.Equal(t, "/v1/usage", upstream.requests[1].URL.Path)
+	require.Equal(t, "Bearer sk-sensitive", upstream.requests[1].Header.Get("Authorization"))
+}
+
+func TestApplyUpstreamBalanceAlertSnapshotTransitions(t *testing.T) {
+	now := time.Date(2026, time.July, 31, 3, 0, 0, 0, time.UTC)
+	account := &Account{Extra: map[string]any{
+		UpstreamBalanceAlertEnabledExtraKey:   true,
+		UpstreamBalanceAlertThresholdExtraKey: 20.0,
+	}}
+
+	first := &UpstreamBillingProbeSnapshot{Data: map[string]any{"balance": 15.0}}
+	balance, threshold, notify := applyUpstreamBalanceAlertSnapshot(account, nil, first, now)
+	require.Equal(t, 15.0, balance)
+	require.Equal(t, 20.0, threshold)
+	require.True(t, notify)
+	require.True(t, first.BalanceAlert.Active)
+	require.Equal(t, now, *first.BalanceAlert.TriggeredAt)
+
+	stillLow := &UpstreamBillingProbeSnapshot{Data: map[string]any{"balance": 10.0}}
+	_, _, notify = applyUpstreamBalanceAlertSnapshot(account, first, stillLow, now.Add(time.Hour))
+	require.False(t, notify)
+	require.Equal(t, first.BalanceAlert.TriggeredAt, stillLow.BalanceAlert.TriggeredAt)
+
+	recovered := &UpstreamBillingProbeSnapshot{Data: map[string]any{"balance": 25.0}}
+	_, _, notify = applyUpstreamBalanceAlertSnapshot(account, stillLow, recovered, now.Add(2*time.Hour))
+	require.False(t, notify)
+	require.False(t, recovered.BalanceAlert.Active)
+
+	lowAgain := &UpstreamBillingProbeSnapshot{Data: map[string]any{"balance": 19.0}}
+	_, _, notify = applyUpstreamBalanceAlertSnapshot(account, recovered, lowAgain, now.Add(3*time.Hour))
+	require.True(t, notify)
+	require.Equal(t, now.Add(3*time.Hour), *lowAgain.BalanceAlert.TriggeredAt)
+}
+
+func TestApplyUpstreamBalanceAlertSnapshotIgnoresMissingBalance(t *testing.T) {
+	account := &Account{Extra: map[string]any{
+		UpstreamBalanceAlertEnabledExtraKey:   true,
+		UpstreamBalanceAlertThresholdExtraKey: 20.0,
+	}}
+	current := &UpstreamBillingProbeSnapshot{Data: map[string]any{"effective_rate_multiplier": 1.0}}
+
+	_, _, notify := applyUpstreamBalanceAlertSnapshot(account, nil, current, time.Now())
+
+	require.False(t, notify)
+	require.Nil(t, current.BalanceAlert)
 }
 
 func TestUpstreamBillingProbeSuccessPersistsCalibratedAccountRate(t *testing.T) {

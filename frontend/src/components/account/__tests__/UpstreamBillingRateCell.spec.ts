@@ -102,6 +102,45 @@ describe('UpstreamBillingRateCell', () => {
     )
   })
 
+  it('shows subscription remaining and highlights a low balance', async () => {
+    const wrapper = mount(UpstreamBillingRateCell, {
+      attachTo: document.body,
+      props: {
+        account: makeAccount({
+          extra: {
+            upstream_billing_probe_enabled: true,
+            upstream_billing_probe: {
+              status: 'ok',
+              data: {
+                ...billingData,
+                balance: 12.5,
+                balance_kind: 'subscription_remaining'
+              },
+              balance_alert: {
+                active: true,
+                threshold: 20,
+                triggered_at: '2026-07-13T00:00:00Z'
+              },
+              received_at: '2026-07-13T00:00:00Z',
+              fresh_until: '2026-07-14T00:00:00Z',
+              last_attempt_at: '2026-07-13T00:00:00Z',
+              next_probe_at: '2026-07-13T00:30:00Z'
+            }
+          }
+        }),
+        now: Date.now()
+      }
+    })
+
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe('$12.5')
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').classes()).toContain('text-red-600')
+    await wrapper.get('[data-testid="upstream-billing-details"]').trigger('mouseenter')
+    await flushPromises()
+    expect(document.body.textContent).toContain('admin.accounts.upstreamBilling.subscriptionRemaining:$12.5')
+    expect(document.body.textContent).toContain('admin.accounts.upstreamBilling.balanceLow:$12.5,$20')
+    wrapper.unmount()
+  })
+
   it('uses a synchronized NewAPI group ratio as the calibrated scheduling cost', async () => {
     const newAPIData = {
       object: 'newapi.group_ratio' as const,
@@ -113,7 +152,9 @@ describe('UpstreamBillingRateCell', () => {
       peak_rate_enabled: false,
       effective_rate_multiplier: 1,
       observed_at: '2026-07-13T00:00:00Z',
-      newapi_group: 'GPT Lite大户组'
+      newapi_group: 'GPT Lite大户组',
+      balance: 19.864546,
+      balance_kind: 'wallet' as const
     }
     const wrapper = mount(UpstreamBillingRateCell, {
       attachTo: document.body,
@@ -127,6 +168,11 @@ describe('UpstreamBillingRateCell', () => {
             upstream_billing_probe: {
               status: 'ok',
               data: newAPIData,
+              balance_alert: {
+                active: true,
+                threshold: 20,
+                triggered_at: '2026-07-13T00:00:00Z'
+              },
               received_at: '2026-07-13T00:00:00Z',
               fresh_until: '2026-07-13T01:00:00Z',
               last_attempt_at: '2026-07-13T00:00:00Z',
@@ -139,11 +185,15 @@ describe('UpstreamBillingRateCell', () => {
     })
 
     expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.03x')
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe('$19.8645')
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').classes()).toContain('text-red-600')
     await wrapper.get('[data-testid="upstream-billing-details"]').trigger('mouseenter')
     await flushPromises()
     const tooltips = document.body.querySelectorAll('[role="tooltip"]')
     const tooltip = tooltips[tooltips.length - 1] as HTMLElement
     expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.newapiGroupRate:GPT Lite大户组,1')
+    expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.walletBalance:$19.8645')
+    expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.balanceLow:$19.8645,$20')
     expect(tooltip.textContent).not.toContain('admin.accounts.upstreamBilling.unsupported')
     expect(tooltip.querySelector('[data-testid="upstream-billing-probe-state"] span')?.className).toContain('text-emerald-400')
     wrapper.unmount()

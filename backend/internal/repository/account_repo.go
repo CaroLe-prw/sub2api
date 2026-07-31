@@ -2759,6 +2759,9 @@ func (r *accountRepository) updateNewAPISyncResultInTx(
 		if write.SchedulingSnapshot != nil {
 			updates[service.UpstreamBillingProbeExtraKey] = write.SchedulingSnapshot
 		}
+		if write.BalanceSnapshot != nil {
+			updates[service.NewAPIBalanceSnapshotExtraKey] = write.BalanceSnapshot
+		}
 	}
 	payload, err := json.Marshal(updates)
 	if err != nil {

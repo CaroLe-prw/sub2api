@@ -269,6 +269,13 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	if err != nil {
 		return nil, fmt.Errorf("clone account extra configuration: %w", err)
 	}
+	if source.HasAnyQuotaLimit() {
+		if _, exists := extra[AccountQuotaUsageMultiplierExtraKey]; !exists {
+			// Preserve the effective legacy quota unit instead of applying the
+			// new-account 1x default while duplicating an existing account.
+			extra[AccountQuotaUsageMultiplierExtraKey] = source.GetQuotaUsageMultiplier()
+		}
+	}
 	if operationID != "" {
 		if extra == nil {
 			extra = make(map[string]any, 1)
@@ -396,6 +403,32 @@ func ValidateOpenAIUpstreamRateCalibrationExtra(platform string, extra map[strin
 	return nil
 }
 
+// ValidateOpenAIUpstreamBalanceAlertExtra validates the optional low-balance alert configuration.
+func ValidateOpenAIUpstreamBalanceAlertExtra(platform string, extra map[string]any) error {
+	if platform != PlatformOpenAI {
+		return nil
+	}
+	if raw, exists := extra[UpstreamBalanceAlertEnabledExtraKey]; exists {
+		if _, ok := raw.(bool); !ok {
+			return infraerrors.BadRequest(
+				"OPENAI_UPSTREAM_BALANCE_ALERT_INVALID",
+				"upstream_balance_alert_enabled must be a boolean",
+			)
+		}
+	}
+	if _, exists := extra[UpstreamBalanceAlertThresholdExtraKey]; !exists {
+		return nil
+	}
+	value, ok := resolveAccountExtraNumber(extra, UpstreamBalanceAlertThresholdExtraKey)
+	if !ok || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		return infraerrors.BadRequest(
+			"OPENAI_UPSTREAM_BALANCE_ALERT_INVALID",
+			"upstream_balance_alert_threshold must be a finite number >= 0",
+		)
+	}
+	return nil
+}
+
 func normalizeOpenAILongContextBillingExtra(platform string, extra map[string]any) (map[string]any, error) {
 	if platform != PlatformOpenAI {
 		return extra, nil
@@ -407,6 +440,9 @@ func normalizeOpenAILongContextBillingExtra(platform string, extra map[string]an
 		return nil, err
 	}
 	if err := ValidateOpenAIUpstreamRateCalibrationExtra(platform, extra); err != nil {
+		return nil, err
+	}
+	if err := ValidateOpenAIUpstreamBalanceAlertExtra(platform, extra); err != nil {
 		return nil, err
 	}
 
@@ -531,6 +567,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	}
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {
+		ApplyDefaultQuotaUsageMultiplier(account.Extra)
 		if err := ValidateQuotaResetConfig(account.Extra); err != nil {
 			return nil, err
 		}
@@ -943,7 +980,15 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	_, hasLongContextBilling := updates[openAILongContextBillingEnabledKey]
 	_, hasForceFastMode := updates[openAIForceFastModeExtraKey]
 	_, hasUpstreamRateCalibration := updates[OpenAIUpstreamRateCalibrationExtraKey]
-	if hasLongContextBilling || hasForceFastMode || hasUpstreamRateCalibration {
+	_, hasUpstreamBalanceAlertEnabled := updates[UpstreamBalanceAlertEnabledExtraKey]
+	_, hasUpstreamBalanceAlertThreshold := updates[UpstreamBalanceAlertThresholdExtraKey]
+	_, hasQuotaUsageMultiplier := updates[AccountQuotaUsageMultiplierExtraKey]
+	if hasQuotaUsageMultiplier {
+		if err := ValidateQuotaResetConfig(updates); err != nil {
+			return err
+		}
+	}
+	if hasLongContextBilling || hasForceFastMode || hasUpstreamRateCalibration || hasUpstreamBalanceAlertEnabled || hasUpstreamBalanceAlertThreshold {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {
 			return err
@@ -955,6 +1000,9 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 			return err
 		}
 		if err := ValidateOpenAIUpstreamRateCalibrationExtra(account.Platform, updates); err != nil {
+			return err
+		}
+		if err := ValidateOpenAIUpstreamBalanceAlertExtra(account.Platform, updates); err != nil {
 			return err
 		}
 	}
@@ -1001,10 +1049,17 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	_, hasLongContextBillingUpdate := input.Extra[openAILongContextBillingEnabledKey]
 	_, hasForceFastModeUpdate := input.Extra[openAIForceFastModeExtraKey]
 	_, hasUpstreamRateCalibrationUpdate := input.Extra[OpenAIUpstreamRateCalibrationExtraKey]
+	_, hasUpstreamBalanceAlertEnabledUpdate := input.Extra[UpstreamBalanceAlertEnabledExtraKey]
+	_, hasUpstreamBalanceAlertThresholdUpdate := input.Extra[UpstreamBalanceAlertThresholdExtraKey]
+	if _, hasQuotaUsageMultiplierUpdate := input.Extra[AccountQuotaUsageMultiplierExtraKey]; hasQuotaUsageMultiplierUpdate {
+		if err := ValidateQuotaResetConfig(input.Extra); err != nil {
+			return nil, err
+		}
+	}
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || hasForceFastModeUpdate || hasUpstreamRateCalibrationUpdate || input.ProbeEnabled != nil {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || hasForceFastModeUpdate || hasUpstreamRateCalibrationUpdate || hasUpstreamBalanceAlertEnabledUpdate || hasUpstreamBalanceAlertThresholdUpdate || input.ProbeEnabled != nil {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -1028,7 +1083,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			}
 		}
 	}
-	if hasLongContextBillingUpdate || hasForceFastModeUpdate || hasUpstreamRateCalibrationUpdate {
+	if hasLongContextBillingUpdate || hasForceFastModeUpdate || hasUpstreamRateCalibrationUpdate || hasUpstreamBalanceAlertEnabledUpdate || hasUpstreamBalanceAlertThresholdUpdate {
 		for _, account := range cachedTargets {
 			if account == nil || account.Platform != PlatformOpenAI {
 				continue
@@ -1040,6 +1095,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 				return nil, err
 			}
 			if err := ValidateOpenAIUpstreamRateCalibrationExtra(account.Platform, input.Extra); err != nil {
+				return nil, err
+			}
+			if err := ValidateOpenAIUpstreamBalanceAlertExtra(account.Platform, input.Extra); err != nil {
 				return nil, err
 			}
 			break
