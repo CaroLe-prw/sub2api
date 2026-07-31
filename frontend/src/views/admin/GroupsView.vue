@@ -249,10 +249,35 @@
             </div>
           </template>
 
-          <template #cell-rate_multiplier="{ value }">
-            <span class="text-sm text-gray-700 dark:text-gray-300"
-              >{{ value }}x</span
-            >
+          <template #cell-rate_multiplier="{ value, row }">
+            <div>
+              <span class="text-sm text-gray-700 dark:text-gray-300"
+                >{{ value }}x</span
+              >
+              <div
+                v-if="row.max_account_cost_multiplier != null"
+                class="mt-0.5 whitespace-nowrap text-[11px] text-emerald-600 dark:text-emerald-400"
+              >
+                {{
+                  t("admin.groups.maxAccountCostCell", {
+                    value: row.max_account_cost_multiplier,
+                  })
+                }}
+              </div>
+              <div
+                v-if="
+                  row.openai_scheduler_profile &&
+                  row.openai_scheduler_profile !== 'inherit'
+                "
+                class="mt-0.5 whitespace-nowrap text-[11px] text-gray-500 dark:text-gray-400"
+              >
+                {{
+                  t(
+                    `admin.groups.scheduler.profiles.${row.openai_scheduler_profile}.label`,
+                  )
+                }}
+              </div>
+            </div>
           </template>
 
           <template #cell-is_exclusive="{ value }">
@@ -597,6 +622,22 @@
           />
           <p class="input-hint">{{ t("admin.groups.rateMultiplierHint") }}</p>
         </div>
+        <GroupAccountCostLimitField
+          v-if="
+            createForm.platform === 'openai' ||
+            createForm.platform === 'composite'
+          "
+          v-model="createForm.max_account_cost_multiplier"
+          :billing-rate-multiplier="createForm.rate_multiplier"
+        />
+        <GroupSchedulerPolicyField
+          v-if="
+            createForm.platform === 'openai' ||
+            createForm.platform === 'composite'
+          "
+          v-model:profile="createForm.openai_scheduler_profile"
+          v-model:config="createForm.openai_scheduler_config"
+        />
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
@@ -2150,6 +2191,22 @@
             data-tour="group-form-multiplier"
           />
         </div>
+        <GroupAccountCostLimitField
+          v-if="
+            editForm.platform === 'openai' ||
+            editForm.platform === 'composite'
+          "
+          v-model="editForm.max_account_cost_multiplier"
+          :billing-rate-multiplier="editForm.rate_multiplier"
+        />
+        <GroupSchedulerPolicyField
+          v-if="
+            editForm.platform === 'openai' ||
+            editForm.platform === 'composite'
+          "
+          v-model:profile="editForm.openai_scheduler_profile"
+          v-model:config="editForm.openai_scheduler_config"
+        />
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
@@ -4056,6 +4113,7 @@ import type {
   CompositeRouteEndpoint,
   CompositeRouteMatchType,
   GroupPlatform,
+  OpenAISchedulerProfile,
   SubscriptionType,
 } from "@/types";
 import type { Column } from "@/components/common/types";
@@ -4071,6 +4129,12 @@ import PlatformIcon from "@/components/common/PlatformIcon.vue";
 import Icon from "@/components/icons/Icon.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
+import GroupAccountCostLimitField from "@/components/admin/group/GroupAccountCostLimitField.vue";
+import GroupSchedulerPolicyField from "@/components/admin/group/GroupSchedulerPolicyField.vue";
+import {
+  createDefaultOpenAISchedulerConfig,
+  normalizeOpenAISchedulerConfig,
+} from "@/components/admin/group/groupSchedulerPolicy";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
 import { VueDraggable } from "vue-draggable-plus";
@@ -4590,6 +4654,9 @@ const createForm = reactive({
   description: "",
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
+  max_account_cost_multiplier: null as number | null,
+  openai_scheduler_profile: "inherit" as OpenAISchedulerProfile,
+  openai_scheduler_config: createDefaultOpenAISchedulerConfig(),
   is_exclusive: false,
   subscription_type: "standard" as SubscriptionType,
   daily_limit_usd: null as number | null,
@@ -4939,6 +5006,9 @@ const editForm = reactive({
   description: "",
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
+  max_account_cost_multiplier: null as number | null,
+  openai_scheduler_profile: "inherit" as OpenAISchedulerProfile,
+  openai_scheduler_config: createDefaultOpenAISchedulerConfig(),
   is_exclusive: false,
   status: "active" as "active" | "inactive",
   subscription_type: "standard" as SubscriptionType,
@@ -5388,6 +5458,9 @@ const closeCreateModal = () => {
   createForm.description = "";
   createForm.platform = "anthropic";
   createForm.rate_multiplier = 1.0;
+  createForm.max_account_cost_multiplier = null;
+  createForm.openai_scheduler_profile = "inherit";
+  createForm.openai_scheduler_config = createDefaultOpenAISchedulerConfig();
   createForm.is_exclusive = false;
   createForm.subscription_type = "standard";
   createForm.daily_limit_usd = null;
@@ -5567,6 +5640,13 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.description = group.description || "";
   editForm.platform = group.platform;
   editForm.rate_multiplier = group.rate_multiplier;
+  editForm.max_account_cost_multiplier =
+    group.max_account_cost_multiplier ?? null;
+  editForm.openai_scheduler_profile =
+    group.openai_scheduler_profile ?? "inherit";
+  editForm.openai_scheduler_config = normalizeOpenAISchedulerConfig(
+    group.openai_scheduler_config,
+  );
   editForm.is_exclusive = group.is_exclusive;
   editForm.status = group.status;
   editForm.subscription_type = group.subscription_type || "standard";
@@ -5654,6 +5734,9 @@ const closeEditModal = () => {
   editForm.peak_start = "";
   editForm.peak_end = "";
   editForm.peak_rate_multiplier = 1.0;
+  editForm.max_account_cost_multiplier = null;
+  editForm.openai_scheduler_profile = "inherit";
+  editForm.openai_scheduler_config = createDefaultOpenAISchedulerConfig();
   editForm.video_rate_independent = false;
   editForm.video_rate_multiplier = 1;
   editForm.video_price_480p = null;

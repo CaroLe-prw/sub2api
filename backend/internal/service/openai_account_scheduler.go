@@ -87,11 +87,27 @@ type OpenAIAccountScheduleRequest struct {
 
 type openAIGroupRateGuardContextKey struct{}
 
+type openAIGroupSchedulerPolicyContextKey struct{}
+
+type openAIGroupSchedulingContextKey struct{}
+
+type openAIGroupSchedulingContext struct {
+	groupID int64
+	group   *Group
+}
+
+type openAIGroupSchedulerPolicy struct {
+	profile string
+	config  resolvedGroupOpenAISchedulerConfig
+}
+
 type openAIGroupRateGuard struct {
-	groupID  int64
-	saleRate float64
-	now      time.Time
-	enabled  bool
+	groupID                       int64
+	maxCostRate                   float64
+	oauthSchedulingRateMultiplier float64
+	explicitLimit                 bool
+	now                           time.Time
+	enabled                       bool
 }
 
 type OpenAIAccountScheduleDecision struct {
@@ -1697,7 +1713,7 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if s != nil && s.service != nil && s.service.isOpenAIProxyStreamQuarantined(account) {
 		return false, "proxy_stream_quarantined"
 	}
-	if req.UseUpstreamTokenCost && s != nil && s.service != nil && s.service.isOpenAIAccountUnprofitableForGroup(ctx, account) {
+	if s != nil && s.service != nil && s.service.isOpenAIAccountUnprofitableForGroup(ctx, account) {
 		return false, "upstream_rate_above_group"
 	}
 	// Quota auto-pause must be evaluated during the initial filter too. Without it the
@@ -1892,13 +1908,110 @@ func (s *OpenAIGatewayService) openAIOAuthSchedulingRateMultiplier(ctx context.C
 }
 
 func (s *OpenAIGatewayService) isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx context.Context) bool {
+	if policy, ok := openAIGroupSchedulerPolicyFromContext(ctx); ok {
+		return policy.config.StickyWeightedEnabled
+	}
 	settings := s.openAIAdvancedSchedulerRuntimeSettings(ctx)
 	return settings.enabled && settings.stickyWeightedEnabled
 }
 
 func (s *OpenAIGatewayService) isOpenAIAdvancedSchedulerSubscriptionPriorityEnabled(ctx context.Context) bool {
+	if policy, ok := openAIGroupSchedulerPolicyFromContext(ctx); ok {
+		return policy.config.SubscriptionPriorityEnabled
+	}
 	settings := s.openAIAdvancedSchedulerRuntimeSettings(ctx)
 	return settings.enabled && settings.subscriptionPriorityEnabled
+}
+
+func hasOpenAIGroupSchedulerPolicy(ctx context.Context) bool {
+	_, ok := openAIGroupSchedulerPolicyFromContext(ctx)
+	return ok
+}
+
+func openAIGroupSchedulerPolicyFromContext(ctx context.Context) (openAIGroupSchedulerPolicy, bool) {
+	if ctx == nil {
+		return openAIGroupSchedulerPolicy{}, false
+	}
+	policy, ok := ctx.Value(openAIGroupSchedulerPolicyContextKey{}).(openAIGroupSchedulerPolicy)
+	return policy, ok && policy.profile != GroupOpenAISchedulerProfileInherit && policy.config.TopK > 0
+}
+
+func (s *OpenAIGatewayService) withOpenAIGroupSchedulerPolicyContext(ctx context.Context, groupID *int64) context.Context {
+	if groupID == nil || *groupID <= 0 {
+		return ctx
+	}
+	if _, ok := openAIGroupSchedulerPolicyFromContext(ctx); ok {
+		return ctx
+	}
+
+	ctx, group := s.withOpenAIGroupSchedulingContext(ctx, groupID)
+	if group == nil {
+		return ctx
+	}
+	policy, ok := s.resolveOpenAIGroupSchedulerPolicy(ctx, group)
+	if !ok {
+		return ctx
+	}
+	return context.WithValue(ctx, openAIGroupSchedulerPolicyContextKey{}, policy)
+}
+
+func (s *OpenAIGatewayService) resolveOpenAIGroupSchedulerPolicy(
+	ctx context.Context,
+	group *Group,
+) (openAIGroupSchedulerPolicy, bool) {
+	if group == nil {
+		return openAIGroupSchedulerPolicy{}, false
+	}
+	profile := NormalizeGroupOpenAISchedulerProfile(group.OpenAISchedulerProfile)
+	if preset, ok := resolveGroupOpenAISchedulerPreset(profile); ok {
+		return openAIGroupSchedulerPolicy{profile: profile, config: preset}, true
+	}
+	if profile != GroupOpenAISchedulerProfileCustom {
+		return openAIGroupSchedulerPolicy{}, false
+	}
+
+	weights := s.openAIWSSchedulerWeightsForRequest(ctx)
+	base := resolvedGroupOpenAISchedulerConfig{
+		TopK:                        s.openAIWSLBTopKForRequest(ctx),
+		Priority:                    weights.Priority,
+		Load:                        weights.Load,
+		Queue:                       weights.Queue,
+		ErrorRate:                   weights.ErrorRate,
+		TTFT:                        weights.TTFT,
+		Reset:                       weights.Reset,
+		QuotaHeadroom:               weights.QuotaHeadroom,
+		UpstreamCost:                weights.UpstreamCost,
+		PreviousResponse:            weights.Previous,
+		SessionSticky:               weights.SessionSticky,
+		StickyWeightedEnabled:       s.isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx),
+		SubscriptionPriorityEnabled: s.isOpenAIAdvancedSchedulerSubscriptionPriorityEnabled(ctx),
+	}
+	resolved, ok := applyCustomGroupOpenAISchedulerConfig(base, group.OpenAISchedulerConfig)
+	if !ok {
+		return openAIGroupSchedulerPolicy{}, false
+	}
+	return openAIGroupSchedulerPolicy{profile: profile, config: resolved}, true
+}
+
+func (s *OpenAIGatewayService) withOpenAIGroupSchedulingContext(ctx context.Context, groupID *int64) (context.Context, *Group) {
+	if groupID == nil || *groupID <= 0 {
+		return ctx, nil
+	}
+	if cached, ok := ctx.Value(openAIGroupSchedulingContextKey{}).(openAIGroupSchedulingContext); ok && cached.groupID == *groupID {
+		return ctx, cached.group
+	}
+
+	var group *Group
+	if s != nil && s.channelService != nil && s.channelService.groupRepo != nil {
+		group, _ = s.channelService.groupRepo.GetByIDLite(ctx, *groupID)
+	}
+	if group == nil && s != nil && s.schedulerSnapshot != nil {
+		group, _ = s.schedulerSnapshot.GetGroupByID(ctx, *groupID)
+	}
+	return context.WithValue(ctx, openAIGroupSchedulingContextKey{}, openAIGroupSchedulingContext{
+		groupID: *groupID,
+		group:   group,
+	}), group
 }
 
 func openAIAdvancedSchedulerRuntimeSettingKeys() []string {
@@ -1979,7 +2092,7 @@ func (s *OpenAIGatewayService) getOpenAIAccountScheduler(ctx context.Context) Op
 	if s == nil {
 		return nil
 	}
-	if !s.isOpenAIAdvancedSchedulerEnabled(ctx) {
+	if !hasOpenAIGroupSchedulerPolicy(ctx) && !s.isOpenAIAdvancedSchedulerEnabled(ctx) {
 		return nil
 	}
 	s.openaiSchedulerOnce.Do(func() {
@@ -2070,6 +2183,10 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
+	ctx = s.withOpenAIGroupSchedulerPolicyContext(ctx, groupID)
+	if policy, ok := openAIGroupSchedulerPolicyFromContext(ctx); ok && policy.config.UpstreamCost > 0 {
+		useUpstreamTokenCost = true
+	}
 	ctx = s.withOpenAIGroupRateGuardContext(ctx, groupID, useUpstreamTokenCost)
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	decision := OpenAIAccountScheduleDecision{}
@@ -2251,6 +2368,9 @@ func (s *OpenAIGatewayService) openAIWSLBTopK() int {
 }
 
 func (s *OpenAIGatewayService) openAIWSLBTopKForRequest(ctx context.Context) int {
+	if policy, ok := openAIGroupSchedulerPolicyFromContext(ctx); ok {
+		return policy.config.TopK
+	}
 	base := s.openAIWSLBTopK()
 	settings := s.openAIAdvancedSchedulerRuntimeSettings(ctx)
 	// DB 覆盖值与 stickyWeighted/subscriptionPriority 一样受总开关门控：
@@ -2325,6 +2445,9 @@ func (s *OpenAIGatewayService) openAIWSSchedulerWeights() GatewayOpenAIWSSchedul
 }
 
 func (s *OpenAIGatewayService) openAIWSSchedulerWeightsForRequest(ctx context.Context) GatewayOpenAIWSSchedulerScoreWeightsView {
+	if policy, ok := openAIGroupSchedulerPolicyFromContext(ctx); ok {
+		return groupOpenAISchedulerWeights(policy.config)
+	}
 	weights := s.openAIWSSchedulerWeights()
 	settings := s.openAIAdvancedSchedulerRuntimeSettings(ctx)
 	// 同 openAIWSLBTopKForRequest：总开关关闭时不应用 DB 覆盖值。
@@ -2383,6 +2506,21 @@ type GatewayOpenAIWSSchedulerScoreWeightsView struct {
 	SessionSticky float64
 }
 
+func groupOpenAISchedulerWeights(config resolvedGroupOpenAISchedulerConfig) GatewayOpenAIWSSchedulerScoreWeightsView {
+	return GatewayOpenAIWSSchedulerScoreWeightsView{
+		Priority:      config.Priority,
+		Load:          config.Load,
+		Queue:         config.Queue,
+		ErrorRate:     config.ErrorRate,
+		TTFT:          config.TTFT,
+		Reset:         config.Reset,
+		QuotaHeadroom: config.QuotaHeadroom,
+		UpstreamCost:  config.UpstreamCost,
+		Previous:      config.PreviousResponse,
+		SessionSticky: config.SessionSticky,
+	}
+}
+
 func (w GatewayOpenAIWSSchedulerScoreWeightsView) configWeights() config.GatewayOpenAIWSSchedulerScoreWeights {
 	return config.GatewayOpenAIWSSchedulerScoreWeights{
 		Priority:         w.Priority,
@@ -2411,9 +2549,24 @@ func (s *RateLimitService) BuildOpenAIAccountSchedulerScoreSnapshot(
 	loadMap map[int64]*AccountLoadInfo,
 	groupID *int64,
 ) map[int64]OpenAIAccountSchedulerScoreSnapshot {
+	return s.BuildOpenAIAccountSchedulerScoreSnapshotForGroup(ctx, accounts, loadMap, groupID, nil)
+}
+
+func (s *RateLimitService) BuildOpenAIAccountSchedulerScoreSnapshotForGroup(
+	ctx context.Context,
+	accounts []*Account,
+	loadMap map[int64]*AccountLoadInfo,
+	groupID *int64,
+	schedulerGroup *Group,
+) map[int64]OpenAIAccountSchedulerScoreSnapshot {
 	gateway := &OpenAIGatewayService{cfg: nil, rateLimitService: s}
 	if s != nil {
 		gateway.cfg = s.cfg
+	}
+	if schedulerGroup != nil {
+		if policy, ok := gateway.resolveOpenAIGroupSchedulerPolicy(ctx, schedulerGroup); ok {
+			ctx = context.WithValue(ctx, openAIGroupSchedulerPolicyContextKey{}, policy)
+		}
 	}
 	return buildOpenAIAccountSchedulerScoreSnapshot(
 		accounts,

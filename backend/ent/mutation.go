@@ -21854,6 +21854,10 @@ type GroupMutation struct {
 	description                             *string
 	rate_multiplier                         *float64
 	addrate_multiplier                      *float64
+	max_account_cost_multiplier             *float64
+	addmax_account_cost_multiplier          *float64
+	openai_scheduler_profile                *string
+	openai_scheduler_config                 *domain.GroupOpenAISchedulerConfig
 	peak_rate_enabled                       *bool
 	peak_start                              *string
 	peak_end                                *string
@@ -22304,6 +22308,148 @@ func (m *GroupMutation) AddedRateMultiplier() (r float64, exists bool) {
 func (m *GroupMutation) ResetRateMultiplier() {
 	m.rate_multiplier = nil
 	m.addrate_multiplier = nil
+}
+
+// SetMaxAccountCostMultiplier sets the "max_account_cost_multiplier" field.
+func (m *GroupMutation) SetMaxAccountCostMultiplier(f float64) {
+	m.max_account_cost_multiplier = &f
+	m.addmax_account_cost_multiplier = nil
+}
+
+// MaxAccountCostMultiplier returns the value of the "max_account_cost_multiplier" field in the mutation.
+func (m *GroupMutation) MaxAccountCostMultiplier() (r float64, exists bool) {
+	v := m.max_account_cost_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMaxAccountCostMultiplier returns the old "max_account_cost_multiplier" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldMaxAccountCostMultiplier(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMaxAccountCostMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMaxAccountCostMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMaxAccountCostMultiplier: %w", err)
+	}
+	return oldValue.MaxAccountCostMultiplier, nil
+}
+
+// AddMaxAccountCostMultiplier adds f to the "max_account_cost_multiplier" field.
+func (m *GroupMutation) AddMaxAccountCostMultiplier(f float64) {
+	if m.addmax_account_cost_multiplier != nil {
+		*m.addmax_account_cost_multiplier += f
+	} else {
+		m.addmax_account_cost_multiplier = &f
+	}
+}
+
+// AddedMaxAccountCostMultiplier returns the value that was added to the "max_account_cost_multiplier" field in this mutation.
+func (m *GroupMutation) AddedMaxAccountCostMultiplier() (r float64, exists bool) {
+	v := m.addmax_account_cost_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearMaxAccountCostMultiplier clears the value of the "max_account_cost_multiplier" field.
+func (m *GroupMutation) ClearMaxAccountCostMultiplier() {
+	m.max_account_cost_multiplier = nil
+	m.addmax_account_cost_multiplier = nil
+	m.clearedFields[group.FieldMaxAccountCostMultiplier] = struct{}{}
+}
+
+// MaxAccountCostMultiplierCleared returns if the "max_account_cost_multiplier" field was cleared in this mutation.
+func (m *GroupMutation) MaxAccountCostMultiplierCleared() bool {
+	_, ok := m.clearedFields[group.FieldMaxAccountCostMultiplier]
+	return ok
+}
+
+// ResetMaxAccountCostMultiplier resets all changes to the "max_account_cost_multiplier" field.
+func (m *GroupMutation) ResetMaxAccountCostMultiplier() {
+	m.max_account_cost_multiplier = nil
+	m.addmax_account_cost_multiplier = nil
+	delete(m.clearedFields, group.FieldMaxAccountCostMultiplier)
+}
+
+// SetOpenaiSchedulerProfile sets the "openai_scheduler_profile" field.
+func (m *GroupMutation) SetOpenaiSchedulerProfile(s string) {
+	m.openai_scheduler_profile = &s
+}
+
+// OpenaiSchedulerProfile returns the value of the "openai_scheduler_profile" field in the mutation.
+func (m *GroupMutation) OpenaiSchedulerProfile() (r string, exists bool) {
+	v := m.openai_scheduler_profile
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOpenaiSchedulerProfile returns the old "openai_scheduler_profile" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldOpenaiSchedulerProfile(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOpenaiSchedulerProfile is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOpenaiSchedulerProfile requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOpenaiSchedulerProfile: %w", err)
+	}
+	return oldValue.OpenaiSchedulerProfile, nil
+}
+
+// ResetOpenaiSchedulerProfile resets all changes to the "openai_scheduler_profile" field.
+func (m *GroupMutation) ResetOpenaiSchedulerProfile() {
+	m.openai_scheduler_profile = nil
+}
+
+// SetOpenaiSchedulerConfig sets the "openai_scheduler_config" field.
+func (m *GroupMutation) SetOpenaiSchedulerConfig(doasc domain.GroupOpenAISchedulerConfig) {
+	m.openai_scheduler_config = &doasc
+}
+
+// OpenaiSchedulerConfig returns the value of the "openai_scheduler_config" field in the mutation.
+func (m *GroupMutation) OpenaiSchedulerConfig() (r domain.GroupOpenAISchedulerConfig, exists bool) {
+	v := m.openai_scheduler_config
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOpenaiSchedulerConfig returns the old "openai_scheduler_config" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldOpenaiSchedulerConfig(ctx context.Context) (v domain.GroupOpenAISchedulerConfig, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOpenaiSchedulerConfig is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOpenaiSchedulerConfig requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOpenaiSchedulerConfig: %w", err)
+	}
+	return oldValue.OpenaiSchedulerConfig, nil
+}
+
+// ResetOpenaiSchedulerConfig resets all changes to the "openai_scheduler_config" field.
+func (m *GroupMutation) ResetOpenaiSchedulerConfig() {
+	m.openai_scheduler_config = nil
 }
 
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
@@ -24944,7 +25090,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 52)
+	fields := make([]string, 0, 55)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -24962,6 +25108,15 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.rate_multiplier != nil {
 		fields = append(fields, group.FieldRateMultiplier)
+	}
+	if m.max_account_cost_multiplier != nil {
+		fields = append(fields, group.FieldMaxAccountCostMultiplier)
+	}
+	if m.openai_scheduler_profile != nil {
+		fields = append(fields, group.FieldOpenaiSchedulerProfile)
+	}
+	if m.openai_scheduler_config != nil {
+		fields = append(fields, group.FieldOpenaiSchedulerConfig)
 	}
 	if m.peak_rate_enabled != nil {
 		fields = append(fields, group.FieldPeakRateEnabled)
@@ -25121,6 +25276,12 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.Description()
 	case group.FieldRateMultiplier:
 		return m.RateMultiplier()
+	case group.FieldMaxAccountCostMultiplier:
+		return m.MaxAccountCostMultiplier()
+	case group.FieldOpenaiSchedulerProfile:
+		return m.OpenaiSchedulerProfile()
+	case group.FieldOpenaiSchedulerConfig:
+		return m.OpenaiSchedulerConfig()
 	case group.FieldPeakRateEnabled:
 		return m.PeakRateEnabled()
 	case group.FieldPeakStart:
@@ -25234,6 +25395,12 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldDescription(ctx)
 	case group.FieldRateMultiplier:
 		return m.OldRateMultiplier(ctx)
+	case group.FieldMaxAccountCostMultiplier:
+		return m.OldMaxAccountCostMultiplier(ctx)
+	case group.FieldOpenaiSchedulerProfile:
+		return m.OldOpenaiSchedulerProfile(ctx)
+	case group.FieldOpenaiSchedulerConfig:
+		return m.OldOpenaiSchedulerConfig(ctx)
 	case group.FieldPeakRateEnabled:
 		return m.OldPeakRateEnabled(ctx)
 	case group.FieldPeakStart:
@@ -25376,6 +25543,27 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetRateMultiplier(v)
+		return nil
+	case group.FieldMaxAccountCostMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMaxAccountCostMultiplier(v)
+		return nil
+	case group.FieldOpenaiSchedulerProfile:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOpenaiSchedulerProfile(v)
+		return nil
+	case group.FieldOpenaiSchedulerConfig:
+		v, ok := value.(domain.GroupOpenAISchedulerConfig)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOpenaiSchedulerConfig(v)
 		return nil
 	case group.FieldPeakRateEnabled:
 		v, ok := value.(bool)
@@ -25710,6 +25898,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addrate_multiplier != nil {
 		fields = append(fields, group.FieldRateMultiplier)
 	}
+	if m.addmax_account_cost_multiplier != nil {
+		fields = append(fields, group.FieldMaxAccountCostMultiplier)
+	}
 	if m.addpeak_rate_multiplier != nil {
 		fields = append(fields, group.FieldPeakRateMultiplier)
 	}
@@ -25780,6 +25971,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case group.FieldRateMultiplier:
 		return m.AddedRateMultiplier()
+	case group.FieldMaxAccountCostMultiplier:
+		return m.AddedMaxAccountCostMultiplier()
 	case group.FieldPeakRateMultiplier:
 		return m.AddedPeakRateMultiplier()
 	case group.FieldDailyLimitUsd:
@@ -25835,6 +26028,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddRateMultiplier(v)
+		return nil
+	case group.FieldMaxAccountCostMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMaxAccountCostMultiplier(v)
 		return nil
 	case group.FieldPeakRateMultiplier:
 		v, ok := value.(float64)
@@ -25990,6 +26190,9 @@ func (m *GroupMutation) ClearedFields() []string {
 	if m.FieldCleared(group.FieldDescription) {
 		fields = append(fields, group.FieldDescription)
 	}
+	if m.FieldCleared(group.FieldMaxAccountCostMultiplier) {
+		fields = append(fields, group.FieldMaxAccountCostMultiplier)
+	}
 	if m.FieldCleared(group.FieldDuplicateOperationID) {
 		fields = append(fields, group.FieldDuplicateOperationID)
 	}
@@ -26051,6 +26254,9 @@ func (m *GroupMutation) ClearField(name string) error {
 		return nil
 	case group.FieldDescription:
 		m.ClearDescription()
+		return nil
+	case group.FieldMaxAccountCostMultiplier:
+		m.ClearMaxAccountCostMultiplier()
 		return nil
 	case group.FieldDuplicateOperationID:
 		m.ClearDuplicateOperationID()
@@ -26119,6 +26325,15 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldRateMultiplier:
 		m.ResetRateMultiplier()
+		return nil
+	case group.FieldMaxAccountCostMultiplier:
+		m.ResetMaxAccountCostMultiplier()
+		return nil
+	case group.FieldOpenaiSchedulerProfile:
+		m.ResetOpenaiSchedulerProfile()
+		return nil
+	case group.FieldOpenaiSchedulerConfig:
+		m.ResetOpenaiSchedulerConfig()
 		return nil
 	case group.FieldPeakRateEnabled:
 		m.ResetPeakRateEnabled()

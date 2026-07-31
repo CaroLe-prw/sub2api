@@ -293,7 +293,17 @@ func (h *AccountHandler) scoreOpenAIAccountSchedulerPool(ctx context.Context, gr
 
 	var scores map[int64]service.OpenAIAccountSchedulerScoreSnapshot
 	if h.rateLimitService != nil {
-		scores = h.rateLimitService.BuildOpenAIAccountSchedulerScoreSnapshot(ctx, openAIAccounts, loadMap, groupID)
+		var schedulerGroup *service.Group
+		if groupID != nil && h.adminService != nil {
+			schedulerGroup, _ = h.adminService.GetGroup(ctx, *groupID)
+		}
+		scores = h.rateLimitService.BuildOpenAIAccountSchedulerScoreSnapshotForGroup(
+			ctx,
+			openAIAccounts,
+			loadMap,
+			groupID,
+			schedulerGroup,
+		)
 	} else {
 		scores = service.BuildOpenAIAccountSchedulerScoreSnapshot(openAIAccounts, loadMap, groupID)
 	}

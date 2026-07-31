@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -264,6 +265,16 @@ func defaultAllowImageGenerationForPlatform(platform string) bool {
 	return platform == PlatformGrok
 }
 
+func validateMaxAccountCostMultiplier(value *float64) error {
+	if value == nil {
+		return nil
+	}
+	if *value < 0 || math.IsNaN(*value) || math.IsInf(*value, 0) {
+		return errors.New("max_account_cost_multiplier must be a finite number >= 0")
+	}
+	return nil
+}
+
 func compositeDefaultModelsListCandidateIDs() []string {
 	seen := make(map[string]struct{})
 	ids := make([]string, 0)
@@ -298,6 +309,14 @@ func groupSupportsOAuthOnlyFilter(platform string) bool {
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
 	if input.RateMultiplier <= 0 {
 		return nil, errors.New("rate_multiplier must be > 0")
+	}
+	if err := validateMaxAccountCostMultiplier(input.MaxAccountCostMultiplier); err != nil {
+		return nil, err
+	}
+	openAISchedulerProfile := NormalizeGroupOpenAISchedulerProfile(input.OpenAISchedulerProfile)
+	openAISchedulerConfig := input.OpenAISchedulerConfig
+	if err := ValidateGroupOpenAISchedulerPolicy(openAISchedulerProfile, openAISchedulerConfig); err != nil {
+		return nil, err
 	}
 
 	platform := input.Platform
@@ -438,6 +457,9 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		Description:                     input.Description,
 		Platform:                        platform,
 		RateMultiplier:                  input.RateMultiplier,
+		MaxAccountCostMultiplier:        cloneGroupValuePointer(input.MaxAccountCostMultiplier),
+		OpenAISchedulerProfile:          openAISchedulerProfile,
+		OpenAISchedulerConfig:           openAISchedulerConfig,
 		IsExclusive:                     input.IsExclusive,
 		Status:                          StatusActive,
 		SubscriptionType:                subscriptionType,
@@ -626,6 +648,27 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 			return nil, errors.New("rate_multiplier must be > 0")
 		}
 		group.RateMultiplier = *input.RateMultiplier
+	}
+	if input.MaxAccountCostMultiplierSet {
+		if err := validateMaxAccountCostMultiplier(input.MaxAccountCostMultiplier); err != nil {
+			return nil, err
+		}
+		group.MaxAccountCostMultiplier = cloneGroupValuePointer(input.MaxAccountCostMultiplier)
+	}
+	if input.OpenAISchedulerProfile != nil || input.OpenAISchedulerConfig != nil {
+		profile := group.OpenAISchedulerProfile
+		custom := group.OpenAISchedulerConfig
+		if input.OpenAISchedulerProfile != nil {
+			profile = NormalizeGroupOpenAISchedulerProfile(*input.OpenAISchedulerProfile)
+		}
+		if input.OpenAISchedulerConfig != nil {
+			custom = *input.OpenAISchedulerConfig
+		}
+		if err := ValidateGroupOpenAISchedulerPolicy(profile, custom); err != nil {
+			return nil, err
+		}
+		group.OpenAISchedulerProfile = profile
+		group.OpenAISchedulerConfig = custom
 	}
 	if input.IsExclusive != nil {
 		group.IsExclusive = *input.IsExclusive

@@ -565,6 +565,11 @@ export interface Group {
 }
 
 export interface AdminGroup extends Group {
+  // OpenAI/Codex account scheduling cost ceiling; null keeps the legacy group-rate guard.
+  max_account_cost_multiplier: number | null
+  openai_scheduler_profile: OpenAISchedulerProfile
+  openai_scheduler_config: OpenAISchedulerConfig
+
   // 模型路由配置（仅管理员可见，内部信息）
   model_routing: Record<string, number[]> | null
   model_routing_enabled: boolean
@@ -592,6 +597,29 @@ export interface AdminGroup extends Group {
 export interface ModelsListConfig {
   enabled: boolean
   models: string[]
+}
+
+export type OpenAISchedulerProfile =
+  | 'inherit'
+  | 'sla'
+  | 'balanced'
+  | 'cost'
+  | 'custom'
+
+export interface OpenAISchedulerConfig {
+  top_k: number | null
+  priority: number | null
+  load: number | null
+  queue: number | null
+  error_rate: number | null
+  ttft: number | null
+  reset: number | null
+  quota_headroom: number | null
+  upstream_cost: number | null
+  previous_response: number | null
+  session_sticky: number | null
+  sticky_weighted_enabled: boolean
+  subscription_priority_enabled: boolean
 }
 
 export type CompositeRouteMatchType = 'exact' | 'prefix'
@@ -716,6 +744,9 @@ export interface CreateGroupRequest {
   description?: string | null
   platform?: GroupPlatform
   rate_multiplier?: number
+  max_account_cost_multiplier?: number | null
+  openai_scheduler_profile?: OpenAISchedulerProfile
+  openai_scheduler_config?: OpenAISchedulerConfig
   is_exclusive?: boolean
   subscription_type?: SubscriptionType
   daily_limit_usd?: number | null
@@ -766,6 +797,9 @@ export interface UpdateGroupRequest {
   description?: string | null
   platform?: GroupPlatform
   rate_multiplier?: number
+  max_account_cost_multiplier?: number | null
+  openai_scheduler_profile?: OpenAISchedulerProfile
+  openai_scheduler_config?: OpenAISchedulerConfig
   is_exclusive?: boolean
   status?: 'active' | 'inactive'
   subscription_type?: SubscriptionType
@@ -954,6 +988,8 @@ export interface UpstreamBillingData {
   peak_rate_multiplier?: number
   applied_peak_multiplier?: number
   effective_rate_multiplier: number
+  balance?: number
+  balance_kind?: 'wallet' | 'subscription_remaining' | 'quota_remaining' | 'available'
   timezone?: string
   observed_at: string
   newapi_group?: string
@@ -971,6 +1007,11 @@ export interface UpstreamBillingProbeSnapshot {
   failure_count?: number
   http_status?: number
   last_error?: string
+  balance_alert?: {
+    active: boolean
+    threshold: number
+    triggered_at?: string
+  }
 }
 
 export interface UpstreamBillingProbeSettings {
@@ -989,6 +1030,38 @@ export type NewAPISyncStatus = 'never' | 'ok' | 'failed'
 
 export type NewAPIRatioSource = 'configured_group' | ''
 
+export interface NewAPIQuotaDisplay {
+  display_type: 'USD' | 'CNY' | 'TOKENS' | 'CUSTOM'
+  symbol?: string
+  quota_per_unit: number
+  exchange_rate: number
+}
+
+export interface NewAPIBalanceSnapshot {
+  account: {
+    user_id: number
+    group: string
+    remaining_quota: number
+    used_quota: number
+    total_quota: number
+  }
+  token: {
+    name: string
+    remaining_quota: number
+    used_quota: number
+    total_quota: number
+    unlimited_quota: boolean
+    expires_at: number
+  }
+  quota_display?: NewAPIQuotaDisplay
+  token_available: boolean
+  account_available: boolean
+  overall_available: boolean
+  warnings?: string[]
+  synced_at: string
+  fresh_until: string
+}
+
 export interface NewAPISyncConfig {
   newapi_sync_enabled: boolean
   newapi_base_url: string
@@ -1004,6 +1077,11 @@ export interface NewAPISyncConfig {
   newapi_cross_group_retry: boolean
   current_ratio: number
   has_newapi_user_access_token: boolean
+  has_newapi_api_key: boolean
+  newapi_balance_sync_enabled: boolean
+  newapi_balance_sync_interval: number
+  newapi_balance_snapshot?: NewAPIBalanceSnapshot
+  newapi_balance_stale: boolean
 }
 
 export type NewAPISyncConfigUpdate = Pick<
@@ -1030,6 +1108,7 @@ export interface NewAPISyncResult {
   old_ratio: number
   new_ratio?: number
   resolution?: NewAPIResolution
+  balance_snapshot?: NewAPIBalanceSnapshot
   scheduling_snapshot?: UpstreamBillingProbeSnapshot
   error?: string
 }
@@ -1111,6 +1190,9 @@ export interface Account {
     upstream_billing_probe_enabled?: boolean
     upstream_billing_probe?: UpstreamBillingProbeSnapshot
     openai_upstream_rate_calibration?: number
+    upstream_balance_alert_enabled?: boolean
+    upstream_balance_alert_threshold?: number
+    quota_usage_multiplier?: number
     newapi_sync_enabled?: boolean
   } & Record<string, unknown>)
   proxy_id: number | null
@@ -1190,6 +1272,7 @@ export interface Account {
   quota_daily_used?: number | null
   quota_weekly_limit?: number | null
   quota_weekly_used?: number | null
+  quota_usage_multiplier?: number | null
 
   // 配额固定时间重置配置
   quota_daily_reset_mode?: 'rolling' | 'fixed' | null

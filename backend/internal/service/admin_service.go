@@ -209,15 +209,18 @@ type AdminBoundAuthIdentityChannel struct {
 }
 
 type CreateGroupInput struct {
-	Name             string
-	Description      string
-	Platform         string
-	RateMultiplier   float64
-	IsExclusive      bool
-	SubscriptionType string   // standard/subscription
-	DailyLimitUSD    *float64 // 日限额 (USD)
-	WeeklyLimitUSD   *float64 // 周限额 (USD)
-	MonthlyLimitUSD  *float64 // 月限额 (USD)
+	Name                     string
+	Description              string
+	Platform                 string
+	RateMultiplier           float64
+	MaxAccountCostMultiplier *float64
+	OpenAISchedulerProfile   string
+	OpenAISchedulerConfig    GroupOpenAISchedulerConfig
+	IsExclusive              bool
+	SubscriptionType         string   // standard/subscription
+	DailyLimitUSD            *float64 // 日限额 (USD)
+	WeeklyLimitUSD           *float64 // 周限额 (USD)
+	MonthlyLimitUSD          *float64 // 月限额 (USD)
 	// 图片生成计费配置（仅 antigravity 平台使用）
 	AllowImageGeneration         bool
 	AllowBatchImageGeneration    bool
@@ -269,16 +272,20 @@ type CreateGroupInput struct {
 }
 
 type UpdateGroupInput struct {
-	Name             string
-	Description      *string
-	Platform         string
-	RateMultiplier   *float64 // 使用指针以支持设置为0
-	IsExclusive      *bool
-	Status           string
-	SubscriptionType string   // standard/subscription
-	DailyLimitUSD    *float64 // 日限额 (USD)
-	WeeklyLimitUSD   *float64 // 周限额 (USD)
-	MonthlyLimitUSD  *float64 // 月限额 (USD)
+	Name                        string
+	Description                 *string
+	Platform                    string
+	RateMultiplier              *float64 // 使用指针以支持设置为0
+	MaxAccountCostMultiplier    *float64
+	MaxAccountCostMultiplierSet bool
+	OpenAISchedulerProfile      *string
+	OpenAISchedulerConfig       *GroupOpenAISchedulerConfig
+	IsExclusive                 *bool
+	Status                      string
+	SubscriptionType            string   // standard/subscription
+	DailyLimitUSD               *float64 // 日限额 (USD)
+	WeeklyLimitUSD              *float64 // 周限额 (USD)
+	MonthlyLimitUSD             *float64 // 月限额 (USD)
 	// 图片生成计费配置（仅 antigravity 平台使用）
 	AllowImageGeneration         *bool
 	AllowBatchImageGeneration    *bool

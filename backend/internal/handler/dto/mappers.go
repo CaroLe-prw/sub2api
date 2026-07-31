@@ -146,6 +146,9 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 	}
 	out := &AdminGroup{
 		Group:                       groupFromServiceBase(g),
+		MaxAccountCostMultiplier:    g.MaxAccountCostMultiplier,
+		OpenAISchedulerProfile:      g.OpenAISchedulerProfile,
+		OpenAISchedulerConfig:       g.OpenAISchedulerConfig,
 		ModelRouting:                g.ModelRouting,
 		ModelRoutingEnabled:         g.ModelRoutingEnabled,
 		MCPXMLInject:                g.MCPXMLInject,
@@ -321,6 +324,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 
 	// 提取账号配额限制（apikey / bedrock 类型有效）
 	if a.IsAPIKeyOrBedrock() {
+		usageMultiplier := a.GetQuotaUsageMultiplier()
+		out.QuotaUsageMultiplier = &usageMultiplier
 		if limit := a.GetQuotaLimit(); limit > 0 {
 			out.QuotaLimit = &limit
 			used := a.GetQuotaUsed()

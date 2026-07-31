@@ -155,6 +155,13 @@ type Group struct {
 type AdminGroup struct {
 	Group
 
+	// MaxAccountCostMultiplier 是账号调度准入的成本倍率硬上限。
+	// nil 表示沿用分组有效计费倍率的历史规则。
+	MaxAccountCostMultiplier *float64 `json:"max_account_cost_multiplier"`
+	// OpenAISchedulerProfile/Config are group-specific OpenAI scheduler controls.
+	OpenAISchedulerProfile string                            `json:"openai_scheduler_profile"`
+	OpenAISchedulerConfig  domain.GroupOpenAISchedulerConfig `json:"openai_scheduler_config"`
+
 	// 模型路由配置（仅 anthropic 平台使用）
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled bool               `json:"model_routing_enabled"`
@@ -255,12 +262,13 @@ type Account struct {
 	CustomBaseURL        *string `json:"custom_base_url,omitempty"`
 
 	// API Key 账号配额限制
-	QuotaLimit       *float64 `json:"quota_limit,omitempty"`
-	QuotaUsed        *float64 `json:"quota_used,omitempty"`
-	QuotaDailyLimit  *float64 `json:"quota_daily_limit,omitempty"`
-	QuotaDailyUsed   *float64 `json:"quota_daily_used,omitempty"`
-	QuotaWeeklyLimit *float64 `json:"quota_weekly_limit,omitempty"`
-	QuotaWeeklyUsed  *float64 `json:"quota_weekly_used,omitempty"`
+	QuotaLimit           *float64 `json:"quota_limit,omitempty"`
+	QuotaUsed            *float64 `json:"quota_used,omitempty"`
+	QuotaDailyLimit      *float64 `json:"quota_daily_limit,omitempty"`
+	QuotaDailyUsed       *float64 `json:"quota_daily_used,omitempty"`
+	QuotaWeeklyLimit     *float64 `json:"quota_weekly_limit,omitempty"`
+	QuotaWeeklyUsed      *float64 `json:"quota_weekly_used,omitempty"`
+	QuotaUsageMultiplier *float64 `json:"quota_usage_multiplier,omitempty"`
 
 	// 配额固定时间重置配置
 	QuotaDailyResetMode  *string `json:"quota_daily_reset_mode,omitempty"`

@@ -1311,32 +1311,41 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 	return latest
 }
 
-func (s *OpenAIGatewayService) withOpenAIGroupRateGuardContext(ctx context.Context, groupID *int64, enabled bool) context.Context {
+func (s *OpenAIGatewayService) withOpenAIGroupRateGuardContext(ctx context.Context, groupID *int64, legacyEnabled bool) context.Context {
 	guard := openAIGroupRateGuard{}
-	if !enabled || groupID == nil || *groupID <= 0 {
+	if groupID == nil || *groupID <= 0 {
 		return context.WithValue(ctx, openAIGroupRateGuardContextKey{}, guard)
 	}
 	if current, ok := ctx.Value(openAIGroupRateGuardContextKey{}).(openAIGroupRateGuard); ok && current.enabled && current.groupID == *groupID {
 		return ctx
 	}
 
-	var group *Group
-	if s != nil && s.channelService != nil && s.channelService.groupRepo != nil {
-		group, _ = s.channelService.groupRepo.GetByIDLite(ctx, *groupID)
-	}
-	if group == nil && s != nil && s.schedulerSnapshot != nil {
-		group, _ = s.schedulerSnapshot.GetGroupByID(ctx, *groupID)
-	}
+	ctx, group := s.withOpenAIGroupSchedulingContext(ctx, groupID)
 	if group == nil {
 		return context.WithValue(ctx, openAIGroupRateGuardContextKey{}, guard)
 	}
 
 	now := time.Now()
-	saleRate := group.RateMultiplier * group.PeakMultiplierAt(now)
-	if saleRate < 0 || math.IsNaN(saleRate) || math.IsInf(saleRate, 0) {
+	explicitLimit := group.MaxAccountCostMultiplier != nil
+	if !explicitLimit && !legacyEnabled {
 		return context.WithValue(ctx, openAIGroupRateGuardContextKey{}, guard)
 	}
-	guard = openAIGroupRateGuard{groupID: *groupID, saleRate: saleRate, now: now, enabled: true}
+
+	maxCostRate := group.RateMultiplier * group.PeakMultiplierAt(now)
+	if explicitLimit {
+		maxCostRate = *group.MaxAccountCostMultiplier
+	}
+	if maxCostRate < 0 || math.IsNaN(maxCostRate) || math.IsInf(maxCostRate, 0) {
+		return context.WithValue(ctx, openAIGroupRateGuardContextKey{}, guard)
+	}
+	guard = openAIGroupRateGuard{
+		groupID:                       *groupID,
+		maxCostRate:                   maxCostRate,
+		oauthSchedulingRateMultiplier: s.openAIOAuthSchedulingRateMultiplier(ctx),
+		explicitLimit:                 explicitLimit,
+		now:                           now,
+		enabled:                       true,
+	}
 	return context.WithValue(ctx, openAIGroupRateGuardContextKey{}, guard)
 }
 
@@ -1348,8 +1357,18 @@ func (s *OpenAIGatewayService) isOpenAIAccountUnprofitableForGroup(ctx context.C
 	if !ok || !guard.enabled {
 		return false
 	}
-	rate, ok := openAICalibratedFreshUpstreamBillingRate(account, guard.now)
-	return ok && rate > guard.saleRate
+	var (
+		rate   float64
+		rateOK bool
+	)
+	if guard.explicitLimit {
+		rate, rateOK = openAISchedulingRate(account, guard.now, guard.oauthSchedulingRateMultiplier)
+	} else {
+		// Preserve the legacy guard for groups without an explicit limit:
+		// only a fresh upstream billing probe can veto an account.
+		rate, rateOK = openAICalibratedFreshUpstreamBillingRate(account, guard.now)
+	}
+	return rateOK && rate > guard.maxCostRate
 }
 
 func (s *OpenAIGatewayService) openAIAccountMatchesSchedulingGroup(account *Account, groupID *int64) bool {
