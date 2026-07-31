@@ -2,24 +2,28 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'
+import Icon from '@/components/icons/Icon.vue'
 import type { OpsTelegramNotificationDraft } from '../types'
 
 const props = defineProps<{
   testing: boolean
+  index?: number
+  removable?: boolean
 }>()
 
 const emit = defineEmits<{
   test: []
+  remove: []
 }>()
 
 const model = defineModel<OpsTelegramNotificationDraft>({ required: true })
 const { t } = useI18n()
+const fieldPrefix = computed(() => (props.index == null ? 'ops-telegram' : `telegram-template-${props.index}`))
 
-const topicIdInput = computed<string>({
-  get: () => (model.value.topic_id == null ? '' : String(model.value.topic_id)),
+const topicIdInput = computed<number | ''>({
+  get: () => model.value.topic_id ?? '',
   set: (value) => {
-    const normalized = value.trim()
-    model.value.topic_id = normalized === '' ? null : Number(normalized)
+    model.value.topic_id = value === '' ? null : Number(value)
   }
 })
 
@@ -32,12 +36,16 @@ const canTest = computed(
 </script>
 
 <template>
-  <section class="rounded-2xl bg-gray-50 p-4 dark:bg-dark-700/50">
+  <section class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-600 dark:bg-dark-700/50">
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
-          {{ t('admin.ops.telegram.title') }}
-        </h4>
+        <input
+          v-model="model.name"
+          type="text"
+          class="input max-w-sm font-medium"
+          :aria-label="t('admin.ops.telegram.templateName')"
+          :placeholder="t('admin.ops.telegram.templateNamePlaceholder')"
+        />
         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
           {{ t('admin.ops.telegram.description') }}
         </p>
@@ -47,16 +55,26 @@ const canTest = computed(
           {{ t('admin.ops.telegram.enabled') }}
         </span>
         <Toggle v-model="model.enabled" :aria-label="t('admin.ops.telegram.enabled')" />
+        <button
+          v-if="removable"
+          type="button"
+          class="btn btn-secondary btn-sm px-2 text-red-600 dark:text-red-400"
+          :aria-label="t('common.delete')"
+          :title="t('common.delete')"
+          @click="emit('remove')"
+        >
+          <Icon name="trash" size="sm" />
+        </button>
       </div>
     </div>
 
     <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
       <div>
-        <label for="ops-telegram-bot-token" class="input-label">
+        <label :for="`${fieldPrefix}-bot-token`" class="input-label">
           {{ t('admin.ops.telegram.botToken') }}
         </label>
         <input
-          id="ops-telegram-bot-token"
+          :id="`${fieldPrefix}-bot-token`"
           v-model="model.bot_token"
           type="password"
           class="input"
@@ -79,11 +97,11 @@ const canTest = computed(
       </div>
 
       <div>
-        <label for="ops-telegram-chat-id" class="input-label">
+        <label :for="`${fieldPrefix}-chat-id`" class="input-label">
           {{ t('admin.ops.telegram.chatId') }}
         </label>
         <input
-          id="ops-telegram-chat-id"
+          :id="`${fieldPrefix}-chat-id`"
           v-model="model.chat_id"
           type="text"
           class="input"
@@ -92,11 +110,11 @@ const canTest = computed(
       </div>
 
       <div>
-        <label for="ops-telegram-topic-id" class="input-label">
+        <label :for="`${fieldPrefix}-topic-id`" class="input-label">
           {{ t('admin.ops.telegram.topicId') }}
         </label>
         <input
-          id="ops-telegram-topic-id"
+          :id="`${fieldPrefix}-topic-id`"
           v-model="topicIdInput"
           type="number"
           min="1"
@@ -107,11 +125,11 @@ const canTest = computed(
       </div>
 
       <div>
-        <label for="ops-telegram-base-url" class="input-label">
+        <label :for="`${fieldPrefix}-base-url`" class="input-label">
           {{ t('admin.ops.telegram.baseUrl') }}
         </label>
         <input
-          id="ops-telegram-base-url"
+          :id="`${fieldPrefix}-base-url`"
           v-model="model.base_url"
           type="url"
           class="input"

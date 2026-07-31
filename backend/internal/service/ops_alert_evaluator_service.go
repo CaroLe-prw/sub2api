@@ -759,7 +759,7 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertTelegram(ctx context.Context, r
 	}
 
 	telegramCfg, err := s.opsService.GetTelegramNotificationConfig(ctx)
-	if err != nil || telegramCfg == nil || !telegramCfg.Enabled {
+	if err != nil || telegramCfg == nil || strings.TrimSpace(telegramCfg.OpsAlertTemplateID) == "" {
 		return false
 	}
 	emailCfg, err := s.opsService.GetEmailNotificationConfig(ctx)

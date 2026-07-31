@@ -10,6 +10,7 @@ export default {
         users: 'Users',
         gateway: 'Gateway',
         email: 'Email',
+        notifications: 'Notifications',
         backup: 'Backup',
         payment: 'Payment',
       },

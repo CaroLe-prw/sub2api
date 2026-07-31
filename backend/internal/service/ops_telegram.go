@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"unicode"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/google/uuid"
 )
 
 const (
@@ -22,6 +24,9 @@ const (
 	opsTelegramRequestTimeout      = 10 * time.Second
 	opsTelegramMaxResponseBodySize = 8 * 1024
 	opsTelegramMaxMessageBytes     = 4000
+	opsTelegramMaxTemplates        = 50
+	opsTelegramMaxTemplateName     = 100
+	opsTelegramMaxTemplateID       = 128
 )
 
 var opsTelegramHTTPClient = func() *http.Client {
@@ -33,6 +38,28 @@ var opsTelegramHTTPClient = func() *http.Client {
 }()
 
 type opsTelegramStoredConfig struct {
+	Version                      int                         `json:"version"`
+	Templates                    []opsTelegramStoredTemplate `json:"templates"`
+	OpsAlertTemplateID           string                      `json:"ops_alert_template_id,omitempty"`
+	UpstreamRateChangeEnabled    bool                        `json:"upstream_rate_change_enabled"`
+	UpstreamRateChangeTemplateID string                      `json:"upstream_rate_change_template_id,omitempty"`
+	UpstreamBalanceLowEnabled    bool                        `json:"upstream_balance_low_enabled"`
+	UpstreamBalanceLowTemplateID string                      `json:"upstream_balance_low_template_id,omitempty"`
+}
+
+type opsTelegramStoredTemplate struct {
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	Enabled             bool   `json:"enabled"`
+	BotTokenEncrypted   string `json:"bot_token_encrypted,omitempty"`
+	ChatID              string `json:"chat_id"`
+	TopicID             *int64 `json:"topic_id"`
+	BaseURL             string `json:"base_url"`
+	DisableNotification bool   `json:"disable_notification"`
+	ProtectContent      bool   `json:"protect_content"`
+}
+
+type opsTelegramLegacyStoredConfig struct {
 	Enabled             bool   `json:"enabled"`
 	BotTokenEncrypted   string `json:"bot_token_encrypted,omitempty"`
 	ChatID              string `json:"chat_id"`
@@ -64,18 +91,30 @@ type opsTelegramAPIResponse struct {
 }
 
 func defaultOpsTelegramStoredConfig() *opsTelegramStoredConfig {
-	return &opsTelegramStoredConfig{BaseURL: opsTelegramDefaultBaseURL}
+	return &opsTelegramStoredConfig{Version: 2, Templates: []opsTelegramStoredTemplate{}}
 }
 
 func normalizeOpsTelegramStoredConfig(cfg *opsTelegramStoredConfig) {
 	if cfg == nil {
 		return
 	}
-	cfg.BotTokenEncrypted = strings.TrimSpace(cfg.BotTokenEncrypted)
-	cfg.ChatID = strings.TrimSpace(cfg.ChatID)
-	cfg.BaseURL = normalizeOpsTelegramBaseURL(cfg.BaseURL)
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = opsTelegramDefaultBaseURL
+	cfg.Version = 2
+	cfg.OpsAlertTemplateID = strings.TrimSpace(cfg.OpsAlertTemplateID)
+	cfg.UpstreamRateChangeTemplateID = strings.TrimSpace(cfg.UpstreamRateChangeTemplateID)
+	cfg.UpstreamBalanceLowTemplateID = strings.TrimSpace(cfg.UpstreamBalanceLowTemplateID)
+	if cfg.Templates == nil {
+		cfg.Templates = []opsTelegramStoredTemplate{}
+	}
+	for i := range cfg.Templates {
+		template := &cfg.Templates[i]
+		template.ID = strings.TrimSpace(template.ID)
+		template.Name = strings.TrimSpace(template.Name)
+		template.BotTokenEncrypted = strings.TrimSpace(template.BotTokenEncrypted)
+		template.ChatID = strings.TrimSpace(template.ChatID)
+		template.BaseURL = normalizeOpsTelegramBaseURL(template.BaseURL)
+		if template.BaseURL == "" {
+			template.BaseURL = opsTelegramDefaultBaseURL
+		}
 	}
 }
 
@@ -100,6 +139,25 @@ func (s *OpsService) loadOpsTelegramStoredConfig(ctx context.Context) (*opsTeleg
 	if err := json.Unmarshal([]byte(raw), cfg); err != nil {
 		return nil, infraerrors.InternalServer("OPS_TELEGRAM_CONFIG_CORRUPT", "Telegram notification config is corrupted")
 	}
+	if cfg.Version == 0 && cfg.Templates == nil {
+		legacy := &opsTelegramLegacyStoredConfig{}
+		if err := json.Unmarshal([]byte(raw), legacy); err != nil {
+			return nil, infraerrors.InternalServer("OPS_TELEGRAM_CONFIG_CORRUPT", "Telegram notification config is corrupted")
+		}
+		legacyID := "legacy-ops-alert"
+		cfg = defaultOpsTelegramStoredConfig()
+		if strings.TrimSpace(legacy.BotTokenEncrypted) != "" || strings.TrimSpace(legacy.ChatID) != "" {
+			cfg.Templates = append(cfg.Templates, opsTelegramStoredTemplate{
+				ID: legacyID, Name: "Ops alerts", Enabled: legacy.Enabled,
+				BotTokenEncrypted: legacy.BotTokenEncrypted, ChatID: legacy.ChatID,
+				TopicID: legacy.TopicID, BaseURL: legacy.BaseURL,
+				DisableNotification: legacy.DisableNotification, ProtectContent: legacy.ProtectContent,
+			})
+			if legacy.Enabled {
+				cfg.OpsAlertTemplateID = legacyID
+			}
+		}
+	}
 	normalizeOpsTelegramStoredConfig(cfg)
 	return cfg, nil
 }
@@ -108,15 +166,23 @@ func telegramPublicConfig(cfg *opsTelegramStoredConfig) *OpsTelegramNotification
 	if cfg == nil {
 		cfg = defaultOpsTelegramStoredConfig()
 	}
-	return &OpsTelegramNotificationConfig{
-		Enabled:             cfg.Enabled,
-		BotTokenConfigured:  strings.TrimSpace(cfg.BotTokenEncrypted) != "",
-		ChatID:              cfg.ChatID,
-		TopicID:             cfg.TopicID,
-		BaseURL:             cfg.BaseURL,
-		DisableNotification: cfg.DisableNotification,
-		ProtectContent:      cfg.ProtectContent,
+	result := &OpsTelegramNotificationConfig{
+		Templates:                    make([]OpsTelegramNotificationTemplate, 0, len(cfg.Templates)),
+		OpsAlertTemplateID:           cfg.OpsAlertTemplateID,
+		UpstreamRateChangeEnabled:    cfg.UpstreamRateChangeEnabled,
+		UpstreamRateChangeTemplateID: cfg.UpstreamRateChangeTemplateID,
+		UpstreamBalanceLowEnabled:    cfg.UpstreamBalanceLowEnabled,
+		UpstreamBalanceLowTemplateID: cfg.UpstreamBalanceLowTemplateID,
 	}
+	for _, template := range cfg.Templates {
+		result.Templates = append(result.Templates, OpsTelegramNotificationTemplate{
+			ID: template.ID, Name: template.Name, Enabled: template.Enabled,
+			BotTokenConfigured: strings.TrimSpace(template.BotTokenEncrypted) != "",
+			ChatID:             template.ChatID, TopicID: template.TopicID, BaseURL: template.BaseURL,
+			DisableNotification: template.DisableNotification, ProtectContent: template.ProtectContent,
+		})
+	}
+	return result
 }
 
 // GetTelegramNotificationConfig returns a redacted config. The bot token is
@@ -143,51 +209,79 @@ func (s *OpsService) UpdateTelegramNotificationConfig(ctx context.Context, req *
 	if err != nil {
 		return nil, err
 	}
-	token := strings.TrimSpace(req.BotToken)
-	if req.ClearBotToken && token != "" {
-		return nil, opsTelegramConfigError("bot_token and clear_bot_token cannot be used together")
+	storedByID := make(map[string]opsTelegramStoredTemplate, len(stored.Templates))
+	for _, template := range stored.Templates {
+		storedByID[template.ID] = template
 	}
-	if token != "" {
-		if err := validateOpsTelegramBotToken(token); err != nil {
+	candidate := defaultOpsTelegramStoredConfig()
+	if len(req.Templates) > opsTelegramMaxTemplates {
+		return nil, opsTelegramConfigError("too many Telegram templates")
+	}
+	seen := make(map[string]struct{}, len(req.Templates))
+	for _, input := range req.Templates {
+		id := strings.TrimSpace(input.ID)
+		if id == "" {
+			id = uuid.NewString()
+		}
+		if len(id) > opsTelegramMaxTemplateID || strings.IndexFunc(id, unicode.IsControl) >= 0 {
+			return nil, opsTelegramConfigError("template ID is invalid")
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return nil, opsTelegramConfigError("template IDs must be unique")
+		}
+		seen[id] = struct{}{}
+		previous := storedByID[id]
+		token := strings.TrimSpace(input.BotToken)
+		if input.ClearBotToken && token != "" {
+			return nil, opsTelegramConfigError("bot_token and clear_bot_token cannot be used together")
+		}
+		template := opsTelegramStoredTemplate{
+			ID: id, Name: strings.TrimSpace(input.Name), Enabled: input.Enabled,
+			BotTokenEncrypted: previous.BotTokenEncrypted,
+			ChatID:            strings.TrimSpace(input.ChatID), TopicID: input.TopicID,
+			BaseURL:             normalizeOpsTelegramBaseURL(input.BaseURL),
+			DisableNotification: input.DisableNotification, ProtectContent: input.ProtectContent,
+		}
+		if template.Name == "" {
+			return nil, opsTelegramConfigError("template name is required")
+		}
+		if len(template.Name) > opsTelegramMaxTemplateName || strings.IndexFunc(template.Name, unicode.IsControl) >= 0 {
+			return nil, opsTelegramConfigError("template name is invalid")
+		}
+		if template.BaseURL == "" {
+			template.BaseURL = opsTelegramDefaultBaseURL
+		}
+		if input.ClearBotToken {
+			template.BotTokenEncrypted = ""
+		}
+		if token == "" && !input.ClearBotToken && previous.BotTokenEncrypted != "" && !sameOpsTelegramBaseURL(template.BaseURL, previous.BaseURL) {
+			return nil, opsTelegramConfigError("base_url cannot be changed while reusing a saved Telegram bot token; enter the token again")
+		}
+		if token != "" {
+			if err := validateOpsTelegramBotToken(token); err != nil {
+				return nil, err
+			}
+			if s.encryptor == nil || s.cfg == nil || !s.cfg.Totp.EncryptionKeyConfigured {
+				return nil, infraerrors.BadRequest("OPS_TELEGRAM_ENCRYPTION_KEY_NOT_CONFIGURED", "cannot store the Telegram bot token until a fixed TOTP_ENCRYPTION_KEY is configured")
+			}
+			encrypted, err := s.encryptor.Encrypt(token)
+			if err != nil {
+				return nil, infraerrors.InternalServer("OPS_TELEGRAM_TOKEN_ENCRYPT_FAILED", "failed to encrypt Telegram bot token")
+			}
+			template.BotTokenEncrypted = encrypted
+		}
+		if err := validateOpsTelegramTemplate(&template, template.Enabled); err != nil {
 			return nil, err
 		}
+		candidate.Templates = append(candidate.Templates, template)
 	}
-
-	candidate := &opsTelegramStoredConfig{
-		Enabled:             req.Enabled,
-		BotTokenEncrypted:   stored.BotTokenEncrypted,
-		ChatID:              strings.TrimSpace(req.ChatID),
-		TopicID:             req.TopicID,
-		BaseURL:             normalizeOpsTelegramBaseURL(req.BaseURL),
-		DisableNotification: req.DisableNotification,
-		ProtectContent:      req.ProtectContent,
-	}
-	if candidate.BaseURL == "" {
-		candidate.BaseURL = opsTelegramDefaultBaseURL
-	}
-	if req.ClearBotToken {
-		candidate.BotTokenEncrypted = ""
-	}
-	if token == "" && !req.ClearBotToken && stored.BotTokenEncrypted != "" && !sameOpsTelegramBaseURL(candidate.BaseURL, stored.BaseURL) {
-		return nil, opsTelegramConfigError("base_url cannot be changed while reusing the saved Telegram bot token; enter the token again")
-	}
-	tokenConfigured := candidate.BotTokenEncrypted != "" || token != ""
-	if err := validateOpsTelegramConfig(candidate, tokenConfigured, candidate.Enabled); err != nil {
+	candidate.OpsAlertTemplateID = strings.TrimSpace(req.OpsAlertTemplateID)
+	candidate.UpstreamRateChangeEnabled = req.UpstreamRateChangeEnabled
+	candidate.UpstreamRateChangeTemplateID = strings.TrimSpace(req.UpstreamRateChangeTemplateID)
+	candidate.UpstreamBalanceLowEnabled = req.UpstreamBalanceLowEnabled
+	candidate.UpstreamBalanceLowTemplateID = strings.TrimSpace(req.UpstreamBalanceLowTemplateID)
+	if err := validateOpsTelegramAssignments(candidate); err != nil {
 		return nil, err
-	}
-
-	if token != "" {
-		if s.encryptor == nil || s.cfg == nil || !s.cfg.Totp.EncryptionKeyConfigured {
-			return nil, infraerrors.BadRequest(
-				"OPS_TELEGRAM_ENCRYPTION_KEY_NOT_CONFIGURED",
-				"cannot store the Telegram bot token until a fixed TOTP_ENCRYPTION_KEY is configured",
-			)
-		}
-		encrypted, err := s.encryptor.Encrypt(token)
-		if err != nil {
-			return nil, infraerrors.InternalServer("OPS_TELEGRAM_TOKEN_ENCRYPT_FAILED", "failed to encrypt Telegram bot token")
-		}
-		candidate.BotTokenEncrypted = encrypted
 	}
 
 	raw, err := json.Marshal(candidate)
@@ -216,10 +310,14 @@ func (s *OpsService) TestTelegramNotification(ctx context.Context, req *OpsTeleg
 		if err != nil {
 			return err
 		}
-		if stored.BotTokenEncrypted != "" && !sameOpsTelegramBaseURL(baseURL, stored.BaseURL) {
+		template, ok := findOpsTelegramTemplate(stored, strings.TrimSpace(req.TemplateID))
+		if !ok {
+			return opsTelegramConfigError("saved Telegram template not found")
+		}
+		if template.BotTokenEncrypted != "" && !sameOpsTelegramBaseURL(baseURL, template.BaseURL) {
 			return opsTelegramConfigError("base_url cannot be changed while reusing the saved Telegram bot token; enter the token again")
 		}
-		token, err = s.decryptOpsTelegramBotToken(stored.BotTokenEncrypted)
+		token, err = s.decryptOpsTelegramBotToken(template.BotTokenEncrypted)
 		if err != nil {
 			return err
 		}
@@ -246,20 +344,18 @@ func (s *OpsService) sendOpsTelegramAlert(ctx context.Context, rule *OpsAlertRul
 	if err != nil {
 		return false, err
 	}
-	if !stored.Enabled {
+	template, ok := findOpsTelegramTemplate(stored, stored.OpsAlertTemplateID)
+	if !ok || !template.Enabled {
 		return false, nil
 	}
-	token, err := s.decryptOpsTelegramBotToken(stored.BotTokenEncrypted)
+	token, err := s.decryptOpsTelegramBotToken(template.BotTokenEncrypted)
 	if err != nil {
 		return false, err
 	}
 	delivery := opsTelegramDeliveryConfig{
-		BotToken:            token,
-		ChatID:              stored.ChatID,
-		TopicID:             stored.TopicID,
-		BaseURL:             stored.BaseURL,
-		DisableNotification: stored.DisableNotification,
-		ProtectContent:      stored.ProtectContent,
+		BotToken: token,
+		ChatID:   template.ChatID, TopicID: template.TopicID, BaseURL: template.BaseURL,
+		DisableNotification: template.DisableNotification, ProtectContent: template.ProtectContent,
 	}
 	if err := validateOpsTelegramDeliveryConfig(delivery); err != nil {
 		return false, err
@@ -268,6 +364,86 @@ func (s *OpsService) sendOpsTelegramAlert(ctx context.Context, rule *OpsAlertRul
 		return false, err
 	}
 	return true, nil
+}
+
+func (s *OpsService) sendUpstreamRateChangeTelegram(ctx context.Context, account *Account, oldRate, newRate float64, source string) (bool, error) {
+	stored, err := s.loadOpsTelegramStoredConfig(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !stored.UpstreamRateChangeEnabled {
+		return false, nil
+	}
+	template, ok := findOpsTelegramTemplate(stored, stored.UpstreamRateChangeTemplateID)
+	if !ok || !template.Enabled {
+		return false, nil
+	}
+	token, err := s.decryptOpsTelegramBotToken(template.BotTokenEncrypted)
+	if err != nil {
+		return false, err
+	}
+	delivery := opsTelegramDeliveryConfig{
+		BotToken: token, ChatID: template.ChatID, TopicID: template.TopicID, BaseURL: template.BaseURL,
+		DisableNotification: template.DisableNotification, ProtectContent: template.ProtectContent,
+	}
+	if err := sendOpsTelegramMessage(ctx, s.opsTelegramClient(), delivery, buildUpstreamRateChangeTelegramText(account, oldRate, newRate, source)); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *OpsService) notifyUpstreamRateChange(account *Account, oldRate, newRate float64, source string) {
+	if s == nil || account == nil || equalBillingMultiplier(oldRate, newRate) {
+		return
+	}
+	accountCopy := *account
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), opsTelegramRequestTimeout)
+		defer cancel()
+		if _, err := s.sendUpstreamRateChangeTelegram(ctx, &accountCopy, oldRate, newRate, source); err != nil {
+			slog.Warn("upstream_rate_change_telegram_failed", "account_id", accountCopy.ID, "source", source, "error", err)
+		}
+	}()
+}
+
+func (s *OpsService) sendUpstreamBalanceLowTelegram(ctx context.Context, account *Account, balance, threshold float64) (bool, error) {
+	stored, err := s.loadOpsTelegramStoredConfig(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !stored.UpstreamBalanceLowEnabled {
+		return false, nil
+	}
+	template, ok := findOpsTelegramTemplate(stored, stored.UpstreamBalanceLowTemplateID)
+	if !ok || !template.Enabled {
+		return false, nil
+	}
+	token, err := s.decryptOpsTelegramBotToken(template.BotTokenEncrypted)
+	if err != nil {
+		return false, err
+	}
+	delivery := opsTelegramDeliveryConfig{
+		BotToken: token, ChatID: template.ChatID, TopicID: template.TopicID, BaseURL: template.BaseURL,
+		DisableNotification: template.DisableNotification, ProtectContent: template.ProtectContent,
+	}
+	if err := sendOpsTelegramMessage(ctx, s.opsTelegramClient(), delivery, buildUpstreamBalanceLowTelegramText(account, balance, threshold)); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *OpsService) notifyUpstreamBalanceLow(account *Account, balance, threshold float64) {
+	if s == nil || account == nil {
+		return
+	}
+	accountCopy := *account
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), opsTelegramRequestTimeout)
+		defer cancel()
+		if _, err := s.sendUpstreamBalanceLowTelegram(ctx, &accountCopy, balance, threshold); err != nil {
+			slog.Warn("upstream_balance_low_telegram_failed", "account_id", accountCopy.ID, "error", err)
+		}
+	}()
 }
 
 func (s *OpsService) decryptOpsTelegramBotToken(ciphertext string) (string, error) {
@@ -295,30 +471,64 @@ func (s *OpsService) opsTelegramClient() *http.Client {
 	return opsTelegramHTTPClient
 }
 
-func validateOpsTelegramConfig(cfg *opsTelegramStoredConfig, tokenConfigured, requireDelivery bool) error {
-	if cfg == nil {
+func validateOpsTelegramTemplate(template *opsTelegramStoredTemplate, requireDelivery bool) error {
+	if template == nil {
 		return opsTelegramConfigError("invalid config")
 	}
-	if err := validateOpsTelegramBaseURL(cfg.BaseURL); err != nil {
+	if err := validateOpsTelegramBaseURL(template.BaseURL); err != nil {
 		return err
 	}
-	if cfg.ChatID != "" {
-		if err := validateOpsTelegramChatID(cfg.ChatID); err != nil {
+	if template.ChatID != "" {
+		if err := validateOpsTelegramChatID(template.ChatID); err != nil {
 			return err
 		}
 	}
-	if cfg.TopicID != nil && *cfg.TopicID <= 0 {
+	if template.TopicID != nil && *template.TopicID <= 0 {
 		return opsTelegramConfigError("topic_id must be a positive integer")
 	}
 	if requireDelivery {
-		if !tokenConfigured {
-			return opsTelegramConfigError("Telegram bot token is required when Telegram notifications are enabled")
+		if strings.TrimSpace(template.BotTokenEncrypted) == "" {
+			return opsTelegramConfigError("Telegram bot token is required when a template is enabled")
 		}
-		if cfg.ChatID == "" {
-			return opsTelegramConfigError("chat_id is required when Telegram notifications are enabled")
+		if template.ChatID == "" {
+			return opsTelegramConfigError("chat_id is required when a Telegram template is enabled")
 		}
 	}
 	return nil
+}
+
+func validateOpsTelegramAssignments(cfg *opsTelegramStoredConfig) error {
+	if cfg == nil {
+		return opsTelegramConfigError("invalid config")
+	}
+	if cfg.OpsAlertTemplateID != "" {
+		if template, ok := findOpsTelegramTemplate(cfg, cfg.OpsAlertTemplateID); !ok || !template.Enabled {
+			return opsTelegramConfigError("ops alert template must reference an enabled template")
+		}
+	}
+	if cfg.UpstreamRateChangeEnabled {
+		if template, ok := findOpsTelegramTemplate(cfg, cfg.UpstreamRateChangeTemplateID); !ok || !template.Enabled {
+			return opsTelegramConfigError("upstream rate change notification must reference an enabled template")
+		}
+	}
+	if cfg.UpstreamBalanceLowEnabled {
+		if template, ok := findOpsTelegramTemplate(cfg, cfg.UpstreamBalanceLowTemplateID); !ok || !template.Enabled {
+			return opsTelegramConfigError("upstream low balance notification must reference an enabled template")
+		}
+	}
+	return nil
+}
+
+func findOpsTelegramTemplate(cfg *opsTelegramStoredConfig, id string) (*opsTelegramStoredTemplate, bool) {
+	if cfg == nil || strings.TrimSpace(id) == "" {
+		return nil, false
+	}
+	for i := range cfg.Templates {
+		if cfg.Templates[i].ID == id {
+			return &cfg.Templates[i], true
+		}
+	}
+	return nil, false
 }
 
 func validateOpsTelegramDeliveryConfig(cfg opsTelegramDeliveryConfig) error {
@@ -464,4 +674,36 @@ func buildOpsTelegramAlertText(rule *OpsAlertRule, event *OpsAlertEvent) string 
 		values["alert_description"],
 	)
 	return truncateString(text, opsTelegramMaxMessageBytes)
+}
+
+func buildUpstreamRateChangeTelegramText(account *Account, oldRate, newRate float64, source string) string {
+	accountName := ""
+	accountID := int64(0)
+	if account != nil {
+		accountName = strings.TrimSpace(account.Name)
+		accountID = account.ID
+	}
+	if accountName == "" {
+		accountName = fmt.Sprintf("Account #%d", accountID)
+	}
+	return truncateString(fmt.Sprintf(
+		"Sub2API upstream rate changed\nAccount: %s (#%d)\nSource: %s\nPrevious rate: %gx\nNew rate: %gx\nChanged at: %s",
+		accountName, accountID, source, oldRate, newRate, time.Now().UTC().Format(time.RFC3339),
+	), opsTelegramMaxMessageBytes)
+}
+
+func buildUpstreamBalanceLowTelegramText(account *Account, balance, threshold float64) string {
+	accountName := ""
+	accountID := int64(0)
+	if account != nil {
+		accountName = strings.TrimSpace(account.Name)
+		accountID = account.ID
+	}
+	if accountName == "" {
+		accountName = fmt.Sprintf("Account #%d", accountID)
+	}
+	return truncateString(fmt.Sprintf(
+		"Sub2API upstream balance is low\nAccount: %s (#%d)\nCurrent balance: $%g\nAlert threshold: $%g\nDetected at: %s",
+		accountName, accountID, balance, threshold, time.Now().UTC().Format(time.RFC3339),
+	), opsTelegramMaxMessageBytes)
 }

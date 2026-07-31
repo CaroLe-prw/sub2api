@@ -63,11 +63,6 @@ func (h *OpsHandler) GetTelegramNotificationConfig(c *gin.Context) {
 		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
 		return
 	}
-	if err := h.opsService.RequireMonitoringEnabled(c.Request.Context()); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
 	cfg, err := h.opsService.GetTelegramNotificationConfig(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -83,11 +78,6 @@ func (h *OpsHandler) UpdateTelegramNotificationConfig(c *gin.Context) {
 		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
 		return
 	}
-	if err := h.opsService.RequireMonitoringEnabled(c.Request.Context()); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
 	var req service.OpsTelegramNotificationConfigUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request body")
@@ -108,11 +98,6 @@ func (h *OpsHandler) TestTelegramNotification(c *gin.Context) {
 		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
 		return
 	}
-	if err := h.opsService.RequireMonitoringEnabled(c.Request.Context()); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
 	var req service.OpsTelegramNotificationTestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request body")

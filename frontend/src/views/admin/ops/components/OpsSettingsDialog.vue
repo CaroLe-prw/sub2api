@@ -6,16 +6,12 @@ import { opsAPI } from '@/api/admin/ops'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import Toggle from '@/components/common/Toggle.vue'
-import OpsTelegramNotificationFields from './OpsTelegramNotificationFields.vue'
 import type {
   OpsAlertRuntimeSettings,
   EmailNotificationConfig,
   AlertSeverity,
   OpsAdvancedSettings,
-  OpsMetricThresholds,
-  OpsTelegramNotificationDraft,
-  OpsTelegramNotificationUpdateRequest,
-  OpsTelegramNotificationTestRequest
+  OpsMetricThresholds
 } from '../types'
 
 const { t } = useI18n()
@@ -37,9 +33,6 @@ const saving = ref(false)
 const runtimeSettings = ref<OpsAlertRuntimeSettings | null>(null)
 // 邮件通知配置
 const emailConfig = ref<EmailNotificationConfig | null>(null)
-// Telegram 通知配置
-const telegramConfig = ref<OpsTelegramNotificationDraft | null>(null)
-const telegramTesting = ref(false)
 // 高级设置
 const advancedSettings = ref<OpsAdvancedSettings | null>(null)
 // 指标阈值配置
@@ -54,16 +47,14 @@ const metricThresholds = ref<OpsMetricThresholds>({
 async function loadAllSettings() {
   loading.value = true
   try {
-    const [runtime, email, telegram, advanced, thresholds] = await Promise.all([
+    const [runtime, email, advanced, thresholds] = await Promise.all([
       opsAPI.getAlertRuntimeSettings(),
       opsAPI.getEmailNotificationConfig(),
-      opsAPI.getTelegramNotificationConfig(),
       opsAPI.getAdvancedSettings(),
       opsAPI.getMetricThresholds()
     ])
     runtimeSettings.value = runtime
     emailConfig.value = email
-    telegramConfig.value = { ...telegram, bot_token: '' }
     advancedSettings.value = advanced
     // 兼容旧 payload：后端未返回该字段时补默认值，保证表单可绑定
     if (advancedSettings.value && !advancedSettings.value.openai_account_quota_auto_pause) {
@@ -138,84 +129,6 @@ function removeRecipient(target: 'alert' | 'report', email: string) {
   if (idx >= 0) list.splice(idx, 1)
 }
 
-function telegramTestRequest(config: OpsTelegramNotificationDraft): OpsTelegramNotificationTestRequest {
-  return {
-    bot_token: config.bot_token.trim(),
-    chat_id: config.chat_id.trim(),
-    topic_id: config.topic_id,
-    base_url: config.base_url.trim(),
-    disable_notification: config.disable_notification,
-    protect_content: config.protect_content
-  }
-}
-
-function telegramRequest(config: OpsTelegramNotificationDraft): OpsTelegramNotificationUpdateRequest {
-  return {
-    enabled: config.enabled,
-    ...telegramTestRequest(config)
-  }
-}
-
-function telegramValidationErrors(requireCredentials: boolean): string[] {
-  const config = telegramConfig.value
-  if (!config) return []
-
-  const errors: string[] = []
-  if (requireCredentials && !config.bot_token.trim() && !config.bot_token_configured) {
-    errors.push(t('admin.ops.telegram.validation.botTokenRequired'))
-  }
-  if (requireCredentials && !config.chat_id.trim()) {
-    errors.push(t('admin.ops.telegram.validation.chatIdRequired'))
-  }
-  if (config.topic_id != null && (!Number.isInteger(config.topic_id) || config.topic_id <= 0)) {
-    errors.push(t('admin.ops.telegram.validation.topicIdInvalid'))
-  }
-
-  const baseURL = config.base_url.trim()
-  if (baseURL) {
-    try {
-      const parsed = new URL(baseURL)
-      if (
-        parsed.protocol !== 'https:' ||
-        parsed.username ||
-        parsed.password ||
-        parsed.pathname !== '/' ||
-        parsed.search ||
-        parsed.hash
-      ) {
-        errors.push(t('admin.ops.telegram.validation.baseUrlInvalid'))
-      }
-    } catch {
-      errors.push(t('admin.ops.telegram.validation.baseUrlInvalid'))
-    }
-  }
-  return errors
-}
-
-async function testTelegramNotification() {
-  if (!telegramConfig.value || telegramTesting.value) return
-  const errors = telegramValidationErrors(true)
-  if (errors.length > 0) {
-    appStore.showError(errors[0])
-    return
-  }
-
-  telegramTesting.value = true
-  try {
-    await opsAPI.testTelegramNotification(telegramTestRequest(telegramConfig.value))
-    appStore.showSuccess(t('admin.ops.telegram.testSuccess'))
-  } catch (err: any) {
-    console.error('[OpsSettingsDialog] Failed to test Telegram notification', err)
-    appStore.showError(
-      err?.response?.data?.message ||
-        err?.response?.data?.detail ||
-        t('admin.ops.telegram.testFailed')
-    )
-  } finally {
-    telegramTesting.value = false
-  }
-}
-
 // OpenAI 账号配额自动暂停：后端按 0~1 分数存储，UI 按百分比(0~100)展示
 const quotaAutoPause5hPercent = computed<number | null>({
   get() {
@@ -251,8 +164,6 @@ const validation = computed(() => {
   }
 
   // 邮件配置: 启用但无收件人时不阻断保存, 保存时会自动禁用
-
-  errors.push(...telegramValidationErrors(Boolean(telegramConfig.value?.enabled)))
 
   // 验证高级设置
   if (advancedSettings.value) {
@@ -311,9 +222,6 @@ async function saveAllSettings() {
     await Promise.all([
       runtimeSettings.value ? opsAPI.updateAlertRuntimeSettings(runtimeSettings.value) : Promise.resolve(),
       emailConfig.value ? opsAPI.updateEmailNotificationConfig(emailConfig.value) : Promise.resolve(),
-      telegramConfig.value
-        ? opsAPI.updateTelegramNotificationConfig(telegramRequest(telegramConfig.value))
-        : Promise.resolve(),
       advancedSettings.value ? opsAPI.updateAdvancedSettings(advancedSettings.value) : Promise.resolve(),
       opsAPI.updateMetricThresholds(metricThresholds.value)
     ])
@@ -335,7 +243,7 @@ async function saveAllSettings() {
       {{ t('common.loading') }}
     </div>
 
-    <div v-else-if="runtimeSettings && emailConfig && telegramConfig && advancedSettings" class="space-y-6">
+    <div v-else-if="runtimeSettings && emailConfig && advancedSettings" class="space-y-6">
       <!-- 验证错误 -->
       <div v-if="!validation.valid" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">
         <div class="font-bold">{{ t('admin.ops.settings.validation.title') }}</div>
@@ -401,18 +309,12 @@ async function saveAllSettings() {
             </p>
           </div>
 
-          <div v-if="emailConfig.alert.enabled || telegramConfig.enabled">
+          <div>
             <label class="input-label">{{ t('admin.ops.settings.minSeverity') }}</label>
             <Select v-model="emailConfig.alert.min_severity" :options="severityOptions" />
           </div>
         </div>
       </div>
-
-      <OpsTelegramNotificationFields
-        v-model="telegramConfig"
-        :testing="telegramTesting || saving"
-        @test="testTelegramNotification"
-      />
 
       <!-- 评估报告配置 -->
       <div class="rounded-2xl bg-gray-50 p-4 dark:bg-dark-700/50">

@@ -750,7 +750,9 @@ export interface EmailNotificationConfig {
   }
 }
 
-export interface OpsTelegramNotificationConfig {
+export interface OpsTelegramNotificationTemplate {
+  id: string
+  name: string
   enabled: boolean
   bot_token_configured: boolean
   chat_id: string
@@ -760,11 +762,14 @@ export interface OpsTelegramNotificationConfig {
   protect_content: boolean
 }
 
-export interface OpsTelegramNotificationDraft extends OpsTelegramNotificationConfig {
+export interface OpsTelegramNotificationDraft extends OpsTelegramNotificationTemplate {
   bot_token: string
+  clear_bot_token?: boolean
 }
 
-export interface OpsTelegramNotificationUpdateRequest {
+export interface OpsTelegramNotificationTemplateUpdate {
+  id: string
+  name: string
   enabled: boolean
   bot_token: string
   clear_bot_token?: boolean
@@ -775,10 +780,33 @@ export interface OpsTelegramNotificationUpdateRequest {
   protect_content: boolean
 }
 
-export type OpsTelegramNotificationTestRequest = Omit<
-  OpsTelegramNotificationUpdateRequest,
-  'enabled' | 'clear_bot_token'
->
+export interface OpsTelegramNotificationConfig {
+  templates: OpsTelegramNotificationTemplate[]
+  ops_alert_template_id: string
+  upstream_rate_change_enabled: boolean
+  upstream_rate_change_template_id: string
+  upstream_balance_low_enabled: boolean
+  upstream_balance_low_template_id: string
+}
+
+export interface OpsTelegramNotificationUpdateRequest {
+  templates: OpsTelegramNotificationTemplateUpdate[]
+  ops_alert_template_id: string
+  upstream_rate_change_enabled: boolean
+  upstream_rate_change_template_id: string
+  upstream_balance_low_enabled: boolean
+  upstream_balance_low_template_id: string
+}
+
+export interface OpsTelegramNotificationTestRequest {
+  template_id: string
+  bot_token: string
+  chat_id: string
+  topic_id: number | null
+  base_url: string
+  disable_notification: boolean
+  protect_content: boolean
+}
 
 export interface OpsTelegramNotificationTestResponse {
   sent: boolean
@@ -1278,7 +1306,7 @@ export async function updateEmailNotificationConfig(config: EmailNotificationCon
 
 // Telegram notification config
 export async function getTelegramNotificationConfig(): Promise<OpsTelegramNotificationConfig> {
-  const { data } = await apiClient.get<OpsTelegramNotificationConfig>('/admin/ops/telegram-notification/config')
+  const { data } = await apiClient.get<OpsTelegramNotificationConfig>('/admin/settings/telegram-notification')
   return data
 }
 
@@ -1286,7 +1314,7 @@ export async function updateTelegramNotificationConfig(
   config: OpsTelegramNotificationUpdateRequest
 ): Promise<OpsTelegramNotificationConfig> {
   const { data } = await apiClient.put<OpsTelegramNotificationConfig>(
-    '/admin/ops/telegram-notification/config',
+    '/admin/settings/telegram-notification',
     config
   )
   return data
@@ -1296,7 +1324,7 @@ export async function testTelegramNotification(
   config: OpsTelegramNotificationTestRequest
 ): Promise<OpsTelegramNotificationTestResponse> {
   const { data } = await apiClient.post<OpsTelegramNotificationTestResponse>(
-    '/admin/ops/telegram-notification/test',
+    '/admin/settings/telegram-notification/test',
     config
   )
   return data
