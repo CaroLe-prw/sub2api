@@ -128,6 +128,13 @@ func (p *postUsageBillingParams) shouldUpdateAccountQuota() bool {
 	return p.Cost.TotalCost > 0 && p.Account.IsAPIKeyOrBedrock() && p.Account.HasAnyQuotaLimit()
 }
 
+func (p *postUsageBillingParams) accountQuotaCost() float64 {
+	if p == nil || p.Cost == nil || p.Account == nil {
+		return 0
+	}
+	return p.Cost.TotalCost * p.Account.GetQuotaUsageMultiplier()
+}
+
 // postUsageBilling is the legacy fallback billing path used when the unified
 // billing repo is unavailable (nil). Production uses applyUsageBilling → repo.Apply
 // for atomic billing. This path only runs in tests or degraded mode.
@@ -170,7 +177,7 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 	}
 
 	if p.shouldUpdateAccountQuota() {
-		accountCost := cost.TotalCost * p.AccountRateMultiplier
+		accountCost := p.accountQuotaCost()
 		if err := deps.accountRepo.IncrementQuotaUsed(billingCtx, p.Account.ID, accountCost); err != nil {
 			slog.Error("increment account quota used failed", "account_id", p.Account.ID, "cost", accountCost, "error", err)
 		}
@@ -282,7 +289,7 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		cmd.APIKeyRateLimitCost = p.Cost.ActualCost
 	}
 	if p.shouldUpdateAccountQuota() {
-		cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
+		cmd.AccountQuotaCost = p.accountQuotaCost()
 	}
 
 	cmd.Normalize()
@@ -459,7 +466,7 @@ func notifyAccountQuota(p *postUsageBillingParams, deps *billingDeps, result *Us
 		)
 		return
 	}
-	accountCost := p.Cost.TotalCost * p.AccountRateMultiplier
+	accountCost := p.accountQuotaCost()
 	var quotaState *AccountQuotaState
 	if result != nil {
 		quotaState = result.QuotaState

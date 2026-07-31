@@ -6,6 +6,7 @@ import (
 	"errors"
 	"hash/fnv"
 	"log/slog"
+	"math"
 	"reflect"
 	"sort"
 	"strconv"
@@ -84,8 +85,9 @@ type Account struct {
 type OpenAIEndpointCapability string
 
 const (
-	openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"
-	openAIForceFastModeExtraKey        = "openai_force_fast_mode"
+	openAILongContextBillingEnabledKey  = "openai_long_context_billing_enabled"
+	openAIForceFastModeExtraKey         = "openai_force_fast_mode"
+	AccountQuotaUsageMultiplierExtraKey = "quota_usage_multiplier"
 )
 
 const (
@@ -2126,6 +2128,42 @@ func (a *Account) GetQuotaWeeklyUsed() float64 {
 	return a.getExtraFloat64("quota_weekly_used")
 }
 
+// GetQuotaUsageMultiplier returns the multiplier used to convert raw upstream
+// token cost into account quota consumption.
+//
+// Existing accounts without an explicit value retain the historical behavior
+// by falling back to the account billing multiplier. New account forms persist
+// an explicit 1.0 so upstream capacity and acquisition cost stay independent.
+func (a *Account) GetQuotaUsageMultiplier() float64 {
+	if a != nil && a.Extra != nil {
+		if raw, ok := a.Extra[AccountQuotaUsageMultiplierExtraKey]; ok {
+			if value, valid := parseExtraFloat64Strict(raw); valid &&
+				!math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 {
+				return value
+			}
+		}
+	}
+	return a.BillingRateMultiplier()
+}
+
+// ApplyDefaultQuotaUsageMultiplier gives newly created quota-limited accounts
+// an explicit upstream-capacity multiplier. Existing accounts without the key
+// are intentionally left untouched elsewhere so their active counters retain
+// the historical unit until an administrator opts in.
+func ApplyDefaultQuotaUsageMultiplier(extra map[string]any) {
+	if extra == nil {
+		return
+	}
+	if _, exists := extra[AccountQuotaUsageMultiplierExtraKey]; exists {
+		return
+	}
+	if parseExtraFloat64(extra["quota_limit"]) > 0 ||
+		parseExtraFloat64(extra["quota_daily_limit"]) > 0 ||
+		parseExtraFloat64(extra["quota_weekly_limit"]) > 0 {
+		extra[AccountQuotaUsageMultiplierExtraKey] = 1.0
+	}
+}
+
 // getExtraFloat64 从 Extra 中读取指定 key 的 float64 值
 func (a *Account) getExtraFloat64(key string) float64 {
 	if a.Extra == nil {
@@ -2478,6 +2516,12 @@ func ValidateQuotaResetConfig(extra map[string]any) error {
 	if extra == nil {
 		return nil
 	}
+	if raw, ok := extra[AccountQuotaUsageMultiplierExtraKey]; ok {
+		value, valid := parseExtraFloat64Strict(raw)
+		if !valid || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+			return errors.New("quota_usage_multiplier must be a finite number >= 0")
+		}
+	}
 	// 校验时区
 	if tz, ok := extra["quota_reset_timezone"].(string); ok && tz != "" {
 		if _, err := time.LoadLocation(tz); err != nil {
@@ -2780,25 +2824,30 @@ func (a *Account) GetCurrentWindowStartTime() time.Time {
 
 // parseExtraFloat64 从 extra 字段解析 float64 值
 func parseExtraFloat64(value any) float64 {
+	parsed, _ := parseExtraFloat64Strict(value)
+	return parsed
+}
+
+func parseExtraFloat64Strict(value any) (float64, bool) {
 	switch v := value.(type) {
 	case float64:
-		return v
+		return v, true
 	case float32:
-		return float64(v)
+		return float64(v), true
 	case int:
-		return float64(v)
+		return float64(v), true
 	case int64:
-		return float64(v)
+		return float64(v), true
 	case json.Number:
 		if f, err := v.Float64(); err == nil {
-			return f
+			return f, true
 		}
 	case string:
 		if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
-			return f
+			return f, true
 		}
 	}
-	return 0
+	return 0, false
 }
 
 func parseExtraTime(value any) time.Time {
