@@ -43,6 +43,7 @@ const (
 	upstreamBillingProbeMaxPerCycle            = 20
 	upstreamBillingProbeConcurrency            = 4
 	upstreamBillingProbeMaxDelay               = 24 * time.Hour
+	upstreamBalanceAlertDefaultThreshold       = 5.0
 	upstreamBillingProbeLeaderLockKey          = "upstream:billing:probe:leader"
 	upstreamBillingProbeLeaderLockTTL          = 2 * time.Minute
 )
@@ -995,16 +996,26 @@ func parseUpstreamBillingProbeResponse(body []byte) (map[string]any, error) {
 }
 
 func upstreamBalanceAlertConfig(account *Account) (float64, bool) {
-	if account == nil || account.Extra == nil {
+	if account == nil {
 		return 0, false
 	}
-	enabled, ok := account.Extra[UpstreamBalanceAlertEnabledExtraKey].(bool)
-	if !ok || !enabled {
+
+	enabled := true
+	if account.Extra != nil {
+		if configured, ok := account.Extra[UpstreamBalanceAlertEnabledExtraKey].(bool); ok {
+			enabled = configured
+		}
+	}
+	if !enabled {
 		return 0, false
 	}
-	threshold, ok := resolveAccountExtraNumber(account.Extra, UpstreamBalanceAlertThresholdExtraKey)
-	if !ok || threshold < 0 || math.IsNaN(threshold) || math.IsInf(threshold, 0) {
-		return 0, false
+
+	threshold := upstreamBalanceAlertDefaultThreshold
+	if account.Extra != nil {
+		if configured, ok := resolveAccountExtraNumber(account.Extra, UpstreamBalanceAlertThresholdExtraKey); ok &&
+			configured >= 0 && !math.IsNaN(configured) && !math.IsInf(configured, 0) {
+			threshold = configured
+		}
 	}
 	return threshold, true
 }

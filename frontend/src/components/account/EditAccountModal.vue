@@ -2710,6 +2710,10 @@ import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSetti
 import NewAPISyncSettings from '@/components/account/NewAPISyncSettings.vue'
 import UpstreamBalanceAlertFields from '@/components/account/UpstreamBalanceAlertFields.vue'
 import {
+  DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED,
+  DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD
+} from '@/components/account/upstreamBalanceAlert'
+import {
   applyAntigravityProjectID,
   applyHeaderOverride,
   applyInterceptWarmup,
@@ -2890,8 +2894,8 @@ type NewAPISyncSettingsExpose = {
 
 const upstreamBillingMode = ref<UpstreamBillingMode>('off')
 const upstreamRateCalibration = ref(1)
-const upstreamBalanceAlertEnabled = ref(false)
-const upstreamBalanceAlertThreshold = ref<number | null>(10)
+const upstreamBalanceAlertEnabled = shallowRef(DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED)
+const upstreamBalanceAlertThreshold = shallowRef<number | null>(DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD)
 const newapiSyncSettings = ref<NewAPISyncSettingsExpose | null>(null)
 const upstreamBillingModeOptions = computed(() => [
   { value: 'off', label: t('admin.accounts.upstreamBilling.modes.off') },
@@ -3402,13 +3406,16 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 		extra.openai_upstream_rate_calibration >= 0
 			? extra.openai_upstream_rate_calibration
 			: 1
-	upstreamBalanceAlertEnabled.value = extra?.upstream_balance_alert_enabled === true
+	upstreamBalanceAlertEnabled.value =
+		typeof extra?.upstream_balance_alert_enabled === 'boolean'
+			? extra.upstream_balance_alert_enabled
+			: DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED
 	upstreamBalanceAlertThreshold.value =
 		typeof extra?.upstream_balance_alert_threshold === 'number' &&
 		Number.isFinite(extra.upstream_balance_alert_threshold) &&
 		extra.upstream_balance_alert_threshold >= 0
 			? extra.upstream_balance_alert_threshold
-			: 10
+			: DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
@@ -4705,19 +4712,23 @@ const handleSubmit = async () => {
           delete newExtra.openai_responses_mode
         } else {
           newExtra.openai_responses_mode = openAIResponsesMode.value
-        }
+			}
 			newExtra.upstream_billing_probe_enabled = upstreamBillingMode.value === 'sub2api'
 			newExtra.openai_upstream_rate_calibration = upstreamRateCalibration.value
-			newExtra.upstream_balance_alert_enabled =
-				upstreamBillingMode.value !== 'off' && upstreamBalanceAlertEnabled.value
-			if (
-				newExtra.upstream_balance_alert_enabled === true &&
-				upstreamBalanceAlertThreshold.value != null &&
-				Number.isFinite(upstreamBalanceAlertThreshold.value) &&
-				upstreamBalanceAlertThreshold.value >= 0
-			) {
-				newExtra.upstream_balance_alert_threshold = upstreamBalanceAlertThreshold.value
+			if (upstreamBillingMode.value !== 'off') {
+				newExtra.upstream_balance_alert_enabled = upstreamBalanceAlertEnabled.value
+				if (
+					upstreamBalanceAlertEnabled.value &&
+					upstreamBalanceAlertThreshold.value != null &&
+					Number.isFinite(upstreamBalanceAlertThreshold.value) &&
+					upstreamBalanceAlertThreshold.value >= 0
+				) {
+					newExtra.upstream_balance_alert_threshold = upstreamBalanceAlertThreshold.value
+				} else {
+					delete newExtra.upstream_balance_alert_threshold
+				}
 			} else {
+				delete newExtra.upstream_balance_alert_enabled
 				delete newExtra.upstream_balance_alert_threshold
 			}
 		}

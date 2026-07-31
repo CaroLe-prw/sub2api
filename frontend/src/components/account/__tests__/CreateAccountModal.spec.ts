@@ -171,6 +171,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await submitApiKeyAccount('openai')
 
     expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBe(true)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.upstream_balance_alert_enabled).toBe(true)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.upstream_balance_alert_threshold).toBe(5)
   })
 
   it('waits for the initial upstream billing probe before refreshing the account list', async () => {
@@ -196,6 +198,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await submitApiKeyAccount('openai', false, true)
 
     expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBe(false)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).not.toHaveProperty('upstream_balance_alert_enabled')
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).not.toHaveProperty('upstream_balance_alert_threshold')
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
   })
 

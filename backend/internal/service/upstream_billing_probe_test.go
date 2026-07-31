@@ -417,6 +417,32 @@ func TestApplyUpstreamBalanceAlertSnapshotTransitions(t *testing.T) {
 	require.Equal(t, now.Add(3*time.Hour), *lowAgain.BalanceAlert.TriggeredAt)
 }
 
+func TestUpstreamBalanceAlertConfigUsesGlobalDefaultsAndAccountOverrides(t *testing.T) {
+	threshold, enabled := upstreamBalanceAlertConfig(&Account{})
+	require.True(t, enabled)
+	require.Equal(t, 5.0, threshold)
+
+	now := time.Date(2026, time.July, 31, 4, 0, 0, 0, time.UTC)
+	current := &UpstreamBillingProbeSnapshot{Data: map[string]any{"balance": 4.0}}
+	balance, threshold, notify := applyUpstreamBalanceAlertSnapshot(&Account{}, nil, current, now)
+	require.True(t, notify)
+	require.Equal(t, 4.0, balance)
+	require.Equal(t, 5.0, threshold)
+	require.True(t, current.BalanceAlert.Active)
+
+	threshold, enabled = upstreamBalanceAlertConfig(&Account{Extra: map[string]any{
+		UpstreamBalanceAlertThresholdExtraKey: 12.5,
+	}})
+	require.True(t, enabled)
+	require.Equal(t, 12.5, threshold)
+
+	threshold, enabled = upstreamBalanceAlertConfig(&Account{Extra: map[string]any{
+		UpstreamBalanceAlertEnabledExtraKey: false,
+	}})
+	require.False(t, enabled)
+	require.Zero(t, threshold)
+}
+
 func TestApplyUpstreamBalanceAlertSnapshotIgnoresMissingBalance(t *testing.T) {
 	account := &Account{Extra: map[string]any{
 		UpstreamBalanceAlertEnabledExtraKey:   true,

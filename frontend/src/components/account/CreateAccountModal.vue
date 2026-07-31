@@ -3576,6 +3576,10 @@ import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import UpstreamBalanceAlertFields from '@/components/account/UpstreamBalanceAlertFields.vue'
 import {
+  DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED,
+  DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD
+} from '@/components/account/upstreamBalanceAlert'
+import {
   applyAntigravityProjectID,
   applyHeaderOverride,
   applyInterceptWarmup,
@@ -3718,8 +3722,8 @@ const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
 const upstreamBillingAutoProbeEnabled = ref(true)
 const upstreamRateCalibration = ref(1)
-const upstreamBalanceAlertEnabled = ref(false)
-const upstreamBalanceAlertThreshold = ref<number | null>(10)
+const upstreamBalanceAlertEnabled = shallowRef(DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED)
+const upstreamBalanceAlertThreshold = shallowRef<number | null>(DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD)
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -4659,8 +4663,8 @@ const resetForm = () => {
   apiKeyValue.value = ''
   upstreamBillingAutoProbeEnabled.value = true
   upstreamRateCalibration.value = 1
-  upstreamBalanceAlertEnabled.value = false
-  upstreamBalanceAlertThreshold.value = 10
+  upstreamBalanceAlertEnabled.value = DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED
+  upstreamBalanceAlertThreshold.value = DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4769,16 +4773,20 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
     extra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
     extra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
     extra.openai_upstream_rate_calibration = upstreamRateCalibration.value
-    extra.upstream_balance_alert_enabled =
-      upstreamBillingAutoProbeEnabled.value && upstreamBalanceAlertEnabled.value
-    if (
-      extra.upstream_balance_alert_enabled === true &&
-      upstreamBalanceAlertThreshold.value != null &&
-      Number.isFinite(upstreamBalanceAlertThreshold.value) &&
-      upstreamBalanceAlertThreshold.value >= 0
-    ) {
-      extra.upstream_balance_alert_threshold = upstreamBalanceAlertThreshold.value
+    if (upstreamBillingAutoProbeEnabled.value) {
+      extra.upstream_balance_alert_enabled = upstreamBalanceAlertEnabled.value
+      if (
+        upstreamBalanceAlertEnabled.value &&
+        upstreamBalanceAlertThreshold.value != null &&
+        Number.isFinite(upstreamBalanceAlertThreshold.value) &&
+        upstreamBalanceAlertThreshold.value >= 0
+      ) {
+        extra.upstream_balance_alert_threshold = upstreamBalanceAlertThreshold.value
+      } else {
+        delete extra.upstream_balance_alert_threshold
+      }
     } else {
+      delete extra.upstream_balance_alert_enabled
       delete extra.upstream_balance_alert_threshold
     }
   }

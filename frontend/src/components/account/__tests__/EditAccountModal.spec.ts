@@ -682,6 +682,8 @@ describe('EditAccountModal', () => {
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_billing_probe_enabled).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_balance_alert_enabled).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_balance_alert_threshold).toBe(5)
   })
 
   it('prefers NewAPI for legacy dual-enabled data and only shows NewAPI settings', async () => {
