@@ -185,7 +185,10 @@ func TestUpstreamRateChangeTelegramUsesSelectedTemplate(t *testing.T) {
 		if payload.ChatID != "-1002" || payload.MessageThreadID == nil || *payload.MessageThreadID != topicID {
 			t.Fatalf("rate notification used wrong target: %+v", payload)
 		}
-		if !strings.Contains(payload.Text, "Previous rate: 0.5x") || !strings.Contains(payload.Text, "New rate: 0.8x") {
+		if payload.ParseMode != opsTelegramParseModeMarkdownV2 ||
+			!strings.Contains(payload.Text, "> *原倍率:* 0\\.5x") ||
+			!strings.Contains(payload.Text, "> *新倍率:* 0\\.8x") ||
+			!strings.Contains(payload.Text, "> *来源:* NewAPI 倍率同步") {
 			t.Fatalf("rate notification missing change details: %q", payload.Text)
 		}
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ok":true}`)), Header: make(http.Header)}, nil
@@ -218,8 +221,9 @@ func TestUpstreamBalanceLowTelegramUsesSelectedTemplate(t *testing.T) {
 			t.Fatal(err)
 		}
 		if payload.ChatID != "-1003" ||
-			!strings.Contains(payload.Text, "Current balance: $12.5") ||
-			!strings.Contains(payload.Text, "Alert threshold: $20") {
+			payload.ParseMode != opsTelegramParseModeMarkdownV2 ||
+			!strings.Contains(payload.Text, "> *当前余额:* $12\\.5") ||
+			!strings.Contains(payload.Text, "> *提醒阈值:* $20") {
 			t.Fatalf("balance notification missing details: %+v", payload)
 		}
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ok":true}`)), Header: make(http.Header)}, nil
@@ -250,7 +254,9 @@ func TestSendOpsTelegramMessagePayloadAndTokenSafeErrors(t *testing.T) {
 		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		if payload.ChatID != cfg.ChatID || payload.Text != "test message" || payload.MessageThreadID == nil || *payload.MessageThreadID != topicID {
+		if payload.ChatID != cfg.ChatID || payload.Text != "test message" ||
+			payload.ParseMode != opsTelegramParseModeMarkdownV2 ||
+			payload.MessageThreadID == nil || *payload.MessageThreadID != topicID {
 			t.Fatalf("unexpected payload: %+v", payload)
 		}
 		if !payload.DisableNotification || !payload.ProtectContent {
@@ -287,6 +293,74 @@ func TestSendOpsTelegramMessagePayloadAndTokenSafeErrors(t *testing.T) {
 	err = sendOpsTelegramMessage(context.Background(), rejectedClient, cfg, "test message")
 	if err == nil || strings.Contains(err.Error(), cfg.BotToken) {
 		t.Fatalf("Telegram API error was not token-safe: %v", err)
+	}
+}
+
+func TestOpsTelegramMarkdownV2FormattingEscapesDynamicValues(t *testing.T) {
+	account := &Account{ID: 9, Name: "Prod_[US] (primary) #1!"}
+	rateText := buildUpstreamRateChangeTelegramText(account, 0.5, 0.8, "NewAPI (ratio_sync)")
+	for _, expected := range []string{
+		"🟠 *Sub2API 上游倍率升高*",
+		"> *账号:* Prod\\_\\[US\\] \\(primary\\) \\#1\\!（\\#9）",
+		"> *来源:* NewAPI \\(ratio\\_sync\\)",
+		"> *原倍率:* 0\\.5x",
+		"> *新倍率:* 0\\.8x",
+	} {
+		if !strings.Contains(rateText, expected) {
+			t.Fatalf("rate text missing %q:\n%s", expected, rateText)
+		}
+	}
+
+	balanceText := buildUpstreamBalanceLowTelegramText(account, 4.95, 5)
+	for _, expected := range []string{
+		"🔴 *Sub2API 上游余额不足*",
+		"> *当前余额:* $4\\.95",
+		"🟠 *需要处理*",
+	} {
+		if !strings.Contains(balanceText, expected) {
+			t.Fatalf("balance text missing %q:\n%s", expected, balanceText)
+		}
+	}
+
+	testText := buildOpsTelegramTestText(time.Date(2026, 7, 31, 1, 2, 3, 0, time.UTC))
+	if !strings.Contains(testText, "✅ *Sub2API Telegram 通知测试*") ||
+		!strings.Contains(testText, "> *状态:* 通知发送成功") ||
+		!strings.Contains(testText, "> *时间:* 2026\\-07\\-31 09:02:03 北京时间") {
+		t.Fatalf("unexpected Chinese test notification:\n%s", testText)
+	}
+}
+
+func TestOpsTelegramAlertFormattingUsesSeverityAndRecoveryEmoji(t *testing.T) {
+	rule := &OpsAlertRule{
+		Name:        "Error_rate [gateway]",
+		Description: "Failure ratio > 5%!",
+		Severity:    "critical",
+		MetricType:  "error_rate",
+		Operator:    ">",
+		Threshold:   5,
+	}
+	firing := &OpsAlertEvent{
+		Status:      OpsAlertStatusFiring,
+		Severity:    "critical",
+		Description: rule.Description,
+		FiredAt:     time.Date(2026, 7, 31, 1, 2, 3, 0, time.UTC),
+	}
+	firingText := buildOpsTelegramAlertText(rule, firing)
+	if !strings.HasPrefix(firingText, "🔴 *Sub2API 运维告警*") ||
+		!strings.Contains(firingText, "Error\\_rate \\[gateway\\]") ||
+		!strings.Contains(firingText, "> *级别:* 严重") ||
+		!strings.Contains(firingText, "> *状态:* 告警中") ||
+		!strings.Contains(firingText, "> *指标:* 错误率 高于 5") ||
+		!strings.Contains(firingText, "> *触发时间:* 2026\\-07\\-31 09:02:03 北京时间") ||
+		!strings.Contains(firingText, "Failure ratio \\> 5%\\!") {
+		t.Fatalf("unexpected firing alert MarkdownV2:\n%s", firingText)
+	}
+
+	resolved := *firing
+	resolved.Status = OpsAlertStatusResolved
+	if text := buildOpsTelegramAlertText(rule, &resolved); !strings.HasPrefix(text, "✅ *Sub2API 运维告警*") ||
+		!strings.Contains(text, "> *状态:* 已恢复") {
+		t.Fatalf("resolved alert should use success emoji:\n%s", text)
 	}
 }
 

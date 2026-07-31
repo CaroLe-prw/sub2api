@@ -27,6 +27,7 @@ const (
 	opsTelegramMaxTemplates        = 50
 	opsTelegramMaxTemplateName     = 100
 	opsTelegramMaxTemplateID       = 128
+	opsTelegramParseModeMarkdownV2 = "MarkdownV2"
 )
 
 var opsTelegramHTTPClient = func() *http.Client {
@@ -36,6 +37,8 @@ var opsTelegramHTTPClient = func() *http.Client {
 	}
 	return client
 }()
+
+var opsTelegramBeijingLocation = time.FixedZone("Asia/Shanghai", 8*60*60)
 
 type opsTelegramStoredConfig struct {
 	Version                      int                         `json:"version"`
@@ -81,6 +84,7 @@ type opsTelegramDeliveryConfig struct {
 type opsTelegramSendMessageRequest struct {
 	ChatID              string `json:"chat_id"`
 	Text                string `json:"text"`
+	ParseMode           string `json:"parse_mode"`
 	MessageThreadID     *int64 `json:"message_thread_id,omitempty"`
 	DisableNotification bool   `json:"disable_notification,omitempty"`
 	ProtectContent      bool   `json:"protect_content,omitempty"`
@@ -335,7 +339,7 @@ func (s *OpsService) TestTelegramNotification(ctx context.Context, req *OpsTeleg
 		return err
 	}
 
-	message := "✅ Sub2API Telegram notification test\nTime: " + time.Now().UTC().Format(time.RFC3339)
+	message := buildOpsTelegramTestText(time.Now().UTC())
 	return sendOpsTelegramMessage(ctx, s.opsTelegramClient(), delivery, message)
 }
 
@@ -615,6 +619,7 @@ func sendOpsTelegramMessage(ctx context.Context, client *http.Client, cfg opsTel
 	payload, err := json.Marshal(opsTelegramSendMessageRequest{
 		ChatID:              cfg.ChatID,
 		Text:                truncateString(strings.TrimSpace(text), opsTelegramMaxMessageBytes),
+		ParseMode:           opsTelegramParseModeMarkdownV2,
 		MessageThreadID:     cfg.TopicID,
 		DisableNotification: cfg.DisableNotification,
 		ProtectContent:      cfg.ProtectContent,
@@ -659,51 +664,218 @@ func opsTelegramDeliveryError() error {
 	return infraerrors.New(http.StatusBadGateway, "OPS_TELEGRAM_DELIVERY_FAILED", "Telegram notification delivery failed")
 }
 
+var opsTelegramMarkdownV2Escaper = strings.NewReplacer(
+	"\\", "\\\\",
+	"_", "\\_",
+	"*", "\\*",
+	"[", "\\[",
+	"]", "\\]",
+	"(", "\\(",
+	")", "\\)",
+	"~", "\\~",
+	"`", "\\`",
+	">", "\\>",
+	"#", "\\#",
+	"+", "\\+",
+	"-", "\\-",
+	"=", "\\=",
+	"|", "\\|",
+	"{", "\\{",
+	"}", "\\}",
+	".", "\\.",
+	"!", "\\!",
+)
+
+func escapeOpsTelegramMarkdownV2(value string) string {
+	return opsTelegramMarkdownV2Escaper.Replace(strings.TrimSpace(value))
+}
+
+func opsTelegramSingleLine(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func opsTelegramQuoteLine(label, value string) string {
+	return "> *" + escapeOpsTelegramMarkdownV2(label) + ":* " +
+		escapeOpsTelegramMarkdownV2(truncateString(opsTelegramSingleLine(value), 1000))
+}
+
+func opsTelegramAccountLabel(account *Account) string {
+	if account == nil {
+		return "未知账号"
+	}
+	name := strings.TrimSpace(account.Name)
+	if name == "" {
+		return fmt.Sprintf("账号 #%d", account.ID)
+	}
+	return fmt.Sprintf("%s（#%d）", name, account.ID)
+}
+
+func opsTelegramTime(value time.Time) string {
+	return value.In(opsTelegramBeijingLocation).Format("2006-01-02 15:04:05") + " 北京时间"
+}
+
+func localizeOpsTelegramTime(value string) string {
+	if parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value)); err == nil {
+		return opsTelegramTime(parsed)
+	}
+	return value
+}
+
+func localizeOpsTelegramSeverity(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "critical", "fatal":
+		return "严重"
+	case "error":
+		return "错误"
+	case "warning", "warn":
+		return "警告"
+	case "info":
+		return "提示"
+	default:
+		return value
+	}
+}
+
+func localizeOpsTelegramStatus(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case OpsAlertStatusFiring:
+		return "告警中"
+	case OpsAlertStatusResolved:
+		return "已恢复"
+	case OpsAlertStatusManualResolved:
+		return "已手动恢复"
+	default:
+		return value
+	}
+}
+
+func localizeOpsTelegramMetric(value string) string {
+	metrics := map[string]string{
+		"success_rate":                   "成功率",
+		"error_rate":                     "错误率",
+		"upstream_error_rate":            "上游错误率",
+		"cpu_usage_percent":              "CPU 使用率",
+		"memory_usage_percent":           "内存使用率",
+		"concurrency_queue_depth":        "并发队列深度",
+		"group_available_accounts":       "分组可用账号数",
+		"group_available_ratio":          "分组账号可用率",
+		"group_rate_limit_ratio":         "分组限流账号比例",
+		"account_rate_limited_count":     "限流账号数",
+		"account_error_count":            "错误账号数",
+		"account_error_ratio":            "错误账号比例",
+		"account_temp_unscheduled_count": "临时不可调度账号数",
+		"overload_account_count":         "过载账号数",
+		"proxy_expired_count":            "已过期代理数",
+		"proxy_expiring_soon_count":      "即将过期代理数",
+	}
+	if localized, ok := metrics[strings.ToLower(strings.TrimSpace(value))]; ok {
+		return localized
+	}
+	return value
+}
+
+func localizeOpsTelegramOperator(value string) string {
+	switch strings.TrimSpace(value) {
+	case ">":
+		return "高于"
+	case ">=":
+		return "不低于"
+	case "<":
+		return "低于"
+	case "<=":
+		return "不高于"
+	case "==":
+		return "等于"
+	case "!=":
+		return "不等于"
+	default:
+		return value
+	}
+}
+
+func localizeOpsTelegramSource(value string) string {
+	switch strings.TrimSpace(value) {
+	case "NewAPI ratio sync":
+		return "NewAPI 倍率同步"
+	case "Sub2API billing probe":
+		return "Sub2API 计费探测"
+	default:
+		return value
+	}
+}
+
+func buildOpsTelegramTestText(now time.Time) string {
+	return strings.Join([]string{
+		"✅ *Sub2API Telegram 通知测试*",
+		"",
+		opsTelegramQuoteLine("状态", "通知发送成功"),
+		opsTelegramQuoteLine("时间", opsTelegramTime(now)),
+	}, "\n")
+}
+
+func opsTelegramAlertEmoji(severity, status string) string {
+	if status == OpsAlertStatusResolved || status == OpsAlertStatusManualResolved {
+		return "✅"
+	}
+	switch strings.ToLower(strings.TrimSpace(severity)) {
+	case "critical", "error", "fatal":
+		return "🔴"
+	default:
+		return "🟠"
+	}
+}
+
 func buildOpsTelegramAlertText(rule *OpsAlertRule, event *OpsAlertEvent) string {
 	values := opsAlertEmailVariables(rule, event)
-	text := fmt.Sprintf(
-		"🚨 Sub2API Ops Alert\nRule: %s\nSeverity: %s\nStatus: %s\nMetric: %s %s %s\nCurrent value: %s\nFired at: %s\nDescription: %s",
-		values["rule_name"],
-		values["severity"],
-		values["alert_status"],
-		values["metric_type"],
-		values["operator"],
-		values["threshold_value"],
-		values["metric_value"],
-		values["triggered_at"],
-		values["alert_description"],
-	)
-	return truncateString(text, opsTelegramMaxMessageBytes)
+	emoji := opsTelegramAlertEmoji(values["severity"], values["alert_status"])
+	return strings.Join([]string{
+		emoji + " *Sub2API 运维告警*",
+		"",
+		opsTelegramQuoteLine("规则", values["rule_name"]),
+		opsTelegramQuoteLine("级别", localizeOpsTelegramSeverity(values["severity"])),
+		opsTelegramQuoteLine("状态", localizeOpsTelegramStatus(values["alert_status"])),
+		opsTelegramQuoteLine("指标", fmt.Sprintf(
+			"%s %s %s",
+			localizeOpsTelegramMetric(values["metric_type"]),
+			localizeOpsTelegramOperator(values["operator"]),
+			values["threshold_value"],
+		)),
+		opsTelegramQuoteLine("当前值", values["metric_value"]),
+		opsTelegramQuoteLine("触发时间", localizeOpsTelegramTime(values["triggered_at"])),
+		"",
+		"📝 *告警说明*",
+		"> " + escapeOpsTelegramMarkdownV2(truncateString(opsTelegramSingleLine(values["alert_description"]), 1000)),
+	}, "\n")
 }
 
 func buildUpstreamRateChangeTelegramText(account *Account, oldRate, newRate float64, source string) string {
-	accountName := ""
-	accountID := int64(0)
-	if account != nil {
-		accountName = strings.TrimSpace(account.Name)
-		accountID = account.ID
+	emoji := "🟠"
+	title := "Sub2API 上游倍率升高"
+	if newRate < oldRate {
+		emoji = "✅"
+		title = "Sub2API 上游倍率降低"
 	}
-	if accountName == "" {
-		accountName = fmt.Sprintf("Account #%d", accountID)
-	}
-	return truncateString(fmt.Sprintf(
-		"Sub2API upstream rate changed\nAccount: %s (#%d)\nSource: %s\nPrevious rate: %gx\nNew rate: %gx\nChanged at: %s",
-		accountName, accountID, source, oldRate, newRate, time.Now().UTC().Format(time.RFC3339),
-	), opsTelegramMaxMessageBytes)
+	return strings.Join([]string{
+		emoji + " *" + escapeOpsTelegramMarkdownV2(title) + "*",
+		"",
+		opsTelegramQuoteLine("账号", opsTelegramAccountLabel(account)),
+		opsTelegramQuoteLine("来源", localizeOpsTelegramSource(source)),
+		opsTelegramQuoteLine("原倍率", fmt.Sprintf("%gx", oldRate)),
+		opsTelegramQuoteLine("新倍率", fmt.Sprintf("%gx", newRate)),
+		opsTelegramQuoteLine("变更时间", opsTelegramTime(time.Now())),
+	}, "\n")
 }
 
 func buildUpstreamBalanceLowTelegramText(account *Account, balance, threshold float64) string {
-	accountName := ""
-	accountID := int64(0)
-	if account != nil {
-		accountName = strings.TrimSpace(account.Name)
-		accountID = account.ID
-	}
-	if accountName == "" {
-		accountName = fmt.Sprintf("Account #%d", accountID)
-	}
-	return truncateString(fmt.Sprintf(
-		"Sub2API upstream balance is low\nAccount: %s (#%d)\nCurrent balance: $%g\nAlert threshold: $%g\nDetected at: %s",
-		accountName, accountID, balance, threshold, time.Now().UTC().Format(time.RFC3339),
-	), opsTelegramMaxMessageBytes)
+	return strings.Join([]string{
+		"🔴 *Sub2API 上游余额不足*",
+		"",
+		opsTelegramQuoteLine("账号", opsTelegramAccountLabel(account)),
+		opsTelegramQuoteLine("当前余额", fmt.Sprintf("$%g", balance)),
+		opsTelegramQuoteLine("提醒阈值", fmt.Sprintf("$%g", threshold)),
+		opsTelegramQuoteLine("探测时间", opsTelegramTime(time.Now())),
+		"",
+		"🟠 *需要处理*",
+		"> " + escapeOpsTelegramMarkdownV2("请及时充值或更换该上游账号"),
+	}, "\n")
 }
