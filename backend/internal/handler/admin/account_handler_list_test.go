@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -146,6 +147,47 @@ func TestAccountHandlerListReturnsSchedulerScoresPerGroup(t *testing.T) {
 	require.Equal(t, 100, *high.SchedulerScores[0].GroupPriority)
 	require.Equal(t, 1, *low.SchedulerScores[0].GroupPriority)
 	require.Less(t, high.SchedulerScores[0].BaseScore, low.SchedulerScores[0].BaseScore)
+}
+
+func TestAccountHandlerListSortsSchedulerScoreAcrossSelectedGroupBeforePagination(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+	now := time.Now().UTC()
+	groupID := int64(45)
+	group := service.Group{ID: groupID, Name: "score-sort", Status: service.StatusActive}
+	adminSvc.groups = []service.Group{group}
+	account := func(id int64, priority int) service.Account {
+		return service.Account{
+			ID: id, Name: strconv.FormatInt(id, 10), Platform: service.PlatformOpenAI,
+			Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
+			Concurrency: 10, Priority: priority,
+			AccountGroups: []service.AccountGroup{{AccountID: id, GroupID: groupID, Priority: priority, Group: &group}},
+			GroupIDs:      []int64{groupID}, CreatedAt: now, UpdatedAt: now,
+		}
+	}
+	adminSvc.accounts = []service.Account{
+		account(401, 100),
+		account(402, 1),
+		account(403, 50),
+	}
+	adminSvc.accountSchedulerScoreFilterAccounts = append([]service.Account(nil), adminSvc.accounts...)
+	adminSvc.openAISchedulerScorePoolAccounts = append([]service.Account(nil), adminSvc.accounts...)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=2&platform=openai&group=45&include_scheduler_score=1&sort_by=scheduler_score&sort_order=desc", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var payload struct {
+		Data struct {
+			Items []struct {
+				ID int64 `json:"id"`
+			} `json:"items"`
+			Total int64 `json:"total"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Equal(t, int64(3), payload.Data.Total)
+	require.Equal(t, []int64{402, 403}, []int64{payload.Data.Items[0].ID, payload.Data.Items[1].ID})
 }
 
 func TestAccountHandlerListOnlyReturnsCostEligibleGroupScores(t *testing.T) {

@@ -5,10 +5,12 @@
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
           <AccountTableFilters
             v-model:searchQuery="params.search"
+            v-model:only-selected-group-score="onlySelectedGroupScore"
             :filters="params"
             :groups="groups"
+            :selected-group-id="selectedSchedulerScoreGroupId"
             @update:filters="(newFilters) => Object.assign(params, newFilters)"
-            @change="debouncedReload"
+            @change="handleFiltersChange"
             @update:searchQuery="debouncedReload"
           />
           <AccountTableActions
@@ -473,7 +475,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import { ref, shallowRef, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -496,6 +498,7 @@ import AccountTableFilters from '@/components/admin/account/AccountTableFilters.
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
+import { accountSchedulerScoreRows } from '@/components/admin/account/accountSchedulerScore'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
@@ -666,6 +669,8 @@ const loadInitialAccountSortState = (): AccountSortState => {
   }
 }
 const sortState = reactive<AccountSortState>(loadInitialAccountSortState())
+const ONLY_SELECTED_GROUP_SCORE_STORAGE_KEY = 'account-scheduler-score-only-selected-group'
+const onlySelectedGroupScore = shallowRef(localStorage.getItem(ONLY_SELECTED_GROUP_SCORE_STORAGE_KEY) !== 'false')
 
 // Auto refresh settings
 const showAutoRefreshDropdown = ref(false)
@@ -760,22 +765,11 @@ const formatStickySchedulerScore = (score: AccountSchedulerGroupScore): string =
 }
 
 const getSchedulerScoreRows = (account: Account): AccountSchedulerGroupScore[] => {
-  const groupRows = Array.isArray(account.scheduler_scores)
-    ? account.scheduler_scores.filter(score => score.group_id != null)
-    : []
-  if (groupRows.length) return groupRows
-  const hasGroups = Boolean(
-    account.group_ids?.length ||
-    account.account_groups?.length ||
-    account.groups?.length
-  )
-  // 有分组但无分组评分表示该账号未通过对应分组的调度准入，不回退展示总评分。
-  if (hasGroups) return []
-  // 未分组账号没有分组维度分数，回退展示后端返回的基础分。
-  if (account.scheduler_score) {
-    return [{ group_id: null, ...account.scheduler_score }]
-  }
-  return []
+  return accountSchedulerScoreRows({
+    account,
+    selectedGroupId: selectedSchedulerScoreGroupId.value,
+    onlySelectedGroup: onlySelectedGroupScore.value
+  })
 }
 
 const formatSchedulerScoreGroup = (score: AccountSchedulerGroupScore): string => {
@@ -930,6 +924,11 @@ const {
   }
 })
 
+const selectedSchedulerScoreGroupId = computed<number | null>(() => {
+  const value = Number(params.group)
+  return Number.isInteger(value) && value > 0 ? value : null
+})
+
 const {
   selectedIds: selIds,
   allVisibleSelected,
@@ -1021,6 +1020,21 @@ const debouncedReload = () => {
   pendingTodayStatsRefresh.value = true
   baseDebouncedReload()
 }
+
+const handleFiltersChange = () => {
+  if (sortState.sort_by === 'scheduler_score' && selectedSchedulerScoreGroupId.value == null) {
+    sortState.sort_by = 'name'
+    sortState.sort_order = 'asc'
+    const requestParams = params as any
+    requestParams.sort_by = sortState.sort_by
+    requestParams.sort_order = sortState.sort_order
+  }
+  debouncedReload()
+}
+
+watch(onlySelectedGroupScore, (value) => {
+  localStorage.setItem(ONLY_SELECTED_GROUP_SCORE_STORAGE_KEY, String(value))
+})
 
 const handlePageChange = (page: number) => {
   syncAccountListDerivedParams()
@@ -1430,7 +1444,7 @@ const allColumns = computed(() => {
   c.push(
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true },
-    { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false },
+    { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: selectedSchedulerScoreGroupId.value != null },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
     { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },

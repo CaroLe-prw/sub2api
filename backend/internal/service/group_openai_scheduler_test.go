@@ -152,6 +152,7 @@ func TestGroupSchedulerPolicyIsUsedByAdminScoreSnapshot(t *testing.T) {
 	groupID := int64(43)
 	group := &Group{
 		ID:                     groupID,
+		RateMultiplier:         1,
 		OpenAISchedulerProfile: GroupOpenAISchedulerProfileCost,
 	}
 	rateLimit := &RateLimitService{cfg: &config.Config{}}

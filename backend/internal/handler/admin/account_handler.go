@@ -543,7 +543,51 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
+	var accounts []service.Account
+	var total int64
+	var err error
+	if includeSchedulerScore && groupID > 0 && strings.EqualFold(strings.TrimSpace(sortBy), "scheduler_score") {
+		accounts, err = h.adminService.ListAccountsForSchedulerScoreFilter(
+			c.Request.Context(), platform, accountType, status, search, groupID, privacyMode,
+		)
+		if err == nil {
+			gid := groupID
+			var scorePool []service.Account
+			scorePool, err = h.adminService.ListOpenAISchedulableAccountsForSchedulerScore(c.Request.Context(), &gid)
+			if err != nil {
+				response.ErrorFrom(c, err)
+				return
+			}
+			scores := h.scoreOpenAIAccountSchedulerPool(c.Request.Context(), &gid, scorePool, nil)
+			descending := strings.EqualFold(strings.TrimSpace(sortOrder), "desc")
+			sort.SliceStable(accounts, func(i, j int) bool {
+				left, leftOK := scores[accounts[i].ID]
+				right, rightOK := scores[accounts[j].ID]
+				if leftOK != rightOK {
+					return leftOK
+				}
+				if leftOK && left.BaseScore != right.BaseScore {
+					if descending {
+						return left.BaseScore > right.BaseScore
+					}
+					return left.BaseScore < right.BaseScore
+				}
+				return accounts[i].ID < accounts[j].ID
+			})
+			total = int64(len(accounts))
+			start := (page - 1) * pageSize
+			if start > len(accounts) {
+				start = len(accounts)
+			}
+			end := start + pageSize
+			if end > len(accounts) {
+				end = len(accounts)
+			}
+			accounts = accounts[start:end]
+		}
+	} else {
+		accounts, total, err = h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

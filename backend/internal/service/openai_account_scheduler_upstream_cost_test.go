@@ -168,17 +168,19 @@ func TestValidateOpenAIUpstreamBalanceAlertExtra(t *testing.T) {
 	))
 }
 
-func TestOpenAIGroupRateGuardBlocksOnlyFreshCalibratedLoss(t *testing.T) {
+func TestOpenAIGroupRateGuardUsesEffectiveGroupRateWithoutExplicitLimit(t *testing.T) {
 	now := time.Now()
 	account := upstreamCostTestAccount(1, UpstreamBillingProbeStatusOK, 1, now.Add(-time.Minute), 30*time.Minute)
 	account.Extra[OpenAIUpstreamRateCalibrationExtraKey] = 0.08
+	fallbackRate := 0.10
+	account.RateMultiplier = &fallbackRate
 	groupID := int64(7)
 	service := &OpenAIGatewayService{
 		channelService: &ChannelService{
 			groupRepo: &upstreamCostGroupRepo{group: &Group{ID: groupID, RateMultiplier: 0.07}},
 		},
 	}
-	ctx := service.withOpenAIGroupRateGuardContext(context.Background(), &groupID, true)
+	ctx := service.withOpenAIGroupRateGuardContext(context.Background(), &groupID)
 
 	require.True(t, service.isOpenAIAccountUnprofitableForGroup(ctx, account))
 	compatible, reason := (&defaultOpenAIAccountScheduler{service: service}).isAccountRequestCompatibleReason(
@@ -197,15 +199,35 @@ func TestOpenAIGroupRateGuardBlocksOnlyFreshCalibratedLoss(t *testing.T) {
 	staleCtx := context.WithValue(context.Background(), openAIGroupRateGuardContextKey{}, openAIGroupRateGuard{
 		groupID: groupID, maxCostRate: 0.07, now: now.Add(2 * time.Hour), enabled: true,
 	})
-	require.False(t, service.isOpenAIAccountUnprofitableForGroup(staleCtx, account))
+	require.True(t, service.isOpenAIAccountUnprofitableForGroup(staleCtx, account), "stale probes must fall back to the account scheduling cost")
 
-	disabledCtx := service.withOpenAIGroupRateGuardContext(context.Background(), &groupID, false)
+	withoutCostWeightCtx := service.withOpenAIGroupRateGuardContext(context.Background(), &groupID)
 	compatible, _ = (&defaultOpenAIAccountScheduler{service: service}).isAccountRequestCompatibleReason(
-		disabledCtx,
+		withoutCostWeightCtx,
 		account,
 		OpenAIAccountScheduleRequest{UseUpstreamTokenCost: false},
 	)
-	require.True(t, compatible)
+	require.False(t, compatible, "the group-rate guard must remain active when cost weighting is disabled")
+}
+
+func TestFilterOpenAIAccountsByImplicitGroupCost(t *testing.T) {
+	now := time.Now()
+	group := &Group{ID: 7, RateMultiplier: 0.08}
+	accountAt := func(id int64, rate float64) *Account {
+		account := &Account{ID: id, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+		account.RateMultiplier = &rate
+		return account
+	}
+	unknown := &Account{ID: 4, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	filtered := filterOpenAIAccountsByGroupCost(
+		[]*Account{accountAt(1, 0.065), accountAt(2, 0.10), accountAt(3, 0.15), unknown},
+		group,
+		now,
+		1,
+	)
+
+	require.Equal(t, []int64{1, 4}, []int64{filtered[0].ID, filtered[1].ID})
 }
 
 func TestOpenAIGroupExplicitAccountCostLimitIsIndependentFromBillingRate(t *testing.T) {
@@ -222,7 +244,7 @@ func TestOpenAIGroupExplicitAccountCostLimitIsIndependentFromBillingRate(t *test
 			}},
 		},
 	}
-	ctx := service.withOpenAIGroupRateGuardContext(context.Background(), &groupID, false)
+	ctx := service.withOpenAIGroupRateGuardContext(context.Background(), &groupID)
 
 	calibratedCheap := upstreamCostTestAccount(1, UpstreamBillingProbeStatusOK, 1, now.Add(-time.Minute), 30*time.Minute)
 	calibratedCheap.Extra[OpenAIUpstreamRateCalibrationExtraKey] = 0.033

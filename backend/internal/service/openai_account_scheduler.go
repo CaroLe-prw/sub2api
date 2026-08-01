@@ -106,7 +106,6 @@ type openAIGroupRateGuard struct {
 	groupID                       int64
 	maxCostRate                   float64
 	oauthSchedulingRateMultiplier float64
-	explicitLimit                 bool
 	now                           time.Time
 	enabled                       bool
 }
@@ -2229,7 +2228,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	if policy, ok := openAIGroupSchedulerPolicyFromContext(ctx); ok && policy.config.UpstreamCost > 0 {
 		useUpstreamTokenCost = true
 	}
-	ctx = s.withOpenAIGroupRateGuardContext(ctx, groupID, useUpstreamTokenCost)
+	ctx = s.withOpenAIGroupRateGuardContext(ctx, groupID)
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	decision := OpenAIAccountScheduleDecision{}
 	scheduler := s.getOpenAIAccountScheduler(ctx)
@@ -2871,11 +2870,11 @@ func filterOpenAIAccountsByGroupCost(
 	now time.Time,
 	oauthSchedulingRateMultiplier float64,
 ) []*Account {
-	if len(accounts) == 0 || group == nil || group.MaxAccountCostMultiplier == nil {
+	if len(accounts) == 0 {
 		return accounts
 	}
-	maxCostRate := *group.MaxAccountCostMultiplier
-	if maxCostRate < 0 || math.IsNaN(maxCostRate) || math.IsInf(maxCostRate, 0) {
+	maxCostRate, ok := openAIGroupMaxSchedulingCost(group, now)
+	if !ok {
 		return accounts
 	}
 
@@ -2887,6 +2886,17 @@ func filterOpenAIAccountsByGroupCost(
 		filtered = append(filtered, account)
 	}
 	return filtered
+}
+
+func openAIGroupMaxSchedulingCost(group *Group, now time.Time) (float64, bool) {
+	if group == nil {
+		return 0, false
+	}
+	maxCostRate := group.RateMultiplier * group.PeakMultiplierAt(now)
+	if group.MaxAccountCostMultiplier != nil {
+		maxCostRate = *group.MaxAccountCostMultiplier
+	}
+	return maxCostRate, maxCostRate >= 0 && !math.IsNaN(maxCostRate) && !math.IsInf(maxCostRate, 0)
 }
 
 func openAIAccountExceedsSchedulingCost(

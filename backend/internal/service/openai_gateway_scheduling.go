@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -847,7 +846,7 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 }
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, useUpstreamTokenCost bool) (*AccountSelectionResult, error) {
-	ctx = s.withOpenAIGroupRateGuardContext(ctx, groupID, useUpstreamTokenCost)
+	ctx = s.withOpenAIGroupRateGuardContext(ctx, groupID)
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
@@ -1311,7 +1310,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 	return latest
 }
 
-func (s *OpenAIGatewayService) withOpenAIGroupRateGuardContext(ctx context.Context, groupID *int64, legacyEnabled bool) context.Context {
+func (s *OpenAIGatewayService) withOpenAIGroupRateGuardContext(ctx context.Context, groupID *int64) context.Context {
 	guard := openAIGroupRateGuard{}
 	if groupID == nil || *groupID <= 0 {
 		return context.WithValue(ctx, openAIGroupRateGuardContextKey{}, guard)
@@ -1326,23 +1325,14 @@ func (s *OpenAIGatewayService) withOpenAIGroupRateGuardContext(ctx context.Conte
 	}
 
 	now := time.Now()
-	explicitLimit := group.MaxAccountCostMultiplier != nil
-	if !explicitLimit && !legacyEnabled {
-		return context.WithValue(ctx, openAIGroupRateGuardContextKey{}, guard)
-	}
-
-	maxCostRate := group.RateMultiplier * group.PeakMultiplierAt(now)
-	if explicitLimit {
-		maxCostRate = *group.MaxAccountCostMultiplier
-	}
-	if maxCostRate < 0 || math.IsNaN(maxCostRate) || math.IsInf(maxCostRate, 0) {
+	maxCostRate, ok := openAIGroupMaxSchedulingCost(group, now)
+	if !ok {
 		return context.WithValue(ctx, openAIGroupRateGuardContextKey{}, guard)
 	}
 	guard = openAIGroupRateGuard{
 		groupID:                       *groupID,
 		maxCostRate:                   maxCostRate,
 		oauthSchedulingRateMultiplier: s.openAIOAuthSchedulingRateMultiplier(ctx),
-		explicitLimit:                 explicitLimit,
 		now:                           now,
 		enabled:                       true,
 	}
@@ -1357,18 +1347,12 @@ func (s *OpenAIGatewayService) isOpenAIAccountUnprofitableForGroup(ctx context.C
 	if !ok || !guard.enabled {
 		return false
 	}
-	if guard.explicitLimit {
-		return openAIAccountExceedsSchedulingCost(
-			account,
-			guard.maxCostRate,
-			guard.now,
-			guard.oauthSchedulingRateMultiplier,
-		)
-	}
-	// Preserve the legacy guard for groups without an explicit limit:
-	// only a fresh upstream billing probe can veto an account.
-	rate, rateOK := openAICalibratedFreshUpstreamBillingRate(account, guard.now)
-	return rateOK && rate > guard.maxCostRate
+	return openAIAccountExceedsSchedulingCost(
+		account,
+		guard.maxCostRate,
+		guard.now,
+		guard.oauthSchedulingRateMultiplier,
+	)
 }
 
 func (s *OpenAIGatewayService) openAIAccountMatchesSchedulingGroup(account *Account, groupID *int64) bool {
