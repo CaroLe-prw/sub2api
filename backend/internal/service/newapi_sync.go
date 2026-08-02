@@ -270,6 +270,7 @@ func (s *UpstreamBillingProbeService) UpdateNewAPISyncConfig(
 	}
 	if update.Enabled {
 		updates[UpstreamBillingProbeEnabledExtraKey] = false
+		updates[UpstreamBillingRateSyncEnabledExtraKey] = false
 	}
 	if identityChanged {
 		updates[NewAPILastSyncAtExtraKey] = nil
@@ -825,6 +826,13 @@ func newAPISyncEnabled(account *Account) bool {
 	return newAPIStoredConfigFromAccount(account).Enabled
 }
 
+// NewAPISyncEnabled is used by persistence code while holding the account row
+// lock, so ownership is rechecked against current state rather than a stale
+// service-layer object.
+func NewAPISyncEnabled(account *Account) bool {
+	return newAPISyncEnabled(account)
+}
+
 func expectedNewAPIAccountBaseURL(account *Account, stored newAPISyncStoredConfig) *string {
 	if account == nil || strings.TrimSpace(stored.BaseURL) != "" {
 		return nil
@@ -860,6 +868,13 @@ func preserveNewAPISyncManagedExtra(account *Account, extra map[string]any) map[
 		}
 	}
 	return extra
+}
+
+// PreserveNewAPISyncManagedExtra exposes the same merge rule to the
+// repository's row-locked update path, where it protects against a concurrent
+// dedicated NewAPI configuration save being overwritten by a stale edit form.
+func PreserveNewAPISyncManagedExtra(account *Account, extra map[string]any) map[string]any {
+	return preserveNewAPISyncManagedExtra(account, extra)
 }
 
 func newAPISyncDue(account *Account, now time.Time, intervalMinutes int) bool {

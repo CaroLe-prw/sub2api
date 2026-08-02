@@ -2,10 +2,6 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-const props = defineProps<{
-  billingRateMultiplier: number
-}>()
-
 const model = defineModel<number | null>({ required: true })
 const { t } = useI18n()
 
@@ -44,11 +40,7 @@ const handleInput = (event: Event) => {
       </span>
     </div>
     <p class="input-hint">
-      {{
-        t('admin.groups.form.maxAccountCostMultiplierHint', {
-          rate: props.billingRateMultiplier,
-        })
-      }}
+      {{ t('admin.groups.form.maxAccountCostMultiplierHint') }}
     </p>
   </div>
 </template>

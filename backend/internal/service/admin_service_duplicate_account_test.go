@@ -141,6 +141,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 		SessionWindowStatus:     "active",
 	}
 	source.Extra[UpstreamBillingProbeEnabledExtraKey] = true
+	source.Extra[UpstreamBillingRateSyncEnabledExtraKey] = true
 	source.Extra[UpstreamBillingProbeExtraKey] = map[string]any{"status": "ok"}
 	require.NoError(t, repo.Create(ctx, source))
 
@@ -163,6 +164,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 		"quota_usage_multiplier": float64(1),
 		"codex_cli_only":         true,
 	}, duplicate.Extra)
+	require.NotContains(t, duplicate.Extra, UpstreamBillingRateSyncEnabledExtraKey)
 	require.NotNil(t, duplicate.ExpiresAt)
 	require.True(t, source.ExpiresAt.Equal(*duplicate.ExpiresAt))
 	require.Equal(t, source.Notes, duplicate.Notes)

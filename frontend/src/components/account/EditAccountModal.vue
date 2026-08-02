@@ -1446,10 +1446,38 @@
             type="number"
             min="0"
             step="any"
-            class="input"
+            class="input disabled:cursor-not-allowed disabled:opacity-60"
             data-testid="account-rate-multiplier"
+            :disabled="accountRateManaged"
           />
-          <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
+          <p class="input-hint">
+            {{
+              t(
+                accountRateManaged
+                  ? 'admin.accounts.upstreamBilling.syncRateManagedHint'
+                  : 'admin.accounts.billingRateMultiplierHint'
+              )
+            }}
+          </p>
+          <div
+            v-if="account?.type === 'apikey' && upstreamBillingMode === 'sub2api'"
+            class="mt-3 flex items-center justify-between gap-3"
+          >
+            <div class="min-w-0">
+              <p class="text-xs font-medium text-gray-700 dark:text-gray-200">
+                {{ t('admin.accounts.upstreamBilling.syncRate') }}
+              </p>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.upstreamBilling.syncRateHint') }}
+              </p>
+            </div>
+            <Toggle
+              :model-value="upstreamBillingRateSyncEnabled"
+              data-testid="upstream-billing-rate-sync"
+              :aria-label="t('admin.accounts.upstreamBilling.syncRate')"
+              @update:model-value="handleUpstreamBillingRateSyncChange"
+            />
+          </div>
         </div>
       </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -1482,6 +1510,37 @@
               :class="[
                 'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
                 openaiPassthroughEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+      </div>
+
+      <!-- OpenAI Codex namespace 工具摊平（兼容开关，仅 OAuth） -->
+      <div
+        v-if="account?.platform === 'openai' && account?.type === 'oauth'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.flattenNamespaces') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.flattenNamespacesDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="edit-openai-flatten-namespaces-toggle"
+            @click="openaiFlattenNamespacesEnabled = !openaiFlattenNamespacesEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              openaiFlattenNamespacesEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                openaiFlattenNamespacesEnabled ? 'translate-x-5' : 'translate-x-0'
               ]"
             />
           </button>
@@ -1626,7 +1685,7 @@
       </div>
 
       <div
-        v-if="account?.platform === 'openai' && account?.type === 'apikey'"
+        v-if="account?.type === 'apikey'"
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
         data-testid="upstream-billing-settings"
       >
@@ -1645,8 +1704,7 @@
             />
           </div>
         </div>
-
-        <div v-if="upstreamBillingMode !== 'off'">
+        <div v-if="account?.platform === 'openai' && upstreamBillingMode !== 'off'">
           <label class="input-label">{{ t('admin.accounts.upstreamBilling.calibrationFactor') }}</label>
           <input
             v-model.number="upstreamRateCalibration"
@@ -1660,7 +1718,7 @@
           <p class="input-hint">{{ t('admin.accounts.upstreamBilling.calibrationHint') }}</p>
         </div>
         <UpstreamBalanceAlertFields
-          v-if="upstreamBillingMode !== 'off'"
+          v-if="account?.platform === 'openai' && upstreamBillingMode !== 'off'"
           v-model:enabled="upstreamBalanceAlertEnabled"
           v-model:threshold="upstreamBalanceAlertThreshold"
         />
@@ -1672,6 +1730,7 @@
           {{ t('admin.accounts.newapiSync.description') }}
         </p>
         <NewAPISyncSettings
+          v-if="account?.platform === 'openai'"
           ref="newapiSyncSettings"
           :account-id="account.id"
           :enabled="upstreamBillingMode === 'newapi'"
@@ -2900,8 +2959,20 @@ const newapiSyncSettings = ref<NewAPISyncSettingsExpose | null>(null)
 const upstreamBillingModeOptions = computed(() => [
   { value: 'off', label: t('admin.accounts.upstreamBilling.modes.off') },
   { value: 'sub2api', label: t('admin.accounts.upstreamBilling.modes.sub2api') },
-  { value: 'newapi', label: t('admin.accounts.upstreamBilling.modes.newapi') }
+  ...(props.account?.platform === 'openai'
+    ? [{ value: 'newapi' as const, label: t('admin.accounts.upstreamBilling.modes.newapi') }]
+    : [])
 ])
+const upstreamBillingRateSyncEnabled = ref(false)
+const accountRateManaged = computed(
+  () => upstreamBillingMode.value === 'newapi' ||
+    (upstreamBillingMode.value === 'sub2api' && upstreamBillingRateSyncEnabled.value)
+)
+watch(upstreamBillingMode, (mode) => {
+  if (mode !== 'sub2api') {
+    upstreamBillingRateSyncEnabled.value = false
+  }
+})
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
 const antigravityProjectId = ref('')
@@ -2953,6 +3024,8 @@ const customBaseUrl = ref('')
 // OpenAI 自动透传开关（OAuth/API Key）
 const openaiPassthroughEnabled = ref(false)
 const openAIForceFastModeEnabled = ref(false)
+// OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
+const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
 // OpenAI 订阅档位（Plus/Pro/Free）手动覆盖值,存于 credentials.plan_type;'' 表示清空/自动识别
 const editPlanType = ref<string>('')
@@ -3272,6 +3345,13 @@ const form = reactive({
   expires_at: null as number | null
 })
 
+const handleUpstreamBillingRateSyncChange = (enabled: boolean) => {
+  upstreamBillingRateSyncEnabled.value = enabled
+  if (enabled) {
+    upstreamBillingMode.value = 'sub2api'
+  }
+}
+
 const statusOptions = computed(() => {
   const options = [
     { value: 'active', label: t('common.active') },
@@ -3414,12 +3494,15 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 		typeof extra?.upstream_balance_alert_threshold === 'number' &&
 		Number.isFinite(extra.upstream_balance_alert_threshold) &&
 		extra.upstream_balance_alert_threshold >= 0
-			? extra.upstream_balance_alert_threshold
-			: DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD
+				? extra.upstream_balance_alert_threshold
+				: DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD
+	upstreamBillingRateSyncEnabled.value =
+		upstreamBillingMode.value === 'sub2api' && extra?.upstream_billing_rate_sync_enabled === true
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
   openAIForceFastModeEnabled.value = false
+  openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
   editPlanType.value = ''
   openAICompactMode.value = 'auto'
@@ -3437,6 +3520,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
     openAIForceFastModeEnabled.value = extra?.openai_force_fast_mode === true
+    openaiFlattenNamespacesEnabled.value =
+      newAccount.type === 'oauth' && extra?.openai_responses_flatten_namespaces === true
     const longContextBillingValue = extra?.openai_long_context_billing_enabled
     openAILongContextBillingEnabled.value = longContextBillingValue === true
     // plan_type 手动覆盖仅 OAuth 有实际调度语义(IsOpenAIChatGPTSubscription 要求 oauth),故只对 oauth 回填
@@ -4159,12 +4244,14 @@ const handleClose = () => {
 const submitUpdateAccount = async (accountID: number, updatePayload: Record<string, unknown>) => {
   submitting.value = true
   try {
-    const updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
+    // The dedicated NewAPI endpoint owns its encrypted configuration. Persist
+    // the source transition first so a same-submit manual rate edit is not
+    // rejected against the previous NewAPI ownership state.
     const newapiConfigSaved = await newapiSyncSettings.value?.persistConfig()
     if (newapiConfigSaved === false) {
-      emit('updated', updatedAccount)
       return
     }
+    const updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
     appStore.showSuccess(t('admin.accounts.accountUpdated'))
     emit('updated', {
       ...updatedAccount,
@@ -4216,6 +4303,14 @@ const handleSubmit = async () => {
       updatePayload.load_factor = 0
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
+    if (props.account.type === 'apikey') {
+      updatePayload.upstream_billing_probe_enabled = upstreamBillingMode.value === 'sub2api'
+      updatePayload.upstream_billing_rate_sync_enabled =
+        upstreamBillingMode.value === 'sub2api' && upstreamBillingRateSyncEnabled.value
+      if (accountRateManaged.value) {
+        delete updatePayload.rate_multiplier
+      }
+    }
 
     // For apikey type, handle credentials update
     if (props.account.type === 'apikey') {
@@ -4697,6 +4792,12 @@ const handleSubmit = async () => {
       } else {
         delete newExtra.openai_force_fast_mode
       }
+      // 缺省即保留 namespace，不写空值，避免 extra 里堆积默认项
+      if (props.account.type === 'oauth' && openaiFlattenNamespacesEnabled.value) {
+        newExtra.openai_responses_flatten_namespaces = true
+      } else {
+        delete newExtra.openai_responses_flatten_namespaces
+      }
       if (isSparkShadow.value) {
         delete newExtra.openai_long_context_billing_enabled
       } else {
@@ -4713,7 +4814,6 @@ const handleSubmit = async () => {
         } else {
           newExtra.openai_responses_mode = openAIResponsesMode.value
 			}
-			newExtra.upstream_billing_probe_enabled = upstreamBillingMode.value === 'sub2api'
 			newExtra.openai_upstream_rate_calibration = upstreamRateCalibration.value
 			if (upstreamBillingMode.value !== 'off') {
 				newExtra.upstream_balance_alert_enabled = upstreamBalanceAlertEnabled.value
@@ -4795,6 +4895,12 @@ const handleSubmit = async () => {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) ||
         (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
+      // 上游倍率自动探测对全部 API-key 平台开放（sub2api 上游即可应答），
+      // Bedrock 凭证无静态 Key 不参与。
+      if (props.account.type === 'apikey') {
+        delete newExtra.upstream_billing_probe_enabled
+        delete newExtra.upstream_billing_rate_sync_enabled
+      }
       // Total quota
       if (editQuotaLimit.value != null && editQuotaLimit.value > 0) {
         newExtra.quota_limit = editQuotaLimit.value

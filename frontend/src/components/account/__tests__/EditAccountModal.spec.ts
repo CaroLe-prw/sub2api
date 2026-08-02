@@ -471,6 +471,57 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_long_context_billing_enabled).toBe(false)
   })
 
+  it('loads and clears the OAuth-only Codex namespace flatten toggle', async () => {
+    const account = buildAccount()
+    account.type = 'oauth'
+    account.extra = {
+      openai_responses_flatten_namespaces: true
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const toggle = wrapper.get('[data-testid="edit-openai-flatten-namespaces-toggle"]')
+
+    // 关闭后应从 extra 中删除该键，而不是写入 false
+    await toggle.trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty(
+      'openai_responses_flatten_namespaces'
+    )
+  })
+
+  it('submits the Codex namespace flatten toggle when switched on', async () => {
+    const account = buildAccount()
+    account.type = 'oauth'
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="edit-openai-flatten-namespaces-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_responses_flatten_namespaces).toBe(
+      true
+    )
+  })
+
+  it('hides the Codex namespace flatten toggle for non-OAuth OpenAI accounts', async () => {
+    const account = buildAccount()
+    const wrapper = mountModal(account)
+
+    expect(wrapper.find('[data-testid="edit-openai-flatten-namespaces-toggle"]').exists()).toBe(
+      false
+    )
+  })
+
   it('defaults legacy OpenAI accounts to long-context billing disabled', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()
@@ -681,7 +732,10 @@ describe('EditAccountModal', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_billing_probe_enabled).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.upstream_billing_probe_enabled).toBe(true)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty(
+      'upstream_billing_probe_enabled'
+    )
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_balance_alert_enabled).toBe(true)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_balance_alert_threshold).toBe(5)
   })
@@ -727,6 +781,68 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_balance_alert_enabled).toBe(true)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_balance_alert_threshold).toBe(20)
+  })
+
+  it('exposes Sub2API probing for non-OpenAI API-key accounts', async () => {
+    const account = buildAccount()
+    account.platform = 'grok'
+    account.name = 'grok-relay'
+    account.credentials = { api_key: 'sk-grok', base_url: 'https://relay.example/v1' }
+    updateAccountMock.mockReset()
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const mode = wrapper.get<HTMLSelectElement>('[data-testid="upstream-billing-mode"]')
+    expect(mode.findAll('option').map((option) => option.attributes('value'))).toEqual(['off', 'sub2api'])
+    await mode.setValue('sub2api')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.upstream_billing_probe_enabled).toBe(true)
+  })
+
+  it('enabling rate sync keeps Sub2API probing on and stops submitting a manual rate', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockReset()
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await wrapper.get<HTMLSelectElement>('[data-testid="upstream-billing-mode"]').setValue('sub2api')
+    const syncToggle = wrapper.get('[data-testid="upstream-billing-rate-sync"]')
+    const rateInput = wrapper.get<HTMLInputElement>('[data-testid="account-rate-multiplier"]')
+    expect(rateInput.element.disabled).toBe(false)
+
+    await syncToggle.trigger('click')
+    expect(syncToggle.attributes('aria-checked')).toBe('true')
+    expect(rateInput.element.disabled).toBe(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload?.upstream_billing_probe_enabled).toBe(true)
+    expect(payload?.upstream_billing_rate_sync_enabled).toBe(true)
+    expect(payload).not.toHaveProperty('rate_multiplier')
+  })
+
+  it('switching the source off disables rate sync and restores manual rate editing', async () => {
+    const account = buildAccount()
+    account.extra = {
+      upstream_billing_probe_enabled: true,
+      upstream_billing_rate_sync_enabled: true
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const mode = wrapper.get<HTMLSelectElement>('[data-testid="upstream-billing-mode"]')
+    expect(wrapper.get<HTMLInputElement>('[data-testid="account-rate-multiplier"]').element.disabled).toBe(true)
+    await mode.setValue('off')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload?.upstream_billing_probe_enabled).toBe(false)
+    expect(payload?.upstream_billing_rate_sync_enabled).toBe(false)
+    expect(payload?.rate_multiplier).toBe(1)
   })
 
   it('clears OpenAI APIKey Responses override when set back to auto', async () => {

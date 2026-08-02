@@ -847,8 +847,8 @@ export default {
         rateMultiplierLabel: 'Rate Multiplier',
         rateMultiplierHint: '1.0 = standard rate, 0.5 = half price, 2.0 = double',
         maxAccountCostMultiplier: 'Maximum Account Scheduling Cost',
-        maxAccountCostMultiplierPlaceholder: 'Empty follows the group rate',
-        maxAccountCostMultiplierHint: 'Only OpenAI/Codex accounts with a scheduling cost multiplier at or below this value are eligible. Empty keeps the legacy rule; the current base group rate is {rate}x. User billing is unchanged.',
+        maxAccountCostMultiplierPlaceholder: 'Empty means no absolute ceiling',
+        maxAccountCostMultiplierHint: 'Only accounts whose durable billing multiplier is at or below this value are eligible. When profit control is also enabled, the stricter threshold wins. Composite-group ceilings also constrain routed child accounts. User billing is unchanged.',
         rpmLimit: 'Requests Per Minute (RPM)',
         rpmLimitPlaceholder: '0 = unlimited',
         rpmLimitHint: 'Max requests per minute for each user in this group; 0 = unlimited. Once set, it takes over per-user rate limiting in this group (overrides the user-level rpm_limit fallback).',
@@ -1066,6 +1066,18 @@ export default {
         peakEnd: 'Peak end',
         peakMultiplier: 'Peak multiplier',
         multiplierHint: 'Applies to token billing multiplier; image tokens in token billing are also affected. 0 means peak token requests are billed at 0x.'
+      },
+      profitControl: {
+        enable: 'Enable profit control',
+        enabledHint: 'Scheduling only admits accounts whose account multiplier ≤ the request\'s effective downstream multiplier × (1 − min margin − safety buffer). Account multipliers may be maintained manually or synchronized from probes; existing ordering, stickiness and breakers keep working among qualified accounts. Image/video scheduling is not covered yet.',
+        disabledHint: 'When disabled, scheduling does no profit filtering: accounts whose account multiplier exceeds the downstream multiplier can still be selected, which may produce loss-making requests.',
+        minMargin: 'Min gross margin (%)',
+        minMarginHint: 'Percent input, e.g. 30 means 30%; stored as a decimal on the backend',
+        safetyBuffer: 'Safety buffer (%)',
+        safetyBufferHint: 'Added to min margin and deducted from the downstream multiplier; defaults to 0',
+        marginRangeError: 'Min gross margin must be between 0 and 99.99',
+        bufferRangeError: 'Safety buffer must be between 0 and 99.99',
+        sumTooHigh: 'Min gross margin plus safety buffer must be less than 100%, otherwise every account would be excluded'
       },
       modelsList: {
         title: 'Custom /v1/models Model List',

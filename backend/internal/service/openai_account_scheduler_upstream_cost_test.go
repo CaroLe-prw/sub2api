@@ -168,100 +168,45 @@ func TestValidateOpenAIUpstreamBalanceAlertExtra(t *testing.T) {
 	))
 }
 
-func TestOpenAIGroupRateGuardUsesEffectiveGroupRateWithoutExplicitLimit(t *testing.T) {
-	now := time.Now()
-	account := upstreamCostTestAccount(1, UpstreamBillingProbeStatusOK, 1, now.Add(-time.Minute), 30*time.Minute)
-	account.Extra[OpenAIUpstreamRateCalibrationExtraKey] = 0.08
-	fallbackRate := 0.10
-	account.RateMultiplier = &fallbackRate
-	groupID := int64(7)
-	service := &OpenAIGatewayService{
-		channelService: &ChannelService{
-			groupRepo: &upstreamCostGroupRepo{group: &Group{ID: groupID, RateMultiplier: 0.07}},
-		},
-	}
-	ctx := service.withOpenAIGroupRateGuardContext(context.Background(), &groupID)
-
-	require.True(t, service.isOpenAIAccountUnprofitableForGroup(ctx, account))
-	compatible, reason := (&defaultOpenAIAccountScheduler{service: service}).isAccountRequestCompatibleReason(
-		ctx,
-		account,
-		OpenAIAccountScheduleRequest{UseUpstreamTokenCost: true},
-	)
-	require.False(t, compatible)
-	require.Equal(t, "upstream_rate_above_group", reason)
-
-	equalCtx := context.WithValue(context.Background(), openAIGroupRateGuardContextKey{}, openAIGroupRateGuard{
-		groupID: groupID, maxCostRate: 0.08, now: now, enabled: true,
-	})
-	require.False(t, service.isOpenAIAccountUnprofitableForGroup(equalCtx, account))
-
-	staleCtx := context.WithValue(context.Background(), openAIGroupRateGuardContextKey{}, openAIGroupRateGuard{
-		groupID: groupID, maxCostRate: 0.07, now: now.Add(2 * time.Hour), enabled: true,
-	})
-	require.True(t, service.isOpenAIAccountUnprofitableForGroup(staleCtx, account), "stale probes must fall back to the account scheduling cost")
-
-	withoutCostWeightCtx := service.withOpenAIGroupRateGuardContext(context.Background(), &groupID)
-	compatible, _ = (&defaultOpenAIAccountScheduler{service: service}).isAccountRequestCompatibleReason(
-		withoutCostWeightCtx,
-		account,
-		OpenAIAccountScheduleRequest{UseUpstreamTokenCost: false},
-	)
-	require.False(t, compatible, "the group-rate guard must remain active when cost weighting is disabled")
-}
-
-func TestFilterOpenAIAccountsByImplicitGroupCost(t *testing.T) {
-	now := time.Now()
-	group := &Group{ID: 7, RateMultiplier: 0.08}
-	accountAt := func(id int64, rate float64) *Account {
-		account := &Account{ID: id, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
-		account.RateMultiplier = &rate
-		return account
-	}
-	unknown := &Account{ID: 4, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
-
-	filtered := filterOpenAIAccountsByGroupCost(
-		[]*Account{accountAt(1, 0.065), accountAt(2, 0.10), accountAt(3, 0.15), unknown},
-		group,
-		now,
-		1,
-	)
-
-	require.Equal(t, []int64{1, 4}, []int64{filtered[0].ID, filtered[1].ID})
-}
-
-func TestOpenAIGroupExplicitAccountCostLimitIsIndependentFromBillingRate(t *testing.T) {
-	now := time.Now()
+func TestOpenAIAbsoluteAccountCostLimitUsesUnifiedProfitGate(t *testing.T) {
 	maxCost := 0.05
 	groupID := int64(8)
-	service := &OpenAIGatewayService{
-		channelService: &ChannelService{
-			groupRepo: &upstreamCostGroupRepo{group: &Group{
-				ID:                       groupID,
-				RateMultiplier:           1,
-				SubscriptionType:         SubscriptionTypeSubscription,
-				MaxAccountCostMultiplier: &maxCost,
-			}},
-		},
-	}
-	ctx := service.withOpenAIGroupRateGuardContext(context.Background(), &groupID)
+	group := profitControlTestGroup(groupID, 0, 0)
+	group.ProfitControlEnabled = false
+	group.MaxAccountCostMultiplier = &maxCost
+	service := &OpenAIGatewayService{}
+	ctx := service.withOpenAIProfitControlGate(profitControlTestCtx(group), &groupID)
+	require.True(t, gatewayProfitControlGateActive(ctx), "absolute cap works even when dynamic profit control is disabled")
 
-	calibratedCheap := upstreamCostTestAccount(1, UpstreamBillingProbeStatusOK, 1, now.Add(-time.Minute), 30*time.Minute)
-	calibratedCheap.Extra[OpenAIUpstreamRateCalibrationExtraKey] = 0.033
-	require.False(t, service.isOpenAIAccountUnprofitableForGroup(ctx, calibratedCheap))
+	cheapRate := 0.033
+	cheap := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, RateMultiplier: &cheapRate}
+	vetoed, reason := openAIProfitControlVetoReason(ctx, cheap)
+	require.False(t, vetoed)
+	require.Empty(t, reason)
 
 	expensiveRate := 0.4
-	staleExpensive := upstreamCostTestAccount(2, UpstreamBillingProbeStatusOK, 1, now.Add(-2*time.Hour), 30*time.Minute)
-	staleExpensive.RateMultiplier = &expensiveRate
-	require.True(t, service.isOpenAIAccountUnprofitableForGroup(ctx, staleExpensive))
-
+	expensive := &Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, RateMultiplier: &expensiveRate}
 	compatible, reason := (&defaultOpenAIAccountScheduler{service: service}).isAccountRequestCompatibleReason(
 		ctx,
-		staleExpensive,
+		expensive,
 		OpenAIAccountScheduleRequest{UseUpstreamTokenCost: false},
 	)
 	require.False(t, compatible)
-	require.Equal(t, "upstream_rate_above_group", reason)
+	require.Equal(t, openAIProfitFilterReasonThreshold, reason)
+
+	unknown := &Account{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	vetoed, reason = openAIProfitControlVetoReason(ctx, unknown)
+	require.True(t, vetoed, "active gate must conservatively reject an unknown durable account rate")
+	require.Equal(t, openAIProfitFilterReasonInvalidAccountRate, reason)
+}
+
+func TestOpenAINoImplicitCostGateWithoutProfitOrAbsoluteCap(t *testing.T) {
+	groupID := int64(9)
+	group := profitControlTestGroup(groupID, 0, 0)
+	group.ProfitControlEnabled = false
+	group.MaxAccountCostMultiplier = nil
+	ctx := (&OpenAIGatewayService{}).withOpenAIProfitControlGate(profitControlTestCtx(group), &groupID)
+	require.False(t, gatewayProfitControlGateActive(ctx))
 }
 
 func TestAdvancedCostSchedulerUsesTopKOverflowWhenPreferredAccountIsKnownFull(t *testing.T) {
@@ -643,6 +588,46 @@ func TestOpenAILegacyUpstreamRateOrderRequiresComparableRates(t *testing.T) {
 	require.True(t, distinct.enabled)
 	require.Negative(t, distinct.compare(&Account{ID: 1}, &Account{ID: 2}))
 	require.Negative(t, distinct.compare(&Account{ID: 2}, &Account{ID: 3}))
+}
+
+// 探测资格已放宽到全部 API-key 平台，但调度侧的信任面没有跟着扩大：
+// 只有 OpenAI 平台账号的上游自报倍率参与 legacy 低倍率优先排序，
+// 否则中转方自报低价即可吸走流量，而实际结算走本地倍率。
+// 本用例钉死 newOpenAILegacyUpstreamRateOrder 与 openAIUpstreamCostFactors
+// 使用同一道平台门控。
+func TestOpenAILegacyUpstreamRateOrderIgnoresNonOpenAIPlatforms(t *testing.T) {
+	now := time.Now()
+	nonOpenAI := func(id int64, platform string, rate float64) *Account {
+		account := upstreamCostTestAccount(id, UpstreamBillingProbeStatusOK, rate, now.Add(-time.Minute), 30*time.Minute)
+		account.Platform = platform
+		return account
+	}
+	grokCheap := nonOpenAI(1, PlatformGrok, 0.01)
+	anthropicExpensive := nonOpenAI(2, PlatformAnthropic, 0.9)
+
+	order := newOpenAILegacyUpstreamRateOrder([]*Account{grokCheap, anthropicExpensive, nil}, now, defaultOpenAIOAuthSchedulingRateMultiplier)
+	require.False(t, order.enabled)
+	require.Empty(t, order.rates)
+	require.Zero(t, order.compare(grokCheap, anthropicExpensive))
+
+	factors := openAIUpstreamCostFactors([]*Account{grokCheap, anthropicExpensive}, now, defaultOpenAIOAuthSchedulingRateMultiplier)
+	require.Equal(t, openAIUpstreamCostNeutralFactor, factors[grokCheap.ID])
+	require.Equal(t, openAIUpstreamCostNeutralFactor, factors[anthropicExpensive.ID])
+
+	// 混合候选集里，非 OpenAI 账号既不进 rates 也不影响 OpenAI 账号之间的排序。
+	openAICheap := upstreamCostTestAccount(3, UpstreamBillingProbeStatusOK, 0.02, now.Add(-time.Minute), 30*time.Minute)
+	openAIExpensive := upstreamCostTestAccount(4, UpstreamBillingProbeStatusOK, 0.12, now.Add(-time.Minute), 30*time.Minute)
+	mixed := newOpenAILegacyUpstreamRateOrder(
+		[]*Account{grokCheap, openAICheap, anthropicExpensive, openAIExpensive},
+		now, defaultOpenAIOAuthSchedulingRateMultiplier,
+	)
+	require.True(t, mixed.enabled)
+	require.Len(t, mixed.rates, 2)
+	require.NotContains(t, mixed.rates, grokCheap.ID)
+	require.NotContains(t, mixed.rates, anthropicExpensive.ID)
+	require.Negative(t, mixed.compare(openAICheap, openAIExpensive))
+	// 自报 0.01 的 grok 账号没有已知倍率，排在有倍率的 OpenAI 账号之后。
+	require.Positive(t, mixed.compare(grokCheap, openAIExpensive))
 }
 
 func TestOpenAISchedulingRatePlacesOAuthAtConfiguredReference(t *testing.T) {

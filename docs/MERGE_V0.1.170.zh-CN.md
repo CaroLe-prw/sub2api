@@ -1,4 +1,4 @@
-# Sub2API v0.1.170 上游合并方案
+# Sub2API v0.1.170 上游合并方案与实施记录
 
 > 审计日期：2026-08-02
 > 本地基线：`866068f9d`（`fix: enforce group scheduling cost limits`）
@@ -18,6 +18,106 @@
 5. 其余 v0.1.170 修复原则上完整接收；对共享文件做语义合并，不能整文件选择 `ours` 或 `theirs`。
 
 利润控制部分，上游最终实现总体更完整。本地实现最值得保留的是“绝对成本上限”和现有管理端组件化设计；本地当前的隐式门控链路不应与上游门控并行运行，否则会出现两个不同口径的过滤器。
+
+### 1.1 实施结果（2026-08-02）
+
+本方案已经在 `merge/upstream-v0.1.170` 分支实际落地。合并前工作保存于 `backup/pre-v0.1.170-20260802`，并拆成以下提交，仓库根目录现有 `*.tar.gz` 构建产物没有加入版本控制：
+
+- `2ba6ddad3`：可编辑 OpenAI 调度模板。
+- `29cf4c5cf`：分组账号关系管理。
+- `c8422b5ad`：GPT-5.6 priority 定价与 NewAPI 配额解析。
+- `e27a58607`：本合并方案初稿。
+
+随后对 `v0.1.170^{}` 执行真实 merge。23 个文本冲突文件均已完成语义合并，没有使用整仓或高风险共享文件的单边覆盖。
+
+最终实现采用以下确定语义：
+
+1. 运行时保留上游完整利润控制执行链；本地旧的 OpenAI 并行成本过滤器已移除。
+2. `max_account_cost_multiplier` 是独立硬上限，不依赖 `profit_control_enabled`；空值表示“不设置独立硬上限”，不再隐式沿用分组售价。
+3. 动态利润阈值、实际调度分组硬上限和 Composite/认证父分组硬上限统一由 `resolveGroupAccountCostThreshold` 计算，取最严格值。
+4. 运行时否决、离线 `profit-preview` 和管理端调度评分共用账号倍率合法性、epsilon 和硬上限口径；不存在另一套比较公式。
+5. 利润门只消费持久化 `accounts.rate_multiplier`。0 是合法成本；`nil`、负数、NaN 和 Inf 在门启用时拒绝。
+6. 上游通用倍率同步与本地 NewAPI 同步保留，但同一账号只允许一个自动写入者；任何自动写入者存在时都拒绝手工单笔和批量改倍率。
+7. 开启通用同步会关闭 NewAPI 同步；启用/保存 NewAPI 同步会关闭通用探测和通用倍率同步。仓储层在行锁内读取当前 `extra`，防止旧编辑表单覆盖并发更新后的 owner、密钥和同步快照。
+8. 复制或创建账号不会继承 NewAPI 的加密身份、同步 owner 或运行快照。
+9. 前端账号编辑使用“手工 / Sub2API 探测 / NewAPI”显式来源选择；倍率输入和来源提示按真正 owner 控制。
+10. 上游其余发布功能与修复均保留，包括 Anthropic 中断用量、WS 关闭帧、流内 429、pool 容量重试、Responses 工具桥接、订阅窗口、审核代理、最新输入审计、筛选结果全选、批量删除并发限制和精简首页等。
+
+### 1.2 实际数据模型与缓存改动
+
+Ent `Group` schema 和生成代码已按字段并集重新生成，包含：
+
+- 本地：`max_account_cost_multiplier`、`openai_scheduler_profile`、`openai_scheduler_config`。
+- 上游：`profit_control_enabled`、`profit_min_margin`、`profit_safety_buffer`。
+
+迁移文件保留本地和上游两组 192/193 原文件，并新增：
+
+```text
+195_group_profit_control_max_cost_auth_cache.sql
+```
+
+该迁移把绝对成本上限纳入 API Key auth cache 失效触发器。Auth snapshot 版本从 18 升至 19，查询投影、序列化、反序列化、缓存往返和失效测试均已覆盖 `max_account_cost_multiplier`。没有修改或重命名已经存在的 migration。
+
+### 1.3 实际代码合并要点
+
+利润门控：
+
+- 上游 request/turn 级 `pricingAt`、候选预过滤、槽位后终检、否决预算和粘性延迟绑定完整保留。
+- OpenAI 与其他平台门控通过同一个阈值 helper 叠加本地硬上限。
+- 管理端调度评分只展示满足独立硬上限且倍率有效的账号，避免 UI 分数与实际调度资格冲突。
+- `profit-preview` 与线上复用阈值和账号倍率 helper，并能区分 `manual`、`upstream_probe_sync`、`newapi_sync` 三种倍率来源。
+
+倍率所有权：
+
+- 管理 service 的单笔编辑、批量编辑均统一检查两类自动同步 owner。
+- 通用探测 CAS 排除 `newapi_sync_enabled=true` 的账号。
+- 通用账号更新在 `FOR NO KEY UPDATE` 行锁内保留 NewAPI 托管字段，并依据数据库当前 owner 拒绝陈旧的手工倍率写入。
+- 专用 NewAPI 保存接口和通用探测接口互相关闭对方 owner，前端切换来源时按不会触发旧 owner 冲突的顺序保存。
+
+管理端：
+
+- 新增 `GroupProfitControlField.vue`，采用 Vue 3 `<script setup lang="ts">` 与 `defineModel`，集中管理利润开关、最低利润率和安全缓冲。
+- `GroupAccountCostLimitField.vue` 保持独立，只负责绝对硬上限；两类字段在 UI 中明确提示“取最严格约束”。
+- `EditAccountModal.vue`、`AccountsView.vue` 和倍率单元格同时保留本地 NewAPI/校准能力与上游通用探测能力。
+
+### 1.4 已完成验证
+
+后端使用 `golang:1.26.5-alpine` 容器执行：
+
+```bash
+go test ./...
+```
+
+结果通过，覆盖 `cmd/profit-preview`、Ent schema、handler、repository、service 和 migrations。为避免只读挂载造成 Ent schema 测试无法创建 `.entc` 临时目录，最终全量测试以当前宿主用户在可写挂载内执行；测试结束后没有遗留 `.entc` 源文件。
+
+前端执行：
+
+```bash
+pnpm run test:run
+pnpm run lint:check
+pnpm run typecheck
+pnpm run build
+```
+
+结果：216 个测试文件、1456 个测试用例全部通过；ESLint、`vue-tsc` 和 Vite 生产构建通过。构建仅有既有的动态/静态导入和大 chunk 警告，没有构建错误。
+
+静态合并检查：
+
+```bash
+rg -n '^(<<<<<<<|=======|>>>>>>>)' backend frontend
+git diff --check
+```
+
+均无错误。Ent 已从合并后的 schema 重新生成，避免了双边新增字段导致的运行时字段索引错位。
+
+### 1.5 部署前仍需执行的环境验收
+
+代码合并已经完成，但以下动作依赖生产配置或真实升级数据库，不应由通用 migration 自动替用户决定：
+
+1. 用生产只读导出的分组、用户倍率和账号数据运行 `profit-preview`，确认每个主力模型在默认倍率与最差用户倍率下都有足够账号。
+2. 在生产数据库副本分别演练“干净建库”和“已应用本地 191/192/193/194 后升级”两条路径，并核对 migration checksum。
+3. 首次部署保持 `profit_control_enabled=false` 和通用倍率自动写回关闭；先观察探测结果，再逐账号、逐分组开启。
+4. 对历史上可能同时开启 NewAPI 与通用同步的脏数据做一次查询；若存在，按本文规则保留 NewAPI owner 并关闭通用 owner。
 
 ## 2. 当前仓库状态
 
