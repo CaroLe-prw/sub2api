@@ -375,7 +375,10 @@ func (c *NewAPIClient) getTokenUsage(
 	if err != nil {
 		return nil, nil, newAPIClientError("token_used_quota_invalid")
 	}
-	total, err := parseNewAPIQuota(envelope.Data.TotalGranted)
+	total, err := parseNewAPIQuotaWithNegative(
+		envelope.Data.TotalGranted,
+		envelope.Data.UnlimitedQuota,
+	)
 	if err != nil {
 		return nil, nil, newAPIClientError("token_total_quota_invalid")
 	}

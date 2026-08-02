@@ -183,6 +183,36 @@ func TestNewAPIBalanceUnlimitedTokenAcceptsNegativeReportedRemaining(t *testing.
 	require.Empty(t, balance.Warnings)
 }
 
+func TestNewAPIBalanceUnlimitedTokenAcceptsNegativeReportedTotal(t *testing.T) {
+	doer := &newAPITestDoer{}
+	doer.handle = newAPIBalanceHandler(
+		t,
+		validNewAPIUserBalanceBody(),
+		`{"code":true,"data":{"name":"unlimited","total_granted":-100,"total_used":20,"total_available":-120,"unlimited_quota":true,"expires_at":0}}`,
+	)
+
+	_, balance, err := NewNewAPIClient(doer).ResolveWithBalance(t.Context(), newAPITestConnection())
+
+	require.NoError(t, err)
+	require.Equal(t, int64(-100), balance.Token.TotalQuota)
+	require.True(t, balance.TokenAvailable)
+	require.True(t, balance.OverallAvailable)
+	require.Empty(t, balance.Warnings)
+}
+
+func TestNewAPIBalanceFiniteTokenRejectsNegativeReportedTotal(t *testing.T) {
+	doer := &newAPITestDoer{}
+	doer.handle = newAPIBalanceHandler(
+		t,
+		validNewAPIUserBalanceBody(),
+		`{"code":true,"data":{"name":"finite","total_granted":-100,"total_used":20,"total_available":0,"unlimited_quota":false,"expires_at":0}}`,
+	)
+
+	_, _, err := NewNewAPIClient(doer).ResolveWithBalance(t.Context(), newAPITestConnection())
+
+	require.EqualError(t, err, "newapi_token_total_quota_invalid")
+}
+
 func TestNewAPIBalanceUnlimitedTokenStillRequiresAccountBalance(t *testing.T) {
 	doer := &newAPITestDoer{}
 	doer.handle = newAPIBalanceHandler(
