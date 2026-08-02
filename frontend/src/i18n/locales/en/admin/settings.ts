@@ -1208,6 +1208,28 @@ export default {
         previousResponseWeight: 'previous_response sticky',
         sessionStickyWeight: 'session_hash sticky'
       },
+      openaiSchedulerTemplates: {
+        title: 'Group scheduler preset templates',
+        description: 'Edit the system templates used by groups selecting SLA, balanced, or cost priority. Group custom policies are unchanged.',
+        profiles: {
+          sla: 'SLA priority',
+          balanced: 'Balanced',
+          cost: 'Cost priority'
+        },
+        topK: 'TopK',
+        priority: 'Priority',
+        load: 'Load',
+        queue: 'Queue',
+        errorRate: 'Error rate',
+        ttft: 'TTFT',
+        reset: 'Reset window',
+        quotaHeadroom: 'Quota headroom',
+        upstreamCost: 'Upstream cost',
+        previousResponse: 'previous_response sticky',
+        sessionSticky: 'session_hash sticky',
+        stickyWeighted: 'Sticky weighting',
+        subscriptionPriority: 'Subscription priority'
+      },
       usageRecords: {
         title: 'Usage Records',
         description: 'Settings for usage and failed-request records visible to end users.',

@@ -16,6 +16,93 @@ export interface DefaultSubscriptionSetting {
   validity_days: number;
 }
 
+export type OpenAISchedulerTemplateProfile = "sla" | "balanced" | "cost";
+
+export interface OpenAISchedulerTemplate {
+  top_k: number;
+  priority: number;
+  load: number;
+  queue: number;
+  error_rate: number;
+  ttft: number;
+  reset: number;
+  quota_headroom: number;
+  upstream_cost: number;
+  previous_response: number;
+  session_sticky: number;
+  sticky_weighted_enabled: boolean;
+  subscription_priority_enabled: boolean;
+}
+
+export type OpenAISchedulerTemplates = Record<
+  OpenAISchedulerTemplateProfile,
+  OpenAISchedulerTemplate
+>;
+
+export function createDefaultOpenAISchedulerTemplates(): OpenAISchedulerTemplates {
+  return {
+    sla: {
+      top_k: 2,
+      priority: 0.5,
+      load: 1.5,
+      queue: 1.5,
+      error_rate: 2,
+      ttft: 2.5,
+      reset: 0,
+      quota_headroom: 0.5,
+      upstream_cost: 0,
+      previous_response: 1.5,
+      session_sticky: 0.75,
+      sticky_weighted_enabled: true,
+      subscription_priority_enabled: false,
+    },
+    balanced: {
+      top_k: 3,
+      priority: 1,
+      load: 1,
+      queue: 0.8,
+      error_rate: 1,
+      ttft: 1,
+      reset: 0.3,
+      quota_headroom: 0.7,
+      upstream_cost: 1.5,
+      previous_response: 1,
+      session_sticky: 0.5,
+      sticky_weighted_enabled: true,
+      subscription_priority_enabled: false,
+    },
+    cost: {
+      top_k: 2,
+      priority: 0.3,
+      load: 0.7,
+      queue: 0.5,
+      error_rate: 0.8,
+      ttft: 0.3,
+      reset: 0.5,
+      quota_headroom: 1,
+      upstream_cost: 8,
+      previous_response: 0.5,
+      session_sticky: 0.25,
+      sticky_weighted_enabled: true,
+      subscription_priority_enabled: false,
+    },
+  };
+}
+
+export function normalizeOpenAISchedulerTemplates(
+  value?: Partial<OpenAISchedulerTemplates> | null,
+): OpenAISchedulerTemplates {
+  const defaults = createDefaultOpenAISchedulerTemplates();
+  const result = { ...defaults } as OpenAISchedulerTemplates;
+  for (const profile of ["sla", "balanced", "cost"] as const) {
+    const candidate = value?.[profile];
+    if (candidate && typeof candidate === "object") {
+      result[profile] = { ...defaults[profile], ...candidate };
+    }
+  }
+  return result;
+}
+
 // ── 平台限额类型 ──────────────────────────────────────────────────
 export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok"
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
@@ -643,6 +730,7 @@ export interface SystemSettings {
   openai_advanced_scheduler_effective_weight_upstream_cost?: string;
   openai_advanced_scheduler_effective_weight_previous_response?: string;
   openai_advanced_scheduler_effective_weight_session_sticky?: string;
+  openai_scheduler_templates?: OpenAISchedulerTemplates;
 
   // 余额、订阅到期与账号限额通知
   balance_low_notify_enabled: boolean;
@@ -920,6 +1008,7 @@ export interface UpdateSettingsRequest {
   openai_advanced_scheduler_weight_upstream_cost?: string;
   openai_advanced_scheduler_weight_previous_response?: string;
   openai_advanced_scheduler_weight_session_sticky?: string;
+  openai_scheduler_templates?: OpenAISchedulerTemplates;
   // 余额、订阅到期与账号限额通知
   balance_low_notify_enabled?: boolean;
   balance_low_notify_threshold?: number;

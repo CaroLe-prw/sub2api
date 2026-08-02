@@ -1,7 +1,9 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 
@@ -20,6 +22,147 @@ func DefaultGroupOpenAISchedulerConfig() GroupOpenAISchedulerConfig {
 	return GroupOpenAISchedulerConfig{
 		StickyWeightedEnabled:       true,
 		SubscriptionPriorityEnabled: false,
+	}
+}
+
+// OpenAISchedulerTemplate is the fully specified policy used by one of the
+// group scheduler presets.  It is intentionally separate from
+// GroupOpenAISchedulerConfig: group custom policies are sparse overrides,
+// while system templates must be complete and safe to use without a fallback
+// lookup for every field.
+type OpenAISchedulerTemplate struct {
+	TopK                        int     `json:"top_k"`
+	Priority                    float64 `json:"priority"`
+	Load                        float64 `json:"load"`
+	Queue                       float64 `json:"queue"`
+	ErrorRate                   float64 `json:"error_rate"`
+	TTFT                        float64 `json:"ttft"`
+	Reset                       float64 `json:"reset"`
+	QuotaHeadroom               float64 `json:"quota_headroom"`
+	UpstreamCost                float64 `json:"upstream_cost"`
+	PreviousResponse            float64 `json:"previous_response"`
+	SessionSticky               float64 `json:"session_sticky"`
+	StickyWeightedEnabled       bool    `json:"sticky_weighted_enabled"`
+	SubscriptionPriorityEnabled bool    `json:"subscription_priority_enabled"`
+}
+
+// OpenAISchedulerTemplates stores the editable system-level presets.
+type OpenAISchedulerTemplates struct {
+	SLA      OpenAISchedulerTemplate `json:"sla"`
+	Balanced OpenAISchedulerTemplate `json:"balanced"`
+	Cost     OpenAISchedulerTemplate `json:"cost"`
+}
+
+func DefaultOpenAISchedulerTemplates() OpenAISchedulerTemplates {
+	return OpenAISchedulerTemplates{
+		SLA: OpenAISchedulerTemplate{
+			TopK: 2, Priority: 0.5, Load: 1.5, Queue: 1.5, ErrorRate: 2,
+			TTFT: 2.5, Reset: 0, QuotaHeadroom: 0.5, UpstreamCost: 0,
+			PreviousResponse: 1.5, SessionSticky: 0.75,
+			StickyWeightedEnabled: true, SubscriptionPriorityEnabled: false,
+		},
+		Balanced: OpenAISchedulerTemplate{
+			TopK: 3, Priority: 1, Load: 1, Queue: 0.8, ErrorRate: 1,
+			TTFT: 1, Reset: 0.3, QuotaHeadroom: 0.7, UpstreamCost: 1.5,
+			PreviousResponse: 1, SessionSticky: 0.5,
+			StickyWeightedEnabled: true, SubscriptionPriorityEnabled: false,
+		},
+		Cost: OpenAISchedulerTemplate{
+			TopK: 2, Priority: 0.3, Load: 0.7, Queue: 0.5, ErrorRate: 0.8,
+			TTFT: 0.3, Reset: 0.5, QuotaHeadroom: 1, UpstreamCost: 8,
+			PreviousResponse: 0.5, SessionSticky: 0.25,
+			StickyWeightedEnabled: true, SubscriptionPriorityEnabled: false,
+		},
+	}
+}
+
+func ValidateOpenAISchedulerTemplates(templates OpenAISchedulerTemplates) error {
+	for profile, template := range map[string]OpenAISchedulerTemplate{
+		GroupOpenAISchedulerProfileSLA:      templates.SLA,
+		GroupOpenAISchedulerProfileBalanced: templates.Balanced,
+		GroupOpenAISchedulerProfileCost:     templates.Cost,
+	} {
+		if err := validateOpenAISchedulerTemplate(template); err != nil {
+			return fmt.Errorf("openai_scheduler_templates.%s: %w", profile, err)
+		}
+	}
+	return nil
+}
+
+func validateOpenAISchedulerTemplate(template OpenAISchedulerTemplate) error {
+	if template.TopK <= 0 {
+		return errors.New("top_k must be > 0")
+	}
+	weights := []float64{
+		template.Priority, template.Load, template.Queue, template.ErrorRate,
+		template.TTFT, template.Reset, template.QuotaHeadroom,
+		template.UpstreamCost, template.PreviousResponse, template.SessionSticky,
+	}
+	baseSum := 0.0
+	for index, weight := range weights {
+		if weight < 0 || math.IsNaN(weight) || math.IsInf(weight, 0) {
+			return errors.New("weights must be finite numbers >= 0")
+		}
+		if index < 8 {
+			baseSum += weight
+		}
+	}
+	if baseSum <= 0 || math.IsInf(baseSum, 0) || math.IsNaN(baseSum) {
+		return errors.New("base weights must not all be zero")
+	}
+	return nil
+}
+
+// NormalizeOpenAISchedulerTemplates is used before persistence. A zero value
+// is treated as the legacy-default template set so existing callers that
+// construct SystemSettings without this newer field remain compatible.
+func NormalizeOpenAISchedulerTemplates(templates OpenAISchedulerTemplates) (OpenAISchedulerTemplates, error) {
+	if templates == (OpenAISchedulerTemplates{}) {
+		return DefaultOpenAISchedulerTemplates(), nil
+	}
+	if err := ValidateOpenAISchedulerTemplates(templates); err != nil {
+		return OpenAISchedulerTemplates{}, err
+	}
+	return templates, nil
+}
+
+func ParseOpenAISchedulerTemplates(raw string) OpenAISchedulerTemplates {
+	defaults := DefaultOpenAISchedulerTemplates()
+	if strings.TrimSpace(raw) == "" {
+		return defaults
+	}
+	var templates OpenAISchedulerTemplates
+	if err := json.Unmarshal([]byte(raw), &templates); err != nil {
+		return defaults
+	}
+	if err := ValidateOpenAISchedulerTemplates(templates); err != nil {
+		return defaults
+	}
+	return templates
+}
+
+func MarshalOpenAISchedulerTemplates(templates OpenAISchedulerTemplates) (string, error) {
+	normalized, err := NormalizeOpenAISchedulerTemplates(templates)
+	if err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		return "", fmt.Errorf("marshal OpenAI scheduler templates: %w", err)
+	}
+	return string(raw), nil
+}
+
+func openAISchedulerTemplateForProfile(templates OpenAISchedulerTemplates, profile string) (OpenAISchedulerTemplate, bool) {
+	switch NormalizeGroupOpenAISchedulerProfile(profile) {
+	case GroupOpenAISchedulerProfileSLA:
+		return templates.SLA, true
+	case GroupOpenAISchedulerProfileBalanced:
+		return templates.Balanced, true
+	case GroupOpenAISchedulerProfileCost:
+		return templates.Cost, true
+	default:
+		return OpenAISchedulerTemplate{}, false
 	}
 }
 
@@ -107,57 +250,32 @@ func validateGroupOpenAISchedulerConfig(config GroupOpenAISchedulerConfig) error
 }
 
 func resolveGroupOpenAISchedulerPreset(profile string) (resolvedGroupOpenAISchedulerConfig, bool) {
-	switch NormalizeGroupOpenAISchedulerProfile(profile) {
-	case GroupOpenAISchedulerProfileSLA:
-		return resolvedGroupOpenAISchedulerConfig{
-			TopK:                        2,
-			Priority:                    0.5,
-			Load:                        1.5,
-			Queue:                       1.5,
-			ErrorRate:                   2,
-			TTFT:                        2.5,
-			Reset:                       0,
-			QuotaHeadroom:               0.5,
-			UpstreamCost:                0,
-			PreviousResponse:            1.5,
-			SessionSticky:               0.75,
-			StickyWeightedEnabled:       true,
-			SubscriptionPriorityEnabled: false,
-		}, true
-	case GroupOpenAISchedulerProfileBalanced:
-		return resolvedGroupOpenAISchedulerConfig{
-			TopK:                        3,
-			Priority:                    1,
-			Load:                        1,
-			Queue:                       0.8,
-			ErrorRate:                   1,
-			TTFT:                        1,
-			Reset:                       0.3,
-			QuotaHeadroom:               0.7,
-			UpstreamCost:                1.5,
-			PreviousResponse:            1,
-			SessionSticky:               0.5,
-			StickyWeightedEnabled:       true,
-			SubscriptionPriorityEnabled: false,
-		}, true
-	case GroupOpenAISchedulerProfileCost:
-		return resolvedGroupOpenAISchedulerConfig{
-			TopK:                        2,
-			Priority:                    0.3,
-			Load:                        0.7,
-			Queue:                       0.5,
-			ErrorRate:                   0.8,
-			TTFT:                        0.3,
-			Reset:                       0.5,
-			QuotaHeadroom:               1,
-			UpstreamCost:                8,
-			PreviousResponse:            0.5,
-			SessionSticky:               0.25,
-			StickyWeightedEnabled:       true,
-			SubscriptionPriorityEnabled: false,
-		}, true
+	return resolveGroupOpenAISchedulerPresetFromTemplates(profile, DefaultOpenAISchedulerTemplates())
+}
+
+func resolveGroupOpenAISchedulerPresetFromTemplates(profile string, templates OpenAISchedulerTemplates) (resolvedGroupOpenAISchedulerConfig, bool) {
+	template, ok := openAISchedulerTemplateForProfile(templates, profile)
+	if !ok {
+		return resolvedGroupOpenAISchedulerConfig{}, false
 	}
-	return resolvedGroupOpenAISchedulerConfig{}, false
+	if err := validateOpenAISchedulerTemplate(template); err != nil {
+		return resolvedGroupOpenAISchedulerConfig{}, false
+	}
+	return resolvedGroupOpenAISchedulerConfig{
+		TopK:                        template.TopK,
+		Priority:                    template.Priority,
+		Load:                        template.Load,
+		Queue:                       template.Queue,
+		ErrorRate:                   template.ErrorRate,
+		TTFT:                        template.TTFT,
+		Reset:                       template.Reset,
+		QuotaHeadroom:               template.QuotaHeadroom,
+		UpstreamCost:                template.UpstreamCost,
+		PreviousResponse:            template.PreviousResponse,
+		SessionSticky:               template.SessionSticky,
+		StickyWeightedEnabled:       template.StickyWeightedEnabled,
+		SubscriptionPriorityEnabled: template.SubscriptionPriorityEnabled,
+	}, true
 }
 
 func applyCustomGroupOpenAISchedulerConfig(

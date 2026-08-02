@@ -4729,6 +4729,10 @@
                   </label>
                 </div>
               </div>
+
+              <OpenAISchedulerTemplateEditor
+                v-model="form.openai_scheduler_templates"
+              />
             </div>
           </div>
 
@@ -8062,6 +8066,8 @@ import {
   buildAuthSourceDefaultsState,
   normalizePlatformQuotasMap,
   sanitizePlatformQuotasMap,
+  createDefaultOpenAISchedulerTemplates,
+  normalizeOpenAISchedulerTemplates,
   defaultWeChatConnectScopesForMode,
   deriveWeChatConnectStoredMode,
   normalizeDefaultSubscriptionSettings,
@@ -8079,6 +8085,7 @@ import type {
   WebSearchEmulationConfig,
   WebSearchProviderConfig,
   WebSearchTestResult,
+  OpenAISchedulerTemplates,
 } from "@/api/admin/settings";
 import type {
   AdminGroup,
@@ -8098,6 +8105,7 @@ import GroupOptionItem from "@/components/common/GroupOptionItem.vue";
 import Toggle from "@/components/common/Toggle.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
+import OpenAISchedulerTemplateEditor from "@/views/admin/settings/OpenAISchedulerTemplateEditor.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import TelegramNotificationSettings from "@/views/admin/settings/TelegramNotificationSettings.vue";
@@ -8802,6 +8810,7 @@ type SettingsForm = Omit<
   openai_advanced_scheduler_weight_upstream_cost: string;
   openai_advanced_scheduler_weight_previous_response: string;
   openai_advanced_scheduler_weight_session_sticky: string;
+  openai_scheduler_templates: OpenAISchedulerTemplates;
   // 系统全局平台限额 map；form 内始终归一化为全 4 平台对象（模板非空绑定依赖此不变量）
   default_platform_quotas: DefaultPlatformQuotasMap;
 };
@@ -9019,6 +9028,7 @@ const form = reactive<SettingsForm>({
   openai_advanced_scheduler_weight_upstream_cost: "",
   openai_advanced_scheduler_weight_previous_response: "",
   openai_advanced_scheduler_weight_session_sticky: "",
+  openai_scheduler_templates: createDefaultOpenAISchedulerTemplates(),
   // Gateway forwarding behavior
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
@@ -9963,6 +9973,9 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    form.openai_scheduler_templates = normalizeOpenAISchedulerTemplates(
+      settings.openai_scheduler_templates,
+    );
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
         defaultClaudeOAuthSystemPromptBlocks;
@@ -10581,6 +10594,7 @@ async function saveSettings() {
         form.openai_advanced_scheduler_weight_previous_response.trim(),
       openai_advanced_scheduler_weight_session_sticky:
         form.openai_advanced_scheduler_weight_session_sticky.trim(),
+      openai_scheduler_templates: form.openai_scheduler_templates,
       // 余额、订阅到期与账号限额通知
       balance_low_notify_enabled: form.balance_low_notify_enabled,
       balance_low_notify_threshold:

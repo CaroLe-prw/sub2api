@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"testing"
 	"time"
@@ -35,6 +36,28 @@ func TestResolveGroupOpenAISchedulerPresets(t *testing.T) {
 
 	_, ok := resolveGroupOpenAISchedulerPreset(GroupOpenAISchedulerProfileInherit)
 	require.False(t, ok)
+}
+
+func TestOpenAISchedulerTemplatesCanOverridePresetsAndFallbackOnInvalidJSON(t *testing.T) {
+	templates := DefaultOpenAISchedulerTemplates()
+	templates.SLA.TopK = 9
+	templates.SLA.UpstreamCost = 4.25
+	templates.SLA.StickyWeightedEnabled = false
+
+	resolved, ok := resolveGroupOpenAISchedulerPresetFromTemplates(GroupOpenAISchedulerProfileSLA, templates)
+	require.True(t, ok)
+	require.Equal(t, 9, resolved.TopK)
+	require.Equal(t, 4.25, resolved.UpstreamCost)
+	require.False(t, resolved.StickyWeightedEnabled)
+
+	raw, err := json.Marshal(templates)
+	require.NoError(t, err)
+	require.Equal(t, templates, ParseOpenAISchedulerTemplates(string(raw)))
+	require.Equal(t, DefaultOpenAISchedulerTemplates(), ParseOpenAISchedulerTemplates("{bad json"))
+
+	invalid := templates
+	invalid.Cost.TopK = 0
+	require.Error(t, ValidateOpenAISchedulerTemplates(invalid))
 }
 
 func TestValidateGroupOpenAISchedulerCustomPolicy(t *testing.T) {

@@ -1202,6 +1202,28 @@ export default {
         previousResponseWeight: 'previous_response 粘性',
         sessionStickyWeight: 'session_hash 粘性'
       },
+      openaiSchedulerTemplates: {
+        title: '分组调度预设模板',
+        description: '编辑分组选择 SLA、均衡或成本优先时使用的系统模板；分组自定义策略不受影响。',
+        profiles: {
+          sla: 'SLA 优先',
+          balanced: '均衡',
+          cost: '成本优先'
+        },
+        topK: 'TopK',
+        priority: '优先级',
+        load: '负载',
+        queue: '排队',
+        errorRate: '错误率',
+        ttft: '首包延迟',
+        reset: '重置窗口',
+        quotaHeadroom: '额度余量',
+        upstreamCost: '上游成本',
+        previousResponse: 'previous_response 粘性',
+        sessionSticky: 'session_hash 粘性',
+        stickyWeighted: '粘性加权',
+        subscriptionPriority: '订阅优先'
+      },
       usageRecords: {
         title: '使用记录',
         description: '与终端用户可见的用量及失败请求记录相关的设置。',

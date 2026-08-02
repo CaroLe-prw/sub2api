@@ -50,6 +50,7 @@ type cachedOpenAIAdvancedSchedulerSetting struct {
 	subscriptionPriorityEnabled    bool
 	lbTopKOverride                 int
 	weightOverrides                map[string]float64
+	schedulerTemplates             OpenAISchedulerTemplates
 	expiresAt                      int64
 }
 
@@ -61,6 +62,7 @@ type openAIAdvancedSchedulerRuntimeSettings struct {
 	subscriptionPriorityEnabled    bool
 	lbTopKOverride                 int
 	weightOverrides                map[string]float64
+	schedulerTemplates             OpenAISchedulerTemplates
 }
 
 var openAIAdvancedSchedulerSettingCache atomic.Value // *cachedOpenAIAdvancedSchedulerSetting
@@ -1811,6 +1813,7 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 				subscriptionPriorityEnabled:    cached.subscriptionPriorityEnabled,
 				lbTopKOverride:                 cached.lbTopKOverride,
 				weightOverrides:                cloneOpenAIAdvancedSchedulerWeightOverrides(cached.weightOverrides),
+				schedulerTemplates:             cached.schedulerTemplates,
 			}
 		}
 	}
@@ -1826,6 +1829,7 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 					subscriptionPriorityEnabled:    cached.subscriptionPriorityEnabled,
 					lbTopKOverride:                 cached.lbTopKOverride,
 					weightOverrides:                cloneOpenAIAdvancedSchedulerWeightOverrides(cached.weightOverrides),
+					schedulerTemplates:             cached.schedulerTemplates,
 				}, nil
 			}
 		}
@@ -1837,6 +1841,7 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 		subscriptionPriorityEnabled := false
 		lbTopKOverride := 0
 		weightOverrides := map[string]float64{}
+		schedulerTemplates := DefaultOpenAISchedulerTemplates()
 		if repo := s.openAIAdvancedSchedulerSettingRepo(); repo != nil {
 			dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), openAIAdvancedSchedulerSettingDBTimeout)
 			defer cancel()
@@ -1849,6 +1854,7 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 				subscriptionPriorityEnabled = strings.EqualFold(strings.TrimSpace(values[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled]), "true")
 				lbTopKOverride = parsePositiveIntOverride(values[SettingKeyOpenAIAdvancedSchedulerLBTopK])
 				weightOverrides = parseOpenAIAdvancedSchedulerWeightOverrides(values)
+				schedulerTemplates = ParseOpenAISchedulerTemplates(values[SettingKeyOpenAISchedulerTemplates])
 			} else {
 				// 批量读取失败时逐键降级，覆盖全部键（含 TopK/权重），避免只加载布尔开关
 				// 而静默丢弃管理员配置的覆盖值；降级状态会被缓存一个 TTL，必须留痕。
@@ -1866,6 +1872,7 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 				subscriptionPriorityEnabled = strings.EqualFold(strings.TrimSpace(fallbackValues[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled]), "true")
 				lbTopKOverride = parsePositiveIntOverride(fallbackValues[SettingKeyOpenAIAdvancedSchedulerLBTopK])
 				weightOverrides = parseOpenAIAdvancedSchedulerWeightOverrides(fallbackValues)
+				schedulerTemplates = ParseOpenAISchedulerTemplates(fallbackValues[SettingKeyOpenAISchedulerTemplates])
 			}
 		}
 
@@ -1877,6 +1884,7 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 			subscriptionPriorityEnabled:    subscriptionPriorityEnabled,
 			lbTopKOverride:                 lbTopKOverride,
 			weightOverrides:                cloneOpenAIAdvancedSchedulerWeightOverrides(weightOverrides),
+			schedulerTemplates:             schedulerTemplates,
 			expiresAt:                      time.Now().Add(openAIAdvancedSchedulerSettingCacheTTL).UnixNano(),
 		})
 		return openAIAdvancedSchedulerRuntimeSettings{
@@ -1887,6 +1895,7 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 			subscriptionPriorityEnabled:    subscriptionPriorityEnabled,
 			lbTopKOverride:                 lbTopKOverride,
 			weightOverrides:                weightOverrides,
+			schedulerTemplates:             schedulerTemplates,
 		}, nil
 	})
 
@@ -1963,7 +1972,8 @@ func (s *OpenAIGatewayService) resolveOpenAIGroupSchedulerPolicy(
 		return openAIGroupSchedulerPolicy{}, false
 	}
 	profile := NormalizeGroupOpenAISchedulerProfile(group.OpenAISchedulerProfile)
-	if preset, ok := resolveGroupOpenAISchedulerPreset(profile); ok {
+	runtimeSettings := s.openAIAdvancedSchedulerRuntimeSettings(ctx)
+	if preset, ok := resolveGroupOpenAISchedulerPresetFromTemplates(profile, runtimeSettings.schedulerTemplates); ok {
 		return openAIGroupSchedulerPolicy{profile: profile, config: preset}, true
 	}
 	if profile != GroupOpenAISchedulerProfileCustom {
@@ -2022,6 +2032,7 @@ func openAIAdvancedSchedulerRuntimeSettingKeys() []string {
 		SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled,
 		SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled,
 		SettingKeyOpenAIAdvancedSchedulerLBTopK,
+		SettingKeyOpenAISchedulerTemplates,
 	}
 	for _, spec := range openAIAdvancedSchedulerWeightOverrideSpecs() {
 		keys = append(keys, spec.key)
