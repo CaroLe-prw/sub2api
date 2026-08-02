@@ -141,6 +141,58 @@ describe('UpstreamBillingRateCell', () => {
     wrapper.unmount()
   })
 
+  it('renders a zero upstream balance as an explicit insufficient-balance state', () => {
+    const wrapper = mount(UpstreamBillingRateCell, {
+      props: {
+        account: makeAccount({
+          extra: {
+            upstream_billing_probe_enabled: true,
+            upstream_billing_probe: {
+              status: 'ok',
+              data: { ...billingData, balance: 0, balance_kind: 'wallet' },
+              received_at: '2026-07-13T00:00:00Z',
+              fresh_until: '2026-07-14T00:00:00Z',
+              last_attempt_at: '2026-07-13T00:00:00Z',
+              next_probe_at: '2026-07-13T00:30:00Z'
+            }
+          }
+        }),
+        now: Date.now()
+      }
+    })
+
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe(
+      'admin.accounts.upstreamBilling.balanceUnavailable'
+    )
+    expect(wrapper.text()).not.toContain('$0')
+  })
+
+  it('shows insufficient balance when NewAPI reports the account unavailable without a numeric balance', () => {
+    const wrapper = mount(UpstreamBillingRateCell, {
+      props: {
+        account: makeAccount({
+          extra: {
+            newapi_sync_enabled: true,
+            newapi_balance_snapshot: {
+              account: { user_id: 7, group: 'default', remaining_quota: 0, used_quota: 1, total_quota: 1 },
+              token: { name: 'token', remaining_quota: 0, used_quota: 1, total_quota: 1, unlimited_quota: false, expires_at: 0 },
+              token_available: false,
+              account_available: false,
+              overall_available: false,
+              synced_at: '2026-07-13T00:00:00Z',
+              fresh_until: '2026-07-14T00:00:00Z'
+            }
+          }
+        }),
+        now: Date.now()
+      }
+    })
+
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe(
+      'admin.accounts.upstreamBilling.balanceUnavailable'
+    )
+  })
+
   it('uses a synchronized NewAPI group ratio as the calibrated scheduling cost', async () => {
     const newAPIData = {
       object: 'newapi.group_ratio' as const,

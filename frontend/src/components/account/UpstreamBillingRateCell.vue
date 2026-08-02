@@ -48,7 +48,10 @@
             </p>
           </template>
           <p>{{ t('admin.accounts.upstreamBilling.effectiveRate', { value: currentEffectiveRate ?? '-' }) }}</p>
-          <p v-if="balance != null" data-testid="upstream-billing-balance-detail">
+          <p v-if="balanceInsufficient" class="text-red-400" data-testid="upstream-billing-balance-detail">
+            {{ t('admin.accounts.upstreamBilling.balanceUnavailable') }}
+          </p>
+          <p v-else-if="balance != null" data-testid="upstream-billing-balance-detail">
             {{ t(balanceTranslationKey, { value: formatBalance(balance) }) }}
           </p>
           <p v-if="balanceAlertActive" class="text-red-400">
@@ -96,7 +99,14 @@
       </div>
     </HelpTooltip>
     <span
-      v-if="balance != null"
+      v-if="balanceInsufficient"
+      class="whitespace-nowrap text-xs font-medium text-red-600 dark:text-red-400"
+      data-testid="upstream-billing-balance"
+    >
+      {{ t('admin.accounts.upstreamBilling.balanceUnavailable') }}
+    </span>
+    <span
+      v-else-if="balance != null"
       :class="balanceAlertActive ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'"
       class="whitespace-nowrap font-mono text-xs"
       data-testid="upstream-billing-balance"
@@ -151,6 +161,11 @@ const data = computed(() => snapshot.value?.data)
 const balance = computed(() => {
   const value = data.value?.balance
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+})
+const newAPIBalanceSnapshot = computed(() => props.account.extra?.newapi_balance_snapshot)
+const balanceInsufficient = computed(() => {
+  if (balance.value != null) return balance.value <= 0
+  return newAPIBalanceSnapshot.value?.overall_available === false
 })
 const balanceAlertActive = computed(() => snapshot.value?.balance_alert?.active === true)
 const balanceTranslationKey = computed(() => data.value?.balance_kind === 'subscription_remaining'

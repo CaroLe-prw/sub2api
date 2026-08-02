@@ -161,6 +161,35 @@ func TestCreateAccountAcceptsDedicatedUpstreamBillingProbeSetting(t *testing.T) 
 	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
 }
 
+func TestCreateAccountAcceptsDedicatedUpstreamBillingRateSyncSetting(t *testing.T) {
+	enabled := true
+	repo := &upstreamBillingProbeAccountRepo{}
+	created, err := (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "managed upstream",
+		Platform:             PlatformGemini,
+		Type:                 AccountTypeAPIKey,
+		Credentials:          map[string]any{"api_key": "test-key"},
+		RateSyncEnabled:      &enabled,
+		SkipDefaultGroupBind: true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, true, created.Extra[UpstreamBillingProbeEnabledExtraKey])
+	require.Equal(t, true, created.Extra[UpstreamBillingRateSyncEnabledExtraKey])
+
+	disabled := false
+	_, err = (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "conflicting upstream",
+		Platform:             PlatformGemini,
+		Type:                 AccountTypeAPIKey,
+		Credentials:          map[string]any{"api_key": "test-key"},
+		ProbeEnabled:         &disabled,
+		RateSyncEnabled:      &enabled,
+		SkipDefaultGroupBind: true,
+	})
+	require.Error(t, err)
+}
+
 func TestUpdateAccountPreservesManagedUpstreamBillingProbeStateForUnrelatedEdit(t *testing.T) {
 	accountID := int64(110)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{

@@ -1212,6 +1212,7 @@ export interface Account {
     upstream_balance_alert_threshold?: number
     quota_usage_multiplier?: number
     newapi_sync_enabled?: boolean
+    newapi_balance_snapshot?: NewAPIBalanceSnapshot
   } & Record<string, unknown>)
   proxy_id: number | null
   proxy_fallback_origin_id?: number | null
@@ -1497,6 +1498,7 @@ export interface CreateAccountRequest {
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   upstream_billing_probe_enabled?: boolean
+  upstream_billing_rate_sync_enabled?: boolean
   confirm_mixed_channel_risk?: boolean
 }
 

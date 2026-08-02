@@ -888,18 +888,10 @@
           />
           <p class="input-hint">{{ t('admin.accounts.upstream.apiKeyHint') }}</p>
         </div>
-        <!-- 上游倍率自动探测：antigravity upstream 也是 API-key 账号 -->
-        <div class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600">
-          <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.upstreamBilling.autoProbeHint') }}
-            </p>
-          </div>
-          <Toggle
-            v-model="upstreamBillingAutoProbeEnabled"
-            data-testid="upstream-billing-auto-probe-antigravity"
-            :aria-label="t('admin.accounts.upstreamBilling.autoProbe')"
+        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+          <UpstreamBillingSourceField
+            v-model:mode="upstreamBillingMode"
+            v-model:rate-sync-enabled="upstreamBillingRateSyncEnabled"
           />
         </div>
       </div>
@@ -1157,22 +1149,21 @@
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
         </div>
 
-        <!-- 上游倍率自动探测：全部 API-key 平台可用（所在区块已限定 apikey 类型） -->
-        <div
-          class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
-        >
-          <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.upstreamBilling.autoProbeHint') }}
-            </p>
-          </div>
-          <Toggle
-            v-model="upstreamBillingAutoProbeEnabled"
-            data-testid="upstream-billing-auto-probe"
-            :aria-label="t('admin.accounts.upstreamBilling.autoProbe')"
+        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+          <UpstreamBillingSourceField
+            v-model:mode="upstreamBillingMode"
+            v-model:rate-sync-enabled="upstreamBillingRateSyncEnabled"
+            :allow-new-api="form.platform === 'openai'"
           />
         </div>
+        <NewAPISyncConfigFields
+          v-if="upstreamBillingMode === 'newapi'"
+          v-model:base-url="newAPISyncCreateConfig.newapi_base_url"
+          v-model:user-id="newAPISyncCreateConfig.newapi_user_id"
+          v-model:user-access-token="newAPISyncCreateConfig.newapi_user_access_token"
+          id-prefix="newapi-create"
+          access-token-required
+        />
         <div v-if="form.platform === 'openai'">
           <label class="input-label">{{ t('admin.accounts.upstreamBilling.calibrationFactor') }}</label>
           <input
@@ -1187,7 +1178,7 @@
           <p class="input-hint">{{ t('admin.accounts.upstreamBilling.calibrationHint') }}</p>
         </div>
         <UpstreamBalanceAlertFields
-          v-if="form.platform === 'openai' && upstreamBillingAutoProbeEnabled"
+          v-if="form.platform === 'openai' && upstreamBillingMode !== 'off'"
           v-model:enabled="upstreamBalanceAlertEnabled"
           v-model:threshold="upstreamBalanceAlertThreshold"
         />
@@ -2784,8 +2775,15 @@
             step="any"
             class="input"
             data-testid="account-rate-multiplier"
+            :disabled="accountRateManaged"
           />
-          <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
+          <p class="input-hint">
+            {{
+              accountRateManaged
+                ? t('admin.accounts.upstreamBilling.syncRateManagedHint')
+                : t('admin.accounts.billingRateMultiplierHint')
+            }}
+          </p>
         </div>
       </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -3604,7 +3602,9 @@ import type {
   CodexSessionImportMessage,
   OpenAICompactMode,
   OpenAIResponsesMode,
-  OpenAIEndpointCapability
+  OpenAIEndpointCapability,
+  Account,
+  NewAPISyncConfigUpdate
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -3616,10 +3616,12 @@ import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
-import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import UpstreamBalanceAlertFields from '@/components/account/UpstreamBalanceAlertFields.vue'
+import UpstreamBillingSourceField from '@/components/account/UpstreamBillingSourceField.vue'
+import NewAPISyncConfigFields from '@/components/account/NewAPISyncConfigFields.vue'
+import type { UpstreamBillingMode } from '@/components/account/upstreamBilling'
 import {
   DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED,
   DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD
@@ -3697,7 +3699,7 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   close: []
-  created: []
+  created: [account?: Account]
 }>()
 
 const appStore = useAppStore()
@@ -3765,7 +3767,26 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
-const upstreamBillingAutoProbeEnabled = ref(true)
+const upstreamBillingMode = ref<UpstreamBillingMode>('sub2api')
+const upstreamBillingRateSyncEnabled = ref(false)
+const upstreamBillingAutoProbeEnabled = computed({
+  get: () => upstreamBillingMode.value === 'sub2api',
+  set: (enabled: boolean) => {
+    upstreamBillingMode.value = enabled ? 'sub2api' : 'off'
+  }
+})
+const newAPISyncCreateConfig = reactive<NewAPISyncConfigUpdate>({
+  newapi_sync_enabled: true,
+  newapi_base_url: '',
+  newapi_user_access_token: '',
+  newapi_user_id: 0
+})
+const upstreamBillingConfigActive = computed(() => accountCategory.value === 'apikey'
+  || (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream'))
+const accountRateManaged = computed(() => upstreamBillingConfigActive.value && (
+  upstreamBillingMode.value === 'newapi'
+  || (upstreamBillingMode.value === 'sub2api' && upstreamBillingRateSyncEnabled.value)
+))
 const upstreamRateCalibration = ref(1)
 const upstreamBalanceAlertEnabled = shallowRef(DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED)
 const upstreamBalanceAlertThreshold = shallowRef<number | null>(DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD)
@@ -4154,6 +4175,12 @@ const form = reactive({
   rate_multiplier: 1,
   group_ids: [] as number[],
   expires_at: null as number | null
+})
+
+watch(() => form.platform, (platform) => {
+  if (platform !== 'openai' && upstreamBillingMode.value === 'newapi') {
+    upstreamBillingMode.value = 'sub2api'
+  }
 })
 
 // Helper to check if current type needs OAuth flow
@@ -4656,13 +4683,34 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
 }
 
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
+  const configureNewAPI = payload.platform === 'openai'
+    && payload.type === 'apikey'
+    && upstreamBillingMode.value === 'newapi'
+  if (configureNewAPI && (
+    !Number.isInteger(newAPISyncCreateConfig.newapi_user_id)
+    || newAPISyncCreateConfig.newapi_user_id <= 0
+    || !newAPISyncCreateConfig.newapi_user_access_token.trim()
+  )) {
+    appStore.showError(t('admin.accounts.newapiSync.createConfigRequired'))
+    return
+  }
+
   submitting.value = true
   try {
     const account = await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
-    if (
-      payload.type === 'apikey' &&
-      payload.upstream_billing_probe_enabled === true
-    ) {
+    if (configureNewAPI) {
+      try {
+        await adminAPI.accounts.updateNewAPISyncConfig(account.id, {
+          ...newAPISyncCreateConfig,
+          newapi_base_url: newAPISyncCreateConfig.newapi_base_url.trim(),
+          newapi_user_access_token: newAPISyncCreateConfig.newapi_user_access_token.trim()
+        })
+        await adminAPI.accounts.syncNewAPIRatio(account.id)
+      } catch {
+        // 账号已经创建成功，保留它并进入编辑页让管理员补齐或重试同步。
+        appStore.showWarning(t('admin.accounts.newapiSync.initialSetupFailed'))
+      }
+    } else if (payload.type === 'apikey' && payload.upstream_billing_probe_enabled === true) {
       try {
         await adminAPI.accounts.probeUpstreamBilling(account.id)
       } catch {
@@ -4670,7 +4718,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       }
     }
     appStore.showSuccess(t('admin.accounts.accountCreated'))
-    emit('created')
+    emit('created', account)
     handleClose()
   } catch (error: any) {
     if (error.response?.status === 409 && error.response?.data?.error === 'mixed_channel_warning' && needsMixedChannelCheck(form.platform)) {
@@ -4708,7 +4756,12 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
-  upstreamBillingAutoProbeEnabled.value = true
+  upstreamBillingMode.value = 'sub2api'
+  upstreamBillingRateSyncEnabled.value = false
+  newAPISyncCreateConfig.newapi_sync_enabled = true
+  newAPISyncCreateConfig.newapi_base_url = ''
+  newAPISyncCreateConfig.newapi_user_access_token = ''
+  newAPISyncCreateConfig.newapi_user_id = 0
   upstreamRateCalibration.value = 1
   upstreamBalanceAlertEnabled.value = DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED
   upstreamBalanceAlertThreshold.value = DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD
@@ -4821,7 +4874,7 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
     extra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
     extra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
     extra.openai_upstream_rate_calibration = upstreamRateCalibration.value
-    if (upstreamBillingAutoProbeEnabled.value) {
+    if (upstreamBillingMode.value !== 'off') {
       extra.upstream_balance_alert_enabled = upstreamBalanceAlertEnabled.value
       if (
         upstreamBalanceAlertEnabled.value &&
@@ -5237,6 +5290,7 @@ const handleSubmit = async () => {
     group_ids: form.group_ids,
     extra,
     upstream_billing_probe_enabled: upstreamBillingAutoProbeEnabled.value,
+    upstream_billing_rate_sync_enabled: upstreamBillingRateSyncEnabled.value,
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }
@@ -5375,6 +5429,7 @@ const createAccountAndFinish = async (
     // 上游倍率探测对全部 API-key 平台开放（antigravity upstream 走本 helper）；
     // 非 apikey 类型（bedrock/oauth）不传，后端不动作。
     upstream_billing_probe_enabled: type === 'apikey' ? upstreamBillingAutoProbeEnabled.value : undefined,
+    upstream_billing_rate_sync_enabled: type === 'apikey' ? upstreamBillingRateSyncEnabled.value : undefined,
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }

@@ -450,7 +450,7 @@
       </template>
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
-    <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
+    <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="handleAccountCreated" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
@@ -1509,6 +1509,12 @@ const cols = computed(() =>
 )
 
 const handleEdit = (a: Account) => { edAcc.value = a; showEdit.value = true }
+const handleAccountCreated = async (account?: Account) => {
+  await reload()
+  if (!account) return
+  edAcc.value = accounts.value.find(candidate => candidate.id === account.id) || account
+  showEdit.value = true
+}
 const openMenu = (a: Account, e: MouseEvent) => {
   menu.acc = a
 
@@ -2043,7 +2049,10 @@ const handleDuplicateAccount = async (a: Account) => {
   try {
     const duplicate = await adminAPI.accounts.duplicate(a.id)
     appStore.showSuccess(t('admin.accounts.duplicateSuccess', { name: duplicate.name }))
-    reload()
+    await reload()
+    // 复制接口会主动清理敏感凭据、探测快照和自动同步身份；立即打开完整编辑页补齐。
+    edAcc.value = accounts.value.find(candidate => candidate.id === duplicate.id) || duplicate
+    showEdit.value = true
   } catch (error: any) {
     console.error('Failed to duplicate account:', error)
     appStore.showError(error?.message || t('admin.accounts.duplicateFailed'))

@@ -91,7 +91,11 @@ const mountView = () =>
         ErrorPassthroughRulesModal: true,
         TLSFingerprintProfilesModal: true,
         CreateAccountModal: true,
-        EditAccountModal: true,
+        EditAccountModal: {
+          name: 'EditAccountModal',
+          props: ['show', 'account'],
+          template: '<div data-testid="edit-account-modal" />'
+        },
         BulkEditAccountModal: true,
         PlatformTypeBadge: true,
         AccountCapacityCell: true,
@@ -134,6 +138,9 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     expect(duplicateAccount).toHaveBeenCalledWith(42)
     expect(showSuccess).toHaveBeenCalledWith('admin.accounts.duplicateSuccess')
     expect(listAccounts.mock.calls.length).toBeGreaterThan(1)
+    const editModal = wrapper.getComponent({ name: 'EditAccountModal' })
+    expect(editModal.props('show')).toBe(true)
+    expect(editModal.props('account')).toEqual(expect.objectContaining({ id: 998 }))
     wrapper.unmount()
   })
 

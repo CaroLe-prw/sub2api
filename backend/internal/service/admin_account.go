@@ -563,7 +563,19 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Status:      StatusActive,
 		Schedulable: true,
 	}
-	if input.ProbeEnabled != nil && *input.ProbeEnabled {
+	probeEnabled := input.ProbeEnabled != nil && *input.ProbeEnabled
+	rateSyncEnabled := input.RateSyncEnabled != nil && *input.RateSyncEnabled
+	// 倍率同步依赖周期探测；与更新账号的行为保持一致，显式冲突时拒绝，未传时自动开启探测。
+	if rateSyncEnabled {
+		if input.ProbeEnabled != nil && !*input.ProbeEnabled {
+			return nil, infraerrors.BadRequest(
+				"UPSTREAM_BILLING_RATE_SYNC_REQUIRES_PROBE",
+				"upstream billing rate sync requires upstream billing probe",
+			)
+		}
+		probeEnabled = true
+	}
+	if probeEnabled {
 		if !isUpstreamBillingProbeAccount(account) {
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
@@ -571,6 +583,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 			account.Extra = make(map[string]any)
 		}
 		account.Extra[UpstreamBillingProbeEnabledExtraKey] = true
+	}
+	if rateSyncEnabled {
+		account.Extra[UpstreamBillingRateSyncEnabledExtraKey] = true
 	}
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {

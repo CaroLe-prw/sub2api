@@ -1459,25 +1459,6 @@
               )
             }}
           </p>
-          <div
-            v-if="account?.type === 'apikey' && upstreamBillingMode === 'sub2api'"
-            class="mt-3 flex items-center justify-between gap-3"
-          >
-            <div class="min-w-0">
-              <p class="text-xs font-medium text-gray-700 dark:text-gray-200">
-                {{ t('admin.accounts.upstreamBilling.syncRate') }}
-              </p>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.upstreamBilling.syncRateHint') }}
-              </p>
-            </div>
-            <Toggle
-              :model-value="upstreamBillingRateSyncEnabled"
-              data-testid="upstream-billing-rate-sync"
-              :aria-label="t('admin.accounts.upstreamBilling.syncRate')"
-              @update:model-value="handleUpstreamBillingRateSyncChange"
-            />
-          </div>
         </div>
       </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -1689,21 +1670,11 @@
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
         data-testid="upstream-billing-settings"
       >
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-          <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.mode') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.upstreamBilling.modeHint') }}
-            </p>
-          </div>
-          <div class="w-full sm:w-56">
-            <Select
-              v-model="upstreamBillingMode"
-              :options="upstreamBillingModeOptions"
-              data-testid="upstream-billing-mode"
-            />
-          </div>
-        </div>
+        <UpstreamBillingSourceField
+          v-model:mode="upstreamBillingMode"
+          v-model:rate-sync-enabled="upstreamBillingRateSyncEnabled"
+          :allow-new-api="account?.platform === 'openai'"
+        />
         <div v-if="account?.platform === 'openai' && upstreamBillingMode !== 'off'">
           <label class="input-label">{{ t('admin.accounts.upstreamBilling.calibrationFactor') }}</label>
           <input
@@ -2767,6 +2738,11 @@ import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
 import NewAPISyncSettings from '@/components/account/NewAPISyncSettings.vue'
+import UpstreamBillingSourceField from '@/components/account/UpstreamBillingSourceField.vue'
+import {
+  resolveUpstreamBillingMode,
+  type UpstreamBillingMode
+} from '@/components/account/upstreamBilling'
 import UpstreamBalanceAlertFields from '@/components/account/UpstreamBalanceAlertFields.vue'
 import {
   DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED,
@@ -2946,7 +2922,6 @@ const autoPause5hThreshold = ref<number | null>(null)
 const autoPause7dThreshold = ref<number | null>(null)
 const autoPause5hDisabled = ref(false)
 const autoPause7dDisabled = ref(false)
-type UpstreamBillingMode = 'off' | 'sub2api' | 'newapi'
 type NewAPISyncSettingsExpose = {
   persistConfig: () => Promise<boolean>
 }
@@ -2956,23 +2931,11 @@ const upstreamRateCalibration = ref(1)
 const upstreamBalanceAlertEnabled = shallowRef(DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED)
 const upstreamBalanceAlertThreshold = shallowRef<number | null>(DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD)
 const newapiSyncSettings = ref<NewAPISyncSettingsExpose | null>(null)
-const upstreamBillingModeOptions = computed(() => [
-  { value: 'off', label: t('admin.accounts.upstreamBilling.modes.off') },
-  { value: 'sub2api', label: t('admin.accounts.upstreamBilling.modes.sub2api') },
-  ...(props.account?.platform === 'openai'
-    ? [{ value: 'newapi' as const, label: t('admin.accounts.upstreamBilling.modes.newapi') }]
-    : [])
-])
 const upstreamBillingRateSyncEnabled = ref(false)
 const accountRateManaged = computed(
   () => upstreamBillingMode.value === 'newapi' ||
     (upstreamBillingMode.value === 'sub2api' && upstreamBillingRateSyncEnabled.value)
 )
-watch(upstreamBillingMode, (mode) => {
-  if (mode !== 'sub2api') {
-    upstreamBillingRateSyncEnabled.value = false
-  }
-})
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
 const antigravityProjectId = ref('')
@@ -3345,13 +3308,6 @@ const form = reactive({
   expires_at: null as number | null
 })
 
-const handleUpstreamBillingRateSyncChange = (enabled: boolean) => {
-  upstreamBillingRateSyncEnabled.value = enabled
-  if (enabled) {
-    upstreamBillingMode.value = 'sub2api'
-  }
-}
-
 const statusOptions = computed(() => {
   const options = [
     { value: 'active', label: t('common.active') },
@@ -3475,11 +3431,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
 	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
 	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
-	upstreamBillingMode.value = extra?.newapi_sync_enabled === true
-		? 'newapi'
-		: extra?.upstream_billing_probe_enabled === true
-			? 'sub2api'
-			: 'off'
+	upstreamBillingMode.value = resolveUpstreamBillingMode(extra)
 	upstreamRateCalibration.value =
 		typeof extra?.openai_upstream_rate_calibration === 'number' &&
 		Number.isFinite(extra.openai_upstream_rate_calibration) &&

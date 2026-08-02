@@ -9,83 +9,15 @@
     </div>
 
     <template v-else>
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div class="sm:col-span-2">
-          <label class="input-label" for="newapi-base-url">
-            {{ t('admin.accounts.newapiSync.baseUrl') }}
-          </label>
-          <input
-            id="newapi-base-url"
-            v-model.trim="form.newapi_base_url"
-            type="url"
-            class="input font-mono"
-            placeholder="https://newapi.example.com"
-            autocomplete="off"
-          />
-          <p class="input-hint">{{ t('admin.accounts.newapiSync.baseUrlHint') }}</p>
-        </div>
-
-        <div class="sm:col-span-2">
-          <label class="input-label" for="newapi-user-id">
-            {{ t('admin.accounts.newapiSync.userId') }}
-          </label>
-          <input
-            id="newapi-user-id"
-            v-model.number="form.newapi_user_id"
-            type="number"
-            min="1"
-            step="1"
-            class="input"
-          />
-        </div>
-
-        <div class="sm:col-span-2">
-          <label class="input-label" for="newapi-access-token">
-            {{ t('admin.accounts.newapiSync.accessToken') }}
-          </label>
-          <input
-            id="newapi-access-token"
-            v-model="form.newapi_user_access_token"
-            type="password"
-            class="input font-mono"
-            autocomplete="new-password"
-            data-1p-ignore
-            data-lpignore="true"
-            data-bwignore="true"
-            :placeholder="t('admin.accounts.newapiSync.secretPlaceholder')"
-          />
-          <p class="input-hint">{{ t('admin.accounts.newapiSync.secretHint') }}</p>
-        </div>
-
-        <div>
-          <label class="input-label" for="newapi-api-key">
-            {{ t('admin.accounts.newapiSync.apiKey') }}
-          </label>
-          <input
-            id="newapi-api-key"
-            type="text"
-            class="input font-mono"
-            :value="config?.has_newapi_api_key ? '********' : ''"
-            :placeholder="t('admin.accounts.newapiSync.apiKeyMissing')"
-            disabled
-          />
-          <p class="input-hint">{{ t('admin.accounts.newapiSync.apiKeyHint') }}</p>
-        </div>
-
-        <div>
-          <label class="input-label" for="newapi-sync-interval">
-            {{ t('admin.accounts.newapiSync.syncInterval') }}
-          </label>
-          <input
-            id="newapi-sync-interval"
-            type="number"
-            class="input"
-            :value="config?.newapi_balance_sync_interval || 30"
-            disabled
-          />
-          <p class="input-hint">{{ t('admin.accounts.newapiSync.syncIntervalHint') }}</p>
-        </div>
-      </div>
+      <NewAPISyncConfigFields
+        v-model:base-url="form.newapi_base_url"
+        v-model:user-id="form.newapi_user_id"
+        v-model:user-access-token="form.newapi_user_access_token"
+        id-prefix="newapi"
+        show-metadata
+        :has-api-key="config?.has_newapi_api_key === true"
+        :sync-interval="config?.newapi_balance_sync_interval || 30"
+      />
 
       <div class="flex flex-wrap gap-2">
         <button
@@ -173,6 +105,7 @@ import type {
 } from '@/types'
 import Icon from '@/components/icons/Icon.vue'
 import NewAPIBalanceSnapshotView from '@/components/account/NewAPIBalanceSnapshot.vue'
+import NewAPISyncConfigFields from '@/components/account/NewAPISyncConfigFields.vue'
 
 const props = defineProps<{
   accountId: number
