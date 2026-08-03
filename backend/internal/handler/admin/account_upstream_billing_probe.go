@@ -83,12 +83,12 @@ func (h *AccountHandler) ProbeUpstreamBilling(c *gin.Context) {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-	snapshot, err := h.upstreamBillingProbe.ProbeAccount(c.Request.Context(), accountID)
+	result, err := h.upstreamBillingProbe.RefreshSchedulingCost(c.Request.Context(), accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, service.UpstreamBillingProbeResult{AccountID: accountID, Snapshot: snapshot})
+	response.Success(c, result)
 }
 
 func (h *AccountHandler) ProbeUpstreamBillingBatch(c *gin.Context) {
@@ -118,5 +118,5 @@ func (h *AccountHandler) ProbeUpstreamBillingBatch(c *gin.Context) {
 		seen[accountID] = struct{}{}
 		accountIDs = append(accountIDs, accountID)
 	}
-	response.Success(c, gin.H{"results": h.upstreamBillingProbe.ProbeAccounts(c.Request.Context(), accountIDs)})
+	response.Success(c, gin.H{"results": h.upstreamBillingProbe.RefreshSchedulingCosts(c.Request.Context(), accountIDs)})
 }

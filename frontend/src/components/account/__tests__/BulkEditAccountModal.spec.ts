@@ -269,6 +269,52 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
+  it('OpenAI 账号批量编辑可开启 API 长上下文计费', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth', 'setup-token', 'apikey']
+    })
+
+    await wrapper.get('#bulk-edit-openai-long-context-billing-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-openai-long-context-billing-toggle').trigger('click')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        openai_long_context_billing_enabled: true
+      }
+    })
+  })
+
+  it('OpenAI 账号批量编辑可显式关闭 API 长上下文计费', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['apikey']
+    })
+
+    await wrapper.get('#bulk-edit-openai-long-context-billing-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        openai_long_context_billing_enabled: false
+      }
+    })
+  })
+
+  it('API 长上下文计费批量开关不对非 OpenAI 账号展示', () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['anthropic'],
+      selectedTypes: ['apikey']
+    })
+
+    expect(wrapper.find('#bulk-edit-openai-long-context-billing-enabled').exists()).toBe(false)
+  })
+
   it('OpenAI OAuth 批量编辑可开启 namespace 摊平兼容开关', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],

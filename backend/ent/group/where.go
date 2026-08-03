@@ -85,6 +85,16 @@ func RateMultiplier(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRateMultiplier, v))
 }
 
+// MaxAccountCostMultiplier applies equality check predicate on the "max_account_cost_multiplier" field. It's identical to MaxAccountCostMultiplierEQ.
+func MaxAccountCostMultiplier(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldMaxAccountCostMultiplier, v))
+}
+
+// OpenaiSchedulerProfile applies equality check predicate on the "openai_scheduler_profile" field. It's identical to OpenaiSchedulerProfileEQ.
+func OpenaiSchedulerProfile(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldOpenaiSchedulerProfile, v))
+}
+
 // PeakRateEnabled applies equality check predicate on the "peak_rate_enabled" field. It's identical to PeakRateEnabledEQ.
 func PeakRateEnabled(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldPeakRateEnabled, v))
@@ -613,6 +623,121 @@ func RateMultiplierLT(v float64) predicate.Group {
 // RateMultiplierLTE applies the LTE predicate on the "rate_multiplier" field.
 func RateMultiplierLTE(v float64) predicate.Group {
 	return predicate.Group(sql.FieldLTE(FieldRateMultiplier, v))
+}
+
+// MaxAccountCostMultiplierEQ applies the EQ predicate on the "max_account_cost_multiplier" field.
+func MaxAccountCostMultiplierEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldMaxAccountCostMultiplier, v))
+}
+
+// MaxAccountCostMultiplierNEQ applies the NEQ predicate on the "max_account_cost_multiplier" field.
+func MaxAccountCostMultiplierNEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldMaxAccountCostMultiplier, v))
+}
+
+// MaxAccountCostMultiplierIn applies the In predicate on the "max_account_cost_multiplier" field.
+func MaxAccountCostMultiplierIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldMaxAccountCostMultiplier, vs...))
+}
+
+// MaxAccountCostMultiplierNotIn applies the NotIn predicate on the "max_account_cost_multiplier" field.
+func MaxAccountCostMultiplierNotIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldMaxAccountCostMultiplier, vs...))
+}
+
+// MaxAccountCostMultiplierGT applies the GT predicate on the "max_account_cost_multiplier" field.
+func MaxAccountCostMultiplierGT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldMaxAccountCostMultiplier, v))
+}
+
+// MaxAccountCostMultiplierGTE applies the GTE predicate on the "max_account_cost_multiplier" field.
+func MaxAccountCostMultiplierGTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldMaxAccountCostMultiplier, v))
+}
+
+// MaxAccountCostMultiplierLT applies the LT predicate on the "max_account_cost_multiplier" field.
+func MaxAccountCostMultiplierLT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldMaxAccountCostMultiplier, v))
+}
+
+// MaxAccountCostMultiplierLTE applies the LTE predicate on the "max_account_cost_multiplier" field.
+func MaxAccountCostMultiplierLTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldMaxAccountCostMultiplier, v))
+}
+
+// MaxAccountCostMultiplierIsNil applies the IsNil predicate on the "max_account_cost_multiplier" field.
+func MaxAccountCostMultiplierIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldMaxAccountCostMultiplier))
+}
+
+// MaxAccountCostMultiplierNotNil applies the NotNil predicate on the "max_account_cost_multiplier" field.
+func MaxAccountCostMultiplierNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldMaxAccountCostMultiplier))
+}
+
+// OpenaiSchedulerProfileEQ applies the EQ predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldOpenaiSchedulerProfile, v))
+}
+
+// OpenaiSchedulerProfileNEQ applies the NEQ predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldOpenaiSchedulerProfile, v))
+}
+
+// OpenaiSchedulerProfileIn applies the In predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldOpenaiSchedulerProfile, vs...))
+}
+
+// OpenaiSchedulerProfileNotIn applies the NotIn predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldOpenaiSchedulerProfile, vs...))
+}
+
+// OpenaiSchedulerProfileGT applies the GT predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldOpenaiSchedulerProfile, v))
+}
+
+// OpenaiSchedulerProfileGTE applies the GTE predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldOpenaiSchedulerProfile, v))
+}
+
+// OpenaiSchedulerProfileLT applies the LT predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldOpenaiSchedulerProfile, v))
+}
+
+// OpenaiSchedulerProfileLTE applies the LTE predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldOpenaiSchedulerProfile, v))
+}
+
+// OpenaiSchedulerProfileContains applies the Contains predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldOpenaiSchedulerProfile, v))
+}
+
+// OpenaiSchedulerProfileHasPrefix applies the HasPrefix predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldOpenaiSchedulerProfile, v))
+}
+
+// OpenaiSchedulerProfileHasSuffix applies the HasSuffix predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldOpenaiSchedulerProfile, v))
+}
+
+// OpenaiSchedulerProfileEqualFold applies the EqualFold predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldOpenaiSchedulerProfile, v))
+}
+
+// OpenaiSchedulerProfileContainsFold applies the ContainsFold predicate on the "openai_scheduler_profile" field.
+func OpenaiSchedulerProfileContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldOpenaiSchedulerProfile, v))
 }
 
 // PeakRateEnabledEQ applies the EQ predicate on the "peak_rate_enabled" field.

@@ -13,6 +13,7 @@ import (
 const (
 	ProfitPreviewRateSourceManual        = "manual"
 	ProfitPreviewRateSourceUpstreamProbe = "upstream_probe_sync"
+	ProfitPreviewRateSourceNewAPI        = "newapi_sync"
 
 	ProfitPreviewWarningProbeMissing     = "probe_snapshot_missing"
 	ProfitPreviewWarningProbeStale       = "probe_snapshot_stale"
@@ -87,7 +88,8 @@ func PreviewProfitAdmission(inputs []ProfitPreviewGroupInput, evalAt time.Time) 
 			continue
 		}
 		group := in.Group
-		effectiveGate := (group.ProfitControlEnabled || in.AssumeEnabled) && profitControlPlatformSupported(group.Platform)
+		profitEnabled := (group.ProfitControlEnabled || in.AssumeEnabled) && profitControlPlatformSupported(group.Platform)
+		effectiveGate := profitEnabled || group.MaxAccountCostMultiplier != nil
 		report := ProfitPreviewGroupReport{
 			GroupID:              group.ID,
 			GroupName:            group.Name,
@@ -114,9 +116,8 @@ func PreviewProfitAdmission(inputs []ProfitPreviewGroupInput, evalAt time.Time) 
 			}
 		}
 		minD := minRate * peak
-		deduction := group.ProfitMinMargin + group.ProfitSafetyBuffer
-		thresholdDefault := clampProfitControlThreshold(defaultD * (1 - deduction))
-		thresholdMinD := clampProfitControlThreshold(minD * (1 - deduction))
+		thresholdDefault, _ := resolveGroupAccountCostThreshold(group, group, defaultD, profitEnabled)
+		thresholdMinD, _ := resolveGroupAccountCostThreshold(group, group, minD, profitEnabled)
 		report.DefaultD = defaultD
 		report.MinEffectiveD = minD
 		report.ThresholdDefault = thresholdDefault
@@ -163,19 +164,17 @@ func previewAccountProfitAdmission(
 		Platform:   account.Platform,
 		RateSource: ProfitPreviewRateSourceManual,
 	}
-	if enabled, _ := account.Extra[UpstreamBillingRateSyncEnabledExtraKey].(bool); enabled {
+	if NewAPISyncEnabled(account) {
+		verdict.RateSource = ProfitPreviewRateSourceNewAPI
+	} else if enabled, _ := account.Extra[UpstreamBillingRateSyncEnabledExtraKey].(bool); enabled {
 		verdict.RateSource = ProfitPreviewRateSourceUpstreamProbe
 		verdict.Warnings = append(verdict.Warnings, profitPreviewProbeWarnings(account, evalAt)...)
 	} else if account.RateMultiplier != nil && *account.RateMultiplier == 1 {
 		verdict.Warnings = append(verdict.Warnings, ProfitPreviewWarningManualRateOne)
 	}
 
-	validRate := account.RateMultiplier != nil &&
-		!math.IsNaN(*account.RateMultiplier) &&
-		!math.IsInf(*account.RateMultiplier, 0) &&
-		*account.RateMultiplier >= 0
+	rate, validRate := profitControlAccountRate(account)
 	if validRate {
-		rate := *account.RateMultiplier
 		verdict.AccountRate = &rate
 	}
 	switch {
@@ -183,11 +182,11 @@ func previewAccountProfitAdmission(
 		verdict.Class = ProfitPreviewClassAdmitted
 	case !validRate:
 		verdict.Class = ProfitPreviewClassRejectedInvalidRate
-	case profitControlOverThreshold(*account.RateMultiplier, thresholdDefault):
+	case profitControlOverThreshold(rate, thresholdDefault):
 		verdict.Class = ProfitPreviewClassRejectedThreshold
 	default:
 		verdict.Class = ProfitPreviewClassAdmitted
-		verdict.RejectedUnderMinD = profitControlOverThreshold(*account.RateMultiplier, thresholdMinD)
+		verdict.RejectedUnderMinD = profitControlOverThreshold(rate, thresholdMinD)
 	}
 	return verdict
 }

@@ -85,6 +85,35 @@ func (f optionalLimitField) ToServiceInput() *float64 {
 	return &zero
 }
 
+type optionalNullableFloatField struct {
+	set   bool
+	value *float64
+}
+
+func (f *optionalNullableFloatField) UnmarshalJSON(data []byte) error {
+	f.set = true
+	trimmed := bytes.TrimSpace(data)
+	if bytes.Equal(trimmed, []byte("null")) {
+		f.value = nil
+		return nil
+	}
+
+	var number float64
+	if err := json.Unmarshal(trimmed, &number); err != nil {
+		return fmt.Errorf("invalid numeric value: %s", string(trimmed))
+	}
+	f.value = &number
+	return nil
+}
+
+func (f optionalNullableFloatField) Value() *float64 {
+	return f.value
+}
+
+func (f optionalNullableFloatField) IsSet() bool {
+	return f.set
+}
+
 // NewGroupHandler creates a new admin group handler
 func NewGroupHandler(adminService service.AdminService, dashboardService *service.DashboardService, groupCapacityService *service.GroupCapacityService) *GroupHandler {
 	return &GroupHandler{
@@ -96,15 +125,18 @@ func NewGroupHandler(adminService service.AdminService, dashboardService *servic
 
 // CreateGroupRequest represents create group request
 type CreateGroupRequest struct {
-	Name             string             `json:"name" binding:"required"`
-	Description      string             `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok composite"`
-	RateMultiplier   float64            `json:"rate_multiplier"`
-	IsExclusive      bool               `json:"is_exclusive"`
-	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
-	DailyLimitUSD    optionalLimitField `json:"daily_limit_usd"`
-	WeeklyLimitUSD   optionalLimitField `json:"weekly_limit_usd"`
-	MonthlyLimitUSD  optionalLimitField `json:"monthly_limit_usd"`
+	Name                     string                             `json:"name" binding:"required"`
+	Description              string                             `json:"description"`
+	Platform                 string                             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok composite"`
+	RateMultiplier           float64                            `json:"rate_multiplier"`
+	MaxAccountCostMultiplier optionalNullableFloatField         `json:"max_account_cost_multiplier"`
+	OpenAISchedulerProfile   string                             `json:"openai_scheduler_profile"`
+	OpenAISchedulerConfig    service.GroupOpenAISchedulerConfig `json:"openai_scheduler_config"`
+	IsExclusive              bool                               `json:"is_exclusive"`
+	SubscriptionType         string                             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
+	DailyLimitUSD            optionalLimitField                 `json:"daily_limit_usd"`
+	WeeklyLimitUSD           optionalLimitField                 `json:"weekly_limit_usd"`
+	MonthlyLimitUSD          optionalLimitField                 `json:"monthly_limit_usd"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            bool     `json:"allow_image_generation"`
 	AllowBatchImageGeneration       bool     `json:"allow_batch_image_generation"`
@@ -157,16 +189,19 @@ type CreateGroupRequest struct {
 
 // UpdateGroupRequest represents update group request
 type UpdateGroupRequest struct {
-	Name             string             `json:"name"`
-	Description      *string            `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok composite"`
-	RateMultiplier   *float64           `json:"rate_multiplier"`
-	IsExclusive      *bool              `json:"is_exclusive"`
-	Status           string             `json:"status" binding:"omitempty,oneof=active inactive"`
-	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
-	DailyLimitUSD    optionalLimitField `json:"daily_limit_usd"`
-	WeeklyLimitUSD   optionalLimitField `json:"weekly_limit_usd"`
-	MonthlyLimitUSD  optionalLimitField `json:"monthly_limit_usd"`
+	Name                     string                              `json:"name"`
+	Description              *string                             `json:"description"`
+	Platform                 string                              `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok composite"`
+	RateMultiplier           *float64                            `json:"rate_multiplier"`
+	MaxAccountCostMultiplier optionalNullableFloatField          `json:"max_account_cost_multiplier"`
+	OpenAISchedulerProfile   *string                             `json:"openai_scheduler_profile"`
+	OpenAISchedulerConfig    *service.GroupOpenAISchedulerConfig `json:"openai_scheduler_config"`
+	IsExclusive              *bool                               `json:"is_exclusive"`
+	Status                   string                              `json:"status" binding:"omitempty,oneof=active inactive"`
+	SubscriptionType         string                              `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
+	DailyLimitUSD            optionalLimitField                  `json:"daily_limit_usd"`
+	WeeklyLimitUSD           optionalLimitField                  `json:"weekly_limit_usd"`
+	MonthlyLimitUSD          optionalLimitField                  `json:"monthly_limit_usd"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            *bool    `json:"allow_image_generation"`
 	AllowBatchImageGeneration       *bool    `json:"allow_batch_image_generation"`
@@ -493,6 +528,9 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		Description:                     req.Description,
 		Platform:                        req.Platform,
 		RateMultiplier:                  req.RateMultiplier,
+		MaxAccountCostMultiplier:        req.MaxAccountCostMultiplier.Value(),
+		OpenAISchedulerProfile:          req.OpenAISchedulerProfile,
+		OpenAISchedulerConfig:           req.OpenAISchedulerConfig,
 		IsExclusive:                     req.IsExclusive,
 		SubscriptionType:                req.SubscriptionType,
 		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
@@ -614,6 +652,10 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		Description:                     req.Description,
 		Platform:                        req.Platform,
 		RateMultiplier:                  req.RateMultiplier,
+		MaxAccountCostMultiplier:        req.MaxAccountCostMultiplier.Value(),
+		MaxAccountCostMultiplierSet:     req.MaxAccountCostMultiplier.IsSet(),
+		OpenAISchedulerProfile:          req.OpenAISchedulerProfile,
+		OpenAISchedulerConfig:           req.OpenAISchedulerConfig,
 		IsExclusive:                     req.IsExclusive,
 		Status:                          req.Status,
 		SubscriptionType:                req.SubscriptionType,

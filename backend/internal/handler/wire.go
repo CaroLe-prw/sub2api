@@ -149,6 +149,13 @@ func ProvideSystemHandler(updateService *service.UpdateService, lockService *ser
 	return admin.NewSystemHandler(updateService, lockService)
 }
 
+// ProvideAdminSubscriptionHandler attaches the independent quota-reset module.
+func ProvideAdminSubscriptionHandler(subscriptionService *service.SubscriptionService, quotaResetService *service.SubscriptionQuotaResetService) *admin.SubscriptionHandler {
+	h := admin.NewSubscriptionHandler(subscriptionService)
+	h.SetQuotaResetService(quotaResetService)
+	return h
+}
+
 // ProvideSettingHandler creates SettingHandler with version from BuildInfo
 func ProvideSettingHandler(settingService *service.SettingService, buildInfo BuildInfo, notificationEmailService *service.NotificationEmailService) *SettingHandler {
 	h := NewSettingHandler(settingService, buildInfo.Version)
@@ -255,7 +262,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAdminSettingHandler,
 	admin.NewOpsHandler,
 	ProvideSystemHandler,
-	admin.NewSubscriptionHandler,
+	ProvideAdminSubscriptionHandler,
 	admin.NewUsageHandler,
 	admin.NewUserAttributeHandler,
 	admin.NewErrorPassthroughHandler,

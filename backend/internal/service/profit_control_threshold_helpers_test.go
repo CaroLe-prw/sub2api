@@ -36,3 +36,22 @@ func TestProfitControlOverThreshold(t *testing.T) {
 	require.False(t, profitControlOverThreshold(0, 0))
 	require.True(t, profitControlOverThreshold(0.0001, 0))
 }
+
+func TestResolveGroupAccountCostThresholdUsesStrictestConstraint(t *testing.T) {
+	childCap := 0.7
+	parentCap := 0.6
+	child := profitControlTestGroup(1, 0.2, 0.1)
+	child.MaxAccountCostMultiplier = &childCap
+	parent := profitControlTestGroup(2, 0, 0)
+	parent.MaxAccountCostMultiplier = &parentCap
+
+	threshold, active := resolveGroupAccountCostThreshold(child, parent, 1, true)
+	require.True(t, active)
+	require.InDelta(t, 0.6, threshold, 1e-12, "parent cap is stricter than dynamic 0.7 and child cap 0.7")
+
+	child.ProfitControlEnabled = false
+	child.MaxAccountCostMultiplier = nil
+	parent.MaxAccountCostMultiplier = nil
+	_, active = resolveGroupAccountCostThreshold(child, parent, 1, false)
+	require.False(t, active)
+}

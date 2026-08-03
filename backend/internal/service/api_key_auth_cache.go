@@ -120,11 +120,12 @@ type APIKeyAuthGroupSnapshot struct {
 	// 认证中间件放入 ctx 的 Group，而它正是本快照物化出来的对象，生产绝大
 	// 多数流量走的都是这条路；只有 composite/模型路由等被调度分组与认证分组
 	// 不一致时才回源 schedulerSnapshot。
-	// 因此这三个字段与 GetByKeyForAuth 的投影都不得删减：漏掉任何一个，
+	// 因此这些字段与 GetByKeyForAuth 的投影都不得删减：漏掉任何一个，
 	// 门会拿到零值 ProfitControlEnabled=false 而静默失效（有集成测试兜底）。
-	ProfitControlEnabled bool    `json:"profit_control_enabled"`
-	ProfitMinMargin      float64 `json:"profit_min_margin"`
-	ProfitSafetyBuffer   float64 `json:"profit_safety_buffer"`
+	ProfitControlEnabled     bool     `json:"profit_control_enabled"`
+	ProfitMinMargin          float64  `json:"profit_min_margin"`
+	ProfitSafetyBuffer       float64  `json:"profit_safety_buffer"`
+	MaxAccountCostMultiplier *float64 `json:"max_account_cost_multiplier,omitempty"`
 }
 
 // APIKeyAuthCacheEntry 缓存条目，支持负缓存

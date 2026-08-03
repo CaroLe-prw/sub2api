@@ -56,11 +56,16 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	if groupIn == nil {
 		return errors.New("group is nil")
 	}
+	schedulerProfile := service.NormalizeGroupOpenAISchedulerProfile(groupIn.OpenAISchedulerProfile)
+	groupIn.OpenAISchedulerProfile = schedulerProfile
 	builder := client.Group.Create().
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
+		SetNillableMaxAccountCostMultiplier(groupIn.MaxAccountCostMultiplier).
+		SetOpenaiSchedulerProfile(groupIn.OpenAISchedulerProfile).
+		SetOpenaiSchedulerConfig(groupIn.OpenAISchedulerConfig).
 		SetSortOrder(groupIn.SortOrder).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
@@ -234,6 +239,8 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
+		SetOpenaiSchedulerProfile(groupIn.OpenAISchedulerProfile).
+		SetOpenaiSchedulerConfig(groupIn.OpenAISchedulerConfig).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
 		SetSubscriptionType(groupIn.SubscriptionType).
@@ -275,6 +282,12 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetProfitControlEnabled(groupIn.ProfitControlEnabled).
 		SetProfitMinMargin(groupIn.ProfitMinMargin).
 		SetProfitSafetyBuffer(groupIn.ProfitSafetyBuffer)
+
+	if groupIn.MaxAccountCostMultiplier != nil {
+		builder = builder.SetMaxAccountCostMultiplier(*groupIn.MaxAccountCostMultiplier)
+	} else {
+		builder = builder.ClearMaxAccountCostMultiplier()
+	}
 
 	// 显式处理可空字段：nil 需要 clear，非 nil 需要 set。
 	if groupIn.DailyLimitUSD != nil {

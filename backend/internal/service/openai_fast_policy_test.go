@@ -76,6 +76,32 @@ func openAIFastFilterPriorityPolicy() *OpenAIFastPolicySettings {
 	}
 }
 
+func TestOpenAIAccountForceFastModeIsUpstreamOnly(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Extra:    map[string]any{openAIForceFastModeExtraKey: true},
+	}
+	inbound := []byte(`{"model":"gpt-5.5","service_tier":"flex"}`)
+	billingTier := extractOpenAIServiceTierFromBody(inbound)
+
+	outbound, err := applyOpenAIAccountForceFastModeToBody(account, inbound)
+
+	require.NoError(t, err)
+	require.Equal(t, OpenAIFastTierPriority, gjson.GetBytes(outbound, "service_tier").String())
+	require.Equal(t, OpenAIFastTierFlex, *billingTier)
+	require.Equal(t, OpenAIFastTierFlex, gjson.GetBytes(inbound, "service_tier").String())
+
+	outbound, err = applyOpenAIAccountForceFastModeToBody(account, []byte(`{"model":"gpt-5.5"}`))
+	require.NoError(t, err)
+	require.Equal(t, OpenAIFastTierPriority, gjson.GetBytes(outbound, "service_tier").String())
+
+	err = ValidateOpenAIForceFastModeExtra(
+		PlatformOpenAI,
+		map[string]any{openAIForceFastModeExtraKey: "true"},
+	)
+	require.Error(t, err)
+}
+
 func TestEvaluateOpenAIFastPolicy_DefaultPassesKnownTiers(t *testing.T) {
 	require.Empty(t, DefaultOpenAIFastPolicySettings().Rules, "default policy must not rewrite service_tier unless admin configured rules")
 

@@ -4595,7 +4595,7 @@
                     data-testid="openai-oauth-scheduling-rate-multiplier"
                     min="0"
                     required
-                    step="0.01"
+                    step="any"
                     type="number"
                   />
                   <span
@@ -4684,7 +4684,7 @@
                     data-testid="openai-oauth-scheduling-rate-multiplier"
                     min="0"
                     required
-                    step="0.01"
+                    step="any"
                     type="number"
                   />
                   <span
@@ -4729,6 +4729,10 @@
                   </label>
                 </div>
               </div>
+
+              <OpenAISchedulerTemplateEditor
+                v-model="form.openai_scheduler_templates"
+              />
             </div>
           </div>
 
@@ -7171,7 +7175,7 @@
                           ) || 1
                       "
                       type="number"
-                      step="0.01"
+                      step="any"
                       min="0.01"
                       class="input"
                     />
@@ -7984,13 +7988,17 @@
         </div>
         <!-- /Tab: Email -->
 
+        <div v-show="activeTab === 'notifications'">
+          <TelegramNotificationSettings />
+        </div>
+
         <!-- Tab: Backup -->
         <div v-show="activeTab === 'backup'">
           <BackupSettings />
         </div>
 
         <!-- Save Button -->
-        <div v-show="activeTab !== 'backup'" class="flex justify-end">
+        <div v-show="activeTab !== 'backup' && activeTab !== 'notifications'" class="flex justify-end">
           <button
             type="submit"
             :disabled="saving || loadFailed"
@@ -8071,6 +8079,8 @@ import {
   buildAuthSourceDefaultsState,
   normalizePlatformQuotasMap,
   sanitizePlatformQuotasMap,
+  createDefaultOpenAISchedulerTemplates,
+  normalizeOpenAISchedulerTemplates,
   defaultWeChatConnectScopesForMode,
   deriveWeChatConnectStoredMode,
   normalizeDefaultSubscriptionSettings,
@@ -8088,6 +8098,7 @@ import type {
   WebSearchEmulationConfig,
   WebSearchProviderConfig,
   WebSearchTestResult,
+  OpenAISchedulerTemplates,
 } from "@/api/admin/settings";
 import type {
   AdminGroup,
@@ -8107,8 +8118,10 @@ import GroupOptionItem from "@/components/common/GroupOptionItem.vue";
 import Toggle from "@/components/common/Toggle.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
+import OpenAISchedulerTemplateEditor from "@/views/admin/settings/OpenAISchedulerTemplateEditor.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
+import TelegramNotificationSettings from "@/views/admin/settings/TelegramNotificationSettings.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import {
@@ -8168,6 +8181,7 @@ type SettingsTab =
   | "gateway"
   | "payment"
   | "email"
+  | "notifications"
   | "backup";
 const activeTab = ref<SettingsTab>("general");
 const settingsTabs = [
@@ -8179,6 +8193,7 @@ const settingsTabs = [
   { key: "gateway" as SettingsTab, icon: "server" as const },
   { key: "payment" as SettingsTab, icon: "creditCard" as const },
   { key: "email" as SettingsTab, icon: "mail" as const },
+  { key: "notifications" as SettingsTab, icon: "bell" as const },
   { key: "backup" as SettingsTab, icon: "database" as const },
 ];
 
@@ -8808,6 +8823,7 @@ type SettingsForm = Omit<
   openai_advanced_scheduler_weight_upstream_cost: string;
   openai_advanced_scheduler_weight_previous_response: string;
   openai_advanced_scheduler_weight_session_sticky: string;
+  openai_scheduler_templates: OpenAISchedulerTemplates;
   // 系统全局平台限额 map；form 内始终归一化为全 4 平台对象（模板非空绑定依赖此不变量）
   default_platform_quotas: DefaultPlatformQuotasMap;
 };
@@ -9026,6 +9042,7 @@ const form = reactive<SettingsForm>({
   openai_advanced_scheduler_weight_upstream_cost: "",
   openai_advanced_scheduler_weight_previous_response: "",
   openai_advanced_scheduler_weight_session_sticky: "",
+  openai_scheduler_templates: createDefaultOpenAISchedulerTemplates(),
   // Gateway forwarding behavior
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
@@ -9970,6 +9987,9 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    form.openai_scheduler_templates = normalizeOpenAISchedulerTemplates(
+      settings.openai_scheduler_templates,
+    );
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
         defaultClaudeOAuthSystemPromptBlocks;
@@ -10589,6 +10609,7 @@ async function saveSettings() {
         form.openai_advanced_scheduler_weight_previous_response.trim(),
       openai_advanced_scheduler_weight_session_sticky:
         form.openai_advanced_scheduler_weight_session_sticky.trim(),
+      openai_scheduler_templates: form.openai_scheduler_templates,
       // 余额、订阅到期与账号限额通知
       balance_low_notify_enabled: form.balance_low_notify_enabled,
       balance_low_notify_threshold:

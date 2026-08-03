@@ -146,6 +146,9 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 	}
 	out := &AdminGroup{
 		Group:                       groupFromServiceBase(g),
+		MaxAccountCostMultiplier:    g.MaxAccountCostMultiplier,
+		OpenAISchedulerProfile:      g.OpenAISchedulerProfile,
+		OpenAISchedulerConfig:       g.OpenAISchedulerConfig,
 		ProfitControlEnabled:        g.ProfitControlEnabled,
 		ProfitMinMargin:             g.ProfitMinMargin,
 		ProfitSafetyBuffer:          g.ProfitSafetyBuffer,
@@ -324,6 +327,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 
 	// 提取账号配额限制（apikey / bedrock 类型有效）
 	if a.IsAPIKeyOrBedrock() {
+		usageMultiplier := a.GetQuotaUsageMultiplier()
+		out.QuotaUsageMultiplier = &usageMultiplier
 		if limit := a.GetQuotaLimit(); limit > 0 {
 			out.QuotaLimit = &limit
 			used := a.GetQuotaUsed()
@@ -406,6 +411,12 @@ func redactAccountManagedExtra(extra map[string]any) map[string]any {
 			service.OllamaCloudUsageAutoRefreshExtraKey,
 			service.OllamaCloudUsageSnapshotExtraKey:
 			continue
+		case service.NewAPISyncIdentityExtraKey:
+			continue
+		case service.NewAPIUserAccessTokenExtraKey, service.NewAPIAPIKeyExtraKey:
+			if raw, ok := value.(string); ok && raw != "" {
+				redacted[key] = service.NewAPISecretMask
+			}
 		default:
 			redacted[key] = value
 		}

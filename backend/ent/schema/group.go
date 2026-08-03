@@ -45,6 +45,19 @@ func (Group) Fields() []ent.Field {
 		field.Float("rate_multiplier").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(1.0),
+		field.Float("max_account_cost_multiplier").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Comment("账号调度成本倍率硬上限；NULL 表示不设置独立硬上限"),
+		field.String("openai_scheduler_profile").
+			MaxLen(20).
+			Default(domain.GroupOpenAISchedulerProfileInherit).
+			Comment("OpenAI 分组调度策略：inherit/sla/balanced/cost/custom"),
+		field.JSON("openai_scheduler_config", domain.GroupOpenAISchedulerConfig{}).
+			Default(domain.GroupOpenAISchedulerConfig{}).
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("OpenAI 分组自定义调度参数；非 custom 策略保留但不生效"),
 		// 高峰时段倍率（added by migration 158）
 		field.Bool("peak_rate_enabled").
 			Default(false).

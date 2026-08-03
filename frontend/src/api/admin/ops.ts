@@ -750,6 +750,68 @@ export interface EmailNotificationConfig {
   }
 }
 
+export interface OpsTelegramNotificationTemplate {
+  id: string
+  name: string
+  enabled: boolean
+  bot_token_configured: boolean
+  chat_id: string
+  topic_id: number | null
+  base_url: string
+  disable_notification: boolean
+  protect_content: boolean
+}
+
+export interface OpsTelegramNotificationDraft extends OpsTelegramNotificationTemplate {
+  bot_token: string
+  clear_bot_token?: boolean
+}
+
+export interface OpsTelegramNotificationTemplateUpdate {
+  id: string
+  name: string
+  enabled: boolean
+  bot_token: string
+  clear_bot_token?: boolean
+  chat_id: string
+  topic_id: number | null
+  base_url: string
+  disable_notification: boolean
+  protect_content: boolean
+}
+
+export interface OpsTelegramNotificationConfig {
+  templates: OpsTelegramNotificationTemplate[]
+  ops_alert_template_id: string
+  upstream_rate_change_enabled: boolean
+  upstream_rate_change_template_id: string
+  upstream_balance_low_enabled: boolean
+  upstream_balance_low_template_id: string
+}
+
+export interface OpsTelegramNotificationUpdateRequest {
+  templates: OpsTelegramNotificationTemplateUpdate[]
+  ops_alert_template_id: string
+  upstream_rate_change_enabled: boolean
+  upstream_rate_change_template_id: string
+  upstream_balance_low_enabled: boolean
+  upstream_balance_low_template_id: string
+}
+
+export interface OpsTelegramNotificationTestRequest {
+  template_id: string
+  bot_token: string
+  chat_id: string
+  topic_id: number | null
+  base_url: string
+  disable_notification: boolean
+  protect_content: boolean
+}
+
+export interface OpsTelegramNotificationTestResponse {
+  sent: boolean
+}
+
 export interface OpsMetricThresholds {
   sla_percent_min?: number | null                 // SLA低于此值变红
   ttft_p99_ms_max?: number | null                 // TTFT P99高于此值变红
@@ -1242,6 +1304,32 @@ export async function updateEmailNotificationConfig(config: EmailNotificationCon
   return data
 }
 
+// Telegram notification config
+export async function getTelegramNotificationConfig(): Promise<OpsTelegramNotificationConfig> {
+  const { data } = await apiClient.get<OpsTelegramNotificationConfig>('/admin/settings/telegram-notification')
+  return data
+}
+
+export async function updateTelegramNotificationConfig(
+  config: OpsTelegramNotificationUpdateRequest
+): Promise<OpsTelegramNotificationConfig> {
+  const { data } = await apiClient.put<OpsTelegramNotificationConfig>(
+    '/admin/settings/telegram-notification',
+    config
+  )
+  return data
+}
+
+export async function testTelegramNotification(
+  config: OpsTelegramNotificationTestRequest
+): Promise<OpsTelegramNotificationTestResponse> {
+  const { data } = await apiClient.post<OpsTelegramNotificationTestResponse>(
+    '/admin/settings/telegram-notification/test',
+    config
+  )
+  return data
+}
+
 // Runtime settings (DB-backed)
 export async function getAlertRuntimeSettings(): Promise<OpsAlertRuntimeSettings> {
   const { data } = await apiClient.get<OpsAlertRuntimeSettings>('/admin/ops/runtime/alert')
@@ -1344,6 +1432,9 @@ export const opsAPI = {
   createAlertSilence,
   getEmailNotificationConfig,
   updateEmailNotificationConfig,
+  getTelegramNotificationConfig,
+  updateTelegramNotificationConfig,
+  testTelegramNotification,
   getAlertRuntimeSettings,
   updateAlertRuntimeSettings,
   getRuntimeLogConfig,

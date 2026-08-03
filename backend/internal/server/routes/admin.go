@@ -200,6 +200,11 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		ops.GET("/email-notification/config", h.Admin.Ops.GetEmailNotificationConfig)
 		ops.PUT("/email-notification/config", h.Admin.Ops.UpdateEmailNotificationConfig)
 
+		// Telegram notification config (DB-backed, encrypted token)
+		ops.GET("/telegram-notification/config", h.Admin.Ops.GetTelegramNotificationConfig)
+		ops.PUT("/telegram-notification/config", h.Admin.Ops.UpdateTelegramNotificationConfig)
+		ops.POST("/telegram-notification/test", h.Admin.Ops.TestTelegramNotification)
+
 		// Runtime settings (DB-backed)
 		runtime := ops.Group("/runtime")
 		{
@@ -353,6 +358,10 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/ollama-cloud-usage/settings", h.Admin.Account.GetOllamaCloudUsageSettings)
 		accounts.PUT("/ollama-cloud-usage/settings", h.Admin.Account.UpdateOllamaCloudUsageSettings)
 		accounts.GET("/:id", h.Admin.Account.GetByID)
+		accounts.GET("/:id/newapi-sync", h.Admin.Account.GetNewAPISyncConfig)
+		accounts.PUT("/:id/newapi-sync", h.Admin.Account.UpdateNewAPISyncConfig)
+		accounts.POST("/:id/newapi-sync/test", h.Admin.Account.TestNewAPISyncConnection)
+		accounts.POST("/:id/newapi-sync/run", h.Admin.Account.SyncNewAPIRatio)
 		accounts.POST("", h.Admin.Account.Create)
 		accounts.POST("/:id/duplicate", h.Admin.Account.Duplicate)
 		accounts.POST("/check-mixed-channel", h.Admin.Account.CheckMixedChannel)
@@ -383,6 +392,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/:id/clear-rate-limit", h.Admin.Account.ClearRateLimit)
 		accounts.POST("/:id/reset-quota", h.Admin.Account.ResetQuota)
 		accounts.GET("/:id/temp-unschedulable", h.Admin.Account.GetTempUnschedulable)
+		accounts.POST("/:id/temp-unschedulable", h.Admin.Account.PauseScheduling)
 		accounts.DELETE("/:id/temp-unschedulable", h.Admin.Account.ClearTempUnschedulable)
 		accounts.POST("/:id/schedulable", h.Admin.Account.SetSchedulable)
 		accounts.POST("/models/sync-upstream-preview", h.Admin.Account.SyncUpstreamModelsPreview)
@@ -529,6 +539,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		adminSettings.GET("", h.Admin.Setting.GetSettings)
 		adminSettings.PUT("", h.Admin.Setting.UpdateSettings)
+		adminSettings.GET("/telegram-notification", h.Admin.Ops.GetTelegramNotificationConfig)
+		adminSettings.PUT("/telegram-notification", h.Admin.Ops.UpdateTelegramNotificationConfig)
+		adminSettings.POST("/telegram-notification/test", h.Admin.Ops.TestTelegramNotification)
 		adminSettings.POST("/test-smtp", h.Admin.Setting.TestSMTPConnection)
 		adminSettings.POST("/send-test-email", h.Admin.Setting.SendTestEmail)
 		adminSettings.GET("/email-templates", h.Admin.Setting.ListEmailTemplates)
@@ -635,6 +648,13 @@ func registerSystemRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 }
 
 func registerSubscriptionRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	quotaReset := admin.Group("/subscription-quota-reset")
+	{
+		quotaReset.GET("", h.Admin.Subscription.GetQuotaResetSettings)
+		quotaReset.PUT("", h.Admin.Subscription.UpdateQuotaResetSettings)
+		quotaReset.POST("/run", h.Admin.Subscription.RunQuotaReset)
+	}
+
 	subscriptions := admin.Group("/subscriptions")
 	{
 		subscriptions.GET("", h.Admin.Subscription.List)

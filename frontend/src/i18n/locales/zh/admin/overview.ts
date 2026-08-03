@@ -827,6 +827,9 @@ export default {
         descriptionPlaceholder: '请输入描述（可选）',
         rateMultiplierLabel: '费率倍数',
         rateMultiplierHint: '1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
+        maxAccountCostMultiplier: '账号最大调度成本倍率',
+        maxAccountCostMultiplierPlaceholder: '留空表示不设绝对上限',
+        maxAccountCostMultiplierHint: '只允许持久化计费倍率不高于此值的账号参与调度。同时开启利润控制时取更严格的阈值；组合分组上限也会约束路由到子分组的账号。此设置不改变用户计费。',
         rpmLimit: '每分钟请求数 (RPM)',
         rpmLimitPlaceholder: '0 表示不限制',
         rpmLimitHint: '每用户在本分组每分钟最大请求数，0 = 不限制；一旦设置即接管该用户的限流（覆盖用户级 rpm_limit）',
@@ -854,6 +857,49 @@ export default {
         priorityLabel: '优先级',
         priorityHint: '数值越小优先级越高，用于账号调度',
         statusLabel: '状态'
+      },
+      scheduler: {
+        title: 'OpenAI 分组调度策略',
+        profiles: {
+          inherit: {
+            label: '继承系统默认',
+            description: '继续使用系统设置中的高级调度开关、TopK、权重和粘性配置。'
+          },
+          sla: {
+            label: 'SLA 优先',
+            description: '重点规避高负载、排队、错误和高首包延迟，成本不参与软排序。'
+          },
+          balanced: {
+            label: '均衡',
+            description: '综合考虑稳定性、负载、额度余量和调度成本，适合常规分组。'
+          },
+          cost: {
+            label: '成本优先',
+            description: '显著偏向低成本账号，同时保留基本健康度保护；建议配合账号最大调度成本倍率使用。'
+          },
+          custom: {
+            label: '自定义',
+            description: '仅填写的 TopK 和权重会覆盖系统配置；留空则继承配置/环境变量值。'
+          }
+        },
+        defaultPlaceholder: '配置/默认：{value}',
+        weights: {
+          topK: 'TopK',
+          priority: '优先级',
+          load: '负载',
+          queue: '排队',
+          errorRate: '错误率',
+          ttft: '首包延迟',
+          reset: '重置窗口',
+          quotaHeadroom: '额度余量',
+          upstreamCost: '调度成本倍率',
+          previousResponse: 'previous_response 粘性',
+          sessionSticky: 'session_hash 粘性'
+        },
+        stickyWeighted: '粘性加权',
+        stickyWeightedHint: '关闭时仍沿用硬粘性；开启后粘性作为评分项，可在账号劣化时切换。',
+        subscriptionPriority: '订阅账号优先',
+        subscriptionPriorityHint: '先尝试 ChatGPT 订阅账号池，无法取得席位时再回退普通账号。'
       },
       exclusiveObj: {
         yes: '是',
@@ -897,6 +943,7 @@ export default {
       rateAndAccounts: '{rate}x 费率 · {count} 个账号',
       accountsCount: '{count} 个账号',
       rateLabel: '倍率',
+      maxAccountCostCell: '账号成本 ≤ {value}x',
       accountFilters: {
         title: '账号过滤控制',
         oauthOnly: '仅允许 OAuth 账号',
@@ -922,6 +969,20 @@ export default {
       failedToCreate: '创建分组失败',
       failedToUpdate: '更新分组失败',
       nameRequired: '请输入分组名称',
+      manageAccounts: '管理账号',
+      manageAccountsTitle: '管理「{name}」的关联账号',
+      manageAccountsSummary: '已关联 {selected} / {total} 个账号',
+      manageAccountsSearch: '搜索账号名称、ID、备注或平台',
+      manageAccountsSelectVisible: '选择当前结果',
+      manageAccountsClearVisible: '清除当前结果',
+      manageAccountsEmpty: '暂无可管理的账号',
+      manageAccountsNoMatch: '没有匹配的账号',
+      manageAccountsHint: '勾选或取消账号后保存，只会修改该账号与当前分组的关联关系。',
+      manageAccountsSave: '保存关联',
+      manageAccountsSaving: '保存中...',
+      manageAccountsSaved: '关联账号已更新',
+      manageAccountsLoadFailed: '加载关联账号失败',
+      manageAccountsSaveFailed: '保存关联账号失败',
       rateMultipliers: '专属倍率',
       rateMultipliersTitle: '分组专属倍率管理',
       addUserRate: '添加用户专属倍率',

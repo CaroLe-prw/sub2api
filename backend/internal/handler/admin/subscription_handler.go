@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -29,6 +30,11 @@ func toResponsePagination(p *pagination.PaginationResult) *response.PaginationRe
 // SubscriptionHandler handles admin subscription management
 type SubscriptionHandler struct {
 	subscriptionService *service.SubscriptionService
+	quotaResetService   *service.SubscriptionQuotaResetService
+}
+
+func (h *SubscriptionHandler) SetQuotaResetService(quotaResetService *service.SubscriptionQuotaResetService) {
+	h.quotaResetService = quotaResetService
 }
 
 // NewSubscriptionHandler creates a new admin subscription handler
@@ -219,9 +225,10 @@ func (h *SubscriptionHandler) Extend(c *gin.Context) {
 
 // ResetSubscriptionQuotaRequest represents the reset quota request
 type ResetSubscriptionQuotaRequest struct {
-	Daily   bool `json:"daily"`
-	Weekly  bool `json:"weekly"`
-	Monthly bool `json:"monthly"`
+	Daily           bool                         `json:"daily"`
+	Weekly          bool                         `json:"weekly"`
+	Monthly         bool                         `json:"monthly"`
+	WindowStartMode service.QuotaWindowStartMode `json:"window_start_mode"`
 }
 
 // ResetQuota resets daily, weekly, and/or monthly usage for a subscription.
@@ -241,12 +248,57 @@ func (h *SubscriptionHandler) ResetQuota(c *gin.Context) {
 		response.BadRequest(c, "At least one of 'daily', 'weekly', or 'monthly' must be true")
 		return
 	}
-	sub, err := h.subscriptionService.AdminResetQuota(c.Request.Context(), subscriptionID, req.Daily, req.Weekly, req.Monthly)
+	sub, err := h.subscriptionService.AdminResetQuota(c.Request.Context(), subscriptionID, req.Daily, req.Weekly, req.Monthly, req.WindowStartMode)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 	response.Success(c, dto.UserSubscriptionFromServiceAdmin(sub))
+}
+
+// GetQuotaResetSettings returns the independent quota-reset configuration and state.
+// GET /api/v1/admin/subscription-quota-reset
+func (h *SubscriptionHandler) GetQuotaResetSettings(c *gin.Context) {
+	settings, err := h.quotaResetService.GetSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
+// UpdateQuotaResetSettings replaces the independent quota-reset configuration.
+// PUT /api/v1/admin/subscription-quota-reset
+func (h *SubscriptionHandler) UpdateQuotaResetSettings(c *gin.Context) {
+	var config service.SubscriptionQuotaResetConfig
+	if err := c.ShouldBindJSON(&config); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	settings, err := h.quotaResetService.UpdateConfig(c.Request.Context(), config)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
+// RunQuotaReset immediately executes a one-off quota-reset policy and optionally restarts the schedule.
+// POST /api/v1/admin/subscription-quota-reset/run
+func (h *SubscriptionHandler) RunQuotaReset(c *gin.Context) {
+	var input service.SubscriptionQuotaResetRunInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 30*time.Minute)
+	defer cancel()
+	settings, err := h.quotaResetService.RunNowWithInput(ctx, input)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
 }
 
 // Revoke handles revoking a subscription.

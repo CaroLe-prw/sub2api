@@ -535,12 +535,39 @@ func (s *UserSubscriptionRepoSuite) TestResetUsageWindows_ClearsUsageAfterAutoma
 	newWindowStart := oldWindowStart.Add(24 * time.Hour)
 	s.Require().NoError(s.repo.ResetDailyUsage(s.ctx, sub.ID, &oldWindowStart, newWindowStart))
 	s.Require().NoError(s.repo.IncrementUsage(s.ctx, sub.ID, 3))
-	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, false, false, newWindowStart))
+	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, false, false, &newWindowStart))
 
 	got, err := s.repo.GetByID(s.ctx, sub.ID)
 	s.Require().NoError(err)
 	s.Require().InDelta(0, got.DailyUsageUSD, 1e-6)
 	s.Require().WithinDuration(newWindowStart, *got.DailyWindowStart, time.Microsecond)
+}
+
+func (s *UserSubscriptionRepoSuite) TestResetUsageWindows_PreservesWindowStarts() {
+	user := s.mustCreateUser("admin-reset-preserve@test.com", service.RoleUser)
+	group := s.mustCreateGroup("g-admin-reset-preserve")
+	dailyStart := time.Date(2025, 1, 2, 8, 0, 0, 0, time.UTC)
+	weeklyStart := time.Date(2024, 12, 30, 9, 0, 0, 0, time.UTC)
+	monthlyStart := time.Date(2024, 12, 1, 10, 0, 0, 0, time.UTC)
+	sub := s.mustCreateSubscription(user.ID, group.ID, func(c *dbent.UserSubscriptionCreate) {
+		c.SetDailyWindowStart(dailyStart)
+		c.SetWeeklyWindowStart(weeklyStart)
+		c.SetMonthlyWindowStart(monthlyStart)
+		c.SetDailyUsageUsd(10)
+		c.SetWeeklyUsageUsd(20)
+		c.SetMonthlyUsageUsd(30)
+	})
+
+	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, false, true, nil))
+
+	got, err := s.repo.GetByID(s.ctx, sub.ID)
+	s.Require().NoError(err)
+	s.Require().InDelta(0, got.DailyUsageUSD, 1e-6)
+	s.Require().InDelta(20, got.WeeklyUsageUSD, 1e-6)
+	s.Require().InDelta(0, got.MonthlyUsageUSD, 1e-6)
+	s.Require().WithinDuration(dailyStart, *got.DailyWindowStart, time.Microsecond)
+	s.Require().WithinDuration(weeklyStart, *got.WeeklyWindowStart, time.Microsecond)
+	s.Require().WithinDuration(monthlyStart, *got.MonthlyWindowStart, time.Microsecond)
 }
 
 func (s *UserSubscriptionRepoSuite) TestResetWeeklyUsage() {

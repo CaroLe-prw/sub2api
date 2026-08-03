@@ -119,6 +119,29 @@ func TestPreviewProfitAdmissionAssumeEnabled(t *testing.T) {
 		"账号倍率 0.9 > 阈值 0.5，探测快照的低倍率不能替代账号倍率")
 }
 
+func TestPreviewProfitAdmissionReportsNewAPIRateOwner(t *testing.T) {
+	rate := 0.2
+	group := profitControlTestGroup(52, 0, 0)
+	account := &Account{
+		ID:             1,
+		Platform:       PlatformOpenAI,
+		RateMultiplier: &rate,
+		Extra: map[string]any{
+			NewAPISyncEnabledExtraKey:              true,
+			UpstreamBillingRateSyncEnabledExtraKey: true,
+		},
+	}
+
+	report := PreviewProfitAdmission([]ProfitPreviewGroupInput{{
+		Group:    group,
+		Accounts: []*Account{account},
+		Models:   []string{"model"},
+	}}, time.Now())[0]
+
+	require.Equal(t, ProfitPreviewRateSourceNewAPI, report.Verdicts[0].RateSource)
+	require.Empty(t, report.Verdicts[0].Warnings)
+}
+
 func TestPreviewProfitAdmissionSupportsFivePlatforms(t *testing.T) {
 	for i, platform := range []string{
 		PlatformOpenAI,

@@ -1445,39 +1445,20 @@
             v-model.number="form.rate_multiplier"
             type="number"
             min="0"
-            step="0.001"
+            step="any"
             class="input disabled:cursor-not-allowed disabled:opacity-60"
             data-testid="account-rate-multiplier"
-            :disabled="upstreamBillingRateSyncEnabled"
+            :disabled="accountRateManaged"
           />
           <p class="input-hint">
             {{
               t(
-                upstreamBillingRateSyncEnabled
+                accountRateManaged
                   ? 'admin.accounts.upstreamBilling.syncRateManagedHint'
                   : 'admin.accounts.billingRateMultiplierHint'
               )
             }}
           </p>
-          <div
-            v-if="account?.type === 'apikey'"
-            class="mt-3 flex items-center justify-between gap-3"
-          >
-            <div class="min-w-0">
-              <p class="text-xs font-medium text-gray-700 dark:text-gray-200">
-                {{ t('admin.accounts.upstreamBilling.syncRate') }}
-              </p>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.upstreamBilling.syncRateHint') }}
-              </p>
-            </div>
-            <Toggle
-              :model-value="upstreamBillingRateSyncEnabled"
-              data-testid="upstream-billing-rate-sync"
-              :aria-label="t('admin.accounts.upstreamBilling.syncRate')"
-              @update:model-value="handleUpstreamBillingRateSyncChange"
-            />
-          </div>
         </div>
       </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -1686,19 +1667,45 @@
 
       <div
         v-if="account?.type === 'apikey'"
-        class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+        data-testid="upstream-billing-settings"
       >
-        <div>
-          <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {{ t('admin.accounts.upstreamBilling.autoProbeHint') }}
-          </p>
+        <UpstreamBillingSourceField
+          v-model:mode="upstreamBillingMode"
+          v-model:rate-sync-enabled="upstreamBillingRateSyncEnabled"
+          :allow-new-api="account?.platform === 'openai'"
+        />
+        <div v-if="account?.platform === 'openai' && upstreamBillingMode !== 'off'">
+          <label class="input-label">{{ t('admin.accounts.upstreamBilling.calibrationFactor') }}</label>
+          <input
+            v-model.number="upstreamRateCalibration"
+            type="number"
+            min="0"
+            step="any"
+            required
+            class="input"
+            data-testid="upstream-rate-calibration"
+          />
+          <p class="input-hint">{{ t('admin.accounts.upstreamBilling.calibrationHint') }}</p>
         </div>
-        <Toggle
-          :model-value="upstreamBillingAutoProbeEnabled"
-          data-testid="upstream-billing-auto-probe"
-          :aria-label="t('admin.accounts.upstreamBilling.autoProbe')"
-          @update:model-value="handleUpstreamBillingAutoProbeChange"
+        <UpstreamBalanceAlertFields
+          v-if="account?.platform === 'openai' && upstreamBillingMode !== 'off'"
+          v-model:enabled="upstreamBalanceAlertEnabled"
+          v-model:threshold="upstreamBalanceAlertThreshold"
+        />
+
+        <p
+          v-if="upstreamBillingMode === 'newapi'"
+          class="text-xs text-gray-500 dark:text-gray-400"
+        >
+          {{ t('admin.accounts.newapiSync.description') }}
+        </p>
+        <NewAPISyncSettings
+          v-if="account?.platform === 'openai'"
+          ref="newapiSyncSettings"
+          :account-id="account.id"
+          :enabled="upstreamBillingMode === 'newapi'"
+          @synced="handleNewAPIRatioSynced"
         />
       </div>
 
@@ -1791,6 +1798,7 @@
           :totalLimit="editQuotaLimit"
           :dailyLimit="editQuotaDailyLimit"
           :weeklyLimit="editQuotaWeeklyLimit"
+          :quotaUsageMultiplier="editQuotaUsageMultiplier"
           :dailyResetMode="editDailyResetMode"
           :dailyResetHour="editDailyResetHour"
           :weeklyResetMode="editWeeklyResetMode"
@@ -1810,6 +1818,7 @@
           @update:totalLimit="editQuotaLimit = $event"
           @update:dailyLimit="editQuotaDailyLimit = $event"
           @update:weeklyLimit="editQuotaWeeklyLimit = $event"
+          @update:quotaUsageMultiplier="editQuotaUsageMultiplier = $event"
           @update:dailyResetMode="editDailyResetMode = $event"
           @update:dailyResetHour="editDailyResetHour = $event"
           @update:weeklyResetMode="editWeeklyResetMode = $event"
@@ -1842,6 +1851,7 @@
           :totalLimit="editQuotaLimit"
           :dailyLimit="editQuotaDailyLimit"
           :weeklyLimit="editQuotaWeeklyLimit"
+          :quotaUsageMultiplier="editQuotaUsageMultiplier"
           :dailyResetMode="editDailyResetMode"
           :dailyResetHour="editDailyResetHour"
           :weeklyResetMode="editWeeklyResetMode"
@@ -1861,6 +1871,7 @@
           @update:totalLimit="editQuotaLimit = $event"
           @update:dailyLimit="editQuotaDailyLimit = $event"
           @update:weeklyLimit="editQuotaWeeklyLimit = $event"
+          @update:quotaUsageMultiplier="editQuotaUsageMultiplier = $event"
           @update:dailyResetMode="editDailyResetMode = $event"
           @update:dailyResetHour="editDailyResetHour = $event"
           @update:weeklyResetMode="editWeeklyResetMode = $event"
@@ -1877,6 +1888,42 @@
           @update:quotaNotifyTotalThreshold="quotaNotifyState.total.threshold = $event"
           @update:quotaNotifyTotalThresholdType="quotaNotifyState.total.thresholdType = $event"
         />
+      </div>
+
+      <!-- OpenAI 账号级上游 Fast 模式 -->
+      <div
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <label id="openai-force-fast-mode-label" class="input-label mb-0">
+              {{ t('admin.accounts.openai.forceFastMode') }}
+            </label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.forceFastModeDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="openai-force-fast-mode-toggle"
+            role="switch"
+            aria-labelledby="openai-force-fast-mode-label"
+            :aria-checked="openAIForceFastModeEnabled"
+            @click="openAIForceFastModeEnabled = !openAIForceFastModeEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              openAIForceFastModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                openAIForceFastModeEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
       </div>
 
       <!-- OpenAI API 长上下文计费开关 -->
@@ -2597,7 +2644,10 @@
       <!-- Group Selection - 仅标准模式显示 -->
       <GroupSelector
         v-if="!authStore.isSimpleMode"
+        :key="`${account?.id ?? 'none'}:${show ? 'open' : 'closed'}`"
         v-model="form.group_ids"
+        v-model:priorities="form.group_priorities"
+        :default-priority="form.priority"
         :groups="groups"
         :platform="account?.platform"
         :mixed-scheduling="mixedScheduling"
@@ -2658,7 +2708,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, shallowRef, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
@@ -2687,6 +2737,17 @@ import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
+import NewAPISyncSettings from '@/components/account/NewAPISyncSettings.vue'
+import UpstreamBillingSourceField from '@/components/account/UpstreamBillingSourceField.vue'
+import {
+  resolveUpstreamBillingMode,
+  type UpstreamBillingMode
+} from '@/components/account/upstreamBilling'
+import UpstreamBalanceAlertFields from '@/components/account/UpstreamBalanceAlertFields.vue'
+import {
+  DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED,
+  DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD
+} from '@/components/account/upstreamBalanceAlert'
 import {
   applyAntigravityProjectID,
   applyHeaderOverride,
@@ -2746,6 +2807,10 @@ const isSparkShadow = computed(() => props.account?.parent_account_id != null)
 
 const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
   if (props.account) emit('updated', { ...props.account, ollama_cloud_usage: state })
+}
+
+const handleNewAPIRatioSynced = (ratio: number) => {
+  if (props.account) emit('updated', { ...props.account, rate_multiplier: ratio })
 }
 
 // Platform-specific hint for Base URL
@@ -2857,8 +2922,20 @@ const autoPause5hThreshold = ref<number | null>(null)
 const autoPause7dThreshold = ref<number | null>(null)
 const autoPause5hDisabled = ref(false)
 const autoPause7dDisabled = ref(false)
-const upstreamBillingAutoProbeEnabled = ref(false)
+type NewAPISyncSettingsExpose = {
+  persistConfig: () => Promise<boolean>
+}
+
+const upstreamBillingMode = ref<UpstreamBillingMode>('off')
+const upstreamRateCalibration = ref(1)
+const upstreamBalanceAlertEnabled = shallowRef(DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED)
+const upstreamBalanceAlertThreshold = shallowRef<number | null>(DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD)
+const newapiSyncSettings = ref<NewAPISyncSettingsExpose | null>(null)
 const upstreamBillingRateSyncEnabled = ref(false)
+const accountRateManaged = computed(
+  () => upstreamBillingMode.value === 'newapi' ||
+    (upstreamBillingMode.value === 'sub2api' && upstreamBillingRateSyncEnabled.value)
+)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
 const antigravityProjectId = ref('')
@@ -2909,6 +2986,7 @@ const customBaseUrl = ref('')
 
 // OpenAI 自动透传开关（OAuth/API Key）
 const openaiPassthroughEnabled = ref(false)
+const openAIForceFastModeEnabled = ref(false)
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
@@ -2946,6 +3024,7 @@ loadQuotaNotifyGlobal()
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
 const editQuotaWeeklyLimit = ref<number | null>(null)
+const editQuotaUsageMultiplier = shallowRef(1)
 const editDailyResetMode = ref<'rolling' | 'fixed' | null>(null)
 const editDailyResetHour = ref<number | null>(null)
 const editWeeklyResetMode = ref<'rolling' | 'fixed' | null>(null)
@@ -3225,22 +3304,9 @@ const form = reactive({
   rate_multiplier: 1,
   status: 'active' as 'active' | 'inactive' | 'error',
   group_ids: [] as number[],
+  group_priorities: {} as Record<number, number>,
   expires_at: null as number | null
 })
-
-const handleUpstreamBillingRateSyncChange = (enabled: boolean) => {
-  upstreamBillingRateSyncEnabled.value = enabled
-  if (enabled) {
-    upstreamBillingAutoProbeEnabled.value = true
-  }
-}
-
-const handleUpstreamBillingAutoProbeChange = (enabled: boolean) => {
-  upstreamBillingAutoProbeEnabled.value = enabled
-  if (!enabled) {
-    upstreamBillingRateSyncEnabled.value = false
-  }
-}
 
 const statusOptions = computed(() => {
   const options = [
@@ -3330,6 +3396,15 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     ? newAccount.status
     : 'active'
   form.group_ids = newAccount.group_ids || []
+  form.group_priorities = Object.fromEntries(
+    (newAccount.account_groups || []).map((accountGroup) => [
+      accountGroup.group_id,
+      accountGroup.priority
+    ])
+  )
+  form.group_ids.forEach((groupID) => {
+    form.group_priorities[groupID] ??= newAccount.priority
+  })
   form.expires_at = newAccount.expires_at ?? null
 
   // Load intercept warmup requests setting (applies to all account types)
@@ -3356,12 +3431,29 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
 	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
 	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
-	upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
-  upstreamBillingRateSyncEnabled.value =
-    upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
+	upstreamBillingMode.value = resolveUpstreamBillingMode(extra)
+	upstreamRateCalibration.value =
+		typeof extra?.openai_upstream_rate_calibration === 'number' &&
+		Number.isFinite(extra.openai_upstream_rate_calibration) &&
+		extra.openai_upstream_rate_calibration >= 0
+			? extra.openai_upstream_rate_calibration
+			: 1
+	upstreamBalanceAlertEnabled.value =
+		typeof extra?.upstream_balance_alert_enabled === 'boolean'
+			? extra.upstream_balance_alert_enabled
+			: DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED
+	upstreamBalanceAlertThreshold.value =
+		typeof extra?.upstream_balance_alert_threshold === 'number' &&
+		Number.isFinite(extra.upstream_balance_alert_threshold) &&
+		extra.upstream_balance_alert_threshold >= 0
+				? extra.upstream_balance_alert_threshold
+				: DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD
+	upstreamBillingRateSyncEnabled.value =
+		upstreamBillingMode.value === 'sub2api' && extra?.upstream_billing_rate_sync_enabled === true
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
+  openAIForceFastModeEnabled.value = false
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
   editPlanType.value = ''
@@ -3379,6 +3471,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   webSearchEmulationMode.value = 'default'
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
+    openAIForceFastModeEnabled.value = extra?.openai_force_fast_mode === true
     openaiFlattenNamespacesEnabled.value =
       newAccount.type === 'oauth' && extra?.openai_responses_flatten_namespaces === true
     const longContextBillingValue = extra?.openai_long_context_billing_enabled
@@ -3454,6 +3547,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editQuotaDailyLimit.value = (dailyVal && dailyVal > 0) ? dailyVal : null
     const weeklyVal = extra?.quota_weekly_limit as number | undefined
     editQuotaWeeklyLimit.value = (weeklyVal && weeklyVal > 0) ? weeklyVal : null
+    editQuotaUsageMultiplier.value =
+      typeof newAccount.quota_usage_multiplier === 'number'
+        ? newAccount.quota_usage_multiplier
+        : 1
     // Load quota reset mode config
     editDailyResetMode.value = (extra?.quota_daily_reset_mode as 'rolling' | 'fixed') || null
     editDailyResetHour.value = (extra?.quota_daily_reset_hour as number) ?? null
@@ -3467,6 +3564,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editQuotaLimit.value = null
     editQuotaDailyLimit.value = null
     editQuotaWeeklyLimit.value = null
+    editQuotaUsageMultiplier.value = 1
     editDailyResetMode.value = null
     editDailyResetHour.value = null
     editWeeklyResetMode.value = null
@@ -3600,6 +3698,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editQuotaLimit.value = typeof bedrockExtra.quota_limit === 'number' ? bedrockExtra.quota_limit : null
     editQuotaDailyLimit.value = typeof bedrockExtra.quota_daily_limit === 'number' ? bedrockExtra.quota_daily_limit : null
     editQuotaWeeklyLimit.value = typeof bedrockExtra.quota_weekly_limit === 'number' ? bedrockExtra.quota_weekly_limit : null
+    editQuotaUsageMultiplier.value =
+      typeof newAccount.quota_usage_multiplier === 'number'
+        ? newAccount.quota_usage_multiplier
+        : 1
     // Load quota notify for bedrock
     loadQuotaNotifyFromExtra(bedrockExtra)
 
@@ -4094,9 +4196,23 @@ const handleClose = () => {
 const submitUpdateAccount = async (accountID: number, updatePayload: Record<string, unknown>) => {
   submitting.value = true
   try {
+    // The dedicated NewAPI endpoint owns its encrypted configuration. Persist
+    // the source transition first so a same-submit manual rate edit is not
+    // rejected against the previous NewAPI ownership state.
+    const newapiConfigSaved = await newapiSyncSettings.value?.persistConfig()
+    if (newapiConfigSaved === false) {
+      return
+    }
     const updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
     appStore.showSuccess(t('admin.accounts.accountUpdated'))
-    emit('updated', updatedAccount)
+    emit('updated', {
+      ...updatedAccount,
+      extra: {
+        ...(updatedAccount.extra || {}),
+        upstream_billing_probe_enabled: upstreamBillingMode.value === 'sub2api',
+        newapi_sync_enabled: upstreamBillingMode.value === 'newapi'
+      }
+    })
     handleClose()
   } catch (error: any) {
     if (error.status === 409 && error.error === 'mixed_channel_warning' && needsMixedChannelCheck()) {
@@ -4140,9 +4256,10 @@ const handleSubmit = async () => {
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
     if (props.account.type === 'apikey') {
-      updatePayload.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
-      updatePayload.upstream_billing_rate_sync_enabled = upstreamBillingRateSyncEnabled.value
-      if (upstreamBillingRateSyncEnabled.value) {
+      updatePayload.upstream_billing_probe_enabled = upstreamBillingMode.value === 'sub2api'
+      updatePayload.upstream_billing_rate_sync_enabled =
+        upstreamBillingMode.value === 'sub2api' && upstreamBillingRateSyncEnabled.value
+      if (accountRateManaged.value) {
         delete updatePayload.rate_multiplier
       }
     }
@@ -4622,6 +4739,11 @@ const handleSubmit = async () => {
         delete newExtra.openai_passthrough
         delete newExtra.openai_oauth_passthrough
       }
+      if (openAIForceFastModeEnabled.value) {
+        newExtra.openai_force_fast_mode = true
+      } else {
+        delete newExtra.openai_force_fast_mode
+      }
       // 缺省即保留 namespace，不写空值，避免 extra 里堆积默认项
       if (props.account.type === 'oauth' && openaiFlattenNamespacesEnabled.value) {
         newExtra.openai_responses_flatten_namespaces = true
@@ -4643,7 +4765,24 @@ const handleSubmit = async () => {
           delete newExtra.openai_responses_mode
         } else {
           newExtra.openai_responses_mode = openAIResponsesMode.value
-        }
+			}
+			newExtra.openai_upstream_rate_calibration = upstreamRateCalibration.value
+			if (upstreamBillingMode.value !== 'off') {
+				newExtra.upstream_balance_alert_enabled = upstreamBalanceAlertEnabled.value
+				if (
+					upstreamBalanceAlertEnabled.value &&
+					upstreamBalanceAlertThreshold.value != null &&
+					Number.isFinite(upstreamBalanceAlertThreshold.value) &&
+					upstreamBalanceAlertThreshold.value >= 0
+				) {
+					newExtra.upstream_balance_alert_threshold = upstreamBalanceAlertThreshold.value
+				} else {
+					delete newExtra.upstream_balance_alert_threshold
+				}
+			} else {
+				delete newExtra.upstream_balance_alert_enabled
+				delete newExtra.upstream_balance_alert_threshold
+			}
 		}
 		if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
 			newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100
@@ -4735,6 +4874,15 @@ const handleSubmit = async () => {
         delete newExtra.quota_weekly_limit
         delete newExtra.quota_weekly_used
         delete newExtra.quota_weekly_start
+      }
+      if (
+        (editQuotaLimit.value != null && editQuotaLimit.value > 0) ||
+        (editQuotaDailyLimit.value != null && editQuotaDailyLimit.value > 0) ||
+        (editQuotaWeeklyLimit.value != null && editQuotaWeeklyLimit.value > 0)
+      ) {
+        newExtra.quota_usage_multiplier = editQuotaUsageMultiplier.value
+      } else {
+        delete newExtra.quota_usage_multiplier
       }
       // Quota reset mode config
       if (editDailyResetMode.value === 'fixed') {

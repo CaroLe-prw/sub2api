@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -32,6 +33,9 @@ const (
 	UpstreamBillingProbeExtraKey           = "upstream_billing_probe"
 	UpstreamBillingProbeEnabledExtraKey    = "upstream_billing_probe_enabled"
 	UpstreamBillingRateSyncEnabledExtraKey = "upstream_billing_rate_sync_enabled"
+	OpenAIUpstreamRateCalibrationExtraKey  = "openai_upstream_rate_calibration"
+	UpstreamBalanceAlertEnabledExtraKey    = "upstream_balance_alert_enabled"
+	UpstreamBalanceAlertThresholdExtraKey  = "upstream_balance_alert_threshold"
 
 	upstreamBillingProbeDefaultIntervalMinutes = 30
 	upstreamBillingProbeMinIntervalMinutes     = 5
@@ -47,6 +51,7 @@ const (
 	// upstreamBillingProbeMaxPerCycle 个名额。
 	upstreamBillingProbeUnsupportedDelayFactor = 8
 	upstreamBillingProbeAccountRateScale       = 10000.0
+	upstreamBalanceAlertDefaultThreshold       = 5.0
 	upstreamBillingProbeLeaderLockKey          = "upstream:billing:probe:leader"
 	upstreamBillingProbeLeaderLockTTL          = 2 * time.Minute
 )
@@ -81,11 +86,11 @@ var (
 	)
 	ErrUpstreamBillingRateSyncBulkConflict = infraerrors.Conflict(
 		"UPSTREAM_BILLING_RATE_SYNC_BULK_CONFLICT",
-		"account rate multiplier cannot be changed in bulk while upstream billing rate sync is enabled",
+		"account rate multiplier cannot be changed in bulk while automatic rate synchronization is enabled",
 	)
 	ErrUpstreamBillingRateSyncConflict = infraerrors.Conflict(
 		"UPSTREAM_BILLING_RATE_SYNC_CONFLICT",
-		"account rate multiplier cannot be changed while upstream billing rate sync is enabled",
+		"account rate multiplier cannot be changed while automatic rate synchronization is enabled",
 	)
 )
 
@@ -104,15 +109,16 @@ type UpstreamBillingProbeSettings struct {
 // UpstreamBillingProbeSnapshot is persisted in accounts.extra. Data is kept as
 // a sanitized map so future response fields do not require a database change.
 type UpstreamBillingProbeSnapshot struct {
-	Status        string         `json:"status"`
-	Data          map[string]any `json:"data,omitempty"`
-	ReceivedAt    *time.Time     `json:"received_at,omitempty"`
-	FreshUntil    *time.Time     `json:"fresh_until,omitempty"`
-	LastAttemptAt time.Time      `json:"last_attempt_at"`
-	NextProbeAt   time.Time      `json:"next_probe_at"`
-	FailureCount  int            `json:"failure_count,omitempty"`
-	HTTPStatus    int            `json:"http_status,omitempty"`
-	LastError     string         `json:"last_error,omitempty"`
+	Status        string                        `json:"status"`
+	Data          map[string]any                `json:"data,omitempty"`
+	ReceivedAt    *time.Time                    `json:"received_at,omitempty"`
+	FreshUntil    *time.Time                    `json:"fresh_until,omitempty"`
+	LastAttemptAt time.Time                     `json:"last_attempt_at"`
+	NextProbeAt   time.Time                     `json:"next_probe_at"`
+	FailureCount  int                           `json:"failure_count,omitempty"`
+	HTTPStatus    int                           `json:"http_status,omitempty"`
+	LastError     string                        `json:"last_error,omitempty"`
+	BalanceAlert  *UpstreamBalanceAlertSnapshot `json:"balance_alert,omitempty"`
 	// SyncedRateMultiplier records the value this probe wrote into
 	// accounts.rate_multiplier. It is only set when the account opted into rate
 	// sync and the declared value passed the write-back range check, so the
@@ -121,11 +127,18 @@ type UpstreamBillingProbeSnapshot struct {
 	SyncedRateMultiplier *float64 `json:"synced_rate_multiplier,omitempty"`
 }
 
+type UpstreamBalanceAlertSnapshot struct {
+	Active      bool       `json:"active"`
+	Threshold   float64    `json:"threshold"`
+	TriggeredAt *time.Time `json:"triggered_at,omitempty"`
+}
+
 // UpstreamBillingProbeResult is returned by manual probe endpoints.
 type UpstreamBillingProbeResult struct {
-	AccountID int64                         `json:"account_id"`
-	Snapshot  *UpstreamBillingProbeSnapshot `json:"snapshot,omitempty"`
-	Error     string                        `json:"error,omitempty"`
+	AccountID  int64                         `json:"account_id"`
+	Snapshot   *UpstreamBillingProbeSnapshot `json:"snapshot,omitempty"`
+	NewAPISync *NewAPISyncResult             `json:"newapi_sync,omitempty"`
+	Error      string                        `json:"error,omitempty"`
 }
 
 type upstreamBillingProbeResponse struct {
@@ -141,8 +154,19 @@ type upstreamBillingProbeResponse struct {
 	PeakRateMultiplier      *float64 `json:"peak_rate_multiplier"`
 	AppliedPeakMultiplier   *float64 `json:"applied_peak_multiplier"`
 	EffectiveRateMultiplier *float64 `json:"effective_rate_multiplier"`
+	Balance                 *float64 `json:"balance"`
+	BalanceKind             string   `json:"balance_kind"`
 	Timezone                *string  `json:"timezone"`
 	ObservedAt              string   `json:"observed_at"`
+}
+
+type upstreamUsageProbeResponse struct {
+	Mode         string          `json:"mode"`
+	Remaining    *float64        `json:"remaining"`
+	Balance      *float64        `json:"balance"`
+	Subscription json.RawMessage `json:"subscription"`
+	Quota        json.RawMessage `json:"quota"`
+	Unit         string          `json:"unit"`
 }
 
 // GetUpstreamBillingProbeSettings returns defaults when the setting is absent.
@@ -213,19 +237,25 @@ type UpstreamBillingProbeService struct {
 	accountTestService *AccountTestService
 	settingService     *SettingService
 
-	parentCtx    context.Context
-	parentCancel context.CancelFunc
-	wg           sync.WaitGroup
-	mu           sync.Mutex
-	started      bool
-	stopped      bool
-	cycleMu      sync.Mutex
-	probeGroup   singleflight.Group
-	probeSlots   chan struct{}
-	now          func() time.Time
-	lockCache    LeaderLockCache
-	db           *sql.DB
-	instanceID   string
+	parentCtx           context.Context
+	parentCancel        context.CancelFunc
+	wg                  sync.WaitGroup
+	mu                  sync.Mutex
+	started             bool
+	stopped             bool
+	cycleMu             sync.Mutex
+	probeGroup          singleflight.Group
+	newAPIGroup         singleflight.Group
+	probeSlots          chan struct{}
+	now                 func() time.Time
+	lockCache           LeaderLockCache
+	db                  *sql.DB
+	instanceID          string
+	encryptor           SecretEncryptor
+	cfg                 *config.Config
+	newAPICycleMu       sync.Mutex
+	newAPIClientFactory func(*Account) (*NewAPIClient, error)
+	opsService          *OpsService
 }
 
 type upstreamBillingProbeSnapshotWriter interface {
@@ -262,6 +292,20 @@ func (s *UpstreamBillingProbeService) SetLeaderLock(lockCache LeaderLockCache, d
 	s.db = db
 }
 
+func (s *UpstreamBillingProbeService) SetNewAPIDependencies(encryptor SecretEncryptor, cfg *config.Config) {
+	if s == nil {
+		return
+	}
+	s.encryptor = encryptor
+	s.cfg = cfg
+}
+
+func (s *UpstreamBillingProbeService) SetOpsService(opsService *OpsService) {
+	if s != nil {
+		s.opsService = opsService
+	}
+}
+
 // ProvideUpstreamBillingProbeService starts the process-wide periodic runner.
 func ProvideUpstreamBillingProbeService(
 	accountRepo AccountRepository,
@@ -269,9 +313,14 @@ func ProvideUpstreamBillingProbeService(
 	settingService *SettingService,
 	lockCache LeaderLockCache,
 	db *sql.DB,
+	encryptor SecretEncryptor,
+	cfg *config.Config,
+	opsService *OpsService,
 ) *UpstreamBillingProbeService {
 	svc := NewUpstreamBillingProbeService(accountRepo, accountTestService, settingService)
 	svc.SetLeaderLock(lockCache, db)
+	svc.SetNewAPIDependencies(encryptor, cfg)
+	svc.SetOpsService(opsService)
 	svc.Start()
 	return svc
 }
@@ -309,6 +358,7 @@ func (s *UpstreamBillingProbeService) Stop() {
 func (s *UpstreamBillingProbeService) runLoop() {
 	defer s.wg.Done()
 	_ = s.RunDue(s.parentCtx)
+	_ = s.RunNewAPIDue(s.parentCtx)
 	ticker := time.NewTicker(upstreamBillingProbeCycleInterval)
 	defer ticker.Stop()
 	for {
@@ -318,6 +368,9 @@ func (s *UpstreamBillingProbeService) runLoop() {
 		case <-ticker.C:
 			if err := s.RunDue(s.parentCtx); err != nil {
 				logger.LegacyPrintf("service.upstream_billing_probe", "run_due_failed: err=%v", err)
+			}
+			if err := s.RunNewAPIDue(s.parentCtx); err != nil {
+				logger.LegacyPrintf("service.newapi_sync", "run_due_failed: err=%v", err)
 			}
 		}
 	}
@@ -365,7 +418,8 @@ func (s *UpstreamBillingProbeService) RunDue(ctx context.Context) error {
 	due := make([]Account, 0, len(accounts))
 	for i := range accounts {
 		account := accounts[i]
-		if !isUpstreamBillingProbeAccount(&account) || !account.IsActive() || !upstreamBillingProbeEnabled(&account) {
+		if !isUpstreamBillingProbeAccount(&account) || !account.IsActive() ||
+			!upstreamBillingProbeEnabled(&account) || newAPISyncEnabled(&account) {
 			continue
 		}
 		snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra)
@@ -471,7 +525,7 @@ func (s *UpstreamBillingProbeService) probeAccountWithMode(ctx context.Context, 
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
 		if requireEnabled {
-			if !account.IsActive() || !upstreamBillingProbeEnabled(account) {
+			if !account.IsActive() || !upstreamBillingProbeEnabled(account) || newAPISyncEnabled(account) {
 				return nil, nil
 			}
 			if snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra); snapshot != nil &&
@@ -531,6 +585,96 @@ func (s *UpstreamBillingProbeService) ProbeAccounts(ctx context.Context, account
 	return results
 }
 
+// RefreshSchedulingCost dispatches to the account's configured discovery
+// mechanism. NewAPI accounts synchronize their effective group ratio; other
+// OpenAI API key accounts retain the Sub2API billing endpoint probe.
+func (s *UpstreamBillingProbeService) RefreshSchedulingCost(
+	ctx context.Context,
+	accountID int64,
+) (*UpstreamBillingProbeResult, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, ErrUpstreamBillingProbeUnavailable
+	}
+	settings, err := s.getSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.refreshSchedulingCost(ctx, accountID, settings.IntervalMinutes)
+}
+
+func (s *UpstreamBillingProbeService) refreshSchedulingCost(
+	ctx context.Context,
+	accountID int64,
+	intervalMinutes int,
+) (*UpstreamBillingProbeResult, error) {
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if newAPISyncEnabled(account) {
+		syncResult, syncErr := s.syncNewAPIAccount(ctx, accountID, false, intervalMinutes)
+		if syncErr != nil {
+			return nil, newAPISyncAPIError(syncErr)
+		}
+		return &UpstreamBillingProbeResult{
+			AccountID:  accountID,
+			Snapshot:   syncResult.SchedulingSnapshot,
+			NewAPISync: syncResult,
+		}, nil
+	}
+	snapshot, err := s.probeAccount(ctx, accountID, intervalMinutes)
+	if err != nil {
+		return nil, err
+	}
+	return &UpstreamBillingProbeResult{AccountID: accountID, Snapshot: snapshot}, nil
+}
+
+// RefreshSchedulingCosts performs a bounded mixed NewAPI/Sub2API refresh.
+func (s *UpstreamBillingProbeService) RefreshSchedulingCosts(
+	ctx context.Context,
+	accountIDs []int64,
+) []UpstreamBillingProbeResult {
+	if len(accountIDs) > upstreamBillingProbeMaxPerCycle {
+		accountIDs = accountIDs[:upstreamBillingProbeMaxPerCycle]
+	}
+	results := make([]UpstreamBillingProbeResult, len(accountIDs))
+	if s == nil || s.accountRepo == nil {
+		for i, accountID := range accountIDs {
+			results[i] = UpstreamBillingProbeResult{
+				AccountID: accountID,
+				Error:     ErrUpstreamBillingProbeUnavailable.Error(),
+			}
+		}
+		return results
+	}
+	settings, settingsErr := s.getSettings(ctx)
+	if settingsErr != nil {
+		for i, accountID := range accountIDs {
+			results[i] = UpstreamBillingProbeResult{
+				AccountID: accountID,
+				Error:     safeProbeError(settingsErr),
+			}
+		}
+		return results
+	}
+	var group errgroup.Group
+	for i, accountID := range accountIDs {
+		i, accountID := i, accountID
+		results[i].AccountID = accountID
+		group.Go(func() error {
+			result, err := s.refreshSchedulingCost(ctx, accountID, settings.IntervalMinutes)
+			if err != nil {
+				results[i].Error = safeSchedulingCostRefreshError(err)
+				return nil
+			}
+			results[i] = *result
+			return nil
+		})
+	}
+	_ = group.Wait()
+	return results
+}
+
 func upstreamBillingProbeLeaderLockKeyAt(now time.Time) string {
 	return fmt.Sprintf("%s:%d", upstreamBillingProbeLeaderLockKey, now.Unix()/int64(upstreamBillingProbeCycleInterval/time.Second))
 }
@@ -578,8 +722,13 @@ func (s *UpstreamBillingProbeService) SetAccountEnabled(ctx context.Context, acc
 	if !isUpstreamBillingProbeAccount(account) {
 		return ErrUpstreamBillingProbeAccountInvalid
 	}
-	updates := map[string]any{UpstreamBillingProbeEnabledExtraKey: enabled}
-	if !enabled {
+	updates := map[string]any{
+		UpstreamBillingProbeEnabledExtraKey: enabled,
+	}
+	if enabled {
+		updates[NewAPISyncEnabledExtraKey] = false
+		updates[UpstreamBillingProbeExtraKey] = nil
+	} else {
 		updates[UpstreamBillingRateSyncEnabledExtraKey] = false
 	}
 	return s.accountRepo.UpdateExtra(ctx, accountID, updates)
@@ -587,6 +736,7 @@ func (s *UpstreamBillingProbeService) SetAccountEnabled(ctx context.Context, acc
 
 func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, account *Account, intervalMinutes int) (*UpstreamBillingProbeSnapshot, error) {
 	now := s.currentTime().UTC()
+	previousSnapshot := decodeUpstreamBillingProbeSnapshot(account.Extra)
 	if s.accountTestService == nil || s.accountTestService.httpUpstream == nil {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "transport_unavailable", 0)
 	}
@@ -669,6 +819,12 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 	if err != nil {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "invalid_response", retryAfter(resp.Header, now))
 	}
+	if _, hasBalance := data["balance"]; !hasBalance {
+		if balance, balanceKind, ok := s.probeLegacyUpstreamUsage(req.Context(), normalizedBaseURL, apiKey, proxyURL, account, tlsProfile); ok {
+			data["balance"] = balance
+			data["balance_kind"] = balanceKind
+		}
+	}
 	snapshot := &UpstreamBillingProbeSnapshot{
 		Status:        UpstreamBillingProbeStatusOK,
 		Data:          data,
@@ -678,6 +834,7 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 		NextProbeAt:   now.Add(nextProbeDelay(intervalMinutes, 0)),
 		HTTPStatus:    resp.StatusCode,
 	}
+	balance, balanceThreshold, notifyBalance := applyUpstreamBalanceAlertSnapshot(account, previousSnapshot, snapshot, now)
 	// 账号级值域与精度只在真要写回时才有影响：只观察上游声明、未开启同步的
 	// 账号不因声明值不适配 accounts.rate_multiplier 而被记成探测失败并进入
 	// 指数退避——探测本身成功了，原始声明照常存进快照供展示。
@@ -710,8 +867,66 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 			"old_rate_multiplier", previousRate,
 			"new_rate_multiplier", *syncRate,
 		)
+		if previousSnapshot != nil && previousSnapshot.Status == UpstreamBillingProbeStatusOK && account.RateMultiplier != nil && s.opsService != nil && !equalBillingMultiplier(*account.RateMultiplier, *syncRate) {
+			s.opsService.notifyUpstreamRateChange(account, *account.RateMultiplier, *syncRate, "Sub2API billing probe")
+		}
+	}
+	if notifyBalance && s.opsService != nil {
+		s.opsService.notifyUpstreamBalanceLow(account, balance, balanceThreshold)
 	}
 	return snapshot, nil
+}
+
+func (s *UpstreamBillingProbeService) probeLegacyUpstreamUsage(
+	ctx context.Context,
+	normalizedBaseURL string,
+	apiKey string,
+	proxyURL string,
+	account *Account,
+	tlsProfile *tlsfingerprint.Profile,
+) (float64, string, bool) {
+	if s == nil || s.accountTestService == nil || s.accountTestService.httpUpstream == nil || account == nil {
+		return 0, "", false
+	}
+	usageURL := buildOpenAIEndpointURL(normalizedBaseURL, "/v1/usage")
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, usageURL, nil)
+	if err != nil {
+		return 0, "", false
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Authorization", "Bearer "+apiKey)
+	account.ApplyHeaderOverrides(request.Header)
+
+	response, err := s.accountTestService.httpUpstream.DoWithTLS(request, proxyURL, account.ID, account.Concurrency, tlsProfile)
+	if err != nil || response == nil || response.Body == nil {
+		return 0, "", false
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return 0, "", false
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, upstreamBillingProbeMaxBodyBytes+1))
+	if err != nil || len(body) > upstreamBillingProbeMaxBodyBytes {
+		return 0, "", false
+	}
+	var usage upstreamUsageProbeResponse
+	if err := json.Unmarshal(body, &usage); err != nil || usage.Remaining == nil {
+		return 0, "", false
+	}
+	balance := *usage.Remaining
+	if math.IsNaN(balance) || math.IsInf(balance, 0) || (usage.Unit != "" && !strings.EqualFold(usage.Unit, "USD")) {
+		return 0, "", false
+	}
+	switch {
+	case len(usage.Subscription) > 0 && string(usage.Subscription) != "null":
+		return balance, "subscription_remaining", true
+	case len(usage.Quota) > 0 && string(usage.Quota) != "null":
+		return balance, "quota_remaining", true
+	case usage.Balance != nil:
+		return balance, "wallet", true
+	default:
+		return balance, "available", true
+	}
 }
 
 func (s *UpstreamBillingProbeService) persistProbeFailure(
@@ -746,6 +961,7 @@ func (s *UpstreamBillingProbeService) persistProbeFailure(
 		snapshot.Data = previous.Data
 		snapshot.ReceivedAt = previous.ReceivedAt
 		snapshot.FreshUntil = previous.FreshUntil
+		snapshot.BalanceAlert = previous.BalanceAlert
 		if snapshot.FreshUntil == nil && previous.Status == UpstreamBillingProbeStatusOK && previous.ReceivedAt != nil {
 			snapshot.FreshUntil = probeTimePtr(previous.ReceivedAt.Add(2 * time.Duration(intervalMinutes) * time.Minute))
 		}
@@ -817,6 +1033,15 @@ func parseUpstreamBillingProbeResponse(body []byte) (map[string]any, error) {
 	if response.UserRateMultiplier != nil {
 		data["user_rate_multiplier"] = *response.UserRateMultiplier
 	}
+	if response.Balance != nil {
+		if math.IsNaN(*response.Balance) || math.IsInf(*response.Balance, 0) {
+			return nil, fmt.Errorf("invalid balance")
+		}
+		data["balance"] = *response.Balance
+		if response.BalanceKind == "wallet" || response.BalanceKind == "subscription_remaining" {
+			data["balance_kind"] = response.BalanceKind
+		}
+	}
 	if *response.PeakRateEnabled {
 		if response.PeakStart == nil || response.PeakEnd == nil || response.Timezone == nil ||
 			response.PeakRateMultiplier == nil || response.AppliedPeakMultiplier == nil ||
@@ -847,6 +1072,67 @@ func parseUpstreamBillingProbeResponse(body []byte) (map[string]any, error) {
 		return nil, fmt.Errorf("inconsistent effective billing multiplier")
 	}
 	return data, nil
+}
+
+func upstreamBalanceAlertConfig(account *Account) (float64, bool) {
+	if account == nil {
+		return 0, false
+	}
+
+	enabled := true
+	if account.Extra != nil {
+		if configured, ok := account.Extra[UpstreamBalanceAlertEnabledExtraKey].(bool); ok {
+			enabled = configured
+		}
+	}
+	if !enabled {
+		return 0, false
+	}
+
+	threshold := upstreamBalanceAlertDefaultThreshold
+	if account.Extra != nil {
+		if configured, ok := resolveAccountExtraNumber(account.Extra, UpstreamBalanceAlertThresholdExtraKey); ok &&
+			configured >= 0 && !math.IsNaN(configured) && !math.IsInf(configured, 0) {
+			threshold = configured
+		}
+	}
+	return threshold, true
+}
+
+func applyUpstreamBalanceAlertSnapshot(
+	account *Account,
+	previous *UpstreamBillingProbeSnapshot,
+	current *UpstreamBillingProbeSnapshot,
+	now time.Time,
+) (float64, float64, bool) {
+	if current == nil || current.Data == nil {
+		return 0, 0, false
+	}
+	balance, hasBalance := resolveAccountExtraNumber(current.Data, "balance")
+	threshold, enabled := upstreamBalanceAlertConfig(account)
+	if !hasBalance || !enabled || math.IsNaN(balance) || math.IsInf(balance, 0) {
+		return 0, 0, false
+	}
+
+	active := balance <= threshold
+	alert := &UpstreamBalanceAlertSnapshot{Active: active, Threshold: threshold}
+	current.BalanceAlert = alert
+	if !active {
+		return balance, threshold, false
+	}
+
+	var previousAlert *UpstreamBalanceAlertSnapshot
+	if previous != nil {
+		previousAlert = previous.BalanceAlert
+	}
+	shouldNotify := previousAlert == nil || !previousAlert.Active || !equalBillingMultiplier(previousAlert.Threshold, threshold)
+	if shouldNotify {
+		triggeredAt := now.UTC()
+		alert.TriggeredAt = &triggeredAt
+		return balance, threshold, true
+	}
+	alert.TriggeredAt = previousAlert.TriggeredAt
+	return balance, threshold, false
 }
 
 func upstreamBillingRateAt(data map[string]any, now time.Time) (float64, bool) {
@@ -1049,7 +1335,14 @@ func upstreamBillingRateSyncEnabled(account *Account) bool {
 		return false
 	}
 	enabled, ok := account.Extra[UpstreamBillingRateSyncEnabledExtraKey].(bool)
-	return ok && enabled && upstreamBillingProbeEnabled(account)
+	return ok && enabled && upstreamBillingProbeEnabled(account) && !newAPISyncEnabled(account)
+}
+
+// accountRateMultiplierManagedByAutomation is the single ownership check for
+// manual edits. NewAPI ratio synchronization and generic upstream-declared
+// rate synchronization are mutually exclusive writers of rate_multiplier.
+func accountRateMultiplierManagedByAutomation(account *Account) bool {
+	return upstreamBillingRateSyncEnabled(account) || newAPISyncEnabled(account)
 }
 
 func (s *UpstreamBillingProbeService) currentTime() time.Time {

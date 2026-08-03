@@ -31,6 +31,7 @@ const makeAccount = (overrides: Partial<Account> = {}): Account => ({
   created_at: '2026-07-13T00:00:00Z',
   updated_at: '2026-07-13T00:00:00Z',
   schedulable: true,
+  rate_multiplier: 0.04,
   rate_limited_at: null,
   rate_limit_reset_at: null,
   overload_until: null,
@@ -68,12 +69,13 @@ describe('UpstreamBillingRateCell', () => {
     vi.useRealTimers()
   })
 
-  it('recomputes the current effective rate and keeps the icon-only probe action', async () => {
+  it('calibrates the current upstream rate and keeps the icon-only probe action', async () => {
     const wrapper = mount(UpstreamBillingRateCell, {
       props: {
         account: makeAccount({
           extra: {
             upstream_billing_probe_enabled: true,
+            openai_upstream_rate_calibration: 0.1,
             upstream_billing_probe: {
               status: 'ok',
               data: billingData,
@@ -88,16 +90,165 @@ describe('UpstreamBillingRateCell', () => {
       }
     })
 
-    expect(wrapper.text()).toContain('0.60x')
+    expect(wrapper.text()).toContain('0.06x')
     await wrapper.setProps({ now: Date.parse('2026-07-13T01:00:00Z') })
-    expect(wrapper.text()).toContain('0.90x')
+    expect(wrapper.text()).toContain('0.09x')
     await wrapper.setProps({ now: Date.parse('2026-07-13T10:00:00Z') })
-    expect(wrapper.text()).toContain('0.60x')
+    expect(wrapper.text()).toContain('0.06x')
     expect(wrapper.text()).not.toContain('admin.accounts.upstreamBilling.latest')
     expect(wrapper.get('[data-testid="upstream-billing-probe"]').text()).toBe('')
     expect(wrapper.get('[data-testid="upstream-billing-probe"]').attributes('aria-label')).toBe(
       'admin.accounts.upstreamBilling.manualProbe'
     )
+  })
+
+  it('shows subscription remaining and highlights a low balance', async () => {
+    const wrapper = mount(UpstreamBillingRateCell, {
+      attachTo: document.body,
+      props: {
+        account: makeAccount({
+          extra: {
+            upstream_billing_probe_enabled: true,
+            upstream_billing_probe: {
+              status: 'ok',
+              data: {
+                ...billingData,
+                balance: 12.5,
+                balance_kind: 'subscription_remaining'
+              },
+              balance_alert: {
+                active: true,
+                threshold: 20,
+                triggered_at: '2026-07-13T00:00:00Z'
+              },
+              received_at: '2026-07-13T00:00:00Z',
+              fresh_until: '2026-07-14T00:00:00Z',
+              last_attempt_at: '2026-07-13T00:00:00Z',
+              next_probe_at: '2026-07-13T00:30:00Z'
+            }
+          }
+        }),
+        now: Date.now()
+      }
+    })
+
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe('$12.5')
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').classes()).toContain('text-red-600')
+    await wrapper.get('[data-testid="upstream-billing-details"]').trigger('mouseenter')
+    await flushPromises()
+    expect(document.body.textContent).toContain('admin.accounts.upstreamBilling.subscriptionRemaining:$12.5')
+    expect(document.body.textContent).toContain('admin.accounts.upstreamBilling.balanceLow:$12.5,$20')
+    wrapper.unmount()
+  })
+
+  it('renders a zero upstream balance as an explicit insufficient-balance state', () => {
+    const wrapper = mount(UpstreamBillingRateCell, {
+      props: {
+        account: makeAccount({
+          extra: {
+            upstream_billing_probe_enabled: true,
+            upstream_billing_probe: {
+              status: 'ok',
+              data: { ...billingData, balance: 0, balance_kind: 'wallet' },
+              received_at: '2026-07-13T00:00:00Z',
+              fresh_until: '2026-07-14T00:00:00Z',
+              last_attempt_at: '2026-07-13T00:00:00Z',
+              next_probe_at: '2026-07-13T00:30:00Z'
+            }
+          }
+        }),
+        now: Date.now()
+      }
+    })
+
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe(
+      'admin.accounts.upstreamBilling.balanceUnavailable'
+    )
+    expect(wrapper.text()).not.toContain('$0')
+  })
+
+  it('shows insufficient balance when NewAPI reports the account unavailable without a numeric balance', () => {
+    const wrapper = mount(UpstreamBillingRateCell, {
+      props: {
+        account: makeAccount({
+          extra: {
+            newapi_sync_enabled: true,
+            newapi_balance_snapshot: {
+              account: { user_id: 7, group: 'default', remaining_quota: 0, used_quota: 1, total_quota: 1 },
+              token: { name: 'token', remaining_quota: 0, used_quota: 1, total_quota: 1, unlimited_quota: false, expires_at: 0 },
+              token_available: false,
+              account_available: false,
+              overall_available: false,
+              synced_at: '2026-07-13T00:00:00Z',
+              fresh_until: '2026-07-14T00:00:00Z'
+            }
+          }
+        }),
+        now: Date.now()
+      }
+    })
+
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe(
+      'admin.accounts.upstreamBilling.balanceUnavailable'
+    )
+  })
+
+  it('uses a synchronized NewAPI group ratio as the calibrated scheduling cost', async () => {
+    const newAPIData = {
+      object: 'newapi.group_ratio' as const,
+      schema_version: 1 as const,
+      source: 'newapi' as const,
+      billing_scope: 'token' as const,
+      group_rate_multiplier: 1,
+      resolved_rate_multiplier: 1,
+      peak_rate_enabled: false,
+      effective_rate_multiplier: 1,
+      observed_at: '2026-07-13T00:00:00Z',
+      newapi_group: 'GPT Lite大户组',
+      balance: 19.864546,
+      balance_kind: 'wallet' as const
+    }
+    const wrapper = mount(UpstreamBillingRateCell, {
+      attachTo: document.body,
+      props: {
+        account: makeAccount({
+          rate_multiplier: 1,
+          extra: {
+            newapi_sync_enabled: true,
+            upstream_billing_probe_enabled: false,
+            openai_upstream_rate_calibration: 0.03,
+            upstream_billing_probe: {
+              status: 'ok',
+              data: newAPIData,
+              balance_alert: {
+                active: true,
+                threshold: 20,
+                triggered_at: '2026-07-13T00:00:00Z'
+              },
+              received_at: '2026-07-13T00:00:00Z',
+              fresh_until: '2026-07-13T01:00:00Z',
+              last_attempt_at: '2026-07-13T00:00:00Z',
+              next_probe_at: '2026-07-13T00:30:00Z'
+            }
+          }
+        }),
+        now: Date.now()
+      }
+    })
+
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.03x')
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe('$19.8645')
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').classes()).toContain('text-red-600')
+    await wrapper.get('[data-testid="upstream-billing-details"]').trigger('mouseenter')
+    await flushPromises()
+    const tooltips = document.body.querySelectorAll('[role="tooltip"]')
+    const tooltip = tooltips[tooltips.length - 1] as HTMLElement
+    expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.newapiGroupRate:GPT Lite大户组,1')
+    expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.walletBalance:$19.8645')
+    expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.balanceLow:$19.8645,$20')
+    expect(tooltip.textContent).not.toContain('admin.accounts.upstreamBilling.unsupported')
+    expect(tooltip.querySelector('[data-testid="upstream-billing-probe-state"] span')?.className).toContain('text-emerald-400')
+    wrapper.unmount()
   })
 
   it('uses retained failed data only while it is still fresh', async () => {
@@ -115,7 +266,7 @@ describe('UpstreamBillingRateCell', () => {
     })
     const wrapper = mount(UpstreamBillingRateCell, { props: { account, now: Date.now() } })
     expect(wrapper.text()).toContain('admin.accounts.upstreamBilling.stale')
-    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('admin.accounts.upstreamBilling.stale')
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.04x')
 
     await wrapper.setProps({
       account: makeAccount({
@@ -132,15 +283,15 @@ describe('UpstreamBillingRateCell', () => {
         }
       })
     })
-    expect(wrapper.text()).toContain('0.60x')
+    expect(wrapper.text()).toContain('0.6x')
     expect(wrapper.text()).toContain('admin.accounts.upstreamBilling.failed')
 
     await wrapper.setProps({ now: Date.parse('2026-07-13T01:00:00Z') })
-    expect(wrapper.text()).toContain('0.90x')
+    expect(wrapper.text()).toContain('0.9x')
     expect(wrapper.text()).not.toContain('admin.accounts.upstreamBilling.stale')
 
     await wrapper.setProps({ now: Date.parse('2026-07-13T01:00:00.001Z') })
-    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('admin.accounts.upstreamBilling.stale')
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.04x')
     expect(wrapper.text()).toContain('admin.accounts.upstreamBilling.stale')
 
     await wrapper.setProps({
@@ -159,7 +310,7 @@ describe('UpstreamBillingRateCell', () => {
         }
       })
     })
-    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('admin.accounts.upstreamBilling.stale')
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.04x')
     expect(wrapper.text()).toContain('admin.accounts.upstreamBilling.stale')
   })
 
@@ -306,17 +457,17 @@ describe('UpstreamBillingRateCell', () => {
       }
     })
 
-    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('-')
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.04x')
     await wrapper.setProps({ account: malformedAccount({ billing_scope: 'request' as 'token' }) })
-    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('-')
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.04x')
     await wrapper.setProps({ account: malformedAccount({}, { received_at: 'not-a-time' }) })
-    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('admin.accounts.upstreamBilling.stale')
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.04x')
     await wrapper.setProps({ account: malformedAccount({}, { received_at: '2026-07-13T00:31:00Z' }) })
-    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.60x')
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.6x')
     await wrapper.setProps({ account: malformedAccount({}, { received_at: '2026-07-13T00:36:00Z' }) })
-    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('admin.accounts.upstreamBilling.stale')
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.04x')
     await wrapper.setProps({ account: malformedAccount({}, { fresh_until: '2026-07-12T23:59:00Z' }) })
-    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('admin.accounts.upstreamBilling.stale')
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.04x')
 
     await wrapper.setProps({
       account: makeAccount({
@@ -330,12 +481,12 @@ describe('UpstreamBillingRateCell', () => {
         }
       })
     })
-    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('admin.accounts.upstreamBilling.failed')
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.04x')
     expect(wrapper.text()).toContain('admin.accounts.upstreamBilling.failed')
     expect(wrapper.text()).not.toContain('admin.accounts.upstreamBilling.stale')
   })
 
-  it('uses unsupported as the primary tooltip trigger without a dash', () => {
+  it('uses the account billing rate when upstream probing is unsupported', () => {
     const wrapper = mount(UpstreamBillingRateCell, {
       props: {
         account: makeAccount({
@@ -352,9 +503,7 @@ describe('UpstreamBillingRateCell', () => {
       }
     })
 
-    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe(
-      'admin.accounts.upstreamBilling.unsupported'
-    )
+    expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.04x')
     expect(wrapper.text()).not.toContain('-admin.accounts.upstreamBilling.unsupported')
   })
 })

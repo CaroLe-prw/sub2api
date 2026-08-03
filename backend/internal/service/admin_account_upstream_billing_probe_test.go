@@ -161,6 +161,35 @@ func TestCreateAccountAcceptsDedicatedUpstreamBillingProbeSetting(t *testing.T) 
 	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
 }
 
+func TestCreateAccountAcceptsDedicatedUpstreamBillingRateSyncSetting(t *testing.T) {
+	enabled := true
+	repo := &upstreamBillingProbeAccountRepo{}
+	created, err := (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "managed upstream",
+		Platform:             PlatformGemini,
+		Type:                 AccountTypeAPIKey,
+		Credentials:          map[string]any{"api_key": "test-key"},
+		RateSyncEnabled:      &enabled,
+		SkipDefaultGroupBind: true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, true, created.Extra[UpstreamBillingProbeEnabledExtraKey])
+	require.Equal(t, true, created.Extra[UpstreamBillingRateSyncEnabledExtraKey])
+
+	disabled := false
+	_, err = (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "conflicting upstream",
+		Platform:             PlatformGemini,
+		Type:                 AccountTypeAPIKey,
+		Credentials:          map[string]any{"api_key": "test-key"},
+		ProbeEnabled:         &disabled,
+		RateSyncEnabled:      &enabled,
+		SkipDefaultGroupBind: true,
+	})
+	require.Error(t, err)
+}
+
 func TestUpdateAccountPreservesManagedUpstreamBillingProbeStateForUnrelatedEdit(t *testing.T) {
 	accountID := int64(110)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
@@ -508,6 +537,32 @@ func TestUpdateAccountRejectsManualRateWhileRateSyncEnabled(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, updated.RateMultiplier)
 		require.Equal(t, manualRate, *updated.RateMultiplier)
+	})
+
+	t.Run("NewAPI sync enabled rejects manual rate", func(t *testing.T) {
+		accountID := int64(157)
+		repo := newRepo(accountID, map[string]any{NewAPISyncEnabledExtraKey: true})
+
+		_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+			RateMultiplier: &manualRate,
+		})
+
+		require.ErrorIs(t, err, ErrUpstreamBillingRateSyncConflict)
+		require.Equal(t, 0.25, *repo.accounts[accountID].RateMultiplier)
+	})
+
+	t.Run("enabling generic rate sync disables NewAPI ownership", func(t *testing.T) {
+		accountID := int64(158)
+		repo := newRepo(accountID, map[string]any{NewAPISyncEnabledExtraKey: true})
+		enable := true
+
+		updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+			RateSyncEnabled: &enable,
+		})
+
+		require.NoError(t, err)
+		require.Equal(t, false, updated.Extra[NewAPISyncEnabledExtraKey])
+		require.Equal(t, true, updated.Extra[UpstreamBillingRateSyncEnabledExtraKey])
 	})
 }
 

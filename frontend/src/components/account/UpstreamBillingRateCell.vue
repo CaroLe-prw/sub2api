@@ -1,34 +1,67 @@
 <template>
-  <div v-if="eligible" class="flex h-6 min-w-[7rem] items-center gap-1">
+  <div v-if="eligible" class="flex min-h-6 min-w-[8rem] items-center gap-1">
     <HelpTooltip class="-ml-1" width-class="w-max max-w-[calc(100vw-2rem)]" data-testid="upstream-billing-details">
       <template #trigger>
         <span
-          class="cursor-help border-b border-dotted border-gray-300 text-sm font-medium dark:border-dark-600"
-          :class="hasEffectiveRate ? 'font-mono text-gray-800 dark:text-gray-200' : statusClass || 'text-gray-400 dark:text-gray-500'"
+          class="cursor-help border-b border-dotted border-gray-300 font-mono text-sm font-medium text-gray-800 dark:border-dark-600 dark:text-gray-200"
           data-testid="upstream-billing-rate"
         >
           {{ primaryValue }}
         </span>
       </template>
       <div class="space-y-1">
+        <p>{{ t('admin.accounts.upstreamBilling.schedulingRate', { value: schedulingRate }) }}</p>
+        <p>
+          {{
+            hasEffectiveRate
+              ? t('admin.accounts.upstreamBilling.schedulingSourceCalibrated')
+              : t('admin.accounts.upstreamBilling.schedulingSourceFallback')
+          }}
+        </p>
+        <p>{{ t('admin.accounts.upstreamBilling.calibration', { value: calibration }) }}</p>
+        <p>{{ t('admin.accounts.upstreamBilling.manualFallback', { value: manualFallbackRate }) }}</p>
         <template v-if="hasEffectiveRate && data">
-          <p>{{ t('admin.accounts.upstreamBilling.groupRate', { value: data.group_rate_multiplier }) }}</p>
-          <p v-if="data.user_rate_multiplier != null">
-            {{ t('admin.accounts.upstreamBilling.userRate', { value: data.user_rate_multiplier }) }}
-          </p>
-          <p>
+          <p v-if="isNewAPISnapshot">
             {{
-              data.peak_rate_enabled
-                ? t('admin.accounts.upstreamBilling.peakRate', {
-                    start: data.peak_start,
-                    end: data.peak_end,
-                    value: data.peak_rate_multiplier,
-                    timezone: data.timezone
-                  })
-                : t('admin.accounts.upstreamBilling.noPeakRate')
+              t('admin.accounts.upstreamBilling.newapiGroupRate', {
+                group: data.newapi_group || '-',
+                value: data.group_rate_multiplier
+              })
             }}
           </p>
+          <template v-else>
+            <p>{{ t('admin.accounts.upstreamBilling.groupRate', { value: data.group_rate_multiplier }) }}</p>
+            <p v-if="data.user_rate_multiplier != null">
+              {{ t('admin.accounts.upstreamBilling.userRate', { value: data.user_rate_multiplier }) }}
+            </p>
+            <p>
+              {{
+                data.peak_rate_enabled
+                  ? t('admin.accounts.upstreamBilling.peakRate', {
+                      start: data.peak_start,
+                      end: data.peak_end,
+                      value: data.peak_rate_multiplier,
+                      timezone: data.timezone
+                    })
+                  : t('admin.accounts.upstreamBilling.noPeakRate')
+              }}
+            </p>
+          </template>
           <p>{{ t('admin.accounts.upstreamBilling.effectiveRate', { value: currentEffectiveRate ?? '-' }) }}</p>
+          <p v-if="balanceInsufficient" class="text-red-400" data-testid="upstream-billing-balance-detail">
+            {{ t('admin.accounts.upstreamBilling.balanceUnavailable') }}
+          </p>
+          <p v-else-if="balance != null" data-testid="upstream-billing-balance-detail">
+            {{ t(balanceTranslationKey, { value: formatBalance(balance) }) }}
+          </p>
+          <p v-if="balanceAlertActive" class="text-red-400">
+            {{
+              t('admin.accounts.upstreamBilling.balanceLow', {
+                value: formatBalance(balance ?? 0),
+                threshold: formatBalance(snapshot?.balance_alert?.threshold ?? 0)
+              })
+            }}
+          </p>
           <p>{{ t('admin.accounts.upstreamBilling.updatedAt', { value: formatDate(snapshot?.received_at) }) }}</p>
         </template>
         <template v-else-if="stale && lastDetectedRate != null">
@@ -65,7 +98,22 @@
         </p>
       </div>
     </HelpTooltip>
-    <span v-if="hasEffectiveRate && statusLabel" :class="statusClass" class="whitespace-nowrap text-[10px] font-medium">
+    <span
+      v-if="balanceInsufficient"
+      class="whitespace-nowrap text-xs font-medium text-red-600 dark:text-red-400"
+      data-testid="upstream-billing-balance"
+    >
+      {{ t('admin.accounts.upstreamBilling.balanceUnavailable') }}
+    </span>
+    <span
+      v-else-if="balance != null"
+      :class="balanceAlertActive ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'"
+      class="whitespace-nowrap font-mono text-xs"
+      data-testid="upstream-billing-balance"
+    >
+      {{ formatBalance(balance) }}
+    </span>
+    <span v-if="statusLabel" :class="statusClass" class="whitespace-nowrap text-[10px] font-medium">
       {{ statusLabel }}
     </span>
     <button
@@ -110,7 +158,22 @@ const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000
 const eligible = computed(() => props.account.type === 'apikey')
 const snapshot = computed<UpstreamBillingProbeSnapshot | undefined>(() => props.account.extra?.upstream_billing_probe)
 const data = computed(() => snapshot.value?.data)
-const probeEnabled = computed(() => props.account.extra?.upstream_billing_probe_enabled === true)
+const balance = computed(() => {
+  const value = data.value?.balance
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+})
+const newAPIBalanceSnapshot = computed(() => props.account.extra?.newapi_balance_snapshot)
+const balanceInsufficient = computed(() => {
+  if (balance.value != null) return balance.value <= 0
+  return newAPIBalanceSnapshot.value?.overall_available === false
+})
+const balanceAlertActive = computed(() => snapshot.value?.balance_alert?.active === true)
+const balanceTranslationKey = computed(() => data.value?.balance_kind === 'subscription_remaining'
+  ? 'admin.accounts.upstreamBilling.subscriptionRemaining'
+  : 'admin.accounts.upstreamBilling.walletBalance')
+const isNewAPISnapshot = computed(() => data.value?.source === 'newapi')
+const probeEnabled = computed(() => props.account.extra?.newapi_sync_enabled === true
+  || props.account.extra?.upstream_billing_probe_enabled === true)
 const nextProbeAt = computed(() => {
   const value = snapshot.value?.next_probe_at
   return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : ''
@@ -194,6 +257,21 @@ const effectiveRate = computed(() => {
   const value = currentEffectiveRate.value
   return value == null ? '-' : `${formatMultiplier(value)}x`
 })
+const hasEffectiveRate = computed(() => effectiveRate.value !== '-')
+const calibration = computed(() => {
+  const value = props.account.extra?.openai_upstream_rate_calibration
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 1
+})
+const manualFallbackRate = computed(() => {
+  const value = props.account.rate_multiplier
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 1
+})
+const schedulingRate = computed(() => {
+  const value = hasEffectiveRate.value
+    ? (currentEffectiveRate.value ?? 0) * calibration.value
+    : manualFallbackRate.value
+  return Number(value.toPrecision(12))
+})
 const statusLabel = computed(() => {
   if (!snapshot.value) return t('admin.accounts.upstreamBilling.notProbed')
   if (snapshot.value.status === 'unsupported') return t('admin.accounts.upstreamBilling.unsupported')
@@ -208,8 +286,8 @@ const statusClass = computed(() => {
   if (snapshot.value.status === 'failed') return 'text-red-600 dark:text-red-400'
   return ''
 })
-const hasEffectiveRate = computed(() => effectiveRate.value !== '-')
-const primaryValue = computed(() => hasEffectiveRate.value ? effectiveRate.value : statusLabel.value || '-')
+const primaryValue = computed(() => `${schedulingRate.value}x`)
+const formatBalance = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
 const formatDate = (value?: string) => value
   ? new Date(value).toLocaleString(undefined, {
       month: '2-digit',

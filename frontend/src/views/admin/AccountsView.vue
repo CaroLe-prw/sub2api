@@ -5,10 +5,12 @@
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
           <AccountTableFilters
             v-model:searchQuery="params.search"
+            v-model:only-selected-group-score="onlySelectedGroupScore"
             :filters="params"
             :groups="groups"
+            :selected-group-id="selectedSchedulerScoreGroupId"
             @update:filters="(newFilters) => Object.assign(params, newFilters)"
-            @change="debouncedReload"
+            @change="handleFiltersChange"
             @update:searchQuery="debouncedReload"
           />
           <AccountTableActions
@@ -345,10 +347,14 @@
             <span class="inline-flex items-center gap-1 text-sm font-mono text-gray-700 dark:text-gray-300">
               <span>{{ formatMultiplier(row.rate_multiplier ?? 1) }}x</span>
               <span
-                v-if="row.extra?.upstream_billing_rate_sync_enabled === true"
+                v-if="row.extra?.upstream_billing_rate_sync_enabled === true || row.extra?.newapi_sync_enabled === true"
                 class="inline-flex cursor-help text-emerald-600 dark:text-emerald-400"
-                :aria-label="t('admin.accounts.upstreamBilling.syncedRateTooltip')"
-                :title="t('admin.accounts.upstreamBilling.syncedRateTooltip')"
+                :aria-label="t(row.extra?.newapi_sync_enabled === true
+                  ? 'admin.accounts.upstreamBilling.newapiSyncedRateTooltip'
+                  : 'admin.accounts.upstreamBilling.syncedRateTooltip')"
+                :title="t(row.extra?.newapi_sync_enabled === true
+                  ? 'admin.accounts.upstreamBilling.newapiSyncedRateTooltip'
+                  : 'admin.accounts.upstreamBilling.syncedRateTooltip')"
                 data-testid="account-rate-sync-indicator"
               >
                 <Icon name="sync" size="xs" />
@@ -444,13 +450,13 @@
       </template>
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
-    <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
+    <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="handleAccountCreated" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @pause-scheduling="handlePauseScheduling" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -467,6 +473,12 @@
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
     <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
     <ConfirmDialog :show="showCreateShadowDialog" :title="t('admin.accounts.createSparkShadow')" :message="t('admin.accounts.createSparkShadowConfirm', { name: creatingShadowAcc?.name })" @confirm="confirmCreateSparkShadow" @cancel="showCreateShadowDialog = false" />
+    <ConfirmDialog :show="showPauseSchedulingDialog" :title="t('admin.accounts.pauseScheduling')" :message="t('admin.accounts.pauseSchedulingPrompt', { name: pauseSchedulingAcc?.name })" @confirm="confirmPauseScheduling" @cancel="closePauseSchedulingDialog">
+      <label class="block">
+        <span class="input-label">{{ t('admin.accounts.tempUnschedulable.durationMinutes') }}</span>
+        <input v-model.number="pauseSchedulingMinutes" type="number" min="1" max="1440" step="1" class="input mt-1 w-full" @keydown.enter.prevent="confirmPauseScheduling" />
+      </label>
+    </ConfirmDialog>
     <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
       <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
         <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" v-model="includeProxyOnExport" />
@@ -480,7 +492,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import { ref, shallowRef, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -503,6 +515,7 @@ import AccountTableFilters from '@/components/admin/account/AccountTableFilters.
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
+import { accountSchedulerScoreRows } from '@/components/admin/account/accountSchedulerScore'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
@@ -586,6 +599,7 @@ const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
+const showPauseSchedulingDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
@@ -595,6 +609,9 @@ const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
 const creatingShadowAcc = ref<Account | null>(null)
+const pauseSchedulingAcc = ref<Account | null>(null)
+const pauseSchedulingMinutes = ref<number | null>(10)
+const pausingScheduling = ref(false)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
@@ -670,6 +687,8 @@ const loadInitialAccountSortState = (): AccountSortState => {
   }
 }
 const sortState = reactive<AccountSortState>(loadInitialAccountSortState())
+const ONLY_SELECTED_GROUP_SCORE_STORAGE_KEY = 'account-scheduler-score-only-selected-group'
+const onlySelectedGroupScore = shallowRef(localStorage.getItem(ONLY_SELECTED_GROUP_SCORE_STORAGE_KEY) !== 'false')
 
 // Auto refresh settings
 const showAutoRefreshDropdown = ref(false)
@@ -764,15 +783,11 @@ const formatStickySchedulerScore = (score: AccountSchedulerGroupScore): string =
 }
 
 const getSchedulerScoreRows = (account: Account): AccountSchedulerGroupScore[] => {
-  const groupRows = Array.isArray(account.scheduler_scores)
-    ? account.scheduler_scores.filter(score => score.group_id != null)
-    : []
-  if (groupRows.length) return groupRows
-  // 未分组账号没有分组维度分数，回退展示后端返回的基础分
-  if (account.scheduler_score) {
-    return [{ group_id: null, ...account.scheduler_score }]
-  }
-  return []
+  return accountSchedulerScoreRows({
+    account,
+    selectedGroupId: selectedSchedulerScoreGroupId.value,
+    onlySelectedGroup: onlySelectedGroupScore.value
+  })
 }
 
 const formatSchedulerScoreGroup = (score: AccountSchedulerGroupScore): string => {
@@ -927,6 +942,11 @@ const {
   }
 })
 
+const selectedSchedulerScoreGroupId = computed<number | null>(() => {
+  const value = Number(params.group)
+  return Number.isInteger(value) && value > 0 ? value : null
+})
+
 const {
   selectedSet,
   selectedIds: selIds,
@@ -1041,6 +1061,21 @@ const debouncedReload = () => {
   baseDebouncedReload()
 }
 
+const handleFiltersChange = () => {
+  if (sortState.sort_by === 'scheduler_score' && selectedSchedulerScoreGroupId.value == null) {
+    sortState.sort_by = 'name'
+    sortState.sort_order = 'asc'
+    const requestParams = params as any
+    requestParams.sort_by = sortState.sort_by
+    requestParams.sort_order = sortState.sort_order
+  }
+  debouncedReload()
+}
+
+watch(onlySelectedGroupScore, (value) => {
+  localStorage.setItem(ONLY_SELECTED_GROUP_SCORE_STORAGE_KEY, String(value))
+})
+
 const handlePageChange = (page: number) => {
   syncAccountListDerivedParams()
   hasPendingListSync.value = false
@@ -1099,6 +1134,7 @@ const isAnyModalOpen = computed(() => {
     showBulkEdit.value ||
     showTempUnsched.value ||
     showDeleteDialog.value ||
+    showPauseSchedulingDialog.value ||
     showReAuth.value ||
     showTest.value ||
     showStats.value ||
@@ -1448,7 +1484,7 @@ const allColumns = computed(() => {
   c.push(
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true },
-    { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false },
+    { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: selectedSchedulerScoreGroupId.value != null },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
     { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
@@ -1473,6 +1509,12 @@ const cols = computed(() =>
 )
 
 const handleEdit = (a: Account) => { edAcc.value = a; showEdit.value = true }
+const handleAccountCreated = async (account?: Account) => {
+  await reload()
+  if (!account) return
+  edAcc.value = accounts.value.find(candidate => candidate.id === account.id) || account
+  showEdit.value = true
+}
 const openMenu = (a: Account, e: MouseEvent) => {
   menu.acc = a
 
@@ -2007,7 +2049,10 @@ const handleDuplicateAccount = async (a: Account) => {
   try {
     const duplicate = await adminAPI.accounts.duplicate(a.id)
     appStore.showSuccess(t('admin.accounts.duplicateSuccess', { name: duplicate.name }))
-    reload()
+    await reload()
+    // 复制接口会主动清理敏感凭据、探测快照和自动同步身份；立即打开完整编辑页补齐。
+    edAcc.value = accounts.value.find(candidate => candidate.id === duplicate.id) || duplicate
+    showEdit.value = true
   } catch (error: any) {
     console.error('Failed to duplicate account:', error)
     appStore.showError(error?.message || t('admin.accounts.duplicateFailed'))
@@ -2022,6 +2067,35 @@ const handleRefresh = async (a: Account) => {
     enterAutoRefreshSilentWindow()
   } catch (error) {
     console.error('Failed to refresh credentials:', error)
+  }
+}
+const handlePauseScheduling = (a: Account) => {
+  pauseSchedulingAcc.value = a
+  pauseSchedulingMinutes.value = 10
+  showPauseSchedulingDialog.value = true
+}
+const closePauseSchedulingDialog = () => {
+  showPauseSchedulingDialog.value = false
+  pauseSchedulingAcc.value = null
+}
+const confirmPauseScheduling = async () => {
+  if (!pauseSchedulingAcc.value || pausingScheduling.value) return
+  const minutes = Number(pauseSchedulingMinutes.value)
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
+    appStore.showError(t('admin.accounts.pauseSchedulingInvalid'))
+    return
+  }
+  pausingScheduling.value = true
+  try {
+    const updated = await adminAPI.accounts.pauseScheduling(pauseSchedulingAcc.value.id, minutes)
+    patchAccountInList(updated)
+    enterAutoRefreshSilentWindow()
+    closePauseSchedulingDialog()
+    appStore.showSuccess(t('admin.accounts.pauseSchedulingSuccess', { minutes }))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.accounts.pauseSchedulingFailed'))
+  } finally {
+    pausingScheduling.value = false
   }
 }
 const handleRecoverState = async (a: Account) => {

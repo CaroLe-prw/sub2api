@@ -14,6 +14,7 @@ import (
 type OpenAIMessagesDispatchModelConfig = domain.OpenAIMessagesDispatchModelConfig
 type GroupModelsListConfig = domain.GroupModelsListConfig
 type ReasoningEffortMapping = domain.ReasoningEffortMapping
+type GroupOpenAISchedulerConfig = domain.GroupOpenAISchedulerConfig
 
 type Group struct {
 	ID             int64
@@ -21,6 +22,13 @@ type Group struct {
 	Description    string
 	Platform       string
 	RateMultiplier float64
+	// MaxAccountCostMultiplier limits the scheduling cost multiplier of accounts
+	// eligible for this group. Nil means no independent absolute ceiling.
+	MaxAccountCostMultiplier *float64
+	// OpenAISchedulerProfile selects a group-specific OpenAI scheduling preset.
+	// "inherit" keeps the existing system-level advanced scheduler settings.
+	OpenAISchedulerProfile string
+	OpenAISchedulerConfig  GroupOpenAISchedulerConfig
 	// 高峰时段倍率：peak_rate_enabled 为 true 且当前时刻处于 [PeakStart, PeakEnd) 时，
 	// token 计费倍率额外乘以 PeakRateMultiplier。详见 PeakMultiplierAt。
 	PeakRateEnabled    bool

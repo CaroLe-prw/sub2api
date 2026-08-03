@@ -14,7 +14,8 @@ import (
 )
 
 type pricingRemoteClient struct {
-	httpClient *http.Client
+	httpClient  *http.Client
+	githubToken string
 }
 
 // pricingRemoteClientError 代理初始化失败时的错误占位客户端
@@ -36,7 +37,7 @@ func (c *pricingRemoteClientError) FetchHashText(_ context.Context, _ string) (s
 // 代理配置失败时行为由 allowDirectOnProxyError 控制：
 //   - false（默认）：返回错误占位客户端，禁止回退到直连
 //   - true：回退到直连（仅限管理员显式开启）
-func NewPricingRemoteClient(proxyURL string, allowDirectOnProxyError bool) service.PricingRemoteClient {
+func NewPricingRemoteClient(proxyURL string, allowDirectOnProxyError bool, githubToken string) service.PricingRemoteClient {
 	// 安全说明：httpclient.GetClient 的错误链（url.Parse / proxyutil）不含明文代理凭据，
 	// 但仍通过 slog 仅在服务端日志记录，不会暴露给 HTTP 响应。
 	sharedClient, err := httpclient.GetClient(httpclient.Options{
@@ -51,16 +52,30 @@ func NewPricingRemoteClient(proxyURL string, allowDirectOnProxyError bool) servi
 		sharedClient = &http.Client{Timeout: 30 * time.Second}
 	}
 	return &pricingRemoteClient{
-		httpClient: sharedClient,
+		httpClient:  sharedClient,
+		githubToken: strings.TrimSpace(githubToken),
 	}
 }
 
-func (c *pricingRemoteClient) FetchPricingJSON(ctx context.Context, url string) ([]byte, error) {
+func (c *pricingRemoteClient) newRequest(ctx context.Context, url string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
+	if strings.EqualFold(req.URL.Hostname(), "api.github.com") {
+		req.Header.Set("Accept", "application/vnd.github.raw+json")
+		if c.githubToken != "" {
+			req.Header.Set("Authorization", "Bearer "+c.githubToken)
+		}
+	}
+	return req, nil
+}
 
+func (c *pricingRemoteClient) FetchPricingJSON(ctx context.Context, url string) ([]byte, error) {
+	req, err := c.newRequest(ctx, url)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -75,7 +90,7 @@ func (c *pricingRemoteClient) FetchPricingJSON(ctx context.Context, url string) 
 }
 
 func (c *pricingRemoteClient) FetchHashText(ctx context.Context, url string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := c.newRequest(ctx, url)
 	if err != nil {
 		return "", err
 	}

@@ -23,7 +23,7 @@ func (s *GatewayService) withGatewayProfitControlGate(ctx context.Context, group
 		slog.Warn("profit_control_group_load_failed", "group_id", *groupID, "error", err)
 		return s.clearForeignProfitControlGate(ctx, groupID)
 	}
-	if group == nil || !group.ProfitControlEnabled || !profitControlPlatformSupported(group.Platform) {
+	if group == nil {
 		return s.clearForeignProfitControlGate(ctx, groupID)
 	}
 
@@ -42,7 +42,11 @@ func (s *GatewayService) withGatewayProfitControlGate(ctx context.Context, group
 		downstream = s.ResolveUserGroupRateMultiplier(ctx, userID, billingGroup.ID, billingGroup.RateMultiplier)
 	}
 	downstream *= billingGroup.PeakMultiplierAt(pricingAt)
-	threshold := clampProfitControlThreshold(downstream * (1 - group.ProfitMinMargin - group.ProfitSafetyBuffer))
+	profitEnabled := group.ProfitControlEnabled && profitControlPlatformSupported(group.Platform)
+	threshold, active := resolveGroupAccountCostThreshold(group, billingGroup, downstream, profitEnabled)
+	if !active {
+		return s.clearForeignProfitControlGate(ctx, groupID)
+	}
 
 	gate := &openAIProfitControlGate{
 		groupID:   group.ID,

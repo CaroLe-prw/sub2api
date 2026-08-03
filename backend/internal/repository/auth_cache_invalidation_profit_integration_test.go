@@ -2,7 +2,7 @@
 
 package repository
 
-// migration 193 回归：groups 触发器的 durable 失效监视清单必须覆盖利润控制
+// migrations 193/195 回归：groups 触发器的 durable 失效监视清单必须覆盖利润控制
 // 配置及 D 依赖的分组计价字段（正常后台保存走 InvalidateAuthCacheByGroupID 即时失效，触发器兜底
 // 直改 SQL / 更新与失效之间崩溃等 out-of-band 场景）。
 
@@ -73,6 +73,11 @@ func TestAuthCacheInvalidationTrigger_ProfitControlColumns(t *testing.T) {
 	_, err = integrationDB.ExecContext(ctx, "UPDATE groups SET profit_safety_buffer = 0.02 WHERE id = $1", group.ID)
 	require.NoError(t, err)
 	require.Equal(t, 1, count(), "profit_safety_buffer 变更必须入队")
+	clear()
+
+	_, err = integrationDB.ExecContext(ctx, "UPDATE groups SET max_account_cost_multiplier = 0.04 WHERE id = $1", group.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, count(), "max_account_cost_multiplier 变更必须入队")
 	clear()
 
 	_, err = integrationDB.ExecContext(ctx, "UPDATE groups SET profit_min_margin = profit_min_margin WHERE id = $1", group.ID)

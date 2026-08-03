@@ -26,6 +26,8 @@ type keyBillingInfoResponse struct {
 	PeakRateMultiplier      *float64  `json:"peak_rate_multiplier,omitempty"`
 	AppliedPeakMultiplier   *float64  `json:"applied_peak_multiplier,omitempty"`
 	EffectiveRateMultiplier float64   `json:"effective_rate_multiplier"`
+	Balance                 *float64  `json:"balance,omitempty"`
+	BalanceKind             string    `json:"balance_kind,omitempty"`
 	Timezone                *string   `json:"timezone,omitempty"`
 	ObservedAt              time.Time `json:"observed_at"`
 }
@@ -57,8 +59,33 @@ func (h *GatewayHandler) KeyBillingInfo(c *gin.Context) {
 		return
 	}
 
+	response := buildKeyBillingInfo(apiKey, resolvedRate, timezone.Now())
+	if apiKey.Group != nil && apiKey.Group.IsSubscriptionType() {
+		if subscription, ok := middleware2.GetSubscriptionFromContext(c); ok {
+			remaining := h.calculateSubscriptionRemaining(apiKey.Group, subscription)
+			if remaining >= 0 {
+				response.Balance = &remaining
+				response.BalanceKind = "subscription_remaining"
+			}
+		}
+	} else {
+		var user *service.User
+		if h.userService != nil {
+			if latest, err := h.userService.GetByID(c.Request.Context(), apiKey.UserID); err == nil {
+				user = latest
+			}
+		}
+		if user == nil {
+			user = apiKey.User
+		}
+		if user != nil {
+			response.Balance = &user.Balance
+			response.BalanceKind = "wallet"
+		}
+	}
+
 	c.Header("Cache-Control", "no-store")
-	c.JSON(http.StatusOK, buildKeyBillingInfo(apiKey, resolvedRate, timezone.Now()))
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *GatewayHandler) resolveKeyBillingRate(c *gin.Context, apiKey *service.APIKey) (float64, bool) {

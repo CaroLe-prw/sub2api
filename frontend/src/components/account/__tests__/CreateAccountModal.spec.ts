@@ -5,11 +5,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   createAccountMock,
   probeUpstreamBillingMock,
+  updateNewAPISyncConfigMock,
+  syncNewAPIRatioMock,
   importCodexSessionMock,
   createOpenAICodexPATMock,
 } = vi.hoisted(() => ({
   createAccountMock: vi.fn(),
   probeUpstreamBillingMock: vi.fn(),
+  updateNewAPISyncConfigMock: vi.fn(),
+  syncNewAPIRatioMock: vi.fn(),
   importCodexSessionMock: vi.fn(),
   createOpenAICodexPATMock: vi.fn(),
 }))
@@ -31,6 +35,8 @@ vi.mock('@/api/admin', () => ({
     accounts: {
       create: createAccountMock,
       probeUpstreamBilling: probeUpstreamBillingMock,
+      updateNewAPISyncConfig: updateNewAPISyncConfigMock,
+      syncNewAPIRatio: syncNewAPIRatioMock,
       checkMixedChannelRisk: vi.fn().mockResolvedValue({ has_risk: false }),
       importCodexSession: importCodexSessionMock,
       createOpenAICodexPAT: createOpenAICodexPATMock,
@@ -84,6 +90,27 @@ const OAuthAuthorizationFlowStub = defineComponent({
   `,
 })
 
+const SelectStub = defineComponent({
+  name: 'SelectStub',
+  inheritAttrs: false,
+  props: {
+    modelValue: { type: [String, Number], default: '' },
+    options: { type: Array, default: () => [] },
+  },
+  emits: ['update:modelValue'],
+  template: `
+    <select
+      v-bind="$attrs"
+      :value="modelValue"
+      @change="$emit('update:modelValue', $event.target.value)"
+    >
+      <option v-for="option in options" :key="option.value" :value="option.value">
+        {{ option.label }}
+      </option>
+    </select>
+  `,
+})
+
 function mountModal() {
   return mount(CreateAccountModal, {
     props: { show: true, proxies: [], groups: [] },
@@ -92,7 +119,7 @@ function mountModal() {
         BaseDialog: BaseDialogStub,
         OAuthAuthorizationFlow: OAuthAuthorizationFlowStub,
         ConfirmDialog: true,
-        Select: true,
+        Select: SelectStub,
         Icon: true,
         PlatformIcon: true,
         ProxySelector: true,
@@ -127,7 +154,7 @@ async function submitApiKeyAccount(
     await wrapper.get('[data-testid="openai-long-context-billing-toggle"]').trigger('click')
   }
   if (disableUpstreamBillingProbe) {
-    await wrapper.get('[data-testid="upstream-billing-auto-probe"]').trigger('click')
+    await wrapper.get('[data-testid="upstream-billing-mode"]').setValue('off')
   }
   await wrapper.get('form#create-account-form').trigger('submit.prevent')
   await flushPromises()
@@ -149,6 +176,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
   beforeEach(() => {
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })
     probeUpstreamBillingMock.mockReset().mockResolvedValue({})
+    updateNewAPISyncConfigMock.mockReset().mockResolvedValue({})
+    syncNewAPIRatioMock.mockReset().mockResolvedValue({})
     importCodexSessionMock.mockReset().mockResolvedValue({
       created: 1,
       updated: 0,
@@ -186,6 +215,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await submitApiKeyAccount('openai')
 
     expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBe(true)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.upstream_balance_alert_enabled).toBe(true)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.upstream_balance_alert_threshold).toBe(5)
   })
 
   it('waits for the initial upstream billing probe before refreshing the account list', async () => {
@@ -211,7 +242,58 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await submitApiKeyAccount('openai', false, true)
 
     expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBe(false)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).not.toHaveProperty('upstream_balance_alert_enabled')
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).not.toHaveProperty('upstream_balance_alert_threshold')
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+  })
+
+  it('can enable durable upstream rate synchronization during creation', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('managed rate')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('[data-testid="upstream-billing-rate-sync"]').trigger('click')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      upstream_billing_probe_enabled: true,
+      upstream_billing_rate_sync_enabled: true,
+    }))
+  })
+
+  it('configures and runs NewAPI sync after creating an OpenAI API key account', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('NewAPI account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('model-api-key')
+    await wrapper.get('[data-testid="upstream-billing-mode"]').setValue('newapi')
+    await wrapper.get('#newapi-create-base-url').setValue('https://newapi.example.com')
+    await wrapper.get('#newapi-create-user-id').setValue('7')
+    await wrapper.get('#newapi-create-access-token').setValue('user-access-token')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      upstream_billing_probe_enabled: false,
+      upstream_billing_rate_sync_enabled: false,
+      extra: expect.objectContaining({
+        upstream_balance_alert_enabled: true,
+        upstream_balance_alert_threshold: 5,
+      }),
+    }))
+    expect(updateNewAPISyncConfigMock).toHaveBeenCalledWith(42, {
+      newapi_sync_enabled: true,
+      newapi_base_url: 'https://newapi.example.com',
+      newapi_user_access_token: 'user-access-token',
+      newapi_user_id: 7,
+    })
+    expect(syncNewAPIRatioMock).toHaveBeenCalledWith(42)
+    expect(wrapper.emitted('created')?.[0]).toEqual([
+      expect.objectContaining({ id: 42 }),
+    ])
   })
 
   it('exposes Agent Identity in the OpenAI authorization methods', async () => {

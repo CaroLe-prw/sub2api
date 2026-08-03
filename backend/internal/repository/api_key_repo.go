@@ -216,6 +216,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldProfitControlEnabled,
 				group.FieldProfitMinMargin,
 				group.FieldProfitSafetyBuffer,
+				group.FieldMaxAccountCostMultiplier,
 			)
 		}).
 		Only(ctx)
@@ -947,6 +948,9 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		Description:                     derefString(g.Description),
 		Platform:                        g.Platform,
 		RateMultiplier:                  g.RateMultiplier,
+		MaxAccountCostMultiplier:        g.MaxAccountCostMultiplier,
+		OpenAISchedulerProfile:          g.OpenaiSchedulerProfile,
+		OpenAISchedulerConfig:           g.OpenaiSchedulerConfig,
 		IsExclusive:                     g.IsExclusive,
 		Status:                          g.Status,
 		Hydrated:                        true,

@@ -117,6 +117,61 @@ func (_u *GroupUpdate) AddRateMultiplier(v float64) *GroupUpdate {
 	return _u
 }
 
+// SetMaxAccountCostMultiplier sets the "max_account_cost_multiplier" field.
+func (_u *GroupUpdate) SetMaxAccountCostMultiplier(v float64) *GroupUpdate {
+	_u.mutation.ResetMaxAccountCostMultiplier()
+	_u.mutation.SetMaxAccountCostMultiplier(v)
+	return _u
+}
+
+// SetNillableMaxAccountCostMultiplier sets the "max_account_cost_multiplier" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableMaxAccountCostMultiplier(v *float64) *GroupUpdate {
+	if v != nil {
+		_u.SetMaxAccountCostMultiplier(*v)
+	}
+	return _u
+}
+
+// AddMaxAccountCostMultiplier adds value to the "max_account_cost_multiplier" field.
+func (_u *GroupUpdate) AddMaxAccountCostMultiplier(v float64) *GroupUpdate {
+	_u.mutation.AddMaxAccountCostMultiplier(v)
+	return _u
+}
+
+// ClearMaxAccountCostMultiplier clears the value of the "max_account_cost_multiplier" field.
+func (_u *GroupUpdate) ClearMaxAccountCostMultiplier() *GroupUpdate {
+	_u.mutation.ClearMaxAccountCostMultiplier()
+	return _u
+}
+
+// SetOpenaiSchedulerProfile sets the "openai_scheduler_profile" field.
+func (_u *GroupUpdate) SetOpenaiSchedulerProfile(v string) *GroupUpdate {
+	_u.mutation.SetOpenaiSchedulerProfile(v)
+	return _u
+}
+
+// SetNillableOpenaiSchedulerProfile sets the "openai_scheduler_profile" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableOpenaiSchedulerProfile(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetOpenaiSchedulerProfile(*v)
+	}
+	return _u
+}
+
+// SetOpenaiSchedulerConfig sets the "openai_scheduler_config" field.
+func (_u *GroupUpdate) SetOpenaiSchedulerConfig(v domain.GroupOpenAISchedulerConfig) *GroupUpdate {
+	_u.mutation.SetOpenaiSchedulerConfig(v)
+	return _u
+}
+
+// SetNillableOpenaiSchedulerConfig sets the "openai_scheduler_config" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableOpenaiSchedulerConfig(v *domain.GroupOpenAISchedulerConfig) *GroupUpdate {
+	if v != nil {
+		_u.SetOpenaiSchedulerConfig(*v)
+	}
+	return _u
+}
+
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
 func (_u *GroupUpdate) SetPeakRateEnabled(v bool) *GroupUpdate {
 	_u.mutation.SetPeakRateEnabled(v)
@@ -1279,6 +1334,11 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Group.name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.OpenaiSchedulerProfile(); ok {
+		if err := group.OpenaiSchedulerProfileValidator(v); err != nil {
+			return &ValidationError{Name: "openai_scheduler_profile", err: fmt.Errorf(`ent: validator failed for field "Group.openai_scheduler_profile": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.PeakStart(); ok {
 		if err := group.PeakStartValidator(v); err != nil {
 			return &ValidationError{Name: "peak_start", err: fmt.Errorf(`ent: validator failed for field "Group.peak_start": %w`, err)}
@@ -1352,6 +1412,21 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(group.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.MaxAccountCostMultiplier(); ok {
+		_spec.SetField(group.FieldMaxAccountCostMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedMaxAccountCostMultiplier(); ok {
+		_spec.AddField(group.FieldMaxAccountCostMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.MaxAccountCostMultiplierCleared() {
+		_spec.ClearField(group.FieldMaxAccountCostMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.OpenaiSchedulerProfile(); ok {
+		_spec.SetField(group.FieldOpenaiSchedulerProfile, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.OpenaiSchedulerConfig(); ok {
+		_spec.SetField(group.FieldOpenaiSchedulerConfig, field.TypeJSON, value)
 	}
 	if value, ok := _u.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)
@@ -2007,6 +2082,61 @@ func (_u *GroupUpdateOne) SetNillableRateMultiplier(v *float64) *GroupUpdateOne 
 // AddRateMultiplier adds value to the "rate_multiplier" field.
 func (_u *GroupUpdateOne) AddRateMultiplier(v float64) *GroupUpdateOne {
 	_u.mutation.AddRateMultiplier(v)
+	return _u
+}
+
+// SetMaxAccountCostMultiplier sets the "max_account_cost_multiplier" field.
+func (_u *GroupUpdateOne) SetMaxAccountCostMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.ResetMaxAccountCostMultiplier()
+	_u.mutation.SetMaxAccountCostMultiplier(v)
+	return _u
+}
+
+// SetNillableMaxAccountCostMultiplier sets the "max_account_cost_multiplier" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableMaxAccountCostMultiplier(v *float64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetMaxAccountCostMultiplier(*v)
+	}
+	return _u
+}
+
+// AddMaxAccountCostMultiplier adds value to the "max_account_cost_multiplier" field.
+func (_u *GroupUpdateOne) AddMaxAccountCostMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.AddMaxAccountCostMultiplier(v)
+	return _u
+}
+
+// ClearMaxAccountCostMultiplier clears the value of the "max_account_cost_multiplier" field.
+func (_u *GroupUpdateOne) ClearMaxAccountCostMultiplier() *GroupUpdateOne {
+	_u.mutation.ClearMaxAccountCostMultiplier()
+	return _u
+}
+
+// SetOpenaiSchedulerProfile sets the "openai_scheduler_profile" field.
+func (_u *GroupUpdateOne) SetOpenaiSchedulerProfile(v string) *GroupUpdateOne {
+	_u.mutation.SetOpenaiSchedulerProfile(v)
+	return _u
+}
+
+// SetNillableOpenaiSchedulerProfile sets the "openai_scheduler_profile" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableOpenaiSchedulerProfile(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetOpenaiSchedulerProfile(*v)
+	}
+	return _u
+}
+
+// SetOpenaiSchedulerConfig sets the "openai_scheduler_config" field.
+func (_u *GroupUpdateOne) SetOpenaiSchedulerConfig(v domain.GroupOpenAISchedulerConfig) *GroupUpdateOne {
+	_u.mutation.SetOpenaiSchedulerConfig(v)
+	return _u
+}
+
+// SetNillableOpenaiSchedulerConfig sets the "openai_scheduler_config" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableOpenaiSchedulerConfig(v *domain.GroupOpenAISchedulerConfig) *GroupUpdateOne {
+	if v != nil {
+		_u.SetOpenaiSchedulerConfig(*v)
+	}
 	return _u
 }
 
@@ -3185,6 +3315,11 @@ func (_u *GroupUpdateOne) check() error {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Group.name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.OpenaiSchedulerProfile(); ok {
+		if err := group.OpenaiSchedulerProfileValidator(v); err != nil {
+			return &ValidationError{Name: "openai_scheduler_profile", err: fmt.Errorf(`ent: validator failed for field "Group.openai_scheduler_profile": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.PeakStart(); ok {
 		if err := group.PeakStartValidator(v); err != nil {
 			return &ValidationError{Name: "peak_start", err: fmt.Errorf(`ent: validator failed for field "Group.peak_start": %w`, err)}
@@ -3275,6 +3410,21 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(group.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.MaxAccountCostMultiplier(); ok {
+		_spec.SetField(group.FieldMaxAccountCostMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedMaxAccountCostMultiplier(); ok {
+		_spec.AddField(group.FieldMaxAccountCostMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.MaxAccountCostMultiplierCleared() {
+		_spec.ClearField(group.FieldMaxAccountCostMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.OpenaiSchedulerProfile(); ok {
+		_spec.SetField(group.FieldOpenaiSchedulerProfile, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.OpenaiSchedulerConfig(); ok {
+		_spec.SetField(group.FieldOpenaiSchedulerConfig, field.TypeJSON, value)
 	}
 	if value, ok := _u.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)

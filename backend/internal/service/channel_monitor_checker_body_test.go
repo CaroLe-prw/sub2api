@@ -122,7 +122,7 @@ func setupFakeOpenAI(t *testing.T, handler *openAICaptureHandler) string {
 }
 
 func answerFromOpenAIRequest(body map[string]any) string {
-	prompt, _ := body["input"].(string)
+	prompt := responsesInputText(body["input"])
 	if prompt == "" {
 		if messages, ok := body["messages"].([]any); ok && len(messages) > 0 {
 			if msg, ok := messages[0].(map[string]any); ok {
@@ -131,6 +131,36 @@ func answerFromOpenAIRequest(body map[string]any) string {
 		}
 	}
 	return answerFromChallengePrompt(prompt)
+}
+
+func responsesInputText(input any) string {
+	if prompt, ok := input.(string); ok {
+		return prompt
+	}
+	items, ok := input.([]any)
+	if !ok {
+		return ""
+	}
+	for _, rawItem := range items {
+		item, ok := rawItem.(map[string]any)
+		if !ok || item["role"] != "user" {
+			continue
+		}
+		content, ok := item["content"].([]any)
+		if !ok {
+			continue
+		}
+		for _, rawBlock := range content {
+			block, ok := rawBlock.(map[string]any)
+			if !ok || block["type"] != "input_text" {
+				continue
+			}
+			if text, ok := block["text"].(string); ok {
+				return text
+			}
+		}
+	}
+	return ""
 }
 
 var challengeQuestionRegex = regexp.MustCompile(`Q: (\d+) ([+-]) (\d+) = \?\nA:$`)
@@ -153,7 +183,10 @@ func TestRunCheckForModel_OffMode_PreservesDefaultBody(t *testing.T) {
 	endpoint := setupFakeAnthropic(t, h)
 
 	// 跑一次 off 模式（opts=nil），确认默认 body 行为未变
-	_ = runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", nil)
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", nil)
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("non-empty Anthropic response should be operational, got status=%s message=%q", res.Status, res.Message)
+	}
 
 	if h.lastBody["model"] != "claude-x" {
 		t.Errorf("default body should contain model=claude-x, got %v", h.lastBody["model"])
@@ -161,8 +194,53 @@ func TestRunCheckForModel_OffMode_PreservesDefaultBody(t *testing.T) {
 	if _, ok := h.lastBody["messages"]; !ok {
 		t.Error("default body should contain messages")
 	}
+	messages, ok := h.lastBody["messages"].([]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("default Anthropic body should contain one message, got %#v", h.lastBody["messages"])
+	}
+	message, ok := messages[0].(map[string]any)
+	if !ok {
+		t.Fatalf("default Anthropic message should be an object, got %#v", messages[0])
+	}
+	content, ok := message["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("default Anthropic message should use content blocks, got %#v", message["content"])
+	}
+	block, ok := content[0].(map[string]any)
+	if !ok || block["type"] != "text" {
+		t.Fatalf("default Anthropic content should contain a text block, got %#v", content[0])
+	}
+	prompt, _ := block["text"].(string)
+	if !challengeQuestionRegex.MatchString(prompt) {
+		t.Fatalf("Anthropic text block should carry the generated challenge, got %q", prompt)
+	}
 	if h.lastHeaders.Get("x-api-key") != "sk-fake" {
 		t.Errorf("expected adapter's x-api-key header, got %q", h.lastHeaders.Get("x-api-key"))
+	}
+}
+
+func TestRunCheckForModel_AnthropicGreetingIsOperational(t *testing.T) {
+	h := &captureHandler{respondText: "Hi! How can I help you today?"}
+	endpoint := setupFakeAnthropic(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", nil)
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("successful non-empty response should not fail channel monitoring, got status=%s message=%q", res.Status, res.Message)
+	}
+}
+
+func TestRunCheckForModel_AnthropicEmptyTextStillFails(t *testing.T) {
+	h := &captureHandler{respondText: ""}
+	endpoint := setupFakeAnthropic(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", nil)
+
+	if res.Status != MonitorStatusFailed {
+		t.Fatalf("empty response text should fail channel monitoring, got status=%s message=%q", res.Status, res.Message)
+	}
+	if !strings.Contains(res.Message, "empty text") {
+		t.Fatalf("empty response failure should explain the cause, got %q", res.Message)
 	}
 }
 
@@ -300,9 +378,24 @@ func TestRunCheckForModel_OpenAIResponses_DefaultRequest(t *testing.T) {
 	if strings.TrimSpace(instructions) == "" {
 		t.Error("responses body should contain non-empty instructions")
 	}
-	input, _ := h.lastBody["input"].(string)
-	if strings.TrimSpace(input) == "" {
-		t.Error("responses body should contain non-empty input")
+	if _, isString := h.lastBody["input"].(string); isString {
+		t.Error("responses body should use structured input instead of the string shorthand")
+	}
+	input, ok := h.lastBody["input"].([]any)
+	if !ok || len(input) != 1 {
+		t.Fatalf("responses body should contain one input message, got %#v", h.lastBody["input"])
+	}
+	message, ok := input[0].(map[string]any)
+	if !ok || message["role"] != "user" {
+		t.Fatalf("responses input should contain a user message, got %#v", input[0])
+	}
+	content, ok := message["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("responses user message should contain one content block, got %#v", message["content"])
+	}
+	block, ok := content[0].(map[string]any)
+	if !ok || block["type"] != "input_text" || strings.TrimSpace(stringFromAny(block["text"])) == "" {
+		t.Errorf("responses content should contain non-empty input_text, got %#v", content[0])
 	}
 	if _, ok := h.lastBody["messages"]; ok {
 		t.Error("responses body must not contain chat messages")

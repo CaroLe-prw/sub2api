@@ -69,6 +69,19 @@ type upstreamCostCountingAccountRepo struct {
 	getCalls int
 }
 
+type upstreamCostGroupRepo struct {
+	GroupRepository
+	group *Group
+}
+
+func (r *upstreamCostGroupRepo) GetByIDLite(context.Context, int64) (*Group, error) {
+	return r.group, nil
+}
+
+func (r *upstreamCostGroupRepo) GetByID(context.Context, int64) (*Group, error) {
+	return r.group, nil
+}
+
 func (r *upstreamCostCountingAccountRepo) GetByID(_ context.Context, accountID int64) (*Account, error) {
 	r.getCalls++
 	account := r.accounts[accountID]
@@ -108,6 +121,92 @@ func upstreamCostTestAccount(id int64, status string, rate float64, receivedAt t
 
 func upstreamCostTestOAuthAccount(id int64) *Account {
 	return &Account{ID: id, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+}
+
+func TestOpenAISchedulingRateCalibratesFreshRateAndFallsBackToAccountRate(t *testing.T) {
+	now := time.Now()
+	account := upstreamCostTestAccount(1, UpstreamBillingProbeStatusOK, 1, now.Add(-time.Minute), 30*time.Minute)
+	fallback := 0.04
+	account.RateMultiplier = &fallback
+	account.Extra[OpenAIUpstreamRateCalibrationExtraKey] = 0.03
+
+	rate, ok := openAISchedulingRate(account, now, 1)
+	require.True(t, ok)
+	require.InDelta(t, 0.03, rate, 1e-12)
+
+	rate, ok = openAISchedulingRate(account, now.Add(2*time.Hour), 1)
+	require.True(t, ok)
+	require.Equal(t, fallback, rate)
+}
+
+func TestValidateOpenAIUpstreamRateCalibrationExtra(t *testing.T) {
+	require.NoError(t, ValidateOpenAIUpstreamRateCalibrationExtra(
+		PlatformOpenAI,
+		map[string]any{OpenAIUpstreamRateCalibrationExtraKey: 0.03},
+	))
+	require.Error(t, ValidateOpenAIUpstreamRateCalibrationExtra(
+		PlatformOpenAI,
+		map[string]any{OpenAIUpstreamRateCalibrationExtraKey: -0.01},
+	))
+}
+
+func TestValidateOpenAIUpstreamBalanceAlertExtra(t *testing.T) {
+	require.NoError(t, ValidateOpenAIUpstreamBalanceAlertExtra(
+		PlatformOpenAI,
+		map[string]any{
+			UpstreamBalanceAlertEnabledExtraKey:   true,
+			UpstreamBalanceAlertThresholdExtraKey: 20.0,
+		},
+	))
+	require.Error(t, ValidateOpenAIUpstreamBalanceAlertExtra(
+		PlatformOpenAI,
+		map[string]any{UpstreamBalanceAlertThresholdExtraKey: -0.01},
+	))
+	require.Error(t, ValidateOpenAIUpstreamBalanceAlertExtra(
+		PlatformOpenAI,
+		map[string]any{UpstreamBalanceAlertEnabledExtraKey: "true"},
+	))
+}
+
+func TestOpenAIAbsoluteAccountCostLimitUsesUnifiedProfitGate(t *testing.T) {
+	maxCost := 0.05
+	groupID := int64(8)
+	group := profitControlTestGroup(groupID, 0, 0)
+	group.ProfitControlEnabled = false
+	group.MaxAccountCostMultiplier = &maxCost
+	service := &OpenAIGatewayService{}
+	ctx := service.withOpenAIProfitControlGate(profitControlTestCtx(group), &groupID)
+	require.True(t, gatewayProfitControlGateActive(ctx), "absolute cap works even when dynamic profit control is disabled")
+
+	cheapRate := 0.033
+	cheap := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, RateMultiplier: &cheapRate}
+	vetoed, reason := openAIProfitControlVetoReason(ctx, cheap)
+	require.False(t, vetoed)
+	require.Empty(t, reason)
+
+	expensiveRate := 0.4
+	expensive := &Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, RateMultiplier: &expensiveRate}
+	compatible, reason := (&defaultOpenAIAccountScheduler{service: service}).isAccountRequestCompatibleReason(
+		ctx,
+		expensive,
+		OpenAIAccountScheduleRequest{UseUpstreamTokenCost: false},
+	)
+	require.False(t, compatible)
+	require.Equal(t, openAIProfitFilterReasonThreshold, reason)
+
+	unknown := &Account{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	vetoed, reason = openAIProfitControlVetoReason(ctx, unknown)
+	require.True(t, vetoed, "active gate must conservatively reject an unknown durable account rate")
+	require.Equal(t, openAIProfitFilterReasonInvalidAccountRate, reason)
+}
+
+func TestOpenAINoImplicitCostGateWithoutProfitOrAbsoluteCap(t *testing.T) {
+	groupID := int64(9)
+	group := profitControlTestGroup(groupID, 0, 0)
+	group.ProfitControlEnabled = false
+	group.MaxAccountCostMultiplier = nil
+	ctx := (&OpenAIGatewayService{}).withOpenAIProfitControlGate(profitControlTestCtx(group), &groupID)
+	require.False(t, gatewayProfitControlGateActive(ctx))
 }
 
 func TestAdvancedCostSchedulerUsesTopKOverflowWhenPreferredAccountIsKnownFull(t *testing.T) {
@@ -834,9 +933,9 @@ func TestBuildOpenAIAccountSchedulerScoreSnapshotUpstreamCostIsExactNoOpWithoutS
 		2: {AccountID: 2, LoadRate: 80},
 	}
 	weights := GatewayOpenAIWSSchedulerScoreWeightsView{Priority: 1, Load: 1, Queue: 0.7, ErrorRate: 0.8, TTFT: 0.5}
-	baseline := buildOpenAIAccountSchedulerScoreSnapshot(accounts, loadMap, weights, false, defaultOpenAIOAuthSchedulingRateMultiplier)
+	baseline := buildOpenAIAccountSchedulerScoreSnapshot(accounts, loadMap, weights, false, defaultOpenAIOAuthSchedulingRateMultiplier, nil)
 	weights.UpstreamCost = 1.5
-	withCost := buildOpenAIAccountSchedulerScoreSnapshot(accounts, loadMap, weights, false, defaultOpenAIOAuthSchedulingRateMultiplier)
+	withCost := buildOpenAIAccountSchedulerScoreSnapshot(accounts, loadMap, weights, false, defaultOpenAIOAuthSchedulingRateMultiplier, nil)
 
 	require.Equal(t, baseline, withCost)
 }
@@ -848,7 +947,7 @@ func TestBuildOpenAIAccountSchedulerScoreSnapshotUsesUpstreamCostSignal(t *testi
 		upstreamCostTestAccount(2, UpstreamBillingProbeStatusOK, 0.8, now.Add(-time.Minute), 30*time.Minute),
 	}
 	weights := GatewayOpenAIWSSchedulerScoreWeightsView{UpstreamCost: 1.5}
-	scores := buildOpenAIAccountSchedulerScoreSnapshot(accounts, nil, weights, false, defaultOpenAIOAuthSchedulingRateMultiplier)
+	scores := buildOpenAIAccountSchedulerScoreSnapshot(accounts, nil, weights, false, defaultOpenAIOAuthSchedulingRateMultiplier, nil)
 
 	require.Greater(t, scores[1].BaseScore, scores[2].BaseScore)
 }

@@ -1823,6 +1823,34 @@ func (s *RateLimitService) ClearTempUnschedulable(ctx context.Context, accountID
 	return nil
 }
 
+func (s *RateLimitService) PauseAccountScheduling(ctx context.Context, accountID int64, duration time.Duration) (*Account, error) {
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	until := now.Add(duration)
+	state := &TempUnschedState{
+		UntilUnix:       until.Unix(),
+		TriggeredAtUnix: now.Unix(),
+		RuleIndex:       -1,
+		ErrorMessage:    "Paused manually by administrator",
+	}
+	reason, _ := json.Marshal(state)
+	if err := s.accountRepo.SetTempUnschedulable(ctx, accountID, until, string(reason)); err != nil {
+		return nil, err
+	}
+	s.notifyAccountSchedulingBlocked(account, until, "manual_pause")
+	if s.tempUnschedCache != nil {
+		if err := s.tempUnschedCache.SetTempUnsched(ctx, accountID, state); err != nil {
+			slog.Warn("manual_temp_unsched_cache_set_failed", "account_id", accountID, "error", err)
+		}
+	}
+
+	return s.accountRepo.GetByID(ctx, accountID)
+}
+
 func hasRecoverableRuntimeState(account *Account) bool {
 	if account == nil {
 		return false

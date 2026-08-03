@@ -6,7 +6,13 @@ import { opsAPI } from '@/api/admin/ops'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import Toggle from '@/components/common/Toggle.vue'
-import type { OpsAlertRuntimeSettings, EmailNotificationConfig, AlertSeverity, OpsAdvancedSettings, OpsMetricThresholds } from '../types'
+import type {
+  OpsAlertRuntimeSettings,
+  EmailNotificationConfig,
+  AlertSeverity,
+  OpsAdvancedSettings,
+  OpsMetricThresholds
+} from '../types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -303,7 +309,7 @@ async function saveAllSettings() {
             </p>
           </div>
 
-          <div v-if="emailConfig.alert.enabled">
+          <div>
             <label class="input-label">{{ t('admin.ops.settings.minSeverity') }}</label>
             <Select v-model="emailConfig.alert.min_severity" :options="severityOptions" />
           </div>

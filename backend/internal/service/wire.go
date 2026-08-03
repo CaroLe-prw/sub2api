@@ -291,6 +291,15 @@ func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, se
 	return svc
 }
 
+// ProvideSubscriptionQuotaResetService creates and starts the built-in quota-reset worker.
+func ProvideSubscriptionQuotaResetService(subscriptionService *SubscriptionService, userSubRepo UserSubscriptionRepository, groupRepo GroupRepository, settingRepo SettingRepository, announcementService *AnnouncementService, lockCache LeaderLockCache, db *sql.DB) *SubscriptionQuotaResetService {
+	svc := NewSubscriptionQuotaResetService(subscriptionService, userSubRepo, groupRepo, settingRepo)
+	svc.SetAnnouncementService(announcementService)
+	svc.SetLeaderLock(lockCache, db)
+	svc.Start()
+	return svc
+}
+
 // ProvideTimingWheelService creates and starts TimingWheelService
 func ProvideTimingWheelService() (*TimingWheelService, error) {
 	svc, err := NewTimingWheelService()
@@ -572,6 +581,7 @@ func ProvideOpsService(
 	opsRepo OpsRepository,
 	settingRepo SettingRepository,
 	cfg *config.Config,
+	encryptor SecretEncryptor,
 	accountRepo AccountRepository,
 	userRepo UserRepository,
 	concurrencyService *ConcurrencyService,
@@ -597,6 +607,7 @@ func ProvideOpsService(
 		antigravityGatewayService,
 		systemLogSink,
 	)
+	svc.SetSecretEncryptor(encryptor)
 	if settingService != nil {
 		svc.SetOpenAIQuotaAutoPauseSettingsSink(settingService.SetOpenAIQuotaAutoPauseSettings)
 		// Optional warm-up so the first scheduled request after process start observes
@@ -758,6 +769,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAccountExpiryService,
 	ProvideProxyExpiryService,
 	ProvideSubscriptionExpiryService,
+	ProvideSubscriptionQuotaResetService,
 	ProvideTimingWheelService,
 	ProvideDashboardAggregationService,
 	ProvideUsageCleanupService,

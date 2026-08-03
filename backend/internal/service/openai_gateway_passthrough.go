@@ -337,6 +337,12 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	body []byte,
 	token string,
 ) (*http.Request, error) {
+	var err error
+	body, err = applyOpenAIAccountForceFastModeToBody(account, body)
+	if err != nil {
+		return nil, err
+	}
+
 	targetURL := openaiPlatformAPIURL
 	switch account.Type {
 	case AccountTypeOAuth:

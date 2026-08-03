@@ -12,9 +12,12 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +63,7 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 	"upstream_billing_probe",
 	"upstream_billing_rate_sync",
 	"ollama_cloud_usage",
+	"newapi_",
 }
 
 var schedulerNeutralExtraKeys = map[string]struct{}{
@@ -481,7 +485,7 @@ func (r *accountRepository) updateLockedAccount(
 	explicitRateSyncEnabled *bool,
 	explicitRateMultiplier *float64,
 ) (*dbent.Account, error) {
-	extra, err := lockAndMergeAccountProbeExtra(ctx, client, account, explicitProbeEnabled, explicitRateSyncEnabled)
+	extra, err := lockAndMergeAccountProbeExtra(ctx, client, account, explicitProbeEnabled, explicitRateSyncEnabled, explicitRateMultiplier)
 	if err != nil {
 		return nil, err
 	}
@@ -576,6 +580,7 @@ func lockAndMergeAccountProbeExtra(
 	account *service.Account,
 	explicitProbeEnabled *bool,
 	explicitRateSyncEnabled *bool,
+	explicitRateMultiplier *float64,
 ) (map[string]any, error) {
 	credentials, err := json.Marshal(normalizeJSONMap(account.Credentials))
 	if err != nil {
@@ -607,7 +612,8 @@ func lockAndMergeAccountProbeExtra(
 			extra -> 'upstream_billing_probe',
 			extra -> 'ollama_cloud_usage_session',
 			extra -> 'ollama_cloud_usage_auto_refresh',
-			extra -> 'ollama_cloud_usage_snapshot'
+			extra -> 'ollama_cloud_usage_snapshot',
+			extra
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -633,6 +639,7 @@ func lockAndMergeAccountProbeExtra(
 		currentOllamaSession         []byte
 		currentOllamaAutoRefresh     []byte
 		currentOllamaSnapshot        []byte
+		currentExtra                 []byte
 	)
 	if err := rows.Scan(
 		&identityUnchanged,
@@ -644,6 +651,7 @@ func lockAndMergeAccountProbeExtra(
 		&currentOllamaSession,
 		&currentOllamaAutoRefresh,
 		&currentOllamaSnapshot,
+		&currentExtra,
 	); err != nil {
 		return nil, err
 	}
@@ -652,6 +660,16 @@ func lockAndMergeAccountProbeExtra(
 	}
 
 	extra := copyJSONMap(normalizeJSONMap(account.Extra))
+	currentExtraValue, _, err := decodeAccountExtraJSON(currentExtra)
+	if err != nil {
+		return nil, err
+	}
+	currentExtraMap, _ := currentExtraValue.(map[string]any)
+	currentAccount := &service.Account{Extra: currentExtraMap}
+	extra = service.PreserveNewAPISyncManagedExtra(currentAccount, extra)
+	if explicitRateSyncEnabled != nil && *explicitRateSyncEnabled {
+		extra[service.NewAPISyncEnabledExtraKey] = false
+	}
 	for _, key := range []string{
 		service.UpstreamBillingProbeEnabledExtraKey,
 		service.UpstreamBillingRateSyncEnabledExtraKey,
@@ -706,6 +724,12 @@ func lockAndMergeAccountProbeExtra(
 		}
 		if rateSyncEnabledPresent {
 			extra[service.UpstreamBillingRateSyncEnabledExtraKey] = rateSyncEnabled
+		}
+	}
+	if explicitRateMultiplier != nil {
+		newAPIOwned, _ := extra[service.NewAPISyncEnabledExtraKey].(bool)
+		if newAPIOwned || rateSyncEnabled {
+			return nil, service.ErrUpstreamBillingRateSyncConflict
 		}
 	}
 	probeExplicitlyDisabled := probeEnabledPresent && !probeEnabled
@@ -1104,6 +1128,8 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 
 func upstreamBillingRateSortExpression(extra string) string {
 	status := extra + " #>> '{upstream_billing_probe,status}'"
+	calibrationJSON := extra + " #> '{" + service.OpenAIUpstreamRateCalibrationExtraKey + "}'"
+	calibration := extra + " #>> '{" + service.OpenAIUpstreamRateCalibrationExtraKey + "}'"
 	effectiveJSON := extra + " #> '{upstream_billing_probe,data,effective_rate_multiplier}'"
 	effective := extra + " #>> '{upstream_billing_probe,data,effective_rate_multiplier}'"
 	resolvedJSON := extra + " #> '{upstream_billing_probe,data,resolved_rate_multiplier}'"
@@ -1130,10 +1156,13 @@ func upstreamBillingRateSortExpression(extra string) string {
 		" THEN (" + resolved + ")::numeric * CASE WHEN " + localMinute + " >= " + startMinute + " AND " + localMinute + " < " + endMinute +
 		" THEN " + peakMultiplierValue + " ELSE 1 END ELSE NULL END"
 	legacySnapshot := "jsonb_typeof(" + resolvedJSON + ") IS NULL AND jsonb_typeof(" + peakEnabledJSON + ") IS NULL"
+	calibrationValue := "(CASE WHEN jsonb_typeof(" + calibrationJSON + ") = 'number' AND (" + calibration + ")::numeric >= 0 THEN (" +
+		calibration + ")::numeric ELSE 1 END)"
 
-	return "CASE WHEN " + status + " IN ('ok', 'failed') AND (jsonb_typeof(" + resolvedJSON + ") = 'number' OR jsonb_typeof(" + effectiveJSON + ") = 'number') THEN CASE WHEN jsonb_typeof(" +
+	rate := "CASE WHEN " + status + " IN ('ok', 'failed') AND (jsonb_typeof(" + resolvedJSON + ") = 'number' OR jsonb_typeof(" + effectiveJSON + ") = 'number') THEN CASE WHEN jsonb_typeof(" +
 		resolvedJSON + ") = 'number' AND jsonb_typeof(" + peakEnabledJSON + ") = 'boolean' THEN CASE WHEN " + billingScope + " = 'token' THEN " + dynamicRate + " ELSE NULL END WHEN " + legacySnapshot +
 		" AND jsonb_typeof(" + effectiveJSON + ") = 'number' THEN (" + effective + ")::numeric END END"
+	return "(" + rate + ") * " + calibrationValue
 }
 
 func (r *accountRepository) ListByGroup(ctx context.Context, groupID int64) ([]service.Account, error) {
@@ -1775,6 +1804,10 @@ func (r *accountRepository) GetGroups(ctx context.Context, accountID int64) ([]s
 }
 
 func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
+	return r.BindGroupsWithPriorities(ctx, accountID, groupIDs, nil)
+}
+
+func (r *accountRepository) BindGroupsWithPriorities(ctx context.Context, accountID int64, groupIDs []int64, priorities map[int64]int) error {
 	existingGroupIDs, err := r.loadAccountGroupIDs(ctx, accountID)
 	if err != nil {
 		return err
@@ -1805,12 +1838,32 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 		return nil
 	}
 
+	defaultPriority := 0
+	for _, groupID := range groupIDs {
+		if _, ok := priorities[groupID]; ok {
+			continue
+		}
+		account, err := txClient.Account.Query().
+			Where(dbaccount.IDEQ(accountID)).
+			Select(dbaccount.FieldPriority).
+			Only(ctx)
+		if err != nil {
+			return err
+		}
+		defaultPriority = account.Priority
+		break
+	}
+
 	builders := make([]*dbent.AccountGroupCreate, 0, len(groupIDs))
-	for i, groupID := range groupIDs {
+	for _, groupID := range groupIDs {
+		priority := defaultPriority
+		if configured, ok := priorities[groupID]; ok {
+			priority = configured
+		}
 		builders = append(builders, txClient.AccountGroup.Create().
 			SetAccountID(accountID).
 			SetGroupID(groupID).
-			SetPriority(i+1),
+			SetPriority(priority),
 		)
 	}
 
@@ -2591,8 +2644,9 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 	return nil
 }
 
-// UpdateUpstreamBillingProbeSnapshot stores a probe result only while the
-// network identity used by that probe is still current.
+// UpdateUpstreamBillingProbeSnapshot stores a probe result and, on successful
+// discovery, its calibrated account cost multiplier only while the network
+// identity used by that probe is still current.
 func (r *accountRepository) UpdateUpstreamBillingProbeSnapshot(
 	ctx context.Context,
 	account *service.Account,
@@ -2604,6 +2658,9 @@ func (r *accountRepository) UpdateUpstreamBillingProbeSnapshot(
 	}
 	if snapshot.Status != service.UpstreamBillingProbeStatusOK {
 		rateMultiplier = nil
+	}
+	if rateMultiplier != nil && (*rateMultiplier < 0 || math.IsNaN(*rateMultiplier) || math.IsInf(*rateMultiplier, 0)) {
+		return errors.New("invalid upstream billing probe ratio")
 	}
 	if dbent.TxFromContext(ctx) == nil {
 		tx, err := r.client.Tx(ctx)
@@ -2687,6 +2744,7 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 				WHEN $10::numeric IS NOT NULL
 					AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb
 					AND extra @> '{"upstream_billing_rate_sync_enabled": true}'::jsonb
+					AND NOT extra @> '{"newapi_sync_enabled": true}'::jsonb
 				THEN $10::numeric
 				ELSE rate_multiplier
 			END,
@@ -2712,6 +2770,182 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 		return service.ErrUpstreamBillingProbeIdentityChanged
 	}
 	return enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, nil)
+}
+
+// UpdateNewAPISyncResult atomically commits sanitized synchronization state and,
+// only when it changed, the account cost multiplier. The identity hash prevents
+// an in-flight request from applying after an administrator changed credentials.
+func (r *accountRepository) UpdateNewAPISyncResult(
+	ctx context.Context,
+	write *service.NewAPISyncWrite,
+) (*service.NewAPISyncWriteResult, error) {
+	if write == nil || write.AccountID <= 0 {
+		return nil, service.ErrAccountNilInput
+	}
+	if write.Ratio != nil && (*write.Ratio < 0 || math.IsNaN(*write.Ratio) || math.IsInf(*write.Ratio, 0)) {
+		return nil, errors.New("invalid NewAPI synchronization ratio")
+	}
+	if dbent.TxFromContext(ctx) == nil {
+		tx, err := r.client.Tx(ctx)
+		if errors.Is(err, dbent.ErrTxStarted) {
+			return r.updateNewAPISyncResultInTx(ctx, write)
+		}
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		result, err := r.updateNewAPISyncResultInTx(dbent.NewTxContext(ctx, tx), write)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		if result.Changed || write.SchedulingSnapshot != nil {
+			r.syncSchedulerAccountSnapshot(ctx, write.AccountID)
+		}
+		return result, nil
+	}
+	return r.updateNewAPISyncResultInTx(ctx, write)
+}
+
+func (r *accountRepository) updateNewAPISyncResultInTx(
+	ctx context.Context,
+	write *service.NewAPISyncWrite,
+) (*service.NewAPISyncWriteResult, error) {
+	client := clientFromContext(ctx, r.client)
+	rows, err := client.QueryContext(ctx, `
+		SELECT
+			rate_multiplier,
+			COALESCE(extra ->> $2, ''),
+			COALESCE(credentials ->> 'base_url', ''),
+			COALESCE(credentials ->> 'api_key', '')
+		FROM accounts
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE
+	`, write.AccountID, "newapi_sync_identity_hash")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var oldRatio float64
+	var currentIdentity string
+	var currentAccountBaseURL string
+	var currentAccountAPIKey string
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, service.ErrAccountNotFound
+	}
+	if err := rows.Scan(&oldRatio, &currentIdentity, &currentAccountBaseURL, &currentAccountAPIKey); err != nil {
+		return nil, err
+	}
+	// A transaction is pinned to one PostgreSQL connection. Close the SELECT
+	// result before issuing UPDATE on that same connection, otherwise lib/pq can
+	// observe interleaved protocol messages (for example, Parse response 'C').
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if currentIdentity == "" || currentIdentity != write.ExpectedIdentity {
+		return nil, service.ErrNewAPISyncIdentityChanged
+	}
+	if write.ExpectedAccountBaseURL != nil &&
+		strings.TrimSpace(currentAccountBaseURL) != strings.TrimSpace(*write.ExpectedAccountBaseURL) {
+		return nil, service.ErrNewAPISyncIdentityChanged
+	}
+	if hashNewAPIAccountAPIKey(currentAccountAPIKey) != write.ExpectedAccountAPIKeyHash {
+		return nil, service.ErrNewAPISyncIdentityChanged
+	}
+
+	updates := map[string]any{
+		service.NewAPILastSyncAtExtraKey:     write.AttemptedAt.UTC(),
+		service.NewAPILastSyncStatusExtraKey: write.Status,
+		service.NewAPILastSyncErrorExtraKey:  write.Error,
+	}
+	if write.Status != service.NewAPISyncStatusFailed {
+		updates[service.NewAPIResolvedUserGroupExtraKey] = stringPointerValue(write.UserGroup)
+		updates[service.NewAPIResolvedTokenGroupExtraKey] = stringPointerValue(write.TokenGroup)
+		updates[service.NewAPIResolvedActualGroupExtraKey] = stringPointerValue(write.ActualGroup)
+		updates[service.NewAPIRatioSourceExtraKey] = stringPointerValue(write.RatioSource)
+		updates[service.NewAPICrossGroupRetryExtraKey] = boolPointerValue(write.CrossGroupRetry)
+		if write.SchedulingSnapshot != nil {
+			updates[service.UpstreamBillingProbeExtraKey] = write.SchedulingSnapshot
+		}
+		if write.BalanceSnapshot != nil {
+			updates[service.NewAPIBalanceSnapshotExtraKey] = write.BalanceSnapshot
+		}
+	}
+	payload, err := json.Marshal(updates)
+	if err != nil {
+		return nil, err
+	}
+
+	newRatio := oldRatio
+	changed := false
+	var result sql.Result
+	if write.Ratio != nil {
+		newRatio = *write.Ratio
+		changed = math.Abs(oldRatio-newRatio) > 1e-9
+	}
+	if changed {
+		result, err = client.ExecContext(ctx, `
+			UPDATE accounts
+			SET rate_multiplier = $1,
+				extra = COALESCE(extra, '{}'::jsonb) || $2::jsonb,
+				updated_at = NOW()
+			WHERE id = $3
+				AND COALESCE(extra ->> $4, '') = $5
+				AND deleted_at IS NULL
+		`, newRatio, string(payload), write.AccountID, "newapi_sync_identity_hash", write.ExpectedIdentity)
+	} else {
+		result, err = client.ExecContext(ctx, `
+			UPDATE accounts
+			SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb,
+				updated_at = NOW()
+			WHERE id = $2
+				AND COALESCE(extra ->> $3, '') = $4
+				AND deleted_at IS NULL
+		`, string(payload), write.AccountID, "newapi_sync_identity_hash", write.ExpectedIdentity)
+	}
+	if err != nil {
+		return nil, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		return nil, service.ErrNewAPISyncIdentityChanged
+	}
+	if changed || write.SchedulingSnapshot != nil {
+		if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &write.AccountID, nil, nil); err != nil {
+			return nil, err
+		}
+	}
+	return &service.NewAPISyncWriteResult{
+		Changed:  changed,
+		OldRatio: oldRatio,
+		NewRatio: newRatio,
+	}, nil
+}
+
+func hashNewAPIAccountAPIKey(value string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(value)))
+	return hex.EncodeToString(sum[:])
+}
+
+func stringPointerValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func boolPointerValue(value *bool) bool {
+	return value != nil && *value
 }
 
 func lockAndMatchProbeProxyIdentity(ctx context.Context, client *dbent.Client, account *service.Account) (bool, error) {
@@ -2952,6 +3186,27 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			defer func() { _ = tx.Rollback() }()
 			ctx = dbent.NewTxContext(ctx, tx)
 			exec = tx.Client()
+		}
+	}
+
+	if updates.Priority != nil {
+		// A binding whose priority still equals the account's old priority is
+		// following the account default. Move those bindings before changing the
+		// account row so bulk edits do not turn them into accidental overrides.
+		_, err := exec.ExecContext(
+			ctx,
+			`UPDATE account_groups AS ag
+SET priority = $1
+FROM accounts AS a
+WHERE ag.account_id = a.id
+  AND ag.account_id = ANY($2)
+  AND a.deleted_at IS NULL
+  AND ag.priority = a.priority`,
+			*updates.Priority,
+			pq.Array(ids),
+		)
+		if err != nil {
+			return 0, err
 		}
 	}
 
@@ -3476,6 +3731,7 @@ func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Cont
 				AND status = 'active'
 				AND type = 'apikey'
 				AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb
+				AND NOT (extra @> '{"newapi_sync_enabled": true}'::jsonb)
 		), parsed AS MATERIALIZED (
 			SELECT
 				id,

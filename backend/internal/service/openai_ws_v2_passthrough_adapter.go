@@ -759,6 +759,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	// 反映上游实际处理的 tier（nil = default），而不是用户最初请求的
 	// "priority"。HTTP 入口（line ~2728 extractOpenAIServiceTier(reqBody)）
 	// 与 WS ingress（openai_ws_forwarder.go:2991 取自 payload）的语义一致。
+	// 账号级强制 Fast 是唯一例外：它在本次提取之后只改上游副本，billing
+	// 仍按用户请求经全局 Fast/Flex 策略处理后的 tier。
 	//
 	// 多轮 passthrough：OpenAI Realtime / Responses WS 协议允许客户端在
 	// 同一连接的不同 response.create 帧上发送不同 service_tier（参考
@@ -767,6 +769,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	// goroutine）和 OnTurnComplete / final result（runUpstreamToClient
 	// goroutine）之间同步当前 turn 的 usage metadata。
 	usageMeta.initFromFirstFrame(firstClientMessage, capturedSessionModel)
+	forcedFirst, forceErr := applyOpenAIAccountForceFastModeToBody(account, firstClientMessage)
+	if forceErr != nil {
+		return fmt.Errorf("force fast mode on first ws frame: %w", forceErr)
+	}
+	firstClientMessage = forcedFirst
 	promptCacheKey := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "prompt_cache_key").String())
 
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)
@@ -1011,6 +1018,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			// 的 response.create 帧上更新 usageMeta，使用
 			// filter 处理后的 payload，与首帧 policy-after-extract 语义
 			// 保持一致（参见上方 extractOpenAIServiceTierFromBody 注释）。
+			// 账号级强制 Fast 随后才写入 out，因此不会进入 usageMeta。
 			//   - 非 response.create 帧（response.cancel /
 			//     conversation.item.create / session.update 等）不携带
 			//     per-response metadata，不应覆盖前一轮值。
@@ -1024,6 +1032,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if policyErr == nil && blocked == nil && isResponseCreate {
 				usageMeta.updateFromResponseCreate(out, model, requestModelForThisFrame)
 				acceptedTurn = true
+				out, policyErr = applyOpenAIAccountForceFastModeToBody(account, out)
 			}
 			return out, blocked, policyErr
 		},

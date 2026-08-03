@@ -10,6 +10,7 @@ export default {
         users: '用户默认值',
         gateway: '网关服务',
         email: '邮件设置',
+        notifications: '通知设置',
         backup: '数据备份',
         payment: '支付设置',
       },
@@ -354,11 +355,11 @@ export default {
       },
       upstreamBillingProbe: {
         title: '上游倍率自动探测',
-        description: '定期获取 API Key 账号所连接上游 Sub2API 站点声明的计费倍率；只有另行开启“同步上游声明倍率”的账号才会更新账号倍率。',
+        description: '统一调度 Sub2API 声明倍率探测和 NewAPI 分组倍率同步；只有账号已选定的自动倍率来源才拥有账号倍率写权。',
         enabled: '启用全局自动探测',
-        enabledHint: '开启后，仅对账号自身已启用自动检测的账号执行定时探测；关闭后停止所有定时探测，手动探测不受影响。',
-        intervalMinutes: '探测周期（分钟）',
-        intervalHint: '范围 5–1440 分钟。成功探测结果的有效期为两个探测周期。',
+        enabledHint: '开启后，仅处理账号自身已启用的倍率探测或同步；关闭后停止所有定时任务，手动操作不受影响。',
+        intervalMinutes: '探测与同步周期（分钟）',
+        intervalHint: '范围 5–1440 分钟。NewAPI 账号会按此周期从用户有效分组配置同步倍率。',
         saved: '上游倍率自动探测设置已保存',
         saveFailed: '保存上游倍率自动探测设置失败'
       },
@@ -1199,9 +1200,31 @@ export default {
         ttftWeight: '首包延迟',
         resetWeight: '重置窗口',
         quotaHeadroomWeight: '额度余量',
-        upstreamCostWeight: '计费倍率',
+        upstreamCostWeight: '调度成本倍率',
         previousResponseWeight: 'previous_response 粘性',
         sessionStickyWeight: 'session_hash 粘性'
+      },
+      openaiSchedulerTemplates: {
+        title: '分组调度预设模板',
+        description: '编辑分组选择 SLA、均衡或成本优先时使用的系统模板；分组自定义策略不受影响。',
+        profiles: {
+          sla: 'SLA 优先',
+          balanced: '均衡',
+          cost: '成本优先'
+        },
+        topK: 'TopK',
+        priority: '优先级',
+        load: '负载',
+        queue: '排队',
+        errorRate: '错误率',
+        ttft: '首包延迟',
+        reset: '重置窗口',
+        quotaHeadroom: '额度余量',
+        upstreamCost: '上游成本',
+        previousResponse: 'previous_response 粘性',
+        sessionSticky: 'session_hash 粘性',
+        stickyWeighted: '粘性加权',
+        subscriptionPriority: '订阅优先'
       },
       usageRecords: {
         title: '使用记录',

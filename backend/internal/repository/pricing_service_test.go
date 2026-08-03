@@ -19,7 +19,7 @@ type PricingServiceSuite struct {
 
 func (s *PricingServiceSuite) SetupTest() {
 	s.ctx = context.Background()
-	client, ok := NewPricingRemoteClient("", false).(*pricingRemoteClient)
+	client, ok := NewPricingRemoteClient("", false, "").(*pricingRemoteClient)
 	require.True(s.T(), ok, "type assertion failed")
 	s.client = client
 }
@@ -141,7 +141,7 @@ func (s *PricingServiceSuite) TestFetchPricingJSON_ContextCancel() {
 }
 
 func TestNewPricingRemoteClient_InvalidProxy_NoFallback(t *testing.T) {
-	client := NewPricingRemoteClient("://bad", false)
+	client := NewPricingRemoteClient("://bad", false, "")
 	_, ok := client.(*pricingRemoteClientError)
 	require.True(t, ok, "should return error client when proxy is invalid and fallback disabled")
 
@@ -151,9 +151,22 @@ func TestNewPricingRemoteClient_InvalidProxy_NoFallback(t *testing.T) {
 }
 
 func TestNewPricingRemoteClient_InvalidProxy_WithFallback(t *testing.T) {
-	client := NewPricingRemoteClient("://bad", true)
+	client := NewPricingRemoteClient("://bad", true, "")
 	_, ok := client.(*pricingRemoteClient)
 	require.True(t, ok, "should fallback to direct client when allowed")
+}
+
+func TestPricingRemoteClient_GitHubHeaders(t *testing.T) {
+	client := NewPricingRemoteClient("", false, " github_pat_test ").(*pricingRemoteClient)
+
+	req, err := client.newRequest(context.Background(), "https://api.github.com/repos/owner/repo/contents/prices.json?ref=main")
+	require.NoError(t, err)
+	require.Equal(t, "Bearer github_pat_test", req.Header.Get("Authorization"))
+	require.Equal(t, "application/vnd.github.raw+json", req.Header.Get("Accept"))
+
+	other, err := client.newRequest(context.Background(), "https://prices.example.com/prices.json")
+	require.NoError(t, err)
+	require.Empty(t, other.Header.Get("Authorization"))
 }
 
 func TestPricingServiceSuite(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -154,6 +155,9 @@ func duplicateAccountExtra(value map[string]any) (map[string]any, error) {
 	for key := range duplicateAccountDiscardedExtraKeys {
 		delete(cloned, key)
 	}
+	for _, key := range newAPISyncManagedExtraKeys {
+		delete(cloned, key)
+	}
 	return cloned, nil
 }
 
@@ -268,6 +272,13 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	if err != nil {
 		return nil, fmt.Errorf("clone account extra configuration: %w", err)
 	}
+	if source.HasAnyQuotaLimit() {
+		if _, exists := extra[AccountQuotaUsageMultiplierExtraKey]; !exists {
+			// Preserve the effective legacy quota unit instead of applying the
+			// new-account 1x default while duplicating an existing account.
+			extra[AccountQuotaUsageMultiplierExtraKey] = source.GetQuotaUsageMultiplier()
+		}
+	}
 	if operationID != "" {
 		if extra == nil {
 			extra = make(map[string]any, 1)
@@ -359,11 +370,82 @@ func ValidateOpenAILongContextBillingExtra(platform string, extra map[string]any
 	return nil
 }
 
+// ValidateOpenAIForceFastModeExtra validates the upstream-only Fast override.
+func ValidateOpenAIForceFastModeExtra(platform string, extra map[string]any) error {
+	if platform != PlatformOpenAI {
+		return nil
+	}
+	raw, exists := extra[openAIForceFastModeExtraKey]
+	if !exists {
+		return nil
+	}
+	if _, ok := raw.(bool); !ok {
+		return infraerrors.BadRequest(
+			"OPENAI_FORCE_FAST_MODE_INVALID",
+			"openai_force_fast_mode must be a boolean",
+		)
+	}
+	return nil
+}
+
+// ValidateOpenAIUpstreamRateCalibrationExtra validates the multiplier applied to fresh upstream rates.
+func ValidateOpenAIUpstreamRateCalibrationExtra(platform string, extra map[string]any) error {
+	if platform != PlatformOpenAI {
+		return nil
+	}
+	if _, exists := extra[OpenAIUpstreamRateCalibrationExtraKey]; !exists {
+		return nil
+	}
+	value, ok := resolveAccountExtraNumber(extra, OpenAIUpstreamRateCalibrationExtraKey)
+	if !ok || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		return infraerrors.BadRequest(
+			"OPENAI_UPSTREAM_RATE_CALIBRATION_INVALID",
+			"openai_upstream_rate_calibration must be a finite number >= 0",
+		)
+	}
+	return nil
+}
+
+// ValidateOpenAIUpstreamBalanceAlertExtra validates the optional low-balance alert configuration.
+func ValidateOpenAIUpstreamBalanceAlertExtra(platform string, extra map[string]any) error {
+	if platform != PlatformOpenAI {
+		return nil
+	}
+	if raw, exists := extra[UpstreamBalanceAlertEnabledExtraKey]; exists {
+		if _, ok := raw.(bool); !ok {
+			return infraerrors.BadRequest(
+				"OPENAI_UPSTREAM_BALANCE_ALERT_INVALID",
+				"upstream_balance_alert_enabled must be a boolean",
+			)
+		}
+	}
+	if _, exists := extra[UpstreamBalanceAlertThresholdExtraKey]; !exists {
+		return nil
+	}
+	value, ok := resolveAccountExtraNumber(extra, UpstreamBalanceAlertThresholdExtraKey)
+	if !ok || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		return infraerrors.BadRequest(
+			"OPENAI_UPSTREAM_BALANCE_ALERT_INVALID",
+			"upstream_balance_alert_threshold must be a finite number >= 0",
+		)
+	}
+	return nil
+}
+
 func normalizeOpenAILongContextBillingExtra(platform string, extra map[string]any) (map[string]any, error) {
 	if platform != PlatformOpenAI {
 		return extra, nil
 	}
 	if err := ValidateOpenAILongContextBillingExtra(platform, extra); err != nil {
+		return nil, err
+	}
+	if err := ValidateOpenAIForceFastModeExtra(platform, extra); err != nil {
+		return nil, err
+	}
+	if err := ValidateOpenAIUpstreamRateCalibrationExtra(platform, extra); err != nil {
+		return nil, err
+	}
+	if err := ValidateOpenAIUpstreamBalanceAlertExtra(platform, extra); err != nil {
 		return nil, err
 	}
 
@@ -389,6 +471,11 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 	if !provided {
 		if hasCurrent {
 			normalized[openAILongContextBillingEnabledKey] = current
+		}
+	}
+	if _, provided := input.Extra[openAIForceFastModeExtraKey]; !provided {
+		if current, ok := account.Extra[openAIForceFastModeExtraKey].(bool); ok {
+			normalized[openAIForceFastModeExtraKey] = current
 		}
 	}
 	return normalized, nil
@@ -460,6 +547,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	delete(accountExtra, OllamaCloudUsageSessionExtraKey)
 	delete(accountExtra, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(accountExtra, OllamaCloudUsageSnapshotExtraKey)
+	for _, key := range newAPISyncManagedExtraKeys {
+		delete(accountExtra, key)
+	}
 	account := &Account{
 		Name:        input.Name,
 		Notes:       normalizeAccountNotes(input.Notes),
@@ -473,7 +563,19 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Status:      StatusActive,
 		Schedulable: true,
 	}
-	if input.ProbeEnabled != nil && *input.ProbeEnabled {
+	probeEnabled := input.ProbeEnabled != nil && *input.ProbeEnabled
+	rateSyncEnabled := input.RateSyncEnabled != nil && *input.RateSyncEnabled
+	// 倍率同步依赖周期探测；与更新账号的行为保持一致，显式冲突时拒绝，未传时自动开启探测。
+	if rateSyncEnabled {
+		if input.ProbeEnabled != nil && !*input.ProbeEnabled {
+			return nil, infraerrors.BadRequest(
+				"UPSTREAM_BILLING_RATE_SYNC_REQUIRES_PROBE",
+				"upstream billing rate sync requires upstream billing probe",
+			)
+		}
+		probeEnabled = true
+	}
+	if probeEnabled {
 		if !isUpstreamBillingProbeAccount(account) {
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
@@ -482,8 +584,12 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		}
 		account.Extra[UpstreamBillingProbeEnabledExtraKey] = true
 	}
+	if rateSyncEnabled {
+		account.Extra[UpstreamBillingRateSyncEnabledExtraKey] = true
+	}
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {
+		ApplyDefaultQuotaUsageMultiplier(account.Extra)
 		if err := ValidateQuotaResetConfig(account.Extra); err != nil {
 			return nil, err
 		}
@@ -610,6 +716,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if err != nil {
 			return nil, err
 		}
+		normalizedExtra = preserveNewAPISyncManagedExtra(account, normalizedExtra)
 	}
 	previousProbeIdentity := upstreamBillingProbeIdentity(account)
 	previousOllamaUsageIdentity := ollamaCloudUsageIdentity(account)
@@ -731,6 +838,12 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		enabled := true
 		requestedProbeEnabledUpdate = &enabled
+		// Generic rate synchronization becomes the sole writer. Keep the
+		// existing NewAPI connection details, but atomically turn its runner off.
+		if account.Extra == nil {
+			account.Extra = make(map[string]any)
+		}
+		account.Extra[NewAPISyncEnabledExtraKey] = false
 	}
 	if requestedProbeEnabledUpdate != nil && !*requestedProbeEnabledUpdate {
 		disabled := false
@@ -796,7 +909,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		// 变回去"），与批量路径一样直接拒绝。判断的是本次请求生效后的状态：上面
 		// 已把请求携带的两个开关落进 account.Extra，所以"同一请求关闭同步 + 改倍率"
 		// （用户显式收回所有权）会走到这里时读到 false，正常放行。
-		if upstreamBillingRateSyncEnabled(account) {
+		if accountRateMultiplierManagedByAutomation(account) {
 			return nil, ErrUpstreamBillingRateSyncConflict
 		}
 		account.RateMultiplier = input.RateMultiplier
@@ -888,7 +1001,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 
 	// 绑定分组
 	if input.GroupIDs != nil {
-		if err := s.accountRepo.BindGroups(ctx, account.ID, *input.GroupIDs); err != nil {
+		if err := s.bindAccountGroups(ctx, account.ID, *input.GroupIDs, input.GroupPriorities); err != nil {
 			return nil, err
 		}
 	}
@@ -901,6 +1014,40 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	return updated, nil
 }
 
+type accountGroupPriorityBinder interface {
+	BindGroupsWithPriorities(ctx context.Context, accountID int64, groupIDs []int64, priorities map[int64]int) error
+}
+
+func (s *adminServiceImpl) bindAccountGroups(
+	ctx context.Context,
+	accountID int64,
+	groupIDs []int64,
+	priorities *map[int64]int,
+) error {
+	if priorities == nil {
+		return s.accountRepo.BindGroups(ctx, accountID, groupIDs)
+	}
+
+	selected := make(map[int64]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		selected[groupID] = struct{}{}
+	}
+	for groupID, priority := range *priorities {
+		if _, ok := selected[groupID]; !ok {
+			return fmt.Errorf("group priority references unselected group %d", groupID)
+		}
+		if priority < 1 {
+			return fmt.Errorf("group priority for group %d must be >= 1", groupID)
+		}
+	}
+
+	binder, ok := s.accountRepo.(accountGroupPriorityBinder)
+	if !ok {
+		return errors.New("account repository does not support group priorities")
+	}
+	return binder.BindGroupsWithPriorities(ctx, accountID, groupIDs, *priorities)
+}
+
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
@@ -910,12 +1057,32 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	delete(updates, OllamaCloudUsageSessionExtraKey)
 	delete(updates, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(updates, OllamaCloudUsageSnapshotExtraKey)
-	if _, exists := updates[openAILongContextBillingEnabledKey]; exists {
+	_, hasLongContextBilling := updates[openAILongContextBillingEnabledKey]
+	_, hasForceFastMode := updates[openAIForceFastModeExtraKey]
+	_, hasUpstreamRateCalibration := updates[OpenAIUpstreamRateCalibrationExtraKey]
+	_, hasUpstreamBalanceAlertEnabled := updates[UpstreamBalanceAlertEnabledExtraKey]
+	_, hasUpstreamBalanceAlertThreshold := updates[UpstreamBalanceAlertThresholdExtraKey]
+	_, hasQuotaUsageMultiplier := updates[AccountQuotaUsageMultiplierExtraKey]
+	if hasQuotaUsageMultiplier {
+		if err := ValidateQuotaResetConfig(updates); err != nil {
+			return err
+		}
+	}
+	if hasLongContextBilling || hasForceFastMode || hasUpstreamRateCalibration || hasUpstreamBalanceAlertEnabled || hasUpstreamBalanceAlertThreshold {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {
 			return err
 		}
 		if err := ValidateOpenAILongContextBillingExtra(account.Platform, updates); err != nil {
+			return err
+		}
+		if err := ValidateOpenAIForceFastModeExtra(account.Platform, updates); err != nil {
+			return err
+		}
+		if err := ValidateOpenAIUpstreamRateCalibrationExtra(account.Platform, updates); err != nil {
+			return err
+		}
+		if err := ValidateOpenAIUpstreamBalanceAlertExtra(account.Platform, updates); err != nil {
 			return err
 		}
 	}
@@ -961,10 +1128,19 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	needMixedChannelCheck := input.GroupIDs != nil && !input.SkipMixedChannelCheck
 	_, hasLongContextBillingUpdate := input.Extra[openAILongContextBillingEnabledKey]
+	_, hasForceFastModeUpdate := input.Extra[openAIForceFastModeExtraKey]
+	_, hasUpstreamRateCalibrationUpdate := input.Extra[OpenAIUpstreamRateCalibrationExtraKey]
+	_, hasUpstreamBalanceAlertEnabledUpdate := input.Extra[UpstreamBalanceAlertEnabledExtraKey]
+	_, hasUpstreamBalanceAlertThresholdUpdate := input.Extra[UpstreamBalanceAlertThresholdExtraKey]
+	if _, hasQuotaUsageMultiplierUpdate := input.Extra[AccountQuotaUsageMultiplierExtraKey]; hasQuotaUsageMultiplierUpdate {
+		if err := ValidateQuotaResetConfig(input.Extra); err != nil {
+			return nil, err
+		}
+	}
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil || input.RateMultiplier != nil {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || hasForceFastModeUpdate || hasUpstreamRateCalibrationUpdate || hasUpstreamBalanceAlertEnabledUpdate || hasUpstreamBalanceAlertThresholdUpdate || input.ProbeEnabled != nil || input.RateMultiplier != nil {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -988,12 +1164,21 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			}
 		}
 	}
-	if hasLongContextBillingUpdate {
+	if hasLongContextBillingUpdate || hasForceFastModeUpdate || hasUpstreamRateCalibrationUpdate || hasUpstreamBalanceAlertEnabledUpdate || hasUpstreamBalanceAlertThresholdUpdate {
 		for _, account := range cachedTargets {
 			if account == nil || account.Platform != PlatformOpenAI {
 				continue
 			}
 			if err := ValidateOpenAILongContextBillingExtra(account.Platform, input.Extra); err != nil {
+				return nil, err
+			}
+			if err := ValidateOpenAIForceFastModeExtra(account.Platform, input.Extra); err != nil {
+				return nil, err
+			}
+			if err := ValidateOpenAIUpstreamRateCalibrationExtra(account.Platform, input.Extra); err != nil {
+				return nil, err
+			}
+			if err := ValidateOpenAIUpstreamBalanceAlertExtra(account.Platform, input.Extra); err != nil {
 				return nil, err
 			}
 			break
@@ -1055,8 +1240,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			if account == nil || account.Extra == nil {
 				continue
 			}
-			enabled, _ := account.Extra[UpstreamBillingRateSyncEnabledExtraKey].(bool)
-			if enabled {
+			if accountRateMultiplierManagedByAutomation(account) {
 				syncEnabledCount++
 			}
 		}

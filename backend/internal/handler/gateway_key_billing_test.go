@@ -68,6 +68,7 @@ func TestGatewayHandlerKeyBillingInfoUsesGroupRate(t *testing.T) {
 	groupID := int64(7)
 	apiKey := &service.APIKey{
 		UserID:  11,
+		User:    &service.User{ID: 11, Balance: 12.5},
 		GroupID: &groupID,
 		Key:     "sk-sensitive-value",
 		Group: &service.Group{
@@ -96,6 +97,9 @@ func TestGatewayHandlerKeyBillingInfoUsesGroupRate(t *testing.T) {
 	require.Nil(t, got.PeakRateMultiplier)
 	require.Nil(t, got.AppliedPeakMultiplier)
 	require.Equal(t, 0.75, got.EffectiveRateMultiplier)
+	require.NotNil(t, got.Balance)
+	require.Equal(t, 12.5, *got.Balance)
+	require.Equal(t, "wallet", got.BalanceKind)
 	require.Nil(t, got.Timezone)
 	require.False(t, got.ObservedAt.IsZero())
 	var fields map[string]json.RawMessage
@@ -108,6 +112,32 @@ func TestGatewayHandlerKeyBillingInfoUsesGroupRate(t *testing.T) {
 	require.NotContains(t, fields, "timezone")
 	require.NotContains(t, w.Body.String(), apiKey.Key)
 	require.NotContains(t, w.Body.String(), apiKey.Group.Name)
+}
+
+func TestGatewayHandlerKeyBillingInfoUsesSubscriptionRemaining(t *testing.T) {
+	groupID := int64(7)
+	dailyLimit := 500.0
+	apiKey := &service.APIKey{
+		UserID:  11,
+		GroupID: &groupID,
+		Group: &service.Group{
+			ID:               groupID,
+			RateMultiplier:   1,
+			SubscriptionType: service.SubscriptionTypeSubscription,
+			DailyLimitUSD:    &dailyLimit,
+		},
+	}
+	c, w := newKeyBillingContext(apiKey)
+	c.Set(string(middleware2.ContextKeySubscription), &service.UserSubscription{DailyUsageUSD: 125.5})
+
+	newKeyBillingHandler(nil).KeyBillingInfo(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var got keyBillingInfoResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.NotNil(t, got.Balance)
+	require.Equal(t, 374.5, *got.Balance)
+	require.Equal(t, "subscription_remaining", got.BalanceKind)
 }
 
 func TestGatewayHandlerKeyBillingInfoUsesUserOverride(t *testing.T) {

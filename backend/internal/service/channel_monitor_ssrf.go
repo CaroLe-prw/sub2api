@@ -30,6 +30,7 @@ var monitorBlockedCIDRs = mustParseCIDRs([]string{
 	"192.168.0.0/16", // RFC1918
 	"169.254.0.0/16", // link-local（含云元数据 169.254.169.254）
 	"100.64.0.0/10",  // CGNAT
+	"198.18.0.0/15",  // benchmark / TUN fake-IP，不属于公网目标
 	"0.0.0.0/8",      // "this network"
 	"::1/128",        // IPv6 loopback
 	"fc00::/7",       // IPv6 ULA

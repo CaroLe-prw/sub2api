@@ -16,31 +16,32 @@ import (
 
 type accountRepoStubForBulkUpdate struct {
 	accountRepoStub
-	bulkUpdateErr       error
-	bulkUpdateIDs       []int64
-	bindGroupErrByID    map[int64]error
-	bindGroupsCalls     []int64
-	bindGroupsByAccount map[int64][]int64
-	createAccount       *Account
-	createID            int64
-	createErr           error
-	updatedAccounts     []*Account
-	updateErr           error
-	getByIDsAccounts    []*Account
-	getByIDsErr         error
-	getByIDsCalled      bool
-	getByIDsIDs         []int64
-	getByIDAccounts     map[int64]*Account
-	getByIDErrByID      map[int64]error
-	getByIDCalled       []int64
-	listByGroupData     map[int64][]Account
-	listByGroupErr      map[int64]error
-	listData            []Account
-	listResult          *pagination.PaginationResult
-	listErr             error
-	listCalled          bool
-	lastListParams      pagination.PaginationParams
-	lastListFilters     struct {
+	bulkUpdateErr            error
+	bulkUpdateIDs            []int64
+	bindGroupErrByID         map[int64]error
+	bindGroupsCalls          []int64
+	bindGroupsByAccount      map[int64][]int64
+	groupPrioritiesByAccount map[int64]map[int64]int
+	createAccount            *Account
+	createID                 int64
+	createErr                error
+	updatedAccounts          []*Account
+	updateErr                error
+	getByIDsAccounts         []*Account
+	getByIDsErr              error
+	getByIDsCalled           bool
+	getByIDsIDs              []int64
+	getByIDAccounts          map[int64]*Account
+	getByIDErrByID           map[int64]error
+	getByIDCalled            []int64
+	listByGroupData          map[int64][]Account
+	listByGroupErr           map[int64]error
+	listData                 []Account
+	listResult               *pagination.PaginationResult
+	listErr                  error
+	listCalled               bool
+	lastListParams           pagination.PaginationParams
+	lastListFilters          struct {
 		platform    string
 		accountType string
 		status      string
@@ -79,6 +80,21 @@ func (s *accountRepoStubForBulkUpdate) BindGroups(_ context.Context, accountID i
 	s.bindGroupsByAccount[accountID] = append([]int64{}, groupIDs...)
 	if err, ok := s.bindGroupErrByID[accountID]; ok {
 		return err
+	}
+	return nil
+}
+
+func (s *accountRepoStubForBulkUpdate) BindGroupsWithPriorities(_ context.Context, accountID int64, groupIDs []int64, priorities map[int64]int) error {
+	if s.bindGroupsByAccount == nil {
+		s.bindGroupsByAccount = make(map[int64][]int64)
+	}
+	if s.groupPrioritiesByAccount == nil {
+		s.groupPrioritiesByAccount = make(map[int64]map[int64]int)
+	}
+	s.bindGroupsByAccount[accountID] = append([]int64{}, groupIDs...)
+	s.groupPrioritiesByAccount[accountID] = make(map[int64]int, len(priorities))
+	for groupID, priority := range priorities {
+		s.groupPrioritiesByAccount[accountID][groupID] = priority
 	}
 	return nil
 }
@@ -185,6 +201,29 @@ func TestAdminService_BulkUpdateAccounts_RejectsRateChangeForSyncedAccounts(t *t
 	require.Equal(t, "1", appErr.Metadata["count"])
 	require.True(t, repo.getByIDsCalled)
 	require.Empty(t, repo.bulkUpdateIDs, "rate conflict must be rejected before any write")
+}
+
+func TestAdminService_BulkUpdateAccounts_RejectsRateChangeForNewAPISyncedAccounts(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{{
+			ID:    1,
+			Extra: map[string]any{NewAPISyncEnabledExtraKey: true},
+		}},
+	}
+	rateMultiplier := 0.5
+
+	result, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs:     []int64{1},
+		RateMultiplier: &rateMultiplier,
+	})
+
+	require.Nil(t, result)
+	require.Error(t, err)
+	var appErr *infraerrors.ApplicationError
+	require.ErrorAs(t, err, &appErr)
+	require.Equal(t, "UPSTREAM_BILLING_RATE_SYNC_BULK_CONFLICT", appErr.Reason)
+	require.Equal(t, "1", appErr.Metadata["count"])
+	require.Empty(t, repo.bulkUpdateIDs)
 }
 
 // TestAdminService_BulkUpdateAccounts_PartialFailureIDs 验证部分失败时 success_ids/failed_ids 正确。

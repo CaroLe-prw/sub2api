@@ -53,7 +53,7 @@
             <input
               v-model.number="newRate"
               type="number"
-              step="0.001"
+              step="any"
               min="0"
               autocomplete="off"
               class="hide-spinner input w-full"
@@ -78,7 +78,7 @@
             <input
               v-model.number="batchFactor"
               type="number"
-              step="0.1"
+              step="any"
               min="0"
               autocomplete="off"
               class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
@@ -165,7 +165,7 @@
                     <td class="whitespace-nowrap px-3 py-2">
                       <input
                         type="number"
-                        step="0.001"
+                        step="any"
                         min="0.001"
                         autocomplete="off"
                         :value="entry.rate_multiplier ?? ''"

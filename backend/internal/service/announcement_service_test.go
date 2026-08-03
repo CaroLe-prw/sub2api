@@ -10,10 +10,14 @@ import (
 )
 
 type announcementRepoStub struct {
-	item *Announcement
+	item      *Announcement
+	createErr error
 }
 
 func (s *announcementRepoStub) Create(_ context.Context, a *Announcement) error {
+	if s.createErr != nil {
+		return s.createErr
+	}
 	s.item = a
 	return nil
 }

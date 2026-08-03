@@ -27,6 +27,9 @@ type rateLimitClearRepoStub struct {
 	clearAntigravityErr       error
 	clearModelRateLimitErr    error
 	clearTempUnschedulableErr error
+	setTempUnschedCalls       int
+	setTempUnschedUntil       time.Time
+	setTempUnschedReason      string
 }
 
 func (r *rateLimitClearRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -62,9 +65,21 @@ func (r *rateLimitClearRepoStub) ClearTempUnschedulable(ctx context.Context, id 
 	return r.clearTempUnschedulableErr
 }
 
+func (r *rateLimitClearRepoStub) SetTempUnschedulable(_ context.Context, _ int64, until time.Time, reason string) error {
+	r.setTempUnschedCalls++
+	r.setTempUnschedUntil = until
+	r.setTempUnschedReason = reason
+	if r.getByIDAccount != nil {
+		r.getByIDAccount.TempUnschedulableUntil = &until
+		r.getByIDAccount.TempUnschedulableReason = reason
+	}
+	return nil
+}
+
 type tempUnschedCacheRecorder struct {
 	deletedIDs []int64
 	deleteErr  error
+	states     map[int64]*TempUnschedState
 }
 
 type recoverTokenInvalidatorStub struct {
@@ -73,6 +88,10 @@ type recoverTokenInvalidatorStub struct {
 }
 
 func (c *tempUnschedCacheRecorder) SetTempUnsched(ctx context.Context, accountID int64, state *TempUnschedState) error {
+	if c.states == nil {
+		c.states = make(map[int64]*TempUnschedState)
+	}
+	c.states[accountID] = state
 	return nil
 }
 
@@ -103,6 +122,22 @@ func TestRateLimitService_ClearRateLimit_AlsoClearsTempUnschedulable(t *testing.
 	require.Equal(t, 1, repo.clearModelRateLimitCalls)
 	require.Equal(t, 1, repo.clearTempUnschedCalls)
 	require.Equal(t, []int64{42}, cache.deletedIDs)
+}
+
+func TestRateLimitService_PauseAccountScheduling(t *testing.T) {
+	account := &Account{ID: 42, Status: StatusActive, Schedulable: true}
+	repo := &rateLimitClearRepoStub{getByIDAccount: account}
+	cache := &tempUnschedCacheRecorder{}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, cache)
+
+	updated, err := svc.PauseAccountScheduling(context.Background(), account.ID, 15*time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, 1, repo.setTempUnschedCalls)
+	require.WithinDuration(t, time.Now().Add(15*time.Minute), repo.setTempUnschedUntil, time.Second)
+	require.Contains(t, repo.setTempUnschedReason, "Paused manually by administrator")
+	require.NotNil(t, cache.states[account.ID])
+	require.Equal(t, repo.setTempUnschedUntil.Unix(), cache.states[account.ID].UntilUnix)
+	require.Equal(t, repo.setTempUnschedUntil, *updated.TempUnschedulableUntil)
 }
 
 func TestRateLimitService_ClearRateLimit_ClearTempUnschedulableFailed(t *testing.T) {

@@ -10,6 +10,7 @@ const props = withDefaults(defineProps<{
   totalLimit: number | null
   dailyLimit: number | null
   weeklyLimit: number | null
+  quotaUsageMultiplier: number
   dailyResetMode: QuotaResetMode | null
   dailyResetHour: number | null
   weeklyResetMode: QuotaResetMode | null
@@ -28,6 +29,7 @@ const props = withDefaults(defineProps<{
   quotaNotifyTotalThresholdType?: QuotaThresholdType | null
 }>(), {
   quotaNotifyGlobalEnabled: false,
+  quotaUsageMultiplier: 1,
   quotaNotifyDailyEnabled: null,
   quotaNotifyDailyThreshold: null,
   quotaNotifyDailyThresholdType: null,
@@ -43,6 +45,7 @@ const emit = defineEmits<{
   'update:totalLimit': [value: number | null]
   'update:dailyLimit': [value: number | null]
   'update:weeklyLimit': [value: number | null]
+  'update:quotaUsageMultiplier': [value: number]
   'update:dailyResetMode': [value: QuotaResetMode | null]
   'update:dailyResetHour': [value: number | null]
   'update:weeklyResetMode': [value: QuotaResetMode | null]
@@ -128,6 +131,11 @@ const dailyFixedHint = computed(() =>
     timezone: props.resetTimezone || 'UTC',
   })
 )
+
+const onQuotaUsageMultiplierInput = (event: Event) => {
+  const value = (event.target as HTMLInputElement).valueAsNumber
+  emit('update:quotaUsageMultiplier', Number.isNaN(value) || value < 0 ? 1 : value)
+}
 </script>
 
 <template>
@@ -164,6 +172,26 @@ const dailyFixedHint = computed(() =>
 
       <!-- Collapsible content -->
       <div v-if="localEnabled && !collapsed" class="space-y-2 p-4 pt-3">
+        <div class="border-b border-gray-200 pb-3 dark:border-dark-600">
+          <label class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">
+            {{ t('admin.accounts.quotaUsageMultiplier') }}
+          </label>
+          <div class="relative max-w-48">
+            <input
+              :value="quotaUsageMultiplier"
+              type="number"
+              min="0"
+              step="0.001"
+              class="input py-1.5 pr-8 text-sm"
+              @input="onQuotaUsageMultiplierInput"
+            />
+            <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-gray-500 dark:text-gray-400">x</span>
+          </div>
+          <p class="input-hint mb-0 text-[11px]">
+            {{ t('admin.accounts.quotaUsageMultiplierHint') }}
+          </p>
+        </div>
+
         <!-- Daily quota -->
         <QuotaDimensionRow
           dim="daily"

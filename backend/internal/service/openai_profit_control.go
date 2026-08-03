@@ -113,6 +113,21 @@ func profitControlOverThreshold(upstream, threshold float64) bool {
 	return upstream-threshold > profitControlRateEpsilon*math.Max(1, math.Abs(threshold))
 }
 
+// profitControlAccountRate is the shared validity boundary for every place
+// that explains or enforces an account-cost gate. Persisted zero is a valid
+// free-account rate; missing, negative and non-finite values are unknown and
+// therefore ineligible whenever a gate is active.
+func profitControlAccountRate(account *Account) (float64, bool) {
+	if account == nil || account.RateMultiplier == nil {
+		return 0, false
+	}
+	rate := *account.RateMultiplier
+	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 {
+		return 0, false
+	}
+	return rate, true
+}
+
 // openAIProfitControlGate 是一个请求的利润准入门。除 pricingAt 外全部为预计算
 // 标量：候选过滤热路径上每账号只做一次快照解码与一次浮点比较。
 type openAIProfitControlGate struct {
@@ -125,6 +140,38 @@ type openAIProfitControlGate struct {
 	threshold float64
 	// pricingAt 是本请求的统一定价时刻（D 侧）。
 	pricingAt time.Time
+}
+
+// resolveGroupAccountCostThreshold merges the upstream margin gate with the
+// locally introduced absolute account-cost ceiling. Every active constraint
+// is evaluated against the same durable accounts.rate_multiplier value and
+// the strictest threshold wins. A composite billing parent can therefore cap
+// accounts selected from a routed child without replacing that child's margin
+// policy.
+func resolveGroupAccountCostThreshold(scheduledGroup, billingGroup *Group, downstream float64, profitEnabled bool) (float64, bool) {
+	threshold := math.Inf(1)
+	active := false
+	apply := func(candidate float64) {
+		candidate = clampProfitControlThreshold(candidate)
+		if !active || candidate < threshold {
+			threshold = candidate
+		}
+		active = true
+	}
+
+	if scheduledGroup != nil && profitEnabled && profitControlPlatformSupported(scheduledGroup.Platform) {
+		apply(downstream * (1 - scheduledGroup.ProfitMinMargin - scheduledGroup.ProfitSafetyBuffer))
+	}
+	if scheduledGroup != nil && scheduledGroup.MaxAccountCostMultiplier != nil {
+		apply(*scheduledGroup.MaxAccountCostMultiplier)
+	}
+	if billingGroup != nil && (scheduledGroup == nil || billingGroup.ID != scheduledGroup.ID) && billingGroup.MaxAccountCostMultiplier != nil {
+		apply(*billingGroup.MaxAccountCostMultiplier)
+	}
+	if !active {
+		return 0, false
+	}
+	return threshold, true
 }
 
 // WithOpenAIRequestPricingContext 在请求开始处装配请求级定价上下文：固定
@@ -236,8 +283,7 @@ func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Contex
 		}
 		group = loaded
 	}
-	if group == nil || !group.ProfitControlEnabled ||
-		(group.Platform != PlatformOpenAI && group.Platform != PlatformGrok) {
+	if group == nil {
 		return nil
 	}
 
@@ -259,8 +305,12 @@ func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Contex
 	}
 	downstream *= billingGroup.PeakMultiplierAt(pricingAt)
 
-	deduction := group.ProfitMinMargin + group.ProfitSafetyBuffer
-	threshold := clampProfitControlThreshold(downstream * (1 - deduction))
+	profitEnabled := group.ProfitControlEnabled &&
+		(group.Platform == PlatformOpenAI || group.Platform == PlatformGrok)
+	threshold, active := resolveGroupAccountCostThreshold(group, billingGroup, downstream, profitEnabled)
+	if !active {
+		return nil
+	}
 	return &openAIProfitControlGate{
 		groupID:   *groupID,
 		platform:  group.Platform,
@@ -304,14 +354,11 @@ func openAIProfitControlVetoReason(ctx context.Context, account *Account) (bool,
 	if gate == nil || account == nil {
 		return false, ""
 	}
-	if account.RateMultiplier == nil ||
-		math.IsNaN(*account.RateMultiplier) ||
-		math.IsInf(*account.RateMultiplier, 0) ||
-		*account.RateMultiplier < 0 {
+	upstream, valid := profitControlAccountRate(account)
+	if !valid {
 		openAIProfitControlObserverInstance.recordVeto(gate.groupID, gate.platform, gate.threshold, openAIProfitFilterReasonInvalidAccountRate)
 		return true, openAIProfitFilterReasonInvalidAccountRate
 	}
-	upstream := *account.RateMultiplier
 	if profitControlOverThreshold(upstream, gate.threshold) {
 		openAIProfitControlObserverInstance.recordVeto(gate.groupID, gate.platform, gate.threshold, openAIProfitFilterReasonThreshold)
 		return true, openAIProfitFilterReasonThreshold

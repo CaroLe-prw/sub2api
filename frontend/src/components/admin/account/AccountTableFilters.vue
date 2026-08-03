@@ -12,14 +12,36 @@
     <Select :model-value="filters.status" class="w-40" :options="sOpts" @update:model-value="updateStatus" @change="$emit('change')" />
     <Select :model-value="filters.privacy_mode" class="w-40" :options="privacyOpts" @update:model-value="updatePrivacyMode" @change="$emit('change')" />
     <Select :model-value="filters.group" class="w-40" :options="gOpts" @update:model-value="updateGroup" @change="$emit('change')" />
+    <label
+      v-if="selectedGroupId != null"
+      class="inline-flex h-10 items-center gap-2 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300"
+    >
+      <Toggle v-model="onlySelectedGroupScore" />
+      <span>{{ t('admin.accounts.schedulerScore.onlySelectedGroup') }}</span>
+    </label>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'; import { useI18n } from 'vue-i18n'; import Select from '@/components/common/Select.vue'; import SearchInput from '@/components/common/SearchInput.vue'
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import Select from '@/components/common/Select.vue'
+import SearchInput from '@/components/common/SearchInput.vue'
+import Toggle from '@/components/common/Toggle.vue'
 import type { AdminGroup } from '@/types'
-const props = defineProps<{ searchQuery: string; filters: Record<string, any>; groups?: AdminGroup[] }>()
-const emit = defineEmits(['update:searchQuery', 'update:filters', 'change']); const { t } = useI18n()
+const props = defineProps<{
+  searchQuery: string
+  filters: Record<string, any>
+  groups?: AdminGroup[]
+  selectedGroupId?: number | null
+}>()
+const onlySelectedGroupScore = defineModel<boolean>('onlySelectedGroupScore', { default: true })
+const emit = defineEmits<{
+  'update:searchQuery': [value: string]
+  'update:filters': [filters: Record<string, any>]
+  change: []
+}>()
+const { t } = useI18n()
 const updatePlatform = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, platform: value }) }
 const updateType = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, type: value }) }
 const updateStatus = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, status: value }) }

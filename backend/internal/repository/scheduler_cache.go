@@ -1013,6 +1013,7 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"auto_pause_7d_disabled",
 		"model_rate_limits",
 		service.UpstreamBillingProbeExtraKey,
+		service.OpenAIUpstreamRateCalibrationExtraKey,
 		service.GrokMediaEligibleExtraKey,
 		"grok_billing_snapshot",
 	}

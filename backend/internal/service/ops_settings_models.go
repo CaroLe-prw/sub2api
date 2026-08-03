@@ -38,6 +38,67 @@ type OpsEmailNotificationConfigUpdateRequest struct {
 	Report *OpsEmailReportConfig `json:"report"`
 }
 
+// OpsTelegramNotificationTemplate is a reusable Telegram delivery target.
+// Bot tokens are represented only by BotTokenConfigured and never returned.
+type OpsTelegramNotificationTemplate struct {
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	Enabled             bool   `json:"enabled"`
+	BotTokenConfigured  bool   `json:"bot_token_configured"`
+	ChatID              string `json:"chat_id"`
+	TopicID             *int64 `json:"topic_id"`
+	BaseURL             string `json:"base_url"`
+	DisableNotification bool   `json:"disable_notification"`
+	ProtectContent      bool   `json:"protect_content"`
+}
+
+// OpsTelegramNotificationConfig contains reusable delivery templates and the
+// notification types that consume them.
+type OpsTelegramNotificationConfig struct {
+	Templates                    []OpsTelegramNotificationTemplate `json:"templates"`
+	OpsAlertTemplateID           string                            `json:"ops_alert_template_id"`
+	UpstreamRateChangeEnabled    bool                              `json:"upstream_rate_change_enabled"`
+	UpstreamRateChangeTemplateID string                            `json:"upstream_rate_change_template_id"`
+	UpstreamBalanceLowEnabled    bool                              `json:"upstream_balance_low_enabled"`
+	UpstreamBalanceLowTemplateID string                            `json:"upstream_balance_low_template_id"`
+}
+
+// OpsTelegramNotificationTemplateUpdate keeps the existing token for the same
+// template ID when BotToken is empty.
+type OpsTelegramNotificationTemplateUpdate struct {
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	Enabled             bool   `json:"enabled"`
+	BotToken            string `json:"bot_token"`
+	ClearBotToken       bool   `json:"clear_bot_token"`
+	ChatID              string `json:"chat_id"`
+	TopicID             *int64 `json:"topic_id"`
+	BaseURL             string `json:"base_url"`
+	DisableNotification bool   `json:"disable_notification"`
+	ProtectContent      bool   `json:"protect_content"`
+}
+
+type OpsTelegramNotificationConfigUpdateRequest struct {
+	Templates                    []OpsTelegramNotificationTemplateUpdate `json:"templates"`
+	OpsAlertTemplateID           string                                  `json:"ops_alert_template_id"`
+	UpstreamRateChangeEnabled    bool                                    `json:"upstream_rate_change_enabled"`
+	UpstreamRateChangeTemplateID string                                  `json:"upstream_rate_change_template_id"`
+	UpstreamBalanceLowEnabled    bool                                    `json:"upstream_balance_low_enabled"`
+	UpstreamBalanceLowTemplateID string                                  `json:"upstream_balance_low_template_id"`
+}
+
+// OpsTelegramNotificationTestRequest tests the current form values without
+// persisting them. An empty BotToken reuses the saved token.
+type OpsTelegramNotificationTestRequest struct {
+	TemplateID          string `json:"template_id"`
+	BotToken            string `json:"bot_token"`
+	ChatID              string `json:"chat_id"`
+	TopicID             *int64 `json:"topic_id"`
+	BaseURL             string `json:"base_url"`
+	DisableNotification bool   `json:"disable_notification"`
+	ProtectContent      bool   `json:"protect_content"`
+}
+
 type OpsDistributedLockSettings struct {
 	Enabled    bool   `json:"enabled"`
 	Key        string `json:"key"`

@@ -249,10 +249,35 @@
             </div>
           </template>
 
-          <template #cell-rate_multiplier="{ value }">
-            <span class="text-sm text-gray-700 dark:text-gray-300"
-              >{{ value }}x</span
-            >
+          <template #cell-rate_multiplier="{ value, row }">
+            <div>
+              <span class="text-sm text-gray-700 dark:text-gray-300"
+                >{{ value }}x</span
+              >
+              <div
+                v-if="row.max_account_cost_multiplier != null"
+                class="mt-0.5 whitespace-nowrap text-[11px] text-emerald-600 dark:text-emerald-400"
+              >
+                {{
+                  t("admin.groups.maxAccountCostCell", {
+                    value: row.max_account_cost_multiplier,
+                  })
+                }}
+              </div>
+              <div
+                v-if="
+                  row.openai_scheduler_profile &&
+                  row.openai_scheduler_profile !== 'inherit'
+                "
+                class="mt-0.5 whitespace-nowrap text-[11px] text-gray-500 dark:text-gray-400"
+              >
+                {{
+                  t(
+                    `admin.groups.scheduler.profiles.${row.openai_scheduler_profile}.label`,
+                  )
+                }}
+              </div>
+            </div>
           </template>
 
           <template #cell-is_exclusive="{ value }">
@@ -365,6 +390,15 @@
               >
                 <Icon name="edit" size="sm" />
                 <span class="text-xs">{{ t("common.edit") }}</span>
+              </button>
+              <button
+                data-testid="group-accounts"
+                :title="t('admin.groups.manageAccounts')"
+                @click="handleGroupAccounts(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-emerald-600 dark:hover:bg-dark-700 dark:hover:text-emerald-400"
+              >
+                <Icon name="users" size="sm" />
+                <span class="text-xs">{{ t("admin.groups.manageAccounts") }}</span>
               </button>
               <button
                 data-testid="group-duplicate"
@@ -589,7 +623,7 @@
           <input
             v-model.number="createForm.rate_multiplier"
             type="number"
-            step="0.001"
+            step="any"
             min="0.001"
             required
             class="input"
@@ -597,6 +631,17 @@
           />
           <p class="input-hint">{{ t("admin.groups.rateMultiplierHint") }}</p>
         </div>
+        <GroupAccountCostLimitField
+          v-model="createForm.max_account_cost_multiplier"
+        />
+        <GroupSchedulerPolicyField
+          v-if="
+            createForm.platform === 'openai' ||
+            createForm.platform === 'composite'
+          "
+          v-model:profile="createForm.openai_scheduler_profile"
+          v-model:config="createForm.openai_scheduler_config"
+        />
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
@@ -902,7 +947,7 @@
             <input
               v-model.number="createForm.image_rate_multiplier"
               type="number"
-              step="0.0001"
+              step="any"
               min="0"
               class="input"
               placeholder="1"
@@ -984,7 +1029,7 @@
                 <input
                   v-model.number="createForm.batch_image_discount_multiplier"
                   type="number"
-                  step="0.0001"
+                  step="any"
                   min="0"
                   class="input"
                   placeholder="0.5"
@@ -997,7 +1042,7 @@
                 <input
                   v-model.number="createForm.batch_image_hold_multiplier"
                   type="number"
-                  step="0.0001"
+                  step="any"
                   min="0"
                   class="input"
                   placeholder="0.6"
@@ -1046,7 +1091,7 @@
             <input
               v-model.number="createForm.video_rate_multiplier"
               type="number"
-              step="0.0001"
+              step="any"
               min="0"
               class="input"
               placeholder="1"
@@ -1142,7 +1187,7 @@
               <input
                 v-model.number="createForm.peak_rate_multiplier"
                 type="number"
-                step="0.001"
+                step="any"
                 min="0"
                 class="input"
                 placeholder="1"
@@ -1152,55 +1197,12 @@
           </div>
         </div>
 
-        <!-- 分组利润控制（五个平台 token 请求） -->
-        <div v-if="isProfitControlPlatform(createForm.platform)" class="border-t pt-4">
-          <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-            <input
-              v-model="createForm.profit_control_enabled"
-              type="checkbox"
-              class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span>{{ t("admin.groups.profitControl.enable") }}</span>
-          </label>
-          <p class="mb-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-            {{
-              createForm.profit_control_enabled
-                ? t("admin.groups.profitControl.enabledHint")
-                : t("admin.groups.profitControl.disabledHint")
-            }}
-          </p>
-          <div
-            v-if="createForm.profit_control_enabled"
-            class="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2"
-          >
-            <div>
-              <label class="input-label">{{ t("admin.groups.profitControl.minMargin") }}</label>
-              <input
-                v-model.number="createForm.profit_min_margin_percent"
-                type="number"
-                step="0.1"
-                min="0"
-                max="99.99"
-                class="input"
-                placeholder="0"
-                :title="t('admin.groups.profitControl.minMarginHint')"
-              />
-            </div>
-            <div>
-              <label class="input-label">{{ t("admin.groups.profitControl.safetyBuffer") }}</label>
-              <input
-                v-model.number="createForm.profit_safety_buffer_percent"
-                type="number"
-                step="0.1"
-                min="0"
-                max="99.99"
-                class="input"
-                placeholder="0"
-                :title="t('admin.groups.profitControl.safetyBufferHint')"
-              />
-            </div>
-          </div>
-        </div>
+        <GroupProfitControlField
+          v-if="isProfitControlPlatform(createForm.platform)"
+          v-model:enabled="createForm.profit_control_enabled"
+          v-model:min-margin-percent="createForm.profit_min_margin_percent"
+          v-model:safety-buffer-percent="createForm.profit_safety_buffer_percent"
+        />
 
         <!-- 支持的模型系列（仅 antigravity 平台） -->
         <div v-if="createForm.platform === 'antigravity'" class="border-t pt-4">
@@ -2193,13 +2195,24 @@
           <input
             v-model.number="editForm.rate_multiplier"
             type="number"
-            step="0.001"
+            step="any"
             min="0.001"
             required
             class="input"
             data-tour="group-form-multiplier"
           />
         </div>
+        <GroupAccountCostLimitField
+          v-model="editForm.max_account_cost_multiplier"
+        />
+        <GroupSchedulerPolicyField
+          v-if="
+            editForm.platform === 'openai' ||
+            editForm.platform === 'composite'
+          "
+          v-model:profile="editForm.openai_scheduler_profile"
+          v-model:config="editForm.openai_scheduler_config"
+        />
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
@@ -2507,7 +2520,7 @@
             <input
               v-model.number="editForm.image_rate_multiplier"
               type="number"
-              step="0.0001"
+              step="any"
               min="0"
               class="input"
               placeholder="1"
@@ -2589,7 +2602,7 @@
                 <input
                   v-model.number="editForm.batch_image_discount_multiplier"
                   type="number"
-                  step="0.0001"
+                  step="any"
                   min="0"
                   class="input"
                   placeholder="0.5"
@@ -2602,7 +2615,7 @@
                 <input
                   v-model.number="editForm.batch_image_hold_multiplier"
                   type="number"
-                  step="0.0001"
+                  step="any"
                   min="0"
                   class="input"
                   placeholder="0.6"
@@ -2651,7 +2664,7 @@
             <input
               v-model.number="editForm.video_rate_multiplier"
               type="number"
-              step="0.0001"
+              step="any"
               min="0"
               class="input"
               placeholder="1"
@@ -2747,7 +2760,7 @@
               <input
                 v-model.number="editForm.peak_rate_multiplier"
                 type="number"
-                step="0.001"
+                step="any"
                 min="0"
                 class="input"
                 placeholder="1"
@@ -2757,55 +2770,12 @@
           </div>
         </div>
 
-        <!-- 分组利润控制（五个平台 token 请求） -->
-        <div v-if="isProfitControlPlatform(editForm.platform)" class="border-t pt-4">
-          <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-            <input
-              v-model="editForm.profit_control_enabled"
-              type="checkbox"
-              class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span>{{ t("admin.groups.profitControl.enable") }}</span>
-          </label>
-          <p class="mb-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-            {{
-              editForm.profit_control_enabled
-                ? t("admin.groups.profitControl.enabledHint")
-                : t("admin.groups.profitControl.disabledHint")
-            }}
-          </p>
-          <div
-            v-if="editForm.profit_control_enabled"
-            class="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2"
-          >
-            <div>
-              <label class="input-label">{{ t("admin.groups.profitControl.minMargin") }}</label>
-              <input
-                v-model.number="editForm.profit_min_margin_percent"
-                type="number"
-                step="0.1"
-                min="0"
-                max="99.99"
-                class="input"
-                placeholder="0"
-                :title="t('admin.groups.profitControl.minMarginHint')"
-              />
-            </div>
-            <div>
-              <label class="input-label">{{ t("admin.groups.profitControl.safetyBuffer") }}</label>
-              <input
-                v-model.number="editForm.profit_safety_buffer_percent"
-                type="number"
-                step="0.1"
-                min="0"
-                max="99.99"
-                class="input"
-                placeholder="0"
-                :title="t('admin.groups.profitControl.safetyBufferHint')"
-              />
-            </div>
-          </div>
-        </div>
+        <GroupProfitControlField
+          v-if="isProfitControlPlatform(editForm.platform)"
+          v-model:enabled="editForm.profit_control_enabled"
+          v-model:min-margin-percent="editForm.profit_min_margin_percent"
+          v-model:safety-buffer-percent="editForm.profit_safety_buffer_percent"
+        />
 
         <!-- 支持的模型系列（仅 antigravity 平台） -->
         <div v-if="editForm.platform === 'antigravity'" class="border-t pt-4">
@@ -4139,6 +4109,14 @@
       @close="showRPMOverridesModal = false"
       @success="loadGroups"
     />
+
+    <!-- Group Accounts Modal -->
+    <GroupAccountsModal
+      :show="showGroupAccountsModal"
+      :group="groupAccountsGroup"
+      @close="closeGroupAccountsModal"
+      @success="handleGroupAccountsSuccess"
+    />
   </AppLayout>
 </template>
 
@@ -4156,6 +4134,7 @@ import type {
   CompositeRouteEndpoint,
   CompositeRouteMatchType,
   GroupPlatform,
+  OpenAISchedulerProfile,
   SubscriptionType,
 } from "@/types";
 import type { Column } from "@/components/common/types";
@@ -4171,6 +4150,14 @@ import PlatformIcon from "@/components/common/PlatformIcon.vue";
 import Icon from "@/components/icons/Icon.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
+import GroupAccountsModal from "@/components/admin/group/GroupAccountsModal.vue";
+import GroupAccountCostLimitField from "@/components/admin/group/GroupAccountCostLimitField.vue";
+import GroupSchedulerPolicyField from "@/components/admin/group/GroupSchedulerPolicyField.vue";
+import GroupProfitControlField from "@/components/admin/group/GroupProfitControlField.vue";
+import {
+  createDefaultOpenAISchedulerConfig,
+  normalizeOpenAISchedulerConfig,
+} from "@/components/admin/group/groupSchedulerPolicy";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
 import { VueDraggable } from "vue-draggable-plus";
@@ -4639,6 +4626,8 @@ const showRateMultipliersModal = ref(false);
 const rateMultipliersGroup = ref<AdminGroup | null>(null);
 const showRPMOverridesModal = ref(false);
 const rpmOverridesGroup = ref<AdminGroup | null>(null);
+const showGroupAccountsModal = ref(false);
+const groupAccountsGroup = ref<AdminGroup | null>(null);
 const sortableGroups = ref<AdminGroup[]>([]);
 type ConcreteGroupPlatform = Exclude<GroupPlatform, "composite">;
 type CompositeRouteFormState = {
@@ -4697,6 +4686,9 @@ const createForm = reactive({
   description: "",
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
+  max_account_cost_multiplier: null as number | null,
+  openai_scheduler_profile: "inherit" as OpenAISchedulerProfile,
+  openai_scheduler_config: createDefaultOpenAISchedulerConfig(),
   is_exclusive: false,
   subscription_type: "standard" as SubscriptionType,
   daily_limit_usd: null as number | null,
@@ -5050,6 +5042,9 @@ const editForm = reactive({
   description: "",
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
+  max_account_cost_multiplier: null as number | null,
+  openai_scheduler_profile: "inherit" as OpenAISchedulerProfile,
+  openai_scheduler_config: createDefaultOpenAISchedulerConfig(),
   is_exclusive: false,
   status: "active" as "active" | "inactive",
   subscription_type: "standard" as SubscriptionType,
@@ -5503,6 +5498,9 @@ const closeCreateModal = () => {
   createForm.description = "";
   createForm.platform = "anthropic";
   createForm.rate_multiplier = 1.0;
+  createForm.max_account_cost_multiplier = null;
+  createForm.openai_scheduler_profile = "inherit";
+  createForm.openai_scheduler_config = createDefaultOpenAISchedulerConfig();
   createForm.is_exclusive = false;
   createForm.subscription_type = "standard";
   createForm.daily_limit_usd = null;
@@ -5711,6 +5709,13 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.description = group.description || "";
   editForm.platform = group.platform;
   editForm.rate_multiplier = group.rate_multiplier;
+  editForm.max_account_cost_multiplier =
+    group.max_account_cost_multiplier ?? null;
+  editForm.openai_scheduler_profile =
+    group.openai_scheduler_profile ?? "inherit";
+  editForm.openai_scheduler_config = normalizeOpenAISchedulerConfig(
+    group.openai_scheduler_config,
+  );
   editForm.is_exclusive = group.is_exclusive;
   editForm.status = group.status;
   editForm.subscription_type = group.subscription_type || "standard";
@@ -5805,6 +5810,9 @@ const closeEditModal = () => {
   editForm.peak_start = "";
   editForm.peak_end = "";
   editForm.peak_rate_multiplier = 1.0;
+  editForm.max_account_cost_multiplier = null;
+  editForm.openai_scheduler_profile = "inherit";
+  editForm.openai_scheduler_config = createDefaultOpenAISchedulerConfig();
   editForm.profit_control_enabled = false;
   editForm.profit_min_margin_percent = 0;
   editForm.profit_safety_buffer_percent = 0;
@@ -5971,6 +5979,23 @@ const handleRateMultipliers = (group: AdminGroup) => {
 const handleRPMOverrides = (group: AdminGroup) => {
   rpmOverridesGroup.value = group;
   showRPMOverridesModal.value = true;
+};
+
+const handleGroupAccounts = (group: AdminGroup) => {
+  groupAccountsGroup.value = group;
+  showGroupAccountsModal.value = true;
+};
+
+const closeGroupAccountsModal = () => {
+  showGroupAccountsModal.value = false;
+  groupAccountsGroup.value = null;
+};
+
+const handleGroupAccountsSuccess = async () => {
+  await loadGroups();
+  if (!groupAccountsGroup.value) return;
+  const refreshed = groups.value.find((group) => group.id === groupAccountsGroup.value?.id);
+  if (refreshed) groupAccountsGroup.value = refreshed;
 };
 
 const handleDuplicate = async (group: AdminGroup) => {

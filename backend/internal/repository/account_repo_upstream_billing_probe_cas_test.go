@@ -118,7 +118,6 @@ func TestUpdateUpstreamBillingProbeSnapshotCommitsSnapshotAndOutboxAtomically(t 
 		},
 	}
 	rateMultiplier := 0.065
-
 	err = repo.UpdateUpstreamBillingProbeSnapshot(
 		context.Background(),
 		account,

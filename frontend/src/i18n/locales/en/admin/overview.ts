@@ -824,6 +824,7 @@ export default {
       rateAndAccounts: '{rate}x rate · {count} accounts',
       accountsCount: '{count} accounts',
       rateLabel: 'rate',
+      maxAccountCostCell: 'Account cost ≤ {value}x',
       accountFilters: {
         title: 'Account Filter Controls',
         oauthOnly: 'Only allow OAuth accounts',
@@ -845,6 +846,9 @@ export default {
         descriptionPlaceholder: 'Enter description (optional)',
         rateMultiplierLabel: 'Rate Multiplier',
         rateMultiplierHint: '1.0 = standard rate, 0.5 = half price, 2.0 = double',
+        maxAccountCostMultiplier: 'Maximum Account Scheduling Cost',
+        maxAccountCostMultiplierPlaceholder: 'Empty means no absolute ceiling',
+        maxAccountCostMultiplierHint: 'Only accounts whose durable billing multiplier is at or below this value are eligible. When profit control is also enabled, the stricter threshold wins. Composite-group ceilings also constrain routed child accounts. User billing is unchanged.',
         rpmLimit: 'Requests Per Minute (RPM)',
         rpmLimitPlaceholder: '0 = unlimited',
         rpmLimitHint: 'Max requests per minute for each user in this group; 0 = unlimited. Once set, it takes over per-user rate limiting in this group (overrides the user-level rpm_limit fallback).',
@@ -872,6 +876,49 @@ export default {
         priorityLabel: 'Priority',
         priorityHint: 'Lower value means higher priority, used for account scheduling',
         statusLabel: 'Status'
+      },
+      scheduler: {
+        title: 'OpenAI Group Scheduling Policy',
+        profiles: {
+          inherit: {
+            label: 'Inherit System Default',
+            description: 'Use the advanced scheduler switch, TopK, weights, and sticky settings from System Settings.'
+          },
+          sla: {
+            label: 'SLA First',
+            description: 'Strongly avoids load, queues, errors, and slow first tokens. Cost does not affect soft ranking.'
+          },
+          balanced: {
+            label: 'Balanced',
+            description: 'Balances reliability, load, quota headroom, and scheduling cost for general-purpose groups.'
+          },
+          cost: {
+            label: 'Cost First',
+            description: 'Strongly favors lower-cost accounts while retaining basic health protection. Pair with the maximum account scheduling cost.'
+          },
+          custom: {
+            label: 'Custom',
+            description: 'Only filled TopK and weight fields override system settings; empty fields inherit configured or environment values.'
+          }
+        },
+        defaultPlaceholder: 'Config/default: {value}',
+        weights: {
+          topK: 'TopK',
+          priority: 'Priority',
+          load: 'Load',
+          queue: 'Queue',
+          errorRate: 'Error Rate',
+          ttft: 'First Token Latency',
+          reset: 'Reset Window',
+          quotaHeadroom: 'Quota Headroom',
+          upstreamCost: 'Scheduling Cost',
+          previousResponse: 'previous_response Stickiness',
+          sessionSticky: 'session_hash Stickiness'
+        },
+        stickyWeighted: 'Weighted Stickiness',
+        stickyWeightedHint: 'When disabled, legacy hard stickiness remains. When enabled, stickiness becomes a score that can yield as an account degrades.',
+        subscriptionPriority: 'Prioritize Subscription Accounts',
+        subscriptionPriorityHint: 'Try the ChatGPT subscription pool first, then fall back to regular accounts when no slot is available.'
       },
       exclusiveObj: {
         yes: 'Yes',
@@ -911,6 +958,20 @@ export default {
       failedToSave: 'Failed to save group',
       failedToDelete: 'Failed to delete group',
       nameRequired: 'Please enter group name',
+      manageAccounts: 'Manage Accounts',
+      manageAccountsTitle: 'Manage Accounts for "{name}"',
+      manageAccountsSummary: '{selected} of {total} accounts linked',
+      manageAccountsSearch: 'Search by account name, ID, notes, or platform',
+      manageAccountsSelectVisible: 'Select Results',
+      manageAccountsClearVisible: 'Clear Results',
+      manageAccountsEmpty: 'No accounts available',
+      manageAccountsNoMatch: 'No matching accounts',
+      manageAccountsHint: 'Saving only changes each account\'s link to this group.',
+      manageAccountsSave: 'Save Links',
+      manageAccountsSaving: 'Saving...',
+      manageAccountsSaved: 'Linked accounts updated',
+      manageAccountsLoadFailed: 'Failed to load linked accounts',
+      manageAccountsSaveFailed: 'Failed to save linked accounts',
       rateMultipliers: 'Rate Multipliers',
       rateMultipliersTitle: 'Group Rate Multipliers',
       addUserRate: 'Add User Rate Multiplier',

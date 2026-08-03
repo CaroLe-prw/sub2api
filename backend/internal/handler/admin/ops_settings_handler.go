@@ -56,6 +56,60 @@ func (h *OpsHandler) UpdateEmailNotificationConfig(c *gin.Context) {
 	response.Success(c, updated)
 }
 
+// GetTelegramNotificationConfig returns a redacted Ops Telegram config.
+// GET /api/v1/admin/ops/telegram-notification/config
+func (h *OpsHandler) GetTelegramNotificationConfig(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+	cfg, err := h.opsService.GetTelegramNotificationConfig(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, cfg)
+}
+
+// UpdateTelegramNotificationConfig stores an encrypted Ops Telegram config.
+// PUT /api/v1/admin/ops/telegram-notification/config
+func (h *OpsHandler) UpdateTelegramNotificationConfig(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+	var req service.OpsTelegramNotificationConfigUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+	updated, err := h.opsService.UpdateTelegramNotificationConfig(c.Request.Context(), &req)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, updated)
+}
+
+// TestTelegramNotification tests the current Telegram form without saving it.
+// POST /api/v1/admin/ops/telegram-notification/test
+func (h *OpsHandler) TestTelegramNotification(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+	var req service.OpsTelegramNotificationTestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+	if err := h.opsService.TestTelegramNotification(c.Request.Context(), &req); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"sent": true})
+}
+
 // GetAlertRuntimeSettings returns Ops alert evaluator runtime settings (DB-backed).
 // GET /api/v1/admin/ops/runtime/alert
 func (h *OpsHandler) GetAlertRuntimeSettings(c *gin.Context) {

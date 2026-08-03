@@ -51,6 +51,10 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("marshal default forwarded client IP headers: %w", err)
 	}
+	openAISchedulerTemplatesJSON, err := MarshalOpenAISchedulerTemplates(DefaultOpenAISchedulerTemplates())
+	if err != nil {
+		return fmt.Errorf("marshal default OpenAI scheduler templates: %w", err)
+	}
 
 	// 初始化默认设置
 	defaults := map[string]string{
@@ -245,6 +249,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAIAdvancedSchedulerWeightUpstreamCost:          "",
 		SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse:      "",
 		SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky:         "",
+		SettingKeyOpenAISchedulerTemplates:                           openAISchedulerTemplatesJSON,
 
 		SettingKeyAllowUserViewErrorRequests: "false",
 	}
@@ -875,6 +880,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.UpstreamCost)
 	result.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.PreviousResponse)
 	result.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.SessionSticky)
+	result.OpenAISchedulerTemplates = ParseOpenAISchedulerTemplates(settings[SettingKeyOpenAISchedulerTemplates])
 
 	// 余额、订阅到期与账号限额通知
 	result.BalanceLowNotifyEnabled = settings[SettingKeyBalanceLowNotifyEnabled] == "true"
