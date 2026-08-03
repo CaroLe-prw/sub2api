@@ -82,6 +82,61 @@
         </div>
       </div>
 
+      <!-- OpenAI API 长上下文计费 -->
+      <div
+        v-if="allOpenAILongContextBillingCapable"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="mb-3 flex items-center justify-between">
+          <div class="flex-1 pr-4">
+            <label
+              id="bulk-edit-openai-long-context-billing-label"
+              class="input-label mb-0"
+              for="bulk-edit-openai-long-context-billing-enabled"
+            >
+              {{ t('admin.accounts.openai.longContextBilling') }}
+            </label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.longContextBillingDesc') }}
+            </p>
+          </div>
+          <input
+            v-model="enableOpenAILongContextBilling"
+            id="bulk-edit-openai-long-context-billing-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-openai-long-context-billing-body"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+        <div
+          id="bulk-edit-openai-long-context-billing-body"
+          :class="!enableOpenAILongContextBilling && 'pointer-events-none opacity-50'"
+          role="group"
+          aria-labelledby="bulk-edit-openai-long-context-billing-label"
+        >
+          <button
+            id="bulk-edit-openai-long-context-billing-toggle"
+            type="button"
+            role="switch"
+            :aria-checked="openAILongContextBillingEnabled"
+            :disabled="!enableOpenAILongContextBilling"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              enableOpenAILongContextBilling ? 'cursor-pointer' : 'cursor-not-allowed',
+              openAILongContextBillingEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+            @click="openAILongContextBillingEnabled = !openAILongContextBillingEnabled"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                openAILongContextBillingEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+      </div>
+
       <!-- OpenAI Codex namespace 工具摊平（兼容开关，仅 OAuth） -->
       <div
         v-if="allOpenAIOAuthOnly"
@@ -1415,6 +1470,11 @@ const allOpenAIPassthroughCapable = computed(() => {
   )
 })
 
+// 与单账号创建/编辑保持一致：OpenAI OAuth、Setup Token、API Key 均可配置。
+const allOpenAILongContextBillingCapable = computed(
+  () => allOpenAIPassthroughCapable.value
+)
+
 const allOpenAIOAuth = computed(() => {
   return (
     targetSelectedPlatforms.value.length === 1 &&
@@ -1510,6 +1570,7 @@ const enableRateMultiplier = ref(false)
 const enableStatus = ref(false)
 const enableGroups = ref(false)
 const enableOpenAIPassthrough = ref(false)
+const enableOpenAILongContextBilling = ref(false)
 const enableOpenAIFlattenNamespaces = ref(false)
 const enableOpenAIWSMode = ref(false)
 const enableOpenAIAPIKeyWSMode = ref(false)
@@ -1543,6 +1604,7 @@ const rateMultiplier = ref(1)
 const status = ref<'active' | 'inactive'>('active')
 const groupIds = ref<number[]>([])
 const openaiPassthroughEnabled = ref(false)
+const openAILongContextBillingEnabled = ref(false)
 // Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
@@ -1755,6 +1817,12 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     }
   }
 
+  // 同时校验可见性，避免筛选条件变化后把 OpenAI 专属配置写入其他平台。
+  if (enableOpenAILongContextBilling.value && allOpenAILongContextBillingCapable.value) {
+    const extra = ensureExtra()
+    extra.openai_long_context_billing_enabled = openAILongContextBillingEnabled.value
+  }
+
   // 同时校验可见性：勾选后又改了目标筛选条件时，不应把该键写到非 OAuth 账号上
   if (enableOpenAIFlattenNamespaces.value && allOpenAIOAuthOnly.value) {
     const extra = ensureExtra()
@@ -1933,6 +2001,7 @@ const handleSubmit = async () => {
   const hasAnyFieldEnabled =
     enableBaseUrl.value ||
     enableOpenAIPassthrough.value ||
+    enableOpenAILongContextBilling.value ||
     enableOpenAIFlattenNamespaces.value ||
     enableModelRestriction.value ||
     enableCustomErrorCodes.value ||
@@ -2079,6 +2148,7 @@ watch(
       enableStatus.value = false
       enableGroups.value = false
       enableOpenAIPassthrough.value = false
+      enableOpenAILongContextBilling.value = false
       enableOpenAIFlattenNamespaces.value = false
       enableOpenAIWSMode.value = false
       enableOpenAIAPIKeyWSMode.value = false
@@ -2093,6 +2163,7 @@ watch(
       // Reset all values
       baseUrl.value = ''
       openaiPassthroughEnabled.value = false
+      openAILongContextBillingEnabled.value = false
       openaiFlattenNamespacesEnabled.value = false
       modelRestrictionMode.value = 'whitelist'
       allowedModels.value = []
