@@ -89,6 +89,7 @@ func mustCreateGroup(t *testing.T, client *dbent.Client, g *service.Group) *serv
 		SetStatus(g.Status).
 		SetSubscriptionType(g.SubscriptionType).
 		SetRateMultiplier(g.RateMultiplier).
+		SetNillableMaxAccountCostMultiplier(g.MaxAccountCostMultiplier).
 		SetIsExclusive(g.IsExclusive).
 		SetProfitControlEnabled(g.ProfitControlEnabled).
 		SetProfitMinMargin(g.ProfitMinMargin).
