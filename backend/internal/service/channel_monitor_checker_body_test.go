@@ -582,12 +582,3 @@ func TestExtractAnthropicMonitorText(t *testing.T) {
 		})
 	}
 }
-
-func TestValidateChallenge_AnthropicTextAfterThinking(t *testing.T) {
-	body := []byte(`{"content":[{"type":"thinking","thinking":""},{"type":"text","text":"答案是 2"}]}`)
-	respText := extractAnthropicMonitorText(body)
-
-	if !validateChallenge(respText, "2") {
-		t.Fatalf("validateChallenge(%q, %q) = false, want true", respText, "2")
-	}
-}

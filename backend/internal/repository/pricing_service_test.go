@@ -157,7 +157,8 @@ func TestNewPricingRemoteClient_InvalidProxy_WithFallback(t *testing.T) {
 }
 
 func TestPricingRemoteClient_GitHubHeaders(t *testing.T) {
-	client := NewPricingRemoteClient("", false, " github_pat_test ").(*pricingRemoteClient)
+	client, ok := NewPricingRemoteClient("", false, " github_pat_test ").(*pricingRemoteClient)
+	require.True(t, ok)
 
 	req, err := client.newRequest(context.Background(), "https://api.github.com/repos/owner/repo/contents/prices.json?ref=main")
 	require.NoError(t, err)

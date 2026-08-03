@@ -269,11 +269,14 @@ func TestAdminResetQuota_BeforeStartsAtSameDayPreservesAutomaticBoundary(t *test
 	resetAt := time.Date(2026, 7, 1, 10, 37, 42, 123, time.UTC)
 	stub := &resetQuotaUserSubRepoStub{
 		sub: &UserSubscription{
-			ID:        10,
-			UserID:    10,
-			GroupID:   20,
-			StartsAt:  startsAt,
-			ExpiresAt: startsAt.Add(45 * 24 * time.Hour),
+			ID:                 10,
+			UserID:             10,
+			GroupID:            20,
+			StartsAt:           startsAt,
+			ExpiresAt:          startsAt.Add(45 * 24 * time.Hour),
+			DailyWindowStart:   &startsAt,
+			WeeklyWindowStart:  &startsAt,
+			MonthlyWindowStart: &startsAt,
 		},
 	}
 	svc := newResetQuotaSvc(stub)

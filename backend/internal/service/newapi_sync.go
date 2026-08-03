@@ -528,17 +528,6 @@ func (s *UpstreamBillingProbeService) resolveNewAPIAccountWithBalance(
 	return account, resolution, balance, err
 }
 
-func (s *UpstreamBillingProbeService) resolveLoadedNewAPIAccount(
-	ctx context.Context,
-	account *Account,
-) (*NewAPIResolution, error) {
-	client, connection, err := s.newAPIConnectionForAccount(account)
-	if err != nil {
-		return nil, err
-	}
-	return client.Resolve(ctx, connection)
-}
-
 func (s *UpstreamBillingProbeService) resolveLoadedNewAPIAccountWithBalance(
 	ctx context.Context,
 	account *Account,

@@ -246,10 +246,12 @@ func TestNewAPISyncBlankBaseURLUsesAccountEndpoint(t *testing.T) {
 		"api_key":  newAPITestAPIKey,
 	}
 	account.Extra[NewAPIBaseURLExtraKey] = ""
+	userAccessToken, ok := account.Extra[NewAPIUserAccessTokenExtraKey].(string)
+	require.True(t, ok)
 	account.Extra[NewAPISyncIdentityExtraKey] = newAPISyncIdentity(
 		"",
 		42,
-		account.Extra[NewAPIUserAccessTokenExtraKey].(string),
+		userAccessToken,
 	)
 	repo := &newAPISyncTestRepo{upstreamBillingProbeAccountRepo: &upstreamBillingProbeAccountRepo{
 		accounts: map[int64]*Account{1: account},

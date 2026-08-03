@@ -391,14 +391,15 @@ func buildSubscriptionQuotaResetAnnouncement(
 		titleSuffix = "已手动重置"
 		headingSuffix = "手动重置通知"
 	}
-	if status == "partial_failed" {
+	switch status {
+	case "partial_failed":
 		statusText, resultText = "部分失败", "部分失败"
 		if manual {
 			titleSuffix = "手动重置部分失败"
 		} else {
 			titleSuffix = "重置部分失败"
 		}
-	} else if status == "failed" {
+	case "failed":
 		statusText, resultText = "重置失败", "重置失败"
 		if manual {
 			titleSuffix = "手动重置失败"

@@ -261,21 +261,7 @@ func resolveGroupOpenAISchedulerPresetFromTemplates(profile string, templates Op
 	if err := validateOpenAISchedulerTemplate(template); err != nil {
 		return resolvedGroupOpenAISchedulerConfig{}, false
 	}
-	return resolvedGroupOpenAISchedulerConfig{
-		TopK:                        template.TopK,
-		Priority:                    template.Priority,
-		Load:                        template.Load,
-		Queue:                       template.Queue,
-		ErrorRate:                   template.ErrorRate,
-		TTFT:                        template.TTFT,
-		Reset:                       template.Reset,
-		QuotaHeadroom:               template.QuotaHeadroom,
-		UpstreamCost:                template.UpstreamCost,
-		PreviousResponse:            template.PreviousResponse,
-		SessionSticky:               template.SessionSticky,
-		StickyWeightedEnabled:       template.StickyWeightedEnabled,
-		SubscriptionPriorityEnabled: template.SubscriptionPriorityEnabled,
-	}, true
+	return resolvedGroupOpenAISchedulerConfig(template), true
 }
 
 func applyCustomGroupOpenAISchedulerConfig(

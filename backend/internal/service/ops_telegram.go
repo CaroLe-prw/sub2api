@@ -640,7 +640,7 @@ func sendOpsTelegramMessage(ctx context.Context, client *http.Client, cfg opsTel
 		// Never wrap or expose the transport error.
 		return opsTelegramDeliveryError()
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, opsTelegramMaxResponseBodySize+1))
 	if err != nil || len(body) > opsTelegramMaxResponseBodySize {
