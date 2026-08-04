@@ -742,6 +742,37 @@ func TestGatewayService_SelectAccountForModelWithExclusions_ForcePlatform(t *tes
 	require.Equal(t, PlatformAntigravity, acc.Platform)
 }
 
+func TestGatewayService_SelectAccountWithLoadAwareness_ForcePlatform_RequireOAuthOnlySkipsAPIKey(t *testing.T) {
+	groupID := int64(801)
+	ctx := context.WithValue(context.Background(), ctxkey.ForcePlatform, PlatformAntigravity)
+	repo := &mockAccountRepoForPlatform{
+		accounts: []Account{
+			{ID: 1, Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Priority: 100, Status: StatusActive, Schedulable: true, Concurrency: 1},
+			{ID: 2, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Priority: 1, Status: StatusActive, Schedulable: true, Concurrency: 1},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	for i := range repo.accounts {
+		repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+	}
+	groupRepo := &mockGroupRepoForGateway{groups: map[int64]*Group{
+		groupID: {
+			ID:               groupID,
+			Platform:         PlatformAntigravity,
+			Status:           StatusActive,
+			Hydrated:         true,
+			RequireOAuthOnly: true,
+		},
+	}}
+	svc := &GatewayService{accountRepo: repo, groupRepo: groupRepo, cfg: testConfig()}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", "claude-sonnet-4-5", nil, "", 0)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(2), selection.Account.ID, "force-platform scheduling must resolve require_oauth_only before candidate selection")
+}
+
 func TestGatewayService_SelectAccountForModelWithPlatform_RoutedStickySessionClears(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(10)

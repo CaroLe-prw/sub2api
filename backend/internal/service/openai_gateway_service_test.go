@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/model"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
@@ -847,6 +848,74 @@ func TestOpenAISelectAccountForModelWithExclusions_StickyOutsideGroupClearsSessi
 	if cache.sessionBindings["openai:"+sessionHash] != 2 {
 		t.Fatalf("expected sticky session to bind to account 2")
 	}
+}
+
+func TestOpenAISelectAccountForModelWithExclusions_RequireOAuthOnlySkipsAPIKey(t *testing.T) {
+	groupID := int64(1002)
+	group := &Group{
+		ID:               groupID,
+		Platform:         PlatformOpenAI,
+		Status:           StatusActive,
+		Hydrated:         true,
+		RequireOAuthOnly: true,
+	}
+	apiKey := Account{
+		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
+	}
+	oauth := Account{
+		ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10,
+	}
+	svc := &OpenAIGatewayService{accountRepo: stubOpenAIAccountRepo{accounts: []Account{apiKey, oauth}}}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+
+	account, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gpt-5", nil)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, oauth.ID, account.ID, "require_oauth_only must be a runtime eligibility gate, not merely a binding-time check")
+}
+
+func TestOpenAISelectAccountForModelWithExclusions_RequireOAuthOnlyRejectsStickyAPIKey(t *testing.T) {
+	groupID := int64(1003)
+	group := &Group{
+		ID:               groupID,
+		Platform:         PlatformOpenAI,
+		Status:           StatusActive,
+		Hydrated:         true,
+		RequireOAuthOnly: true,
+	}
+	apiKey := Account{
+		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
+	}
+	oauth := Account{
+		ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10,
+	}
+	sessionHash := "oauth-only-sticky"
+	cache := &stubGatewayCache{sessionBindings: map[string]int64{"openai:" + sessionHash: apiKey.ID}}
+	svc := &OpenAIGatewayService{
+		accountRepo: stubOpenAIAccountRepo{accounts: []Account{apiKey, oauth}},
+		cache:       cache,
+	}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+
+	account, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, sessionHash, "gpt-5", nil)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, oauth.ID, account.ID)
+	require.Equal(t, oauth.ID, cache.sessionBindings["openai:"+sessionHash], "the legacy API-key sticky binding must be replaced")
+}
+
+func TestDefaultOpenAIAccountScheduler_RequireOAuthOnlyRejectsAPIKey(t *testing.T) {
+	group := &Group{ID: 1004, Platform: PlatformOpenAI, RequireOAuthOnly: true}
+	ctx := withGroupOAuthOnlyFilter(context.Background(), group)
+	apiKey := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	compatible, reason := (&defaultOpenAIAccountScheduler{}).isAccountRequestCompatibleReason(ctx, apiKey, OpenAIAccountScheduleRequest{})
+	require.False(t, compatible)
+	require.Equal(t, "oauth_only", reason)
 }
 
 func TestOpenAISelectAccountWithLoadAwareness_StickyUnschedulableClearsSession(t *testing.T) {

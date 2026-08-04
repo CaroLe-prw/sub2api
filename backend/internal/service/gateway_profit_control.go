@@ -85,8 +85,19 @@ func (s *GatewayService) GatewayProfitControlVetoLatest(ctx context.Context, sel
 }
 
 func profitControlVetoLatest(ctx context.Context, selected *Account, snapshot *SchedulerSnapshotService) (*Account, bool, string) {
+	if _, ok := ctx.Value(groupOAuthOnlyFilterContextKey{}).(groupOAuthOnlyFilter); !ok {
+		if group, ok := ctx.Value(ctxkey.Group).(*Group); ok {
+			ctx = withGroupOAuthOnlyFilter(ctx, group)
+		}
+	}
+	if selected == nil {
+		return selected, false, ""
+	}
 	gate, _ := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
-	if gate == nil || selected == nil {
+	if gate == nil {
+		if !accountAllowedByGroupOAuthOnlyFilter(ctx, selected) {
+			return selected, true, "oauth_only"
+		}
 		return selected, false, ""
 	}
 	latest := selected
@@ -101,6 +112,9 @@ func profitControlVetoLatest(ctx context.Context, selected *Account, snapshot *S
 			latest = refreshed
 		}
 	}
+	if !accountAllowedByGroupOAuthOnlyFilter(ctx, latest) {
+		return latest, true, "oauth_only"
+	}
 	vetoed, reason := openAIProfitControlVetoReason(ctx, latest)
 	return latest, vetoed, reason
 }
@@ -108,6 +122,14 @@ func profitControlVetoLatest(ctx context.Context, selected *Account, snapshot *S
 func (s *GatewayService) isGatewayAccountProfitEligible(ctx context.Context, account *Account) bool {
 	vetoed, _ := openAIProfitControlVetoReason(ctx, account)
 	return !vetoed
+}
+
+// isGatewayAccountEligible combines the request-scoped group account-type
+// policy with profit admission. Every GatewayService selection path already
+// calls the profit predicate, so keeping the two gates together prevents a
+// sticky or routing fallback from bypassing require_oauth_only.
+func (s *GatewayService) isGatewayAccountEligible(ctx context.Context, account *Account) bool {
+	return accountAllowedByGroupOAuthOnlyFilter(ctx, account) && s.isGatewayAccountProfitEligible(ctx, account)
 }
 
 func gatewayProfitControlGateActive(ctx context.Context) bool {

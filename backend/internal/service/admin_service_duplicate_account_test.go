@@ -161,7 +161,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 		"config":                 map[string]any{"region": "us-east-1"},
 		"items":                  []any{map[string]any{"enabled": true}},
 		"quota_limit":            float64(1000),
-		"quota_usage_multiplier": float64(1),
+		"quota_usage_multiplier": rateMultiplier,
 		"codex_cli_only":         true,
 	}, duplicate.Extra)
 	require.NotContains(t, duplicate.Extra, UpstreamBillingRateSyncEnabledExtraKey)

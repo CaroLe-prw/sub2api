@@ -439,9 +439,19 @@ func (s *OpenAIGatewayService) liveSidebandHeaders(
 }
 
 func (s *OpenAIGatewayService) dialLiveSideband(ctx context.Context, record *LiveCallRecord) (liveFrameConn, error) {
+	if record == nil {
+		return nil, ErrLiveCallNotFound
+	}
+	if record.GroupID > 0 {
+		groupID := record.GroupID
+		ctx = s.withGroupOAuthOnlyFilter(ctx, &groupID)
+	}
 	account, err := s.accountRepo.GetByID(ctx, record.AccountID)
 	if err != nil {
 		return nil, err
+	}
+	if record.GroupID > 0 && !accountAllowedByGroupOAuthOnlyFilter(ctx, account) {
+		return nil, ErrLiveUnavailable
 	}
 	if account == nil || !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityLive) {
 		return nil, ErrLiveUnavailable

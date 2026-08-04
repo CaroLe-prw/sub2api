@@ -500,6 +500,14 @@ func modelsListCacheKey(groupID *int64, platform string) string {
 	return fmt.Sprintf("%d|%s", derefGroupID(groupID), strings.TrimSpace(platform))
 }
 
+func modelsListCacheKeyForOAuthPolicy(groupID *int64, platform string, oauthOnly bool) string {
+	key := modelsListCacheKey(groupID, platform)
+	if oauthOnly {
+		return key + "|oauth_only"
+	}
+	return key
+}
+
 func prefetchedStickyGroupIDFromContext(ctx context.Context) (int64, bool) {
 	return PrefetchedStickyGroupIDFromContext(ctx)
 }
@@ -551,6 +559,10 @@ type AccountSelectionResult struct {
 	// 局部 ctx 上，handler 必须经 ContextWithSelectionProfitGate 重放后才能在
 	// 调度栈之外做抢槽后终检与准入后粘性绑定。
 	profitGate *openAIProfitControlGate
+	// oauthOnlyFilter carries the account-type policy installed in the scheduler
+	// context so handler-side terminal checks cannot lose it when the selection
+	// crosses the service boundary.
+	oauthOnlyFilter *groupOAuthOnlyFilter
 }
 
 // ProfitGateActive 报告本次选号是否处于利润门之下。
@@ -1233,7 +1245,12 @@ func (s *GatewayService) getOAuthToken(ctx context.Context, account *Account) (s
 // GetAvailableModels returns the list of models available for a group
 // It aggregates model_mapping keys from all schedulable accounts in the group
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
-	cacheKey := modelsListCacheKey(groupID, platform)
+	ctx = resolveGroupOAuthOnlyFilter(ctx, groupID, s.schedulerSnapshot, s.groupRepo)
+	oauthOnly := false
+	if filter, ok := ctx.Value(groupOAuthOnlyFilterContextKey{}).(groupOAuthOnlyFilter); ok {
+		oauthOnly = filter.enabled
+	}
+	cacheKey := modelsListCacheKeyForOAuthPolicy(groupID, platform, oauthOnly)
 	if s.modelsListCache != nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if models, ok := cached.([]string); ok {
@@ -1273,6 +1290,9 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	hasAnyMapping := false
 
 	for _, acc := range accounts {
+		if !accountAllowedByGroupOAuthOnlyFilter(ctx, &acc) {
+			continue
+		}
 		mapping := acc.GetModelMapping()
 		if len(mapping) > 0 {
 			hasAnyMapping = true
@@ -1312,6 +1332,7 @@ func (s *GatewayService) GetSchedulablePlatforms(ctx context.Context, groupID *i
 	if s == nil || s.accountRepo == nil {
 		return platforms
 	}
+	ctx = resolveGroupOAuthOnlyFilter(ctx, groupID, s.schedulerSnapshot, s.groupRepo)
 
 	var accounts []Account
 	var err error
@@ -1325,6 +1346,9 @@ func (s *GatewayService) GetSchedulablePlatforms(ctx context.Context, groupID *i
 	}
 
 	for _, acc := range accounts {
+		if !accountAllowedByGroupOAuthOnlyFilter(ctx, &acc) {
+			continue
+		}
 		platform := strings.TrimSpace(acc.Platform)
 		if platform != "" {
 			platforms[platform] = struct{}{}
@@ -1342,6 +1366,7 @@ func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform
 	// 完整匹配时精准失效；否则按维度批量失效。
 	if groupID != nil && normalizedPlatform != "" {
 		s.modelsListCache.Delete(modelsListCacheKey(groupID, normalizedPlatform))
+		s.modelsListCache.Delete(modelsListCacheKeyForOAuthPolicy(groupID, normalizedPlatform, true))
 		return
 	}
 
@@ -1358,7 +1383,8 @@ func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform
 		if groupID != nil && groupPart != targetGroup {
 			continue
 		}
-		if normalizedPlatform != "" && parts[1] != normalizedPlatform {
+		cachePlatform := strings.SplitN(parts[1], "|", 2)[0]
+		if normalizedPlatform != "" && cachePlatform != normalizedPlatform {
 			continue
 		}
 		s.modelsListCache.Delete(key)

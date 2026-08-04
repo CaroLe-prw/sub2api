@@ -865,6 +865,44 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_PreferL
 	require.Equal(t, int64(2), acc.ID)
 }
 
+func TestGeminiMessagesCompatService_SelectAccountForAIStudioEndpoints_RequireOAuthOnlySkipsAPIKey(t *testing.T) {
+	groupID := int64(902)
+	apiKey := Account{
+		ID:          1,
+		Platform:    PlatformGemini,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Priority:    100,
+		Credentials: map[string]any{"api_key": "ai-studio-key"},
+	}
+	oauth := Account{
+		ID:          2,
+		Platform:    PlatformGemini,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Priority:    1,
+		Credentials: map[string]any{"access_token": "oauth-token"},
+	}
+	repo := &mockAccountRepoForGemini{accounts: []Account{apiKey, oauth}}
+	groupRepo := &mockGroupRepoForGemini{groups: map[int64]*Group{
+		groupID: {
+			ID:               groupID,
+			Platform:         PlatformGemini,
+			Status:           StatusActive,
+			Hydrated:         true,
+			RequireOAuthOnly: true,
+		},
+	}}
+	svc := &GeminiMessagesCompatService{accountRepo: repo, groupRepo: groupRepo}
+
+	account, err := svc.SelectAccountForAIStudioEndpoints(context.Background(), &groupID)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, oauth.ID, account.ID, "AI Studio's API-key-first ranking must still honor require_oauth_only")
+}
+
 // TestGeminiPlatformRouting_DocumentRouteDecision 测试平台路由决策逻辑
 func TestGeminiPlatformRouting_DocumentRouteDecision(t *testing.T) {
 	tests := []struct {

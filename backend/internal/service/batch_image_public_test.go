@@ -66,6 +66,33 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		require.Equal(t, "batch-session-123", batchImageDerefString(job.SessionID))
 	})
 
+	t.Run("OAuth-only group skips higher-priority API-key account", func(t *testing.T) {
+		svc, repo, _, _, _ := newTestBatchImagePublicService(true)
+		groupID := int64(71)
+		apiKey := testBatchImageAccount(701, AccountTypeAPIKey)
+		apiKey.Priority = 100
+		oauth := testBatchImageAccount(702, AccountTypeOAuth)
+		oauth.Priority = 1
+		svc.AccountRepo = &publicBatchImageAccountRepo{accounts: []Account{apiKey, oauth}}
+		svc.GroupRepo = &publicBatchImageGroupRepo{groups: map[int64]*Group{
+			groupID: {
+				ID:                           groupID,
+				Platform:                     PlatformGemini,
+				RateMultiplier:               1,
+				AllowBatchImageGeneration:    true,
+				RequireOAuthOnly:             true,
+				BatchImageDiscountMultiplier: 0.5,
+				BatchImageHoldMultiplier:     0.6,
+			},
+		}}
+
+		got, err := svc.Submit(ctx, BatchImageOwner{UserID: 11, APIKeyID: 22, GroupID: &groupID}, validBatchImageSubmitRequest(), "")
+		require.NoError(t, err)
+		job := repo.jobs[got.ID]
+		require.NotNil(t, job.AccountID)
+		require.Equal(t, oauth.ID, *job.AccountID, "batch-image selection must not reintroduce API-key accounts")
+	})
+
 	t.Run("combines user group image rate account rate discount and hold margin", func(t *testing.T) {
 		svc, repo, _, _, _ := newTestBatchImagePublicService(true)
 		groupID := int64(7)

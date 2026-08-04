@@ -970,10 +970,35 @@ func (s *BatchImagePublicService) listCandidateAccounts(ctx context.Context, gro
 	if s.AccountRepo == nil {
 		return nil, ErrBatchImageNoAccountAvailable
 	}
+	var (
+		accounts []Account
+		err      error
+	)
 	if groupID != nil && *groupID > 0 {
-		return s.AccountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, platform)
+		accounts, err = s.AccountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, platform)
+	} else {
+		accounts, err = s.AccountRepo.ListSchedulableByPlatform(ctx, platform)
 	}
-	return s.AccountRepo.ListSchedulableByPlatform(ctx, platform)
+	if err != nil || groupID == nil || *groupID <= 0 {
+		return accounts, err
+	}
+	if s.GroupRepo == nil {
+		return nil, ErrBatchImageSettlementPricingMissing
+	}
+	group, groupErr := s.GroupRepo.GetByIDLite(ctx, *groupID)
+	if groupErr != nil || group == nil {
+		return nil, ErrBatchImageSettlementPricingMissing
+	}
+	if !groupRequiresOAuthOnlyFilter(group) {
+		return accounts, nil
+	}
+	filtered := make([]Account, 0, len(accounts))
+	for i := range accounts {
+		if accounts[i].Type != AccountTypeAPIKey {
+			filtered = append(filtered, accounts[i])
+		}
+	}
+	return filtered, nil
 }
 
 func (s *BatchImagePublicService) ensureGroupAllowsBatchImage(ctx context.Context, groupID *int64) error {

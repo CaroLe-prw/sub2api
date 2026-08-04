@@ -255,6 +255,81 @@ func TestAccountHandlerListOnlyReturnsCostEligibleGroupScores(t *testing.T) {
 	require.Empty(t, scoresByAccount[113])
 }
 
+func TestAccountHandlerListOmitsAPIKeySchedulerScoreForOAuthOnlyGroup(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+	now := time.Now().UTC()
+	groupID := int64(46)
+	group := service.Group{
+		ID:               groupID,
+		Name:             "oauth-only",
+		Platform:         service.PlatformOpenAI,
+		Status:           service.StatusActive,
+		RequireOAuthOnly: true,
+	}
+	adminSvc.groups = []service.Group{group}
+
+	accountForType := func(id int64, accountType string) service.Account {
+		return service.Account{
+			ID:          id,
+			Name:        strconv.FormatInt(id, 10),
+			Platform:    service.PlatformOpenAI,
+			Type:        accountType,
+			Status:      service.StatusActive,
+			Schedulable: true,
+			Concurrency: 10,
+			Priority:    1,
+			AccountGroups: []service.AccountGroup{
+				{AccountID: id, GroupID: groupID, Priority: 1, Group: &group},
+			},
+			GroupIDs:  []int64{groupID},
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+	}
+	apiKey := accountForType(461, service.AccountTypeAPIKey)
+	oauth := accountForType(462, service.AccountTypeOAuth)
+	adminSvc.accounts = []service.Account{apiKey, oauth}
+	adminSvc.accountSchedulerScoreFilterAccounts = []service.Account{apiKey, oauth}
+	adminSvc.openAISchedulerScorePoolAccounts = []service.Account{apiKey, oauth}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=20&platform=openai&group=46&include_scheduler_score=1", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var payload struct {
+		Data struct {
+			Items []struct {
+				ID              int64                        `json:"id"`
+				SchedulerScore  *AccountSchedulerScore       `json:"scheduler_score"`
+				SchedulerScores []AccountSchedulerGroupScore `json:"scheduler_scores"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Len(t, payload.Data.Items, 2)
+
+	byID := make(map[int64]struct {
+		SchedulerScore  *AccountSchedulerScore
+		SchedulerScores []AccountSchedulerGroupScore
+	}, len(payload.Data.Items))
+	for _, item := range payload.Data.Items {
+		byID[item.ID] = struct {
+			SchedulerScore  *AccountSchedulerScore
+			SchedulerScores []AccountSchedulerGroupScore
+		}{
+			SchedulerScore:  item.SchedulerScore,
+			SchedulerScores: item.SchedulerScores,
+		}
+	}
+
+	require.Nil(t, byID[apiKey.ID].SchedulerScore)
+	require.Empty(t, byID[apiKey.ID].SchedulerScores)
+	require.NotNil(t, byID[oauth.ID].SchedulerScore)
+	require.Len(t, byID[oauth.ID].SchedulerScores, 1)
+	require.Equal(t, groupID, *byID[oauth.ID].SchedulerScores[0].GroupID)
+}
+
 func TestAccountHandlerListSkipsSchedulerScoresByDefault(t *testing.T) {
 	router, adminSvc := setupAccountListRouter()
 	now := time.Now().UTC()

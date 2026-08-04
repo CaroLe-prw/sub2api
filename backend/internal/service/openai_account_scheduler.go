@@ -1699,6 +1699,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if account == nil {
 		return false, "account_nil"
 	}
+	if !accountAllowedByGroupOAuthOnlyFilter(ctx, account) {
+		return false, "oauth_only"
+	}
 	if s != nil && s.service != nil && s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
 		return false, "runtime_blocked"
 	}
@@ -2192,6 +2195,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	ctx = s.withGroupOAuthOnlyFilter(ctx, groupID)
 	selection, decision, err := s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
 	if err == nil || openAIProxyStreamQuarantineBypassed(ctx) {
 		return selection, decision, err
@@ -2618,6 +2622,19 @@ func (s *RateLimitService) BuildOpenAIAccountSchedulerScoreSnapshotForGroup(
 		gateway.cfg = s.cfg
 	}
 	if schedulerGroup != nil {
+		// The admin score preview must use the same account-type admission rule as
+		// request routing. Otherwise an API-key account can appear to be eligible
+		// for an OAuth-only group merely because a diagnostic score was calculated.
+		ctx = withGroupOAuthOnlyFilter(ctx, schedulerGroup)
+		if groupRequiresOAuthOnlyFilter(schedulerGroup) {
+			eligible := make([]*Account, 0, len(accounts))
+			for _, account := range accounts {
+				if accountAllowedByGroupOAuthOnlyFilter(ctx, account) {
+					eligible = append(eligible, account)
+				}
+			}
+			accounts = eligible
+		}
 		if policy, ok := gateway.resolveOpenAIGroupSchedulerPolicy(ctx, schedulerGroup); ok {
 			ctx = context.WithValue(ctx, openAIGroupSchedulerPolicyContextKey{}, policy)
 		}
