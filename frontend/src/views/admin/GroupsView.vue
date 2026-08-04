@@ -635,10 +635,6 @@
           v-model="createForm.max_account_cost_multiplier"
         />
         <GroupSchedulerPolicyField
-          v-if="
-            createForm.platform === 'openai' ||
-            createForm.platform === 'composite'
-          "
           v-model:profile="createForm.openai_scheduler_profile"
           v-model:config="createForm.openai_scheduler_config"
         />
@@ -2206,10 +2202,6 @@
           v-model="editForm.max_account_cost_multiplier"
         />
         <GroupSchedulerPolicyField
-          v-if="
-            editForm.platform === 'openai' ||
-            editForm.platform === 'composite'
-          "
           v-model:profile="editForm.openai_scheduler_profile"
           v-model:config="editForm.openai_scheduler_config"
         />

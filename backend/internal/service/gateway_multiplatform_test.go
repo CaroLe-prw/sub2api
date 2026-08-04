@@ -3251,6 +3251,77 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 	})
 }
 
+func TestGatewayService_AnthropicLegacyPathAppliesGroupCostPolicy(t *testing.T) {
+	groupID := int64(13)
+	cheapRate := 0.2
+	expensiveRate := 1.4
+	cheap := Account{
+		ID:             1,
+		Platform:       PlatformAnthropic,
+		Priority:       100,
+		RateMultiplier: &cheapRate,
+		Status:         StatusActive,
+		Schedulable:    true,
+		Concurrency:    1,
+	}
+	expensive := Account{
+		ID:             2,
+		Platform:       PlatformAnthropic,
+		Priority:       1,
+		RateMultiplier: &expensiveRate,
+		Status:         StatusActive,
+		Schedulable:    true,
+		Concurrency:    1,
+	}
+	accountRepo := &mockAccountRepoForPlatform{
+		accounts: []Account{expensive, cheap},
+		accountsByID: map[int64]*Account{
+			cheap.ID:     &cheap,
+			expensive.ID: &expensive,
+		},
+	}
+	groupRepo := &mockGroupRepoForGateway{groups: map[int64]*Group{
+		groupID: {
+			ID:                     groupID,
+			Platform:               PlatformAnthropic,
+			OpenAISchedulerProfile: GroupOpenAISchedulerProfileCustom,
+			OpenAISchedulerConfig: GroupOpenAISchedulerConfig{
+				TopK:          ptr(1),
+				Priority:      ptr(0.0),
+				Load:          ptr(0.0),
+				Queue:         ptr(0.0),
+				ErrorRate:     ptr(0.0),
+				TTFT:          ptr(0.0),
+				Reset:         ptr(0.0),
+				QuotaHeadroom: ptr(0.0),
+				UpstreamCost:  ptr(10.0),
+			},
+		},
+	}}
+	cfg := testConfig()
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	svc := &GatewayService{
+		accountRepo: accountRepo,
+		groupRepo:   groupRepo,
+		cache:       &mockGatewayCacheForPlatform{},
+		cfg:         cfg,
+	}
+
+	result, err := svc.SelectAccountWithLoadAwareness(
+		context.Background(),
+		&groupID,
+		"",
+		"claude-sonnet-4-6",
+		nil,
+		"",
+		0,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, cheap.ID, result.Account.ID)
+}
+
 func TestGatewayService_GroupResolution_ReusesContextGroup(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(42)

@@ -8,9 +8,9 @@ const (
 	GroupOpenAISchedulerProfileCustom   = "custom"
 )
 
-// GroupOpenAISchedulerConfig stores a group's custom OpenAI scheduler policy.
-// Preset profiles ignore this value; it is retained so switching profiles does
-// not discard an administrator's custom tuning.
+// GroupOpenAISchedulerConfig stores a group's custom scheduler policy.
+// The legacy OpenAI name is retained for database/API compatibility. Preset
+// profiles ignore this value so switching profiles keeps custom tuning.
 type GroupOpenAISchedulerConfig struct {
 	TopK                        *int     `json:"top_k"`
 	Priority                    *float64 `json:"priority"`

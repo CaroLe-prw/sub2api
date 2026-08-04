@@ -859,11 +859,11 @@ export default {
         statusLabel: '状态'
       },
       scheduler: {
-        title: 'OpenAI 分组调度策略',
+        title: '分组调度策略',
         profiles: {
           inherit: {
             label: '继承系统默认',
-            description: '继续使用系统设置中的高级调度开关、TopK、权重和粘性配置。'
+            description: '继续使用当前平台的默认调度方式，不应用分组级评分覆盖。'
           },
           sla: {
             label: 'SLA 优先',
@@ -879,7 +879,7 @@ export default {
           },
           custom: {
             label: '自定义',
-            description: '仅填写的 TopK 和权重会覆盖系统配置；留空则继承配置/环境变量值。'
+            description: '自定义 TopK 和各项评分权重；留空项继承系统模板。'
           }
         },
         defaultPlaceholder: '配置/默认：{value}',
@@ -899,7 +899,7 @@ export default {
         stickyWeighted: '粘性加权',
         stickyWeightedHint: '关闭时仍沿用硬粘性；开启后粘性作为评分项，可在账号劣化时切换。',
         subscriptionPriority: '订阅账号优先',
-        subscriptionPriorityHint: '先尝试 ChatGPT 订阅账号池，无法取得席位时再回退普通账号。'
+        subscriptionPriorityHint: 'OpenAI 平台先尝试 ChatGPT 订阅账号池，无法取得席位时再回退普通账号；其他平台忽略此项。'
       },
       exclusiveObj: {
         yes: '是',

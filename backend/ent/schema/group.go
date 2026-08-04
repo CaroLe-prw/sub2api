@@ -53,11 +53,11 @@ func (Group) Fields() []ent.Field {
 		field.String("openai_scheduler_profile").
 			MaxLen(20).
 			Default(domain.GroupOpenAISchedulerProfileInherit).
-			Comment("OpenAI 分组调度策略：inherit/sla/balanced/cost/custom"),
+			Comment("分组调度策略（字段名为历史兼容）：inherit/sla/balanced/cost/custom"),
 		field.JSON("openai_scheduler_config", domain.GroupOpenAISchedulerConfig{}).
 			Default(domain.GroupOpenAISchedulerConfig{}).
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
-			Comment("OpenAI 分组自定义调度参数；非 custom 策略保留但不生效"),
+			Comment("分组自定义调度参数（字段名为历史兼容）；非 custom 策略保留但不生效"),
 		// 高峰时段倍率（added by migration 158）
 		field.Bool("peak_rate_enabled").
 			Default(false).

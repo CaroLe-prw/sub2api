@@ -878,11 +878,11 @@ export default {
         statusLabel: 'Status'
       },
       scheduler: {
-        title: 'OpenAI Group Scheduling Policy',
+        title: 'Group Scheduling Policy',
         profiles: {
           inherit: {
             label: 'Inherit System Default',
-            description: 'Use the advanced scheduler switch, TopK, weights, and sticky settings from System Settings.'
+            description: 'Keep the current platform default scheduler without a group-level scoring override.'
           },
           sla: {
             label: 'SLA First',
@@ -898,7 +898,7 @@ export default {
           },
           custom: {
             label: 'Custom',
-            description: 'Only filled TopK and weight fields override system settings; empty fields inherit configured or environment values.'
+            description: 'Customize TopK and scoring weights. Empty fields inherit the system template.'
           }
         },
         defaultPlaceholder: 'Config/default: {value}',
@@ -918,7 +918,7 @@ export default {
         stickyWeighted: 'Weighted Stickiness',
         stickyWeightedHint: 'When disabled, legacy hard stickiness remains. When enabled, stickiness becomes a score that can yield as an account degrades.',
         subscriptionPriority: 'Prioritize Subscription Accounts',
-        subscriptionPriorityHint: 'Try the ChatGPT subscription pool first, then fall back to regular accounts when no slot is available.'
+        subscriptionPriorityHint: 'On OpenAI, try the ChatGPT subscription pool first and fall back to regular accounts. Other platforms ignore this option.'
       },
       exclusiveObj: {
         yes: 'Yes',
