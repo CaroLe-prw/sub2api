@@ -23,12 +23,8 @@ func AdaptResponsesClientTools(req map[string]any) (ResponsesClientToolMapping, 
 	if req == nil {
 		return ResponsesClientToolMapping{}, false, nil
 	}
-	tools, ok := req["tools"].([]any)
-	if !ok || len(tools) == 0 {
-		return ResponsesClientToolMapping{}, false, nil
-	}
-
 	adapter := ResponsesClientToolMapping{CustomTools: make(map[string]bool)}
+	tools, _ := req["tools"].([]any)
 	functionNames := make(map[string]bool)
 	customNames := make(map[string]bool)
 	for _, raw := range tools {
@@ -151,12 +147,11 @@ func rewriteClientToolHistory(value any, adapter *ResponsesClientToolMapping) bo
 			typ := strings.TrimSpace(stringValue(typed["type"]))
 			switch typ {
 			case "custom_tool_call":
-				if adapter.CustomTools[strings.TrimSpace(stringValue(typed["name"]))] {
-					typed["type"] = "function_call"
-					typed["arguments"] = customToolCallArguments(stringValue(typed["input"]))
-					delete(typed, "input")
-					changed = true
-				}
+				// Continuation history must remain valid when this turn omits tools.
+				typed["type"] = "function_call"
+				typed["arguments"] = customToolCallArguments(stringValue(typed["input"]))
+				delete(typed, "input")
+				changed = true
 			case "custom_tool_call_output":
 				typed["type"] = "function_call_output"
 				normalizeClientToolOutput(typed)

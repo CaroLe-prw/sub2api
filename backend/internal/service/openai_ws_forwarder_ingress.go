@@ -495,6 +495,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		grokCacheSeedPayload := firstPayload.payloadRaw
 		var bridgeReplayInput []json.RawMessage
 		bridgeReplayInputExists := false
+		bridgeReplaySelfContained := false
 		for turn := 1; ; turn++ {
 			if turn > 1 && hooks != nil && hooks.BeforeRequest != nil {
 				if err := hooks.BeforeRequest(turn, currentBridgePayload.payloadRaw, currentBridgePayload.originalModel); err != nil {
@@ -511,7 +512,17 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			bridgePayloadRaw := currentBridgePayload.payloadRaw
 			bridgePayloadBytes := currentBridgePayload.payloadBytes
-			needsBridgeReplay := currentBridgePayload.previousResponseID != "" || openAIWSRawPayloadHasToolCallOutput(currentBridgePayload.payloadRaw)
+			currentInput, currentInputExists, inputExtractErr := openAIWSExtractNormalizedInputSequence(currentBridgePayload.payloadRaw)
+			if inputExtractErr != nil {
+				return fmt.Errorf("extract websocket http bridge input: %w", inputExtractErr)
+			}
+			currentInputNonEmpty := currentInputExists && len(currentInput) > 0
+			needsBridgeReplay := shouldReplayOpenAIWSHTTPBridgeInput(
+				bridgeReplaySelfContained,
+				currentInputNonEmpty,
+				currentBridgePayload.previousResponseID != "",
+				openAIWSRawPayloadHasToolCallOutput(currentBridgePayload.payloadRaw),
+			)
 			turnReplayInput, turnReplayInputExists, replayInputErr := buildOpenAIWSReplayInputSequence(
 				bridgeReplayInput,
 				bridgeReplayInputExists,
@@ -529,6 +540,16 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				)
 				if setInputErr != nil {
 					return fmt.Errorf("set websocket http bridge replay input: %w", setInputErr)
+				}
+				// The bridge only drops previous_response_id after it has rebuilt a
+				// self-contained input sequence. Keeping the ID otherwise lets an
+				// HTTP-capable upstream continue a conversation that started before
+				// this local bridge session instead of sending an empty request.
+				if currentBridgePayload.previousResponseID != "" && bridgeReplaySelfContained {
+					updatedPayload, setInputErr = sjson.DeleteBytes(updatedPayload, "previous_response_id")
+					if setInputErr != nil {
+						return fmt.Errorf("delete replayed websocket http bridge previous_response_id: %w", setInputErr)
+					}
 				}
 				bridgePayloadRaw = updatedPayload
 				bridgePayloadBytes = len(updatedPayload)
@@ -580,6 +601,13 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			bridgeReplayInput = cloneOpenAIWSRawMessages(turnReplayInput)
 			bridgeReplayInputExists = turnReplayInputExists
+			// A bridge session that starts from an external previous_response_id
+			// only knows the local delta, not the upstream history behind that ID.
+			// Keep using upstream continuation in that case. Sessions that start
+			// without an ID own a complete replay sequence from their first turn.
+			if !bridgeReplaySelfContained && currentBridgePayload.previousResponseID == "" {
+				bridgeReplaySelfContained = true
+			}
 			if result.wsReplayInputExists {
 				bridgeReplayInput = append(bridgeReplayInput, cloneOpenAIWSRawMessages(result.wsReplayInput)...)
 				bridgeReplayInputExists = true
@@ -1692,4 +1720,17 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 		turn++
 	}
+}
+
+func shouldReplayOpenAIWSHTTPBridgeInput(selfContained, currentInputNonEmpty, hasPreviousResponseID, hasToolOutput bool) bool {
+	if !selfContained {
+		return false
+	}
+	if !currentInputNonEmpty {
+		// A native WebSocket may rely on connection-local context and omit both
+		// input and previous_response_id. The HTTP bridge has no such context, so
+		// replay the locally complete history instead of sending an empty request.
+		return !hasPreviousResponseID
+	}
+	return hasPreviousResponseID || hasToolOutput
 }

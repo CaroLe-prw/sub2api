@@ -15,10 +15,10 @@ func shouldStripOpenAIResponsesInputItemID(itemType, id string) bool {
 		return false
 	}
 	if itemType == "message" {
-		return !strings.HasPrefix(id, "msg")
+		return !strings.HasPrefix(id, "msg") || len(id) > codexCallIDMaxLength
 	}
 	if isCodexToolCallInputType(itemType) {
-		return !strings.HasPrefix(id, "fc")
+		return !strings.HasPrefix(id, "fc") || len(id) > codexCallIDMaxLength
 	}
 	return false
 }
