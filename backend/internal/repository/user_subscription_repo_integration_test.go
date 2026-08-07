@@ -471,7 +471,7 @@ func (s *UserSubscriptionRepoSuite) TestActivateWindows_StaleActivationPreserves
 	manualResetAt := activatedAt.Add(2 * time.Hour)
 
 	s.Require().NoError(s.repo.ActivateWindows(s.ctx, sub.ID, activatedAt))
-	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, true, true, manualResetAt))
+	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, true, true, &manualResetAt))
 	// Simulate a concurrent request carrying the original unactivated snapshot.
 	s.Require().NoError(s.repo.ActivateWindows(s.ctx, sub.ID, activatedAt.Add(time.Hour)))
 
