@@ -479,7 +479,7 @@ func (s *UserSubscriptionRepoSuite) TestActivateWindows_StaleActivationPreserves
 
 	got, err := s.repo.GetByID(s.ctx, sub.ID)
 	s.Require().NoError(err)
-	s.Require().WithinDuration(manualDailyStart, *got.DailyWindowStart, time.Microsecond)
+	s.Require().WithinDuration(manualResetAt, *got.DailyWindowStart, time.Microsecond)
 	s.Require().WithinDuration(manualResetAt, *got.WeeklyWindowStart, time.Microsecond)
 	s.Require().WithinDuration(manualResetAt, *got.MonthlyWindowStart, time.Microsecond)
 }
