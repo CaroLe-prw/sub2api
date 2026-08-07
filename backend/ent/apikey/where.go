@@ -95,6 +95,11 @@ func Status(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldStatus, v))
 }
 
+// MaxGroupRateMultiplier applies equality check predicate on the "max_group_rate_multiplier" field. It's identical to MaxGroupRateMultiplierEQ.
+func MaxGroupRateMultiplier(v float64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldMaxGroupRateMultiplier, v))
+}
+
 // LastUsedAt applies equality check predicate on the "last_used_at" field. It's identical to LastUsedAtEQ.
 func LastUsedAt(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldLastUsedAt, v))
@@ -533,6 +538,46 @@ func StatusEqualFold(v string) predicate.APIKey {
 // StatusContainsFold applies the ContainsFold predicate on the "status" field.
 func StatusContainsFold(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldContainsFold(FieldStatus, v))
+}
+
+// MaxGroupRateMultiplierEQ applies the EQ predicate on the "max_group_rate_multiplier" field.
+func MaxGroupRateMultiplierEQ(v float64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldMaxGroupRateMultiplier, v))
+}
+
+// MaxGroupRateMultiplierNEQ applies the NEQ predicate on the "max_group_rate_multiplier" field.
+func MaxGroupRateMultiplierNEQ(v float64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldMaxGroupRateMultiplier, v))
+}
+
+// MaxGroupRateMultiplierIn applies the In predicate on the "max_group_rate_multiplier" field.
+func MaxGroupRateMultiplierIn(vs ...float64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldMaxGroupRateMultiplier, vs...))
+}
+
+// MaxGroupRateMultiplierNotIn applies the NotIn predicate on the "max_group_rate_multiplier" field.
+func MaxGroupRateMultiplierNotIn(vs ...float64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldMaxGroupRateMultiplier, vs...))
+}
+
+// MaxGroupRateMultiplierGT applies the GT predicate on the "max_group_rate_multiplier" field.
+func MaxGroupRateMultiplierGT(v float64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldMaxGroupRateMultiplier, v))
+}
+
+// MaxGroupRateMultiplierGTE applies the GTE predicate on the "max_group_rate_multiplier" field.
+func MaxGroupRateMultiplierGTE(v float64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldMaxGroupRateMultiplier, v))
+}
+
+// MaxGroupRateMultiplierLT applies the LT predicate on the "max_group_rate_multiplier" field.
+func MaxGroupRateMultiplierLT(v float64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldMaxGroupRateMultiplier, v))
+}
+
+// MaxGroupRateMultiplierLTE applies the LTE predicate on the "max_group_rate_multiplier" field.
+func MaxGroupRateMultiplierLTE(v float64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldMaxGroupRateMultiplier, v))
 }
 
 // LastUsedAtEQ applies the EQ predicate on the "last_used_at" field.

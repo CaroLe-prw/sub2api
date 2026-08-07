@@ -130,6 +130,19 @@ type authCacheStub struct {
 	deleteAuthKeys []string
 }
 
+type authUserGroupRateRepoStub struct {
+	UserGroupRateRepository
+	rate *float64
+}
+
+func (s *authUserGroupRateRepoStub) GetByUserAndGroup(context.Context, int64, int64) (*float64, error) {
+	return s.rate, nil
+}
+
+func (s *authUserGroupRateRepoStub) GetRPMOverrideByUserAndGroup(context.Context, int64, int64) (*int, error) {
+	return nil, nil
+}
+
 func (s *authCacheStub) GetCreateAttemptCount(ctx context.Context, userID int64) (int, error) {
 	return 0, nil
 }
@@ -232,16 +245,39 @@ func TestAPIKeyService_GetByKey_UsesL2Cache(t *testing.T) {
 	require.Equal(t, map[string][]int64{"claude-opus-*": {1, 2}}, apiKey.Group.ModelRouting)
 }
 
+func TestAPIKeyService_GetByKey_PrefersUserSpecificGroupRateOnFirstLookup(t *testing.T) {
+	groupID := int64(9)
+	repo := &authRepoStub{
+		getByKeyForAuth: func(context.Context, string) (*APIKey, error) {
+			return &APIKey{
+				ID: 1, UserID: 2, GroupID: &groupID, Status: StatusActive,
+				MaxGroupRateMultiplier: 0.08,
+				User:                   &User{ID: 2, Status: StatusActive, Role: RoleUser, Balance: 10},
+				Group:                  &Group{ID: groupID, Status: StatusActive, RateMultiplier: 0.06},
+			}, nil
+		},
+	}
+	userRate := 0.09
+	svc := NewAPIKeyService(repo, nil, nil, nil, &authUserGroupRateRepoStub{rate: &userRate}, nil, &config.Config{})
+
+	apiKey, err := svc.GetByKey(context.Background(), "user-rate-key")
+	require.NoError(t, err)
+	require.InDelta(t, 0.06, apiKey.Group.RateMultiplier, 1e-12)
+	require.InDelta(t, 0.09, apiKey.EffectiveGroupRateMultiplier(), 1e-12)
+	require.True(t, apiKey.IsTemporarilyUnavailable(), "首次鉴权也必须按用户专属倍率 0.09 与阈值比较")
+}
+
 func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t *testing.T) {
 	svc := NewAPIKeyService(nil, nil, nil, nil, nil, nil, &config.Config{})
 	groupID := int64(9)
 	apiKey := &APIKey{
-		ID:      1,
-		UserID:  2,
-		GroupID: &groupID,
-		Key:     "k-roundtrip",
-		Name:    "Audit Key",
-		Status:  StatusActive,
+		ID:                     1,
+		UserID:                 2,
+		GroupID:                &groupID,
+		Key:                    "k-roundtrip",
+		Name:                   "Audit Key",
+		Status:                 StatusActive,
+		MaxGroupRateMultiplier: 0.08,
 		User: &User{
 			ID:          2,
 			Status:      StatusActive,
@@ -274,6 +310,8 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t 
 
 	require.NotNil(t, roundTrip)
 	require.Equal(t, apiKey.Name, roundTrip.Name)
+	require.Equal(t, apiKey.MaxGroupRateMultiplier, roundTrip.MaxGroupRateMultiplier)
+	require.Equal(t, apiKey.Group.RateMultiplier, roundTrip.GroupRateMultiplier)
 	require.NotNil(t, roundTrip.Group)
 	require.Equal(t, apiKey.Group.MessagesDispatchModelConfig, roundTrip.Group.MessagesDispatchModelConfig)
 }

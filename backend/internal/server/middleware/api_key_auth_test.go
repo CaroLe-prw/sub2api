@@ -50,6 +50,76 @@ func TestAPIKeyAuthRejectsOversizedCredentialsBeforeLookup(t *testing.T) {
 	require.Zero(t, calls.Load())
 }
 
+func TestAPIKeyAuthGroupRateProtection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ratePtr := func(rate float64) *float64 { return &rate }
+
+	tests := []struct {
+		name        string
+		status      string
+		defaultRate float64
+		userRate    *float64
+		threshold   float64
+		wantStatus  int
+		wantCode    string
+	}{
+		{name: "rate above threshold is temporarily unavailable", status: service.StatusActive, defaultRate: 0.09, threshold: 0.08, wantStatus: http.StatusForbidden, wantCode: "API_KEY_TEMPORARILY_UNSCHEDULABLE"},
+		{name: "rate equal to threshold remains available", status: service.StatusActive, defaultRate: 0.08, threshold: 0.08, wantStatus: http.StatusOK},
+		{name: "protection disabled by default", status: service.StatusActive, defaultRate: 0.09, threshold: 0, wantStatus: http.StatusOK},
+		{name: "manual deactivation remains disabled after rate falls", status: "inactive", defaultRate: 0.06, threshold: 0.08, wantStatus: http.StatusUnauthorized, wantCode: "API_KEY_DISABLED"},
+		{name: "higher user-specific rate overrides lower group default", status: service.StatusActive, defaultRate: 0.06, userRate: ratePtr(0.09), threshold: 0.08, wantStatus: http.StatusForbidden, wantCode: "API_KEY_TEMPORARILY_UNSCHEDULABLE"},
+		{name: "lower user-specific rate overrides higher group default", status: service.StatusActive, defaultRate: 0.09, userRate: ratePtr(0.06), threshold: 0.08, wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			group := &service.Group{ID: 42, Name: "priced", Status: service.StatusActive, RateMultiplier: tt.defaultRate}
+			user := &service.User{ID: 7, Status: service.StatusActive, Role: service.RoleUser, Balance: 10}
+			apiKey := &service.APIKey{
+				ID: 1, UserID: user.ID, Key: "rate-protected-key", Status: tt.status,
+				MaxGroupRateMultiplier: tt.threshold,
+				User:                   user, Group: group,
+			}
+			apiKey.GroupID = &group.ID
+
+			repo := &stubApiKeyRepo{getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
+				if key != apiKey.Key {
+					return nil, service.ErrAPIKeyNotFound
+				}
+				clone := *apiKey
+				return &clone, nil
+			}}
+			cfg := &config.Config{RunMode: config.RunModeSimple}
+			rateRepo := &authTestUserGroupRateRepo{rate: tt.userRate}
+			router := newAuthTestRouter(service.NewAPIKeyService(repo, nil, nil, nil, rateRepo, nil, cfg), nil, cfg)
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/t", nil)
+			req.Header.Set("x-api-key", apiKey.Key)
+			router.ServeHTTP(w, req)
+
+			require.Equal(t, tt.wantStatus, w.Code)
+			if tt.wantCode != "" {
+				var resp ErrorResponse
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+				require.Equal(t, tt.wantCode, resp.Code)
+			}
+		})
+	}
+}
+
+type authTestUserGroupRateRepo struct {
+	service.UserGroupRateRepository
+	rate *float64
+}
+
+func (r *authTestUserGroupRateRepo) GetByUserAndGroup(context.Context, int64, int64) (*float64, error) {
+	return r.rate, nil
+}
+
+func (r *authTestUserGroupRateRepo) GetRPMOverrideByUserAndGroup(context.Context, int64, int64) (*int, error) {
+	return nil, nil
+}
+
 func TestSimpleModeBypassesQuotaCheck(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

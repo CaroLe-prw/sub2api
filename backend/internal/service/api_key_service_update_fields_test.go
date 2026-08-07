@@ -44,6 +44,7 @@ func TestAPIKeyUpdate_OnlyDeclaresRequestedColumns(t *testing.T) {
 	name := "renamed"
 	quota := 500.0
 	rateLimit := 42.0
+	maxGroupRate := 0.08
 	whitelist := []string{"10.0.0.1"}
 
 	tests := []struct {
@@ -70,6 +71,11 @@ func TestAPIKeyUpdate_OnlyDeclaresRequestedColumns(t *testing.T) {
 			name: "ip whitelist only",
 			req:  UpdateAPIKeyRequest{IPWhitelist: &whitelist},
 			want: APIKeyUpdateFields{IPRules: true},
+		},
+		{
+			name: "maximum group rate only",
+			req:  UpdateAPIKeyRequest{MaxGroupRateMultiplier: &maxGroupRate},
+			want: APIKeyUpdateFields{MaxGroupRateMultiplier: true},
 		},
 	}
 

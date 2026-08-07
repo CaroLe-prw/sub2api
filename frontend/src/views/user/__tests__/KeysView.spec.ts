@@ -52,6 +52,8 @@ const messages: Record<string, string> = {
   'keys.status.expired': 'Expired',
   'keys.status.inactive': 'Inactive',
   'keys.status.quota_exhausted': 'Quota exhausted',
+  'keys.status.temporarily_unavailable': 'Temporarily unavailable',
+  'keys.groupRateGuardExceededList': 'Current {rate}x > limit {threshold}x',
   'keys.usage': 'Usage',
 }
 
@@ -100,7 +102,13 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => messages[key] ?? key,
+      t: (key: string, params?: Record<string, unknown>) => {
+        const message = messages[key] ?? key
+        return Object.entries(params ?? {}).reduce(
+          (result, [name, value]) => result.replace(`{${name}}`, String(value)),
+          message
+        )
+      },
     }),
   }
 })
@@ -172,6 +180,9 @@ const DataTableStub = {
         <slot name="cell-name" :value="row.name" :row="row" />
         <div data-test="current-concurrency">
           <slot name="cell-current_concurrency" :value="row.current_concurrency" :row="row" />
+        </div>
+        <div data-test="key-status">
+          <slot name="cell-status" :value="row.status" :row="row" />
         </div>
         <div
           v-if="columns.some((col) => col.key === 'last_used_ip')"
@@ -392,6 +403,41 @@ describe('user KeysView column settings', () => {
     const wrapper = await mountView()
 
     expect(wrapper.get('[data-test="current-concurrency"]').text()).toBe('3')
+  })
+
+  it('renders the derived temporarily unavailable scheduling status', async () => {
+    listKeys.mockResolvedValueOnce({
+      items: [{ ...createApiKey(), scheduling_status: 'temporarily_unavailable' }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-test="key-status"]').text()).toBe('Temporarily unavailable')
+  })
+
+  it('shows the exceeded effective rate and threshold in the status column', async () => {
+    listKeys.mockResolvedValueOnce({
+      items: [{
+        ...createApiKey(),
+        scheduling_status: 'temporarily_unavailable',
+        effective_group_rate_multiplier: 0.065,
+        max_group_rate_multiplier: 0.05,
+      }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-test="key-status"]').text()).toContain(
+      'Current 0.065x > limit 0.05x'
+    )
   })
 
   it('marks current concurrency as sortable', async () => {

@@ -39,9 +39,10 @@ type CreateAPIKeyRequest struct {
 	ExpiresInDays *int     `json:"expires_in_days"` // 过期天数
 
 	// Rate limit fields (0 = unlimited)
-	RateLimit5h *float64 `json:"rate_limit_5h"`
-	RateLimit1d *float64 `json:"rate_limit_1d"`
-	RateLimit7d *float64 `json:"rate_limit_7d"`
+	RateLimit5h            *float64 `json:"rate_limit_5h"`
+	RateLimit1d            *float64 `json:"rate_limit_1d"`
+	RateLimit7d            *float64 `json:"rate_limit_7d"`
+	MaxGroupRateMultiplier *float64 `json:"max_group_rate_multiplier"`
 }
 
 // UpdateAPIKeyRequest represents the update API key request payload
@@ -56,10 +57,11 @@ type UpdateAPIKeyRequest struct {
 	ResetQuota  *bool     `json:"reset_quota"`  // 重置已用配额
 
 	// Rate limit fields (nil = no change, 0 = unlimited)
-	RateLimit5h         *float64 `json:"rate_limit_5h"`
-	RateLimit1d         *float64 `json:"rate_limit_1d"`
-	RateLimit7d         *float64 `json:"rate_limit_7d"`
-	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // 重置限速用量
+	RateLimit5h            *float64 `json:"rate_limit_5h"`
+	RateLimit1d            *float64 `json:"rate_limit_1d"`
+	RateLimit7d            *float64 `json:"rate_limit_7d"`
+	ResetRateLimitUsage    *bool    `json:"reset_rate_limit_usage"` // 重置限速用量
+	MaxGroupRateMultiplier *float64 `json:"max_group_rate_multiplier"`
 }
 
 // List handles listing user's API keys with pagination
@@ -173,6 +175,9 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 	if req.RateLimit7d != nil {
 		svcReq.RateLimit7d = *req.RateLimit7d
 	}
+	if req.MaxGroupRateMultiplier != nil {
+		svcReq.MaxGroupRateMultiplier = *req.MaxGroupRateMultiplier
+	}
 
 	executeUserIdempotentJSON(c, "user.api_keys.create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
 		key, err := h.apiKeyService.Create(ctx, subject.UserID, svcReq)
@@ -205,14 +210,15 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	}
 
 	svcReq := service.UpdateAPIKeyRequest{
-		IPWhitelist:         req.IPWhitelist,
-		IPBlacklist:         req.IPBlacklist,
-		Quota:               req.Quota,
-		ResetQuota:          req.ResetQuota,
-		RateLimit5h:         req.RateLimit5h,
-		RateLimit1d:         req.RateLimit1d,
-		RateLimit7d:         req.RateLimit7d,
-		ResetRateLimitUsage: req.ResetRateLimitUsage,
+		IPWhitelist:            req.IPWhitelist,
+		IPBlacklist:            req.IPBlacklist,
+		Quota:                  req.Quota,
+		ResetQuota:             req.ResetQuota,
+		RateLimit5h:            req.RateLimit5h,
+		RateLimit1d:            req.RateLimit1d,
+		RateLimit7d:            req.RateLimit7d,
+		ResetRateLimitUsage:    req.ResetRateLimitUsage,
+		MaxGroupRateMultiplier: req.MaxGroupRateMultiplier,
 	}
 	if req.Name != "" {
 		svcReq.Name = &req.Name

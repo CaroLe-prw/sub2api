@@ -163,6 +163,11 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		if abortIfAPIKeyGroupNotAllowed(c, apiKey) {
 			return
 		}
+		if apiKey.IsTemporarilyUnavailable() {
+			MarkIngressRejected(c, IngressRejectAPIKeyRateProtected)
+			AbortWithError(c, http.StatusForbidden, "API_KEY_TEMPORARILY_UNSCHEDULABLE", "API key is temporarily unavailable because the current group rate exceeds its configured maximum; update the key settings in the dashboard")
+			return
+		}
 		ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
 		c.Request = c.Request.WithContext(ctx)
 		billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"

@@ -239,6 +239,14 @@ export default {
     resetRateLimitConfirmMessage: '确定要重置密钥 "{name}" 的速率限制用量吗？所有时间窗口的已用额度将归零。此操作不可撤销。',
     rateLimitResetSuccess: '速率限制已重置',
     failedToResetRateLimit: '重置速率限制失败',
+    groupRateGuard: '根据分组倍率阈值自动停用',
+    groupRateGuardHint: '当前有效分组倍率超过阈值时临时停止此密钥；倍率回落后自动恢复。手动停用不受影响。',
+    maxGroupRateMultiplier: '最大分组倍率',
+    maxGroupRateMultiplierPlaceholder: '例如 0.08',
+    maxGroupRateMultiplierRequired: '最大分组倍率必须大于 0',
+    currentGroupRate: '当前分组倍率：{rate}x',
+    groupRateGuardCurrentlyBlocked: '当前倍率已超过阈值，保存后此密钥将临时不可调度。',
+    groupRateGuardExceededList: '当前 {rate}x > 阈值 {threshold}x',
     resetNow: '即将重置',
     expiration: '密钥有效期',
     expiresInDays: '{days} 天',
@@ -253,7 +261,8 @@ export default {
       active: '活跃',
       inactive: '已停用',
       quota_exhausted: '额度耗尽',
-      expired: '已过期'
+      expired: '已过期',
+      temporarily_unavailable: '临时不可调度'
     }
   },
 

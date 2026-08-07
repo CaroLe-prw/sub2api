@@ -113,6 +113,20 @@ func (_c *APIKeyCreate) SetNillableStatus(v *string) *APIKeyCreate {
 	return _c
 }
 
+// SetMaxGroupRateMultiplier sets the "max_group_rate_multiplier" field.
+func (_c *APIKeyCreate) SetMaxGroupRateMultiplier(v float64) *APIKeyCreate {
+	_c.mutation.SetMaxGroupRateMultiplier(v)
+	return _c
+}
+
+// SetNillableMaxGroupRateMultiplier sets the "max_group_rate_multiplier" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableMaxGroupRateMultiplier(v *float64) *APIKeyCreate {
+	if v != nil {
+		_c.SetMaxGroupRateMultiplier(*v)
+	}
+	return _c
+}
+
 // SetLastUsedAt sets the "last_used_at" field.
 func (_c *APIKeyCreate) SetLastUsedAt(v time.Time) *APIKeyCreate {
 	_c.mutation.SetLastUsedAt(v)
@@ -387,6 +401,10 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultStatus
 		_c.mutation.SetStatus(v)
 	}
+	if _, ok := _c.mutation.MaxGroupRateMultiplier(); !ok {
+		v := apikey.DefaultMaxGroupRateMultiplier
+		_c.mutation.SetMaxGroupRateMultiplier(v)
+	}
 	if _, ok := _c.mutation.Quota(); !ok {
 		v := apikey.DefaultQuota
 		_c.mutation.SetQuota(v)
@@ -456,6 +474,9 @@ func (_c *APIKeyCreate) check() error {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.MaxGroupRateMultiplier(); !ok {
+		return &ValidationError{Name: "max_group_rate_multiplier", err: errors.New(`ent: missing required field "APIKey.max_group_rate_multiplier"`)}
 	}
 	if _, ok := _c.mutation.Quota(); !ok {
 		return &ValidationError{Name: "quota", err: errors.New(`ent: missing required field "APIKey.quota"`)}
@@ -534,6 +555,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
 		_node.Status = value
+	}
+	if value, ok := _c.mutation.MaxGroupRateMultiplier(); ok {
+		_spec.SetField(apikey.FieldMaxGroupRateMultiplier, field.TypeFloat64, value)
+		_node.MaxGroupRateMultiplier = value
 	}
 	if value, ok := _c.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)
@@ -790,6 +815,24 @@ func (u *APIKeyUpsert) SetStatus(v string) *APIKeyUpsert {
 // UpdateStatus sets the "status" field to the value that was provided on create.
 func (u *APIKeyUpsert) UpdateStatus() *APIKeyUpsert {
 	u.SetExcluded(apikey.FieldStatus)
+	return u
+}
+
+// SetMaxGroupRateMultiplier sets the "max_group_rate_multiplier" field.
+func (u *APIKeyUpsert) SetMaxGroupRateMultiplier(v float64) *APIKeyUpsert {
+	u.Set(apikey.FieldMaxGroupRateMultiplier, v)
+	return u
+}
+
+// UpdateMaxGroupRateMultiplier sets the "max_group_rate_multiplier" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateMaxGroupRateMultiplier() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldMaxGroupRateMultiplier)
+	return u
+}
+
+// AddMaxGroupRateMultiplier adds v to the "max_group_rate_multiplier" field.
+func (u *APIKeyUpsert) AddMaxGroupRateMultiplier(v float64) *APIKeyUpsert {
+	u.Add(apikey.FieldMaxGroupRateMultiplier, v)
 	return u
 }
 
@@ -1217,6 +1260,27 @@ func (u *APIKeyUpsertOne) SetStatus(v string) *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) UpdateStatus() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetMaxGroupRateMultiplier sets the "max_group_rate_multiplier" field.
+func (u *APIKeyUpsertOne) SetMaxGroupRateMultiplier(v float64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetMaxGroupRateMultiplier(v)
+	})
+}
+
+// AddMaxGroupRateMultiplier adds v to the "max_group_rate_multiplier" field.
+func (u *APIKeyUpsertOne) AddMaxGroupRateMultiplier(v float64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.AddMaxGroupRateMultiplier(v)
+	})
+}
+
+// UpdateMaxGroupRateMultiplier sets the "max_group_rate_multiplier" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateMaxGroupRateMultiplier() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateMaxGroupRateMultiplier()
 	})
 }
 
@@ -1855,6 +1919,27 @@ func (u *APIKeyUpsertBulk) SetStatus(v string) *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) UpdateStatus() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetMaxGroupRateMultiplier sets the "max_group_rate_multiplier" field.
+func (u *APIKeyUpsertBulk) SetMaxGroupRateMultiplier(v float64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetMaxGroupRateMultiplier(v)
+	})
+}
+
+// AddMaxGroupRateMultiplier adds v to the "max_group_rate_multiplier" field.
+func (u *APIKeyUpsertBulk) AddMaxGroupRateMultiplier(v float64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.AddMaxGroupRateMultiplier(v)
+	})
+}
+
+// UpdateMaxGroupRateMultiplier sets the "max_group_rate_multiplier" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateMaxGroupRateMultiplier() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateMaxGroupRateMultiplier()
 	})
 }
 

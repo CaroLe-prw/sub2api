@@ -73,6 +73,55 @@ func TestGoogleAPIKeyAuthMarksLookupBulkheadRejection(t *testing.T) {
 	require.Equal(t, IngressRejectAPIKeyAuthOverloaded, reason)
 }
 
+func TestGoogleAPIKeyAuthEnforcesGroupRateProtection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ratePtr := func(rate float64) *float64 { return &rate }
+	tests := []struct {
+		name        string
+		defaultRate float64
+		userRate    *float64
+		wantStatus  int
+	}{
+		{name: "higher user-specific rate overrides lower group default", defaultRate: 0.06, userRate: ratePtr(0.09), wantStatus: http.StatusForbidden},
+		{name: "lower user-specific rate overrides higher group default", defaultRate: 0.09, userRate: ratePtr(0.06), wantStatus: http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			group := &service.Group{ID: 42, Name: "gemini", Status: service.StatusActive, RateMultiplier: tt.defaultRate}
+			user := &service.User{ID: 7, Status: service.StatusActive, Role: service.RoleUser, Balance: 10}
+			apiKey := &service.APIKey{
+				ID: 1, UserID: user.ID, Key: "google-rate-protected", Status: service.StatusActive,
+				MaxGroupRateMultiplier: 0.08, User: user, Group: group,
+			}
+			apiKey.GroupID = &group.ID
+			repo := fakeAPIKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) {
+				clone := *apiKey
+				return &clone, nil
+			}}
+			cfg := &config.Config{RunMode: config.RunModeSimple}
+			r := gin.New()
+			var reason IngressRejectReason
+			r.Use(func(c *gin.Context) {
+				c.Next()
+				reason, _ = GetIngressRejectReason(c)
+			})
+			rateRepo := &authTestUserGroupRateRepo{rate: tt.userRate}
+			r.Use(APIKeyAuthGoogle(service.NewAPIKeyService(repo, nil, nil, nil, rateRepo, nil, cfg), cfg))
+			r.GET("/v1beta/models", func(c *gin.Context) { c.Status(http.StatusOK) })
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+			req.Header.Set("x-goog-api-key", apiKey.Key)
+			r.ServeHTTP(w, req)
+
+			require.Equal(t, tt.wantStatus, w.Code)
+			if tt.wantStatus == http.StatusForbidden {
+				require.Equal(t, IngressRejectAPIKeyRateProtected, reason)
+				require.Contains(t, w.Body.String(), "temporarily unavailable")
+			}
+		})
+	}
+}
+
 type fakeAPIKeyRepo struct {
 	getByKey       func(ctx context.Context, key string) (*service.APIKey, error)
 	updateLastUsed func(ctx context.Context, id int64, usedAt time.Time) error

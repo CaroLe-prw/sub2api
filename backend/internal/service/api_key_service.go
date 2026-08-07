@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,7 +35,8 @@ var (
 	// ErrAPIKeyExpired        = infraerrors.Forbidden("API_KEY_EXPIRED", "api key has expired")
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
-	ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key 额度已用完")
+	ErrAPIKeyQuotaExhausted          = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key 额度已用完")
+	ErrInvalidMaxGroupRateMultiplier = infraerrors.BadRequest("INVALID_MAX_GROUP_RATE_MULTIPLIER", "max_group_rate_multiplier must be >= 0")
 
 	// Rate limit errors
 	ErrAPIKeyRateLimit5hExceeded = infraerrors.TooManyRequests("API_KEY_RATE_5H_EXCEEDED", "api key 5小时限额已用完")
@@ -60,11 +62,12 @@ const (
 // 若编辑 Key 时无条件整行回写，并发累计的配额与限流计数就会被旧快照覆盖。
 // 因此调用方必须显式声明要改的列。
 type APIKeyUpdateFields struct {
-	Name      bool
-	Status    bool
-	Quota     bool
-	GroupID   bool
-	ExpiresAt bool
+	Name                   bool
+	Status                 bool
+	Quota                  bool
+	GroupID                bool
+	MaxGroupRateMultiplier bool
+	ExpiresAt              bool
 	// QuotaUsed 仅供"重置配额用量"路径声明；常规计费走 IncrementQuotaUsed。
 	QuotaUsed bool
 	// RateLimits 覆盖 rate_limit_5h / _1d / _7d 三个阈值。
@@ -219,9 +222,10 @@ type CreateAPIKeyRequest struct {
 	ExpiresInDays *int    `json:"expires_in_days"` // Days until expiry (nil = never expires)
 
 	// Rate limit fields (0 = unlimited)
-	RateLimit5h float64 `json:"rate_limit_5h"`
-	RateLimit1d float64 `json:"rate_limit_1d"`
-	RateLimit7d float64 `json:"rate_limit_7d"`
+	RateLimit5h            float64 `json:"rate_limit_5h"`
+	RateLimit1d            float64 `json:"rate_limit_1d"`
+	RateLimit7d            float64 `json:"rate_limit_7d"`
+	MaxGroupRateMultiplier float64 `json:"max_group_rate_multiplier"`
 }
 
 // UpdateAPIKeyRequest 更新API Key请求
@@ -239,10 +243,11 @@ type UpdateAPIKeyRequest struct {
 	ResetQuota      *bool      `json:"reset_quota"` // Reset quota_used to 0
 
 	// Rate limit fields (nil = no change, 0 = unlimited)
-	RateLimit5h         *float64 `json:"rate_limit_5h"`
-	RateLimit1d         *float64 `json:"rate_limit_1d"`
-	RateLimit7d         *float64 `json:"rate_limit_7d"`
-	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // Reset all usage counters to 0
+	RateLimit5h            *float64 `json:"rate_limit_5h"`
+	RateLimit1d            *float64 `json:"rate_limit_1d"`
+	RateLimit7d            *float64 `json:"rate_limit_7d"`
+	ResetRateLimitUsage    *bool    `json:"reset_rate_limit_usage"` // Reset all usage counters to 0
+	MaxGroupRateMultiplier *float64 `json:"max_group_rate_multiplier"`
 }
 
 // APIKeyService API Key服务
@@ -428,6 +433,10 @@ func (s *APIKeyService) canUserBindGroup(ctx context.Context, user *User, group 
 
 // Create 创建API Key
 func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIKeyRequest) (*APIKey, error) {
+	if req.MaxGroupRateMultiplier < 0 || math.IsNaN(req.MaxGroupRateMultiplier) || math.IsInf(req.MaxGroupRateMultiplier, 0) {
+		return nil, ErrInvalidMaxGroupRateMultiplier
+	}
+
 	// 验证用户存在
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
@@ -498,18 +507,19 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 
 	// 创建API Key记录
 	apiKey := &APIKey{
-		UserID:      userID,
-		Key:         key,
-		Name:        html.EscapeString(req.Name),
-		GroupID:     req.GroupID,
-		Status:      StatusActive,
-		IPWhitelist: req.IPWhitelist,
-		IPBlacklist: req.IPBlacklist,
-		Quota:       req.Quota,
-		QuotaUsed:   0,
-		RateLimit5h: req.RateLimit5h,
-		RateLimit1d: req.RateLimit1d,
-		RateLimit7d: req.RateLimit7d,
+		UserID:                 userID,
+		Key:                    key,
+		Name:                   html.EscapeString(req.Name),
+		GroupID:                req.GroupID,
+		Status:                 StatusActive,
+		IPWhitelist:            req.IPWhitelist,
+		IPBlacklist:            req.IPBlacklist,
+		Quota:                  req.Quota,
+		QuotaUsed:              0,
+		RateLimit5h:            req.RateLimit5h,
+		RateLimit1d:            req.RateLimit1d,
+		RateLimit7d:            req.RateLimit7d,
+		MaxGroupRateMultiplier: req.MaxGroupRateMultiplier,
 	}
 
 	// Set expiration time if specified
@@ -539,6 +549,7 @@ func (s *APIKeyService) List(ctx context.Context, userID int64, params paginatio
 		return nil, nil, fmt.Errorf("list api keys: %w", err)
 	}
 	s.fillCurrentConcurrency(ctx, keys)
+	s.fillGroupRateMultipliers(ctx, keys)
 	return keys, pagination, nil
 }
 
@@ -553,8 +564,33 @@ func (s *APIKeyService) listByCurrentConcurrency(ctx context.Context, userID int
 		return nil, nil, fmt.Errorf("list api keys: %w", err)
 	}
 	s.fillCurrentConcurrency(ctx, keys)
+	s.fillGroupRateMultipliers(ctx, keys)
 	sortAPIKeysByCurrentConcurrency(keys, params.NormalizedSortOrder(pagination.SortOrderDesc))
 	return paginateAPIKeys(keys, params), apiKeyPaginationResult(int64(len(keys)), params), nil
+}
+
+func (s *APIKeyService) fillGroupRateMultipliers(ctx context.Context, keys []APIKey) {
+	if len(keys) == 0 {
+		return
+	}
+	rates := map[int64]float64(nil)
+	if s.userGroupRateRepo != nil {
+		loaded, err := s.userGroupRateRepo.GetByUserID(ctx, keys[0].UserID)
+		if err == nil {
+			rates = loaded
+		}
+	}
+	for i := range keys {
+		if keys[i].Group == nil {
+			continue
+		}
+		keys[i].GroupRateMultiplier = keys[i].Group.RateMultiplier
+		if keys[i].GroupID != nil && rates != nil {
+			if rate, ok := rates[*keys[i].GroupID]; ok {
+				keys[i].GroupRateMultiplier = rate
+			}
+		}
+	}
 }
 
 func normalizedAPIKeySortBy(sortBy string) string {
@@ -662,6 +698,14 @@ func (s *APIKeyService) GetByID(ctx context.Context, id int64) (*APIKey, error) 
 	s.compileAPIKeyIPRules(apiKey)
 	if apiKey != nil {
 		apiKey.CurrentConcurrency = s.currentConcurrencyForAPIKey(ctx, apiKey.ID)
+		if apiKey.Group != nil {
+			apiKey.GroupRateMultiplier = apiKey.Group.RateMultiplier
+			if apiKey.GroupID != nil && s.userGroupRateRepo != nil {
+				if rate, rateErr := s.userGroupRateRepo.GetByUserAndGroup(ctx, apiKey.UserID, *apiKey.GroupID); rateErr == nil && rate != nil {
+					apiKey.GroupRateMultiplier = *rate
+				}
+			}
+		}
 	}
 	return apiKey, nil
 }
@@ -787,6 +831,14 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		if s.cache != nil {
 			_ = s.cache.DeleteCreateAttemptCount(ctx, apiKey.UserID)
 		}
+	}
+
+	if req.MaxGroupRateMultiplier != nil {
+		if *req.MaxGroupRateMultiplier < 0 || math.IsNaN(*req.MaxGroupRateMultiplier) || math.IsInf(*req.MaxGroupRateMultiplier, 0) {
+			return nil, ErrInvalidMaxGroupRateMultiplier
+		}
+		apiKey.MaxGroupRateMultiplier = *req.MaxGroupRateMultiplier
+		fields.MaxGroupRateMultiplier = true
 	}
 
 	// Update quota fields

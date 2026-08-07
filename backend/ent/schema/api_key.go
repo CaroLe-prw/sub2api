@@ -47,6 +47,10 @@ func (APIKey) Fields() []ent.Field {
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
+		field.Float("max_group_rate_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Default(0).
+			Comment("Maximum effective group rate multiplier allowed for this API key (0 = disabled)"),
 		field.Time("last_used_at").
 			Optional().
 			Nillable().
