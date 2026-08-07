@@ -29,7 +29,9 @@ type UserSubscriptionRepository interface {
 	UpdateStatus(ctx context.Context, subscriptionID int64, status string) error
 	UpdateNotes(ctx context.Context, subscriptionID int64, notes string) error
 
-	ActivateWindows(ctx context.Context, id int64, start time.Time) error
+	// ActivateWindows aligns the daily window to midnight while keeping weekly
+	// and monthly windows anchored to the first-use time.
+	ActivateWindows(ctx context.Context, id int64, dailyStart, periodicStart time.Time) error
 	ResetUsageWindows(ctx context.Context, id int64, resetDaily, resetWeekly, resetMonthly bool, newWindowStart *time.Time) error
 	ResetDailyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error
 	ResetWeeklyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error
