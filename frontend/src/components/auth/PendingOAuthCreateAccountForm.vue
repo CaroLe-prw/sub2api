@@ -28,6 +28,9 @@
         :aliyun-scene-id="aliyunCaptchaSceneId"
         :aliyun-prefix="aliyunCaptchaPrefix"
         :aliyun-region="aliyunCaptchaRegion"
+        :vaptcha-enabled="vaptchaEnabled"
+        :vaptcha-vid="vaptchaVid"
+        :vaptcha-scene="vaptchaScene"
         @verify="onTurnstileVerify"
         @expire="onTurnstileExpire"
         @error="onTurnstileError"
@@ -145,6 +148,9 @@ const aliyunCaptchaEnabled = ref(false)
 const aliyunCaptchaSceneId = ref('')
 const aliyunCaptchaPrefix = ref('')
 const aliyunCaptchaRegion = ref('cn')
+const vaptchaEnabled = ref(false)
+const vaptchaVid = ref('')
+const vaptchaScene = ref(0)
 const turnstileToken = ref('')
 const tencentCaptchaRandstr = ref('')
 const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
@@ -158,7 +164,8 @@ const aliyunCaptchaReady = computed(
 const actionCaptchaEnabled = computed(
   () =>
     (tencentCaptchaEnabled.value && Boolean(tencentCaptchaAppId.value)) ||
-    aliyunCaptchaReady.value
+    aliyunCaptchaReady.value ||
+    (vaptchaEnabled.value && Boolean(vaptchaVid.value))
 )
 const captchaEnabled = computed(
   () =>
@@ -354,6 +361,9 @@ onMounted(async () => {
     aliyunCaptchaSceneId.value = settings.aliyun_captcha_scene_id || ''
     aliyunCaptchaPrefix.value = settings.aliyun_captcha_prefix || ''
     aliyunCaptchaRegion.value = settings.aliyun_captcha_region || 'cn'
+    vaptchaEnabled.value = settings.vaptcha_enabled ?? false
+    vaptchaVid.value = settings.vaptcha_vid || ''
+    vaptchaScene.value = settings.vaptcha_scene ?? 0
   } catch {
     invitationCodeEnabled.value = false
     emailVerifyEnabled.value = true
@@ -365,6 +375,9 @@ onMounted(async () => {
     aliyunCaptchaSceneId.value = ''
     aliyunCaptchaPrefix.value = ''
     aliyunCaptchaRegion.value = 'cn'
+    vaptchaEnabled.value = false
+    vaptchaVid.value = ''
+    vaptchaScene.value = 0
   }
 })
 

@@ -2009,7 +2009,7 @@
                     {{ t("admin.settings.captcha.provider") }}
                   </label>
                   <div
-                    class="grid grid-cols-3 gap-2 rounded-lg bg-gray-100 p-1 dark:bg-dark-700"
+                    class="grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1 dark:bg-dark-700 sm:grid-cols-4"
                   >
                     <button
                       type="button"
@@ -2049,6 +2049,15 @@
                       @click="selectCaptchaProvider('aliyun')"
                     >
                       {{ t("admin.settings.captcha.providerAliyun") }}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="captcha-provider-vaptcha"
+                      class="inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
+                      :class="captchaProviderSelection === 'vaptcha' ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300' : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'"
+                      @click="selectCaptchaProvider('vaptcha')"
+                    >
+                      {{ t("admin.settings.captcha.providerVaptcha") }}
                     </button>
                   </div>
                 </div>
@@ -2218,7 +2227,7 @@
                 </div>
 
                 <!-- Aliyun Captcha 2.0 fields -->
-                <div v-else class="grid grid-cols-1 gap-6">
+                <div v-else-if="captchaProviderSelection === 'aliyun'" class="grid grid-cols-1 gap-6">
                   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
                     <div>
                       <label
@@ -2330,6 +2339,22 @@
                       }}
                     </p>
                   </div>
+                </div>
+                <div v-else class="grid grid-cols-1 gap-6">
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.vaptcha.vid") }}</label>
+                    <input v-model="form.vaptcha_vid" type="text" class="input font-mono text-sm" placeholder="5xxxxxxxxxxxxxxxxxxxxxxx" />
+                  </div>
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.vaptcha.key") }}</label>
+                    <input v-model="form.vaptcha_key" type="password" autocomplete="new-password" class="input font-mono text-sm" :placeholder="t('admin.settings.vaptcha.keepExisting')" />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">{{ form.vaptcha_key_configured ? t("admin.settings.vaptcha.configured") : t("admin.settings.vaptcha.required") }}</p>
+                  </div>
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.vaptcha.scene") }}</label>
+                    <input v-model.number="form.vaptcha_scene" type="number" min="0" class="input font-mono text-sm" placeholder="0" />
+                  </div>
+                  <a href="https://www.vaptcha.com/manage" target="_blank" rel="noopener noreferrer" class="text-sm text-primary-600 hover:text-primary-500">{{ t("admin.settings.vaptcha.console") }}</a>
                 </div>
               </div>
             </div>
@@ -9142,6 +9167,7 @@ type SettingsForm = Omit<
   tencent_captcha_cloud_secret_id: string;
   tencent_captcha_cloud_secret_key: string;
   aliyun_captcha_access_key_secret: string;
+  vaptcha_key: string;
   linuxdo_connect_client_secret: string;
   dingtalk_connect_client_secret: string;
   wechat_connect_app_secret: string;
@@ -9287,6 +9313,11 @@ const form = reactive<SettingsForm>({
   aliyun_captcha_scene_id: "",
   aliyun_captcha_prefix: "",
   aliyun_captcha_region: "cn",
+  vaptcha_enabled: false,
+  vaptcha_vid: "",
+  vaptcha_key: "",
+  vaptcha_key_configured: false,
+  vaptcha_scene: 0,
   api_key_acl_trust_forwarded_ip: true,
   forwarded_client_ip_headers: [],
   // LinuxDo Connect OAuth 登录
@@ -9453,7 +9484,7 @@ const form = reactive<SettingsForm>({
 
 // 人机验证 UI 状态：单卡片「总开关 + 服务商单选」，落库仍是三个独立
 // enabled 键（与上游一致），由下面的映射保证同一时间至多一家启用。
-type CaptchaProviderSelection = "turnstile" | "tencent" | "aliyun";
+type CaptchaProviderSelection = "turnstile" | "tencent" | "aliyun" | "vaptcha";
 
 const captchaProviderSelection = ref<CaptchaProviderSelection>("turnstile");
 
@@ -9461,13 +9492,15 @@ function applyCaptchaSelection(provider: CaptchaProviderSelection | null): void 
   form.turnstile_enabled = provider === "turnstile";
   form.tencent_captcha_enabled = provider === "tencent";
   form.aliyun_captcha_enabled = provider === "aliyun";
+  form.vaptcha_enabled = provider === "vaptcha";
 }
 
 const captchaMasterEnabled = computed({
   get: () =>
     form.turnstile_enabled ||
     form.tencent_captcha_enabled ||
-    form.aliyun_captcha_enabled,
+    form.aliyun_captcha_enabled ||
+    form.vaptcha_enabled,
   set: (enabled: boolean) =>
     applyCaptchaSelection(enabled ? captchaProviderSelection.value : null),
 });
@@ -9482,6 +9515,8 @@ function syncCaptchaProviderSelection(): void {
     captchaProviderSelection.value = "tencent";
   } else if (form.aliyun_captcha_enabled) {
     captchaProviderSelection.value = "aliyun";
+  } else if (form.vaptcha_enabled) {
+    captchaProviderSelection.value = "vaptcha";
   } else if (form.turnstile_enabled) {
     captchaProviderSelection.value = "turnstile";
   }
@@ -10460,6 +10495,7 @@ async function loadSettings() {
     form.tencent_captcha_cloud_secret_id = "";
     form.tencent_captcha_cloud_secret_key = "";
     form.aliyun_captcha_access_key_secret = "";
+    form.vaptcha_key = "";
     form.linuxdo_connect_client_secret = "";
     form.dingtalk_connect_client_secret = "";
     form.github_oauth_client_secret = "";
@@ -10844,6 +10880,10 @@ async function saveSettings() {
       aliyun_captcha_scene_id: form.aliyun_captcha_scene_id,
       aliyun_captcha_prefix: form.aliyun_captcha_prefix,
       aliyun_captcha_region: form.aliyun_captcha_region,
+      vaptcha_enabled: form.vaptcha_enabled,
+      vaptcha_vid: form.vaptcha_vid,
+      vaptcha_key: form.vaptcha_key || undefined,
+      vaptcha_scene: form.vaptcha_scene,
       api_key_acl_trust_forwarded_ip: form.api_key_acl_trust_forwarded_ip,
       forwarded_client_ip_headers: form.forwarded_client_ip_headers,
       linuxdo_connect_enabled: form.linuxdo_connect_enabled,

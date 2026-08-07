@@ -480,6 +480,7 @@ type CaptchaProviderConfig struct {
 	TurnstileSecretKey string
 	Tencent            TencentCaptchaConfig
 	Aliyun             AliyunCaptchaConfig
+	Vaptcha            VaptchaConfig
 }
 
 func (s *SettingService) GetCaptchaProviderConfig(ctx context.Context) (CaptchaProviderConfig, error) {
@@ -496,6 +497,10 @@ func (s *SettingService) GetCaptchaProviderConfig(ctx context.Context) (CaptchaP
 		SettingKeyAliyunCaptchaAccessKeySecret,
 		SettingKeyAliyunCaptchaSceneID,
 		SettingKeyAliyunCaptchaRegion,
+		SettingKeyVaptchaEnabled,
+		SettingKeyVaptchaVID,
+		SettingKeyVaptchaKey,
+		SettingKeyVaptchaScene,
 	})
 	if err != nil {
 		return CaptchaProviderConfig{}, fmt.Errorf("read captcha provider settings: %w", err)
@@ -516,6 +521,12 @@ func (s *SettingService) GetCaptchaProviderConfig(ctx context.Context) (CaptchaP
 			AccessKeySecret: values[SettingKeyAliyunCaptchaAccessKeySecret],
 			SceneID:         values[SettingKeyAliyunCaptchaSceneID],
 			Region:          normalizeAliyunCaptchaRegion(values[SettingKeyAliyunCaptchaRegion]),
+		},
+		Vaptcha: VaptchaConfig{
+			Enabled: values[SettingKeyVaptchaEnabled] == "true",
+			VID:     values[SettingKeyVaptchaVID],
+			Key:     values[SettingKeyVaptchaKey],
+			Scene:   parseVaptchaScene(values[SettingKeyVaptchaScene]),
 		},
 	}, nil
 }

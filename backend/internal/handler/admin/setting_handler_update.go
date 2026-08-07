@@ -68,6 +68,10 @@ type UpdateSettingsRequest struct {
 	AliyunCaptchaSceneID         string `json:"aliyun_captcha_scene_id"`
 	AliyunCaptchaPrefix          string `json:"aliyun_captcha_prefix"`
 	AliyunCaptchaRegion          string `json:"aliyun_captcha_region"`
+	VaptchaEnabled               bool   `json:"vaptcha_enabled"`
+	VaptchaVID                   string `json:"vaptcha_vid"`
+	VaptchaKey                   string `json:"vaptcha_key"`
+	VaptchaScene                 int    `json:"vaptcha_scene"`
 
 	// API Key IP 访问控制设置
 	APIKeyACLTrustForwardedIP *bool     `json:"api_key_acl_trust_forwarded_ip"`
@@ -459,6 +463,8 @@ func settingsAuditRequest(req UpdateSettingsRequest) UpdateSettingsRequest {
 	req.TencentCaptchaAppSecretKey = strings.TrimSpace(req.TencentCaptchaAppSecretKey)
 	req.TencentCaptchaCloudSecretID = strings.TrimSpace(req.TencentCaptchaCloudSecretID)
 	req.TencentCaptchaCloudSecretKey = strings.TrimSpace(req.TencentCaptchaCloudSecretKey)
+	req.VaptchaVID = strings.TrimSpace(req.VaptchaVID)
+	req.VaptchaKey = strings.TrimSpace(req.VaptchaKey)
 	req.AliyunCaptchaAccessKeySecret = strings.TrimSpace(req.AliyunCaptchaAccessKeySecret)
 	return req
 }
@@ -628,15 +634,38 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if _, sent := sentFields["aliyun_captcha_enabled"]; !sent {
 		aliyunCaptchaEnabled = previousSettings.AliyunCaptchaEnabled
 	}
+	vaptchaEnabled := req.VaptchaEnabled
+	if _, sent := sentFields["vaptcha_enabled"]; !sent {
+		vaptchaEnabled = previousSettings.VaptchaEnabled
+	}
 	enabledCaptchaProviders := 0
-	for _, enabled := range []bool{turnstileEnabled, tencentCaptchaEnabled, aliyunCaptchaEnabled} {
+	for _, enabled := range []bool{turnstileEnabled, tencentCaptchaEnabled, aliyunCaptchaEnabled, vaptchaEnabled} {
 		if enabled {
 			enabledCaptchaProviders++
 		}
 	}
 	if enabledCaptchaProviders > 1 {
-		response.BadRequest(c, "Multiple captcha providers (Cloudflare Turnstile / Tencent Captcha / Aliyun Captcha) cannot be enabled at the same time")
+		response.BadRequest(c, "Multiple captcha providers cannot be enabled at the same time")
 		return
+	}
+	if vaptchaEnabled {
+		if _, sent := sentFields["vaptcha_vid"]; !sent {
+			req.VaptchaVID = previousSettings.VaptchaVID
+		}
+		if _, sent := sentFields["vaptcha_scene"]; !sent {
+			req.VaptchaScene = previousSettings.VaptchaScene
+		}
+		if req.VaptchaKey == "" {
+			req.VaptchaKey = previousSettings.VaptchaKey
+		}
+		if req.VaptchaVID == "" || req.VaptchaKey == "" {
+			response.BadRequest(c, "VAPTCHA VID and Key are required when enabled")
+			return
+		}
+		if req.VaptchaScene < 0 {
+			response.BadRequest(c, "VAPTCHA scene must be zero or a positive integer")
+			return
+		}
 	}
 	// 阿里云地域 normalize：未发送保留已存值，非法值一律按中国内地落库
 	if _, sent := sentFields["aliyun_captcha_region"]; !sent {
@@ -1494,6 +1523,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFrom:                         req.SMTPFrom,
 		SMTPFromName:                     req.SMTPFromName,
 		SMTPUseTLS:                       req.SMTPUseTLS,
+		VaptchaEnabled:                   req.VaptchaEnabled,
+		VaptchaVID:                       req.VaptchaVID,
+		VaptchaKey:                       req.VaptchaKey,
+		VaptchaScene:                     req.VaptchaScene,
 		TurnstileEnabled:                 req.TurnstileEnabled,
 		TurnstileSiteKey:                 req.TurnstileSiteKey,
 		TurnstileSecretKey:               req.TurnstileSecretKey,
@@ -2094,6 +2127,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AliyunCaptchaEnabled:                                   updatedSettings.AliyunCaptchaEnabled,
 		AliyunCaptchaAccessKeyID:                               updatedSettings.AliyunCaptchaAccessKeyID,
 		AliyunCaptchaAccessKeySecretConfigured:                 updatedSettings.AliyunCaptchaAccessKeySecretConfigured,
+		VaptchaEnabled:                                         updatedSettings.VaptchaEnabled,
+		VaptchaVID:                                             updatedSettings.VaptchaVID,
+		VaptchaKeyConfigured:                                   updatedSettings.VaptchaKeyConfigured,
+		VaptchaScene:                                           updatedSettings.VaptchaScene,
 		AliyunCaptchaSceneID:                                   updatedSettings.AliyunCaptchaSceneID,
 		AliyunCaptchaPrefix:                                    updatedSettings.AliyunCaptchaPrefix,
 		AliyunCaptchaRegion:                                    updatedSettings.AliyunCaptchaRegion,

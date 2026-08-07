@@ -77,6 +77,7 @@ type AuthService struct {
 	turnstileService      *TurnstileService
 	tencentCaptchaService *TencentCaptchaService
 	aliyunCaptchaService  *AliyunCaptchaService
+	vaptchaService        *VaptchaService
 	emailQueueService     *EmailQueueService
 	promoService          *PromoService
 	affiliateService      *AffiliateService
@@ -419,7 +420,8 @@ func (s *AuthService) VerifyCaptcha(ctx context.Context, proof CaptchaProof, rem
 	turnstileEnabled := providerConfig.TurnstileEnabled
 	tencentEnabled := providerConfig.Tencent.Enabled
 	aliyunEnabled := providerConfig.Aliyun.Enabled
-	if captchaProvidersConflict(turnstileEnabled, tencentEnabled, aliyunEnabled) {
+	vaptchaEnabled := providerConfig.Vaptcha.Enabled
+	if captchaProvidersConflict(turnstileEnabled, tencentEnabled, aliyunEnabled, vaptchaEnabled) {
 		return ErrCaptchaProviderConflict
 	}
 	if tencentEnabled {
@@ -433,6 +435,12 @@ func (s *AuthService) VerifyCaptcha(ctx context.Context, proof CaptchaProof, rem
 			return ErrAliyunCaptchaNotConfigured
 		}
 		return s.aliyunCaptchaService.VerifyParamWithConfig(ctx, providerConfig.Aliyun, proof.TurnstileToken)
+	}
+	if vaptchaEnabled {
+		if s.vaptchaService == nil {
+			return ErrVaptchaNotConfigured
+		}
+		return s.vaptchaService.VerifyTokenWithConfig(ctx, providerConfig.Vaptcha, proof.TurnstileToken, remoteIP)
 	}
 	if turnstileEnabled {
 		if s.turnstileService == nil || strings.TrimSpace(providerConfig.TurnstileSecretKey) == "" {
@@ -471,10 +479,11 @@ func (s *AuthService) VerifyActionCaptchaIfEnabled(ctx context.Context, proof Ca
 	}
 	tencentEnabled := providerConfig.Tencent.Enabled
 	aliyunEnabled := providerConfig.Aliyun.Enabled
-	if !tencentEnabled && !aliyunEnabled {
+	vaptchaEnabled := providerConfig.Vaptcha.Enabled
+	if !tencentEnabled && !aliyunEnabled && !vaptchaEnabled {
 		return nil
 	}
-	if captchaProvidersConflict(providerConfig.TurnstileEnabled, tencentEnabled, aliyunEnabled) {
+	if captchaProvidersConflict(providerConfig.TurnstileEnabled, tencentEnabled, aliyunEnabled, vaptchaEnabled) {
 		return ErrCaptchaProviderConflict
 	}
 	if aliyunEnabled {
@@ -482,6 +491,12 @@ func (s *AuthService) VerifyActionCaptchaIfEnabled(ctx context.Context, proof Ca
 			return ErrAliyunCaptchaNotConfigured
 		}
 		return s.aliyunCaptchaService.VerifyParamWithConfig(ctx, providerConfig.Aliyun, proof.TurnstileToken)
+	}
+	if vaptchaEnabled {
+		if s.vaptchaService == nil {
+			return ErrVaptchaNotConfigured
+		}
+		return s.vaptchaService.VerifyTokenWithConfig(ctx, providerConfig.Vaptcha, proof.TurnstileToken, remoteIP)
 	}
 	if s.tencentCaptchaService == nil {
 		return ErrTencentCaptchaNotConfigured

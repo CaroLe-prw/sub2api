@@ -57,6 +57,11 @@ type SystemSettings struct {
 	AliyunCaptchaSceneID                   string
 	AliyunCaptchaPrefix                    string
 	AliyunCaptchaRegion                    string
+	VaptchaEnabled                         bool
+	VaptchaVID                             string
+	VaptchaKey                             string
+	VaptchaKeyConfigured                   bool
+	VaptchaScene                           int
 	APIKeyACLTrustForwardedIP              bool
 	ForwardedClientIPHeaders               []string
 
@@ -324,6 +329,9 @@ type PublicSettings struct {
 	AliyunCaptchaSceneID             string
 	AliyunCaptchaPrefix              string
 	AliyunCaptchaRegion              string
+	VaptchaEnabled                   bool
+	VaptchaVID                       string
+	VaptchaScene                     int
 	SiteName                         string
 	SiteLogo                         string
 	SiteSubtitle                     string

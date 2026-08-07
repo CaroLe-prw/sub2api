@@ -340,6 +340,10 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		AliyunCaptchaSceneID:                   settings[SettingKeyAliyunCaptchaSceneID],
 		AliyunCaptchaPrefix:                    settings[SettingKeyAliyunCaptchaPrefix],
 		AliyunCaptchaRegion:                    normalizeAliyunCaptchaRegion(settings[SettingKeyAliyunCaptchaRegion]),
+		VaptchaEnabled:                         settings[SettingKeyVaptchaEnabled] == "true",
+		VaptchaVID:                             settings[SettingKeyVaptchaVID],
+		VaptchaKeyConfigured:                   settings[SettingKeyVaptchaKey] != "",
+		VaptchaScene:                           parseVaptchaScene(settings[SettingKeyVaptchaScene]),
 		APIKeyACLTrustForwardedIP:              apiKeyACLTrustForwardedIP,
 		ForwardedClientIPHeaders:               forwardedClientIPHeaders,
 		SiteName:                               s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
@@ -415,6 +419,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.TencentCaptchaCloudSecretID = settings[SettingKeyTencentCaptchaCloudSecretID]
 	result.TencentCaptchaCloudSecretKey = settings[SettingKeyTencentCaptchaCloudSecretKey]
 	result.AliyunCaptchaAccessKeySecret = settings[SettingKeyAliyunCaptchaAccessKeySecret]
+	result.VaptchaKey = settings[SettingKeyVaptchaKey]
 
 	// LinuxDo Connect 设置：
 	// - 兼容 config.yaml/env（避免老部署因为未迁移到数据库设置而被意外关闭）

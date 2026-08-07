@@ -70,6 +70,10 @@ type SystemSettings struct {
 	AliyunCaptchaSceneID                   string   `json:"aliyun_captcha_scene_id"`
 	AliyunCaptchaPrefix                    string   `json:"aliyun_captcha_prefix"`
 	AliyunCaptchaRegion                    string   `json:"aliyun_captcha_region"`
+	VaptchaEnabled                         bool     `json:"vaptcha_enabled"`
+	VaptchaVID                             string   `json:"vaptcha_vid"`
+	VaptchaKeyConfigured                   bool     `json:"vaptcha_key_configured"`
+	VaptchaScene                           int      `json:"vaptcha_scene"`
 	APIKeyACLTrustForwardedIP              bool     `json:"api_key_acl_trust_forwarded_ip"`
 	ForwardedClientIPHeaders               []string `json:"forwarded_client_ip_headers"`
 
@@ -359,6 +363,9 @@ type PublicSettings struct {
 	AliyunCaptchaSceneID             string                   `json:"aliyun_captcha_scene_id"`
 	AliyunCaptchaPrefix              string                   `json:"aliyun_captcha_prefix"`
 	AliyunCaptchaRegion              string                   `json:"aliyun_captcha_region"`
+	VaptchaEnabled                   bool                     `json:"vaptcha_enabled"`
+	VaptchaVID                       string                   `json:"vaptcha_vid"`
+	VaptchaScene                     int                      `json:"vaptcha_scene"`
 	SiteName                         string                   `json:"site_name"`
 	SiteLogo                         string                   `json:"site_logo"`
 	SiteSubtitle                     string                   `json:"site_subtitle"`

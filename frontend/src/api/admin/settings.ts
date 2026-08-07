@@ -557,6 +557,10 @@ export interface SystemSettings {
   aliyun_captcha_scene_id: string;
   aliyun_captcha_prefix: string;
   aliyun_captcha_region: string;
+  vaptcha_enabled: boolean;
+  vaptcha_vid: string;
+  vaptcha_key_configured: boolean;
+  vaptcha_scene: number;
   api_key_acl_trust_forwarded_ip: boolean;
   forwarded_client_ip_headers: string[];
 
@@ -883,6 +887,10 @@ export interface UpdateSettingsRequest {
   aliyun_captcha_scene_id?: string;
   aliyun_captcha_prefix?: string;
   aliyun_captcha_region?: string;
+  vaptcha_enabled?: boolean;
+  vaptcha_vid?: string;
+  vaptcha_key?: string;
+  vaptcha_scene?: number;
   api_key_acl_trust_forwarded_ip?: boolean;
   forwarded_client_ip_headers?: string[];
   linuxdo_connect_enabled?: boolean;

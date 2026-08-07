@@ -192,7 +192,8 @@ export default {
         provider: 'Provider',
         providerTurnstile: 'Cloudflare Turnstile',
         providerTencent: 'Tencent Captcha',
-        providerAliyun: 'Aliyun Captcha 2.0'
+        providerAliyun: 'Aliyun Captcha 2.0',
+        providerVaptcha: 'VAPTCHA'
       },
       tencentCaptcha: {
         title: 'Tencent Captcha',
@@ -231,6 +232,15 @@ export default {
         regionCn: 'Mainland China',
         regionSgp: 'Singapore',
         regionHint: 'Determines the frontend script region and the server endpoint; must match your captcha instance region'
+      },
+      vaptcha: {
+        vid: 'Verification unit VID',
+        key: 'Verification unit Key',
+        scene: 'Scene ID',
+        keepExisting: 'Leave blank to keep the current Key',
+        configured: 'Key is configured; leave blank to keep it',
+        required: 'Key is required when enabled',
+        console: 'Open VAPTCHA Console'
       },
       apiKeyAcl: {
         title: 'API Key IP Access Control',

@@ -22,6 +22,9 @@ const (
 	TencentCaptchaDomain = "https://turing.captcha.qcloud.com"
 	// TencentCaptchaStaticDomain is the Tencent Captcha static asset domain.
 	TencentCaptchaStaticDomain = "https://*.captcha.gtimg.com"
+	// VaptchaDomain and VaptchaNetDomain cover the VAPTCHA SDK and challenge frames.
+	VaptchaDomain    = "https://*.vaptcha.com"
+	VaptchaNetDomain = "https://*.vaptcha.net"
 	// StripeDomain is the domain for Stripe.js SDK
 	StripeDomain = "https://*.stripe.com"
 	// AirwallexStaticDomain 是 Airwallex 生产环境 SDK 脚本域名。
@@ -42,6 +45,10 @@ var requiredCSPDirectiveValues = []struct {
 	{"script-src", TencentCaptchaDomain},
 	{"frame-src", TencentCaptchaDomain},
 	{"style-src", TencentCaptchaStaticDomain},
+	{"script-src", VaptchaDomain},
+	{"script-src", VaptchaNetDomain},
+	{"frame-src", VaptchaDomain},
+	{"frame-src", VaptchaNetDomain},
 	{"script-src", StripeDomain},
 	{"frame-src", StripeDomain},
 	{"script-src", AirwallexStaticDomain},

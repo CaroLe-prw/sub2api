@@ -324,6 +324,16 @@ func TestEnhanceCSPPolicy(t *testing.T) {
 		assert.Contains(t, config.DefaultCSPPolicy, "style-src 'self' 'unsafe-inline' https://*.captcha.gtimg.com")
 	})
 
+	t.Run("adds_vaptcha_domains_for_sdk_and_challenge", func(t *testing.T) {
+		policy := "default-src 'self'; script-src 'self' __CSP_NONCE__"
+		enhanced := enhanceCSPPolicy(policy)
+
+		assert.Equal(t, 1, countDirectiveValue(enhanced, "script-src", VaptchaDomain))
+		assert.Equal(t, 1, countDirectiveValue(enhanced, "script-src", VaptchaNetDomain))
+		assert.Equal(t, 1, countDirectiveValue(enhanced, "frame-src", VaptchaDomain))
+		assert.Equal(t, 1, countDirectiveValue(enhanced, "frame-src", VaptchaNetDomain))
+	})
+
 	t.Run("handles_policy_without_script_src", func(t *testing.T) {
 		policy := "default-src 'self'"
 		enhanced := enhanceCSPPolicy(policy)
