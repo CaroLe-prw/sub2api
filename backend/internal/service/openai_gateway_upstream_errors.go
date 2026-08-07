@@ -164,6 +164,37 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 	return match(string(upstreamBody))
 }
 
+func isOpenAIModelCapacityError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if upstreamStatusCode != http.StatusBadRequest {
+		return false
+	}
+
+	match := func(text string) bool {
+		return strings.Contains(strings.ToLower(strings.TrimSpace(text)), "selected model is at capacity")
+	}
+	if match(upstreamMsg) {
+		return true
+	}
+	if len(upstreamBody) == 0 {
+		return false
+	}
+	for _, path := range []string{
+		"error.message",
+		"response.error.message",
+		"message",
+	} {
+		if match(gjson.GetBytes(upstreamBody, path).String()) {
+			return true
+		}
+	}
+	return match(string(upstreamBody))
+}
+
+func shouldRetryOpenAIOAuthCapacityOnSameAccount(account *Account, statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	return account != nil && account.Platform == PlatformOpenAI && account.IsOAuth() &&
+		isOpenAIModelCapacityError(statusCode, upstreamMsg, upstreamBody)
+}
+
 func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 	match := func(text string) bool {
 		lower := strings.ToLower(strings.TrimSpace(text))
@@ -247,12 +278,14 @@ func newOpenAIUpstreamFailoverError(
 	responseBody []byte,
 	upstreamMsg string,
 	retryableOnSameAccount bool,
+	retryableOnSameAccountIfNoOtherAccount bool,
 ) *UpstreamFailoverError {
 	failoverErr := &UpstreamFailoverError{
-		StatusCode:             statusCode,
-		ResponseBody:           responseBody,
-		ResponseHeaders:        responseHeaders.Clone(),
-		RetryableOnSameAccount: retryableOnSameAccount,
+		StatusCode:                             statusCode,
+		ResponseBody:                           responseBody,
+		ResponseHeaders:                        responseHeaders.Clone(),
+		RetryableOnSameAccount:                 retryableOnSameAccount,
+		RetryableOnSameAccountIfNoOtherAccount: retryableOnSameAccountIfNoOtherAccount,
 	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, responseBody) {
 		failoverErr.RetryableOnSameAccount = false
@@ -400,6 +433,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 			resp.Header,
 			body,
 			upstreamMsg,
+			false,
 			false,
 		)
 	}

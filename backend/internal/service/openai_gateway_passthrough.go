@@ -602,6 +602,7 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 		body,
 		upstreamMsg,
 		!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+		!shouldDisable && shouldRetryOpenAIOAuthCapacityOnSameAccount(account, resp.StatusCode, upstreamMsg, body),
 	)
 }
 
@@ -1034,11 +1035,12 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverError(
 		},
 	})
 	return &UpstreamFailoverError{
-		StatusCode:             statusCode,
-		ResponseBody:           body,
-		ResponseHeaders:        headers,
-		RetryableOnSameAccount: openAIStreamFailedEventRetryableOnSameAccount(account, payload, message),
-		RequestScopedTransient: isOpenAIUpstreamCapacityShedEvent(payload),
+		StatusCode:                             statusCode,
+		ResponseBody:                           body,
+		ResponseHeaders:                        headers,
+		RetryableOnSameAccount:                 openAIStreamFailedEventRetryableOnSameAccount(account, payload, message),
+		RetryableOnSameAccountIfNoOtherAccount: shouldRetryOpenAIOAuthCapacityOnSameAccount(account, http.StatusBadRequest, message, payload),
+		RequestScopedTransient:                 isOpenAIUpstreamCapacityShedEvent(payload),
 	}
 }
 

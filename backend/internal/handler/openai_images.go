@@ -152,6 +152,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
+	var lastFailoverAccountID int64
 	stopJSONKeepalive := func() {}
 	jsonKeepaliveStarted := false
 	defer func() { stopJSONKeepalive() }()
@@ -186,6 +187,14 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					message = "No available compatible accounts"
 				}
 				h.handleStreamingAwareError(c, cls.Status, cls.ErrType, message, streamStarted)
+				return
+			}
+			switch action := handleOpenAIOAuthCapacitySelectionExhausted(
+				requestCtx, failedAccountIDs, lastFailoverErr, lastFailoverAccountID, sameAccountRetryCount, reqLog,
+			); action {
+			case FailoverContinue:
+				continue
+			case FailoverCanceled:
 				return
 			}
 			if lastFailoverErr != nil {
@@ -324,6 +333,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
+					lastFailoverAccountID = account.ID
 					if switchCount >= maxAccountSwitches {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
