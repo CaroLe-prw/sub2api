@@ -4256,9 +4256,14 @@ const handleSubmit = async () => {
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
     if (props.account.type === 'apikey') {
-      updatePayload.upstream_billing_probe_enabled = upstreamBillingMode.value === 'sub2api'
-      updatePayload.upstream_billing_rate_sync_enabled =
-        upstreamBillingMode.value === 'sub2api' && upstreamBillingRateSyncEnabled.value
+      // NewAPI owns its source transition through the dedicated endpoint.
+      // Omitting the generic probe flags here prevents a no-op account edit
+      // from being interpreted as an explicit probe disable.
+      if (upstreamBillingMode.value !== 'newapi') {
+        updatePayload.upstream_billing_probe_enabled = upstreamBillingMode.value === 'sub2api'
+        updatePayload.upstream_billing_rate_sync_enabled =
+          upstreamBillingMode.value === 'sub2api' && upstreamBillingRateSyncEnabled.value
+      }
       if (accountRateManaged.value) {
         delete updatePayload.rate_multiplier
       }
@@ -4742,7 +4747,7 @@ const handleSubmit = async () => {
       if (openAIForceFastModeEnabled.value) {
         newExtra.openai_force_fast_mode = true
       } else {
-        delete newExtra.openai_force_fast_mode
+        newExtra.openai_force_fast_mode = false
       }
       // 缺省即保留 namespace，不写空值，避免 extra 里堆积默认项
       if (props.account.type === 'oauth' && openaiFlattenNamespacesEnabled.value) {

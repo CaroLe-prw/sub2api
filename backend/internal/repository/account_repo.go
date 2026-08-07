@@ -595,7 +595,10 @@ func lockAndMergeAccountProbeExtra(
 		SELECT
 			platform = $2
 			AND type = $3
-			AND credentials = $4::jsonb
+			AND credentials -> 'api_key' IS NOT DISTINCT FROM $4::jsonb -> 'api_key'
+			AND credentials -> 'base_url' IS NOT DISTINCT FROM $4::jsonb -> 'base_url'
+			AND credentials -> 'header_override_enabled' IS NOT DISTINCT FROM $4::jsonb -> 'header_override_enabled'
+			AND credentials -> 'header_overrides' IS NOT DISTINCT FROM $4::jsonb -> 'header_overrides'
 			AND proxy_id IS NOT DISTINCT FROM $5,
 			COALESCE(
 				platform IN ('openai', 'anthropic')
@@ -733,7 +736,11 @@ func lockAndMergeAccountProbeExtra(
 			return nil, service.ErrUpstreamBillingRateSyncConflict
 		}
 	}
-	probeExplicitlyDisabled := probeEnabledPresent && !probeEnabled
+	newAPIOwned, _ := extra[service.NewAPISyncEnabledExtraKey].(bool)
+	// The generic probe flag is false while NewAPI owns the shared scheduling
+	// snapshot. Old edit clients may still submit that false explicitly, so it
+	// must not erase NewAPI's rate and balance data.
+	probeExplicitlyDisabled := probeEnabledPresent && !probeEnabled && !newAPIOwned
 	if identityUnchanged && !probeExplicitlyDisabled {
 		if snapshot, ok, err := decodeAccountExtraJSON(currentSnapshot); err != nil {
 			return nil, err
