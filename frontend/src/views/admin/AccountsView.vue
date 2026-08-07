@@ -2051,7 +2051,7 @@ const handleDuplicateAccount = async (a: Account) => {
     const duplicate = await adminAPI.accounts.duplicate(a.id)
     appStore.showSuccess(t('admin.accounts.duplicateSuccess', { name: duplicate.name }))
     await reload()
-    // 复制接口会主动清理敏感凭据、探测快照和自动同步身份；立即打开完整编辑页补齐。
+    // 复制接口保留静态上游连接配置，仅清理同步运行状态；打开完整编辑页供管理员确认。
     edAcc.value = accounts.value.find(candidate => candidate.id === duplicate.id) || duplicate
     showEdit.value = true
   } catch (error: any) {

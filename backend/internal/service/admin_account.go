@@ -147,6 +147,37 @@ var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	"codex_7d_reset_at":                      {},
 }
 
+var duplicateAccountNewAPIConfigKeys = [...]string{
+	NewAPISyncEnabledExtraKey,
+	NewAPIBaseURLExtraKey,
+	NewAPIUserAccessTokenExtraKey,
+	NewAPIUserIDExtraKey,
+}
+
+func duplicateAccountNewAPIConfig(value map[string]any) map[string]any {
+	config := make(map[string]any, len(duplicateAccountNewAPIConfigKeys)+1)
+	for _, key := range duplicateAccountNewAPIConfigKeys {
+		if field, exists := value[key]; exists {
+			config[key] = field
+		}
+	}
+	if len(config) == 0 {
+		return nil
+	}
+
+	stored := newAPIStoredConfigFromAccount(&Account{Extra: config})
+	if stored.BaseURL != "" || stored.UserID > 0 || stored.UserAccessToken != "" {
+		// The fingerprint is row-scoped by repository CAS checks. Recompute it
+		// from the copied connection settings instead of carrying source state.
+		config[NewAPISyncIdentityExtraKey] = newAPISyncIdentity(
+			stored.BaseURL,
+			stored.UserID,
+			stored.UserAccessToken,
+		)
+	}
+	return config
+}
+
 func duplicateAccountExtra(value map[string]any) (map[string]any, error) {
 	cloned, err := cloneAccountJSONMap(value)
 	if err != nil {
@@ -268,6 +299,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	if err != nil {
 		return nil, fmt.Errorf("clone account credentials: %w", err)
 	}
+	newAPIConfig := duplicateAccountNewAPIConfig(source.Extra)
 	extra, err := duplicateAccountExtra(source.Extra)
 	if err != nil {
 		return nil, fmt.Errorf("clone account extra configuration: %w", err)
@@ -326,6 +358,12 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	duplicate, err := buildAccountForCreate(input, accountExtra)
 	if err != nil {
 		return nil, err
+	}
+	if duplicate.Extra == nil && len(newAPIConfig) > 0 {
+		duplicate.Extra = make(map[string]any, len(newAPIConfig))
+	}
+	for key, value := range newAPIConfig {
+		duplicate.Extra[key] = value
 	}
 	// A copied credential must be reviewed before it can share live traffic with its source.
 	duplicate.Schedulable = false
