@@ -1,16 +1,9 @@
 <template>
-  <button
-    type="button"
-    class="btn-secondary w-full"
-    :disabled="loading"
-    @click="verify"
-  >
-    {{ loading ? $t('auth.captchaVerifying') : $t('auth.captchaClickToVerify') }}
-  </button>
+  <span v-if="false" />
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount } from 'vue'
 
 interface VaptchaInstance {
   listen(event: string, callback: () => void): void
@@ -28,14 +21,17 @@ declare global {
 
 const props = defineProps<{ vid: string; scene?: number }>()
 const emit = defineEmits<{ verify: [token: string]; error: [] }>()
-const loading = ref(false)
+
 let instance: VaptchaInstance | null = null
+let pending: Promise<string | null> | null = null
+let cancelPending: (() => void) | null = null
 let scriptPromise: Promise<void> | null = null
 
 function loadScript(): Promise<void> {
   if (window.vaptcha) return Promise.resolve()
   if (scriptPromise) return scriptPromise
-  scriptPromise = new Promise((resolve, reject) => {
+
+  const pendingScript = new Promise<void>((resolve, reject) => {
     const script = document.createElement('script')
     script.src = 'https://v.vaptcha.com/v3.js'
     script.async = true
@@ -43,61 +39,89 @@ function loadScript(): Promise<void> {
     script.onerror = () => reject(new Error('Failed to load VAPTCHA SDK'))
     document.head.appendChild(script)
   })
-  return scriptPromise
+  scriptPromise = pendingScript
+  void pendingScript.catch(() => {
+    if (scriptPromise === pendingScript) scriptPromise = null
+  })
+  return pendingScript
 }
 
-async function getInstance(): Promise<VaptchaInstance> {
-  if (instance) return instance
-  await loadScript()
-  if (!window.vaptcha) throw new Error('VAPTCHA SDK is unavailable')
-  instance = await window.vaptcha({
-    vid: props.vid,
-    mode: 'click',
-    scene: props.scene ?? 0,
-    style: 'light',
-    lang: 'auto',
-    area: 'auto'
+function serializeServerToken(captcha: VaptchaInstance): string | null {
+  const serverToken = captcha.getServerToken()
+  if (!serverToken?.token) return null
+  return JSON.stringify({
+    token: serverToken.token,
+    server: serverToken.server || ''
   })
-  instance.listen('pass', () => {
-    const serverToken = instance?.getServerToken()
-    const token = serverToken?.token
-      ? JSON.stringify({ token: serverToken.token, server: serverToken.server || '' })
-      : ''
-    loading.value = false
-    if (token) emit('verify', token)
-    else emit('error')
-  })
-  instance.listen('close', () => {
-    loading.value = false
-    instance?.reset()
-  })
-  instance.render()
-  return instance
 }
 
-async function verify(): Promise<string | null> {
-  loading.value = true
-  try {
-    const captcha = await getInstance()
-    return await new Promise((resolve) => {
-      captcha.listen('pass', () => {
-        const serverToken = captcha.getServerToken()
-        resolve(serverToken.token ? JSON.stringify({ token: serverToken.token, server: serverToken.server || '' }) : null)
+function createVerificationPromise(): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+
+    const finish = (callback: () => void): void => {
+      if (settled) return
+      settled = true
+      if (cancelPending === cancel) cancelPending = null
+      instance?.reset()
+      instance = null
+      callback()
+    }
+    const cancel = (): void => finish(() => resolve(null))
+
+    cancelPending = cancel
+    void loadScript()
+      .then(async () => {
+        if (cancelPending !== cancel) return
+        if (!window.vaptcha) throw new Error('VAPTCHA SDK is unavailable')
+
+        const captcha = await window.vaptcha({
+          vid: props.vid,
+          mode: 'invisible',
+          scene: props.scene ?? 0,
+          lang: 'auto',
+          area: 'auto'
+        })
+        if (cancelPending !== cancel) {
+          captcha.reset()
+          return
+        }
+
+        instance = captcha
+        captcha.listen('pass', () => {
+          const token = serializeServerToken(captcha)
+          if (!token) {
+            finish(() => reject(new Error('VAPTCHA verification returned no token')))
+            return
+          }
+          emit('verify', token)
+          finish(() => resolve(token))
+        })
+        captcha.listen('close', cancel)
+        captcha.render()
+        captcha.validate()
       })
-      captcha.listen('close', () => resolve(null))
-      captcha.validate()
-    })
-  } catch {
-    loading.value = false
-    emit('error')
-    return null
-  }
+      .catch((error: unknown) => {
+        finish(() => reject(error))
+      })
+  })
+}
+
+function verify(): Promise<string | null> {
+  if (pending) return pending
+  pending = createVerificationPromise().finally(() => {
+    pending = null
+  })
+  return pending
 }
 
 function reset(): void {
-  loading.value = false
   instance?.reset()
+  instance = null
+  cancelPending?.()
+  cancelPending = null
 }
 
+onBeforeUnmount(reset)
 defineExpose({ verify, reset })
 </script>

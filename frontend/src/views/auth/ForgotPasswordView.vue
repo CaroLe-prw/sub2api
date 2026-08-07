@@ -311,7 +311,9 @@ async function handleSubmit(): Promise<void> {
     await forgotPassword({
       email: formData.email,
       turnstile_token:
-        turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
+        turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value
+          ? turnstileToken.value
+          : undefined,
       tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
       tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined
     })

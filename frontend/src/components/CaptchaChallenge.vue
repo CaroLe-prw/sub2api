@@ -39,7 +39,7 @@ import TencentCaptchaGate from '@/components/TencentCaptchaGate.vue'
 import AliyunCaptchaWidget from '@/components/AliyunCaptchaWidget.vue'
 import VaptchaWidget from '@/components/VaptchaWidget.vue'
 
-// ActionCaptchaResult 动作触发式验证（腾讯/阿里云弹窗）的结果：
+// ActionCaptchaResult 动作触发式验证（腾讯/阿里云/VAPTCHA）的结果：
 // 腾讯 token=ticket、randstr 非空；阿里云 token=captchaVerifyParam、randstr 恒为空。
 export interface ActionCaptchaResult {
   token: string
@@ -79,7 +79,7 @@ function reset(): void {
   vaptchaRef.value?.reset()
 }
 
-// verifyAction 弹出当前启用的动作触发式验证码（腾讯/阿里云）并等待结果；
+// verifyAction 弹出当前启用的动作触发式验证码（腾讯/阿里云/VAPTCHA）并等待结果；
 // 用户关闭弹窗返回 null，验证异常 emit('error') 并返回 null。
 async function verifyAction(): Promise<ActionCaptchaResult | null> {
   if (props.tencentEnabled && props.tencentAppId) {

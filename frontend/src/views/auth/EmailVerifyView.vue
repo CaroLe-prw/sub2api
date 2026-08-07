@@ -546,7 +546,7 @@ async function sendCode(): Promise<void> {
       [pendingAuthTokenField.value]: pendingAuthToken.value || undefined,
       // 优先使用重发时新获取的 token（因为初始 token 可能已被使用）
       turnstile_token:
-        turnstileEnabled.value || aliyunCaptchaEnabled.value
+        turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value
           ? resendTurnstileToken.value || initialTurnstileToken.value || undefined
           : undefined,
       tencent_captcha_ticket: tencentCaptchaEnabled.value
@@ -682,7 +682,7 @@ async function handleVerify(): Promise<void> {
         email: email.value,
         password: password.value,
         verify_code: verifyCode.value.trim(),
-        ...((turnstileEnabled.value || aliyunCaptchaEnabled.value) &&
+        ...((turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value) &&
         createAccountTurnstileToken.value
           ? { turnstile_token: createAccountTurnstileToken.value }
           : {}),
@@ -728,7 +728,7 @@ async function handleVerify(): Promise<void> {
         password: password.value,
         verify_code: verifyCode.value.trim(),
         turnstile_token:
-          turnstileEnabled.value || aliyunCaptchaEnabled.value
+          turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value
             ? initialTurnstileToken.value || undefined
             : undefined,
         tencent_captcha_ticket: tencentCaptchaEnabled.value ? initialTurnstileToken.value || undefined : undefined,

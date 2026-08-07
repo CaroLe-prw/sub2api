@@ -311,7 +311,7 @@ const aliyunCaptchaReady = computed(
     Boolean(aliyunCaptchaSceneId.value) &&
     Boolean(aliyunCaptchaPrefix.value)
 )
-// 动作触发式验证码（腾讯/阿里云）：提交、OAuth 启动、passkey 时弹窗验证
+// 动作触发式验证码（腾讯/阿里云/VAPTCHA）：提交、OAuth 启动、passkey 时弹窗验证
 const actionCaptchaEnabled = computed(
   () =>
     (tencentCaptchaEnabled.value && Boolean(tencentCaptchaAppId.value)) ||
@@ -581,12 +581,14 @@ async function handleLogin(): Promise<void> {
   isLoading.value = true
 
   try {
-    // Call auth store login（阿里云 captchaVerifyParam 复用 turnstile_token 字段）
+    // Call auth store login（阿里云和 VAPTCHA 的验证参数复用 turnstile_token 字段）
     const response = await authStore.login({
       email: formData.email,
       password: formData.password,
       turnstile_token:
-        turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
+        turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value
+          ? turnstileToken.value
+          : undefined,
       tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
       tencent_captcha_randstr: tencentCaptchaEnabled.value
         ? tencentCaptchaRandstr.value

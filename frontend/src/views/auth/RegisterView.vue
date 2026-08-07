@@ -1009,7 +1009,9 @@ async function handleRegister(): Promise<void> {
           email: formData.email,
           password: formData.password,
           turnstile_token:
-            turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
+            turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value
+              ? turnstileToken.value
+              : undefined,
           tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
           tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined,
           promo_code: formData.promo_code || undefined,
@@ -1028,7 +1030,9 @@ async function handleRegister(): Promise<void> {
       email: formData.email,
       password: formData.password,
       turnstile_token:
-        turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
+        turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value
+          ? turnstileToken.value
+          : undefined,
       tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
       tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined,
       promo_code: formData.promo_code || undefined,

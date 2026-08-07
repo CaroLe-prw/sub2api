@@ -289,7 +289,9 @@ async function handleSendCode() {
     const response = await sendPendingOAuthVerifyCode({
       email: trimmedEmail,
       turnstile_token:
-        turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
+        turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value
+          ? turnstileToken.value
+          : undefined,
       tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
       tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined
     })
@@ -327,7 +329,7 @@ async function handleSubmit() {
     email: trimmedEmail,
     password: password.value,
     verifyCode: emailVerifyEnabled.value ? verifyCode.value.trim() : '',
-    ...((turnstileEnabled.value || aliyunCaptchaEnabled.value) && turnstileToken.value
+    ...((turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value) && turnstileToken.value
       ? { turnstileToken: turnstileToken.value }
       : {}),
     ...(tencentCaptchaEnabled.value && turnstileToken.value
