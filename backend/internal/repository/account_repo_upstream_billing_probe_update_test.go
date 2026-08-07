@@ -79,7 +79,7 @@ func TestLockAndMergeAccountProbeExtraUsesCurrentDatabaseSnapshot(t *testing.T) 
 			client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 			t.Cleanup(func() { _ = client.Close() })
 
-			mock.ExpectQuery(`(?s)`+regexp.QuoteMeta("SELECT")+`.*`+regexp.QuoteMeta("FOR NO KEY UPDATE")).
+			mock.ExpectQuery(`(?s)`+regexp.QuoteMeta("SELECT")+`\s+platform = \$2\s+AND type = \$3\s+AND credentials -> 'api_key' IS NOT DISTINCT FROM \$4::jsonb -> 'api_key'\s+AND credentials -> 'base_url' IS NOT DISTINCT FROM \$4::jsonb -> 'base_url'\s+AND credentials -> 'header_override_enabled' IS NOT DISTINCT FROM \$4::jsonb -> 'header_override_enabled'\s+AND credentials -> 'header_overrides' IS NOT DISTINCT FROM \$4::jsonb -> 'header_overrides'.*`+regexp.QuoteMeta("FOR NO KEY UPDATE")).
 				WithArgs(int64(27), service.PlatformOpenAI, service.AccountTypeAPIKey, `{"api_key":"sk-test"}`, nil).
 				WillReturnRows(sqlmock.NewRows([]string{"identity_unchanged", "ollama_group_unchanged", "ollama_proxy_unchanged", "enabled", "rate_sync_enabled", "snapshot", "ollama_session", "ollama_auto", "ollama_snapshot", "extra"}).
 					AddRow(tt.identityUnchanged, false, true, tt.databaseEnabled, nil, tt.databaseSnapshot, nil, nil, nil, []byte(`{}`)))
@@ -102,6 +102,49 @@ func TestLockAndMergeAccountProbeExtraUsesCurrentDatabaseSnapshot(t *testing.T) 
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
+}
+
+func TestLockAndMergeAccountProbeExtraPreservesNewAPISnapshotOnGenericProbeDisable(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	t.Cleanup(func() { _ = client.Close() })
+
+	mock.ExpectQuery(`(?s)`+regexp.QuoteMeta("SELECT")+`.*`+regexp.QuoteMeta("FOR NO KEY UPDATE")).
+		WithArgs(int64(28), service.PlatformOpenAI, service.AccountTypeAPIKey, `{"api_key":"sk-test"}`, nil).
+		WillReturnRows(sqlmock.NewRows([]string{"identity_unchanged", "ollama_group_unchanged", "ollama_proxy_unchanged", "enabled", "rate_sync_enabled", "snapshot", "ollama_session", "ollama_auto", "ollama_snapshot", "extra"}).
+			AddRow(
+				true,
+				false,
+				true,
+				[]byte(`false`),
+				[]byte(`false`),
+				[]byte(`{"status":"ok","data":{"source":"newapi","balance":12.5}}`),
+				nil,
+				nil,
+				nil,
+				[]byte(`{"newapi_sync_enabled":true}`),
+			))
+
+	account := &service.Account{
+		ID:          28,
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sk-test"},
+		Extra:       map[string]any{service.NewAPISyncEnabledExtraKey: true},
+	}
+	disabled := false
+	got, err := lockAndMergeAccountProbeExtra(
+		context.Background(), client, account, &disabled, &disabled, nil,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"status": "ok",
+		"data":   map[string]any{"source": "newapi", "balance": 12.5},
+	}, got[service.UpstreamBillingProbeExtraKey])
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func probeBoolPtr(value bool) *bool {

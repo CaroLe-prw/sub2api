@@ -450,6 +450,27 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_force_fast_mode).toBe(true)
   })
 
+  it('explicitly disables the per-account upstream Fast override', async () => {
+    const account = buildAccount()
+    account.extra = {
+      openai_force_fast_mode: true
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const toggle = wrapper.get('[data-testid="openai-force-fast-mode-toggle"]')
+
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_force_fast_mode).toBe(false)
+  })
+
   it('loads and submits the per-account OpenAI long-context billing toggle', async () => {
     const account = buildAccount()
     account.extra = {
@@ -779,8 +800,11 @@ describe('EditAccountModal', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_balance_alert_enabled).toBe(true)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_balance_alert_threshold).toBe(20)
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload?.extra?.upstream_balance_alert_enabled).toBe(true)
+    expect(payload?.extra?.upstream_balance_alert_threshold).toBe(20)
+    expect(payload).not.toHaveProperty('upstream_billing_probe_enabled')
+    expect(payload).not.toHaveProperty('upstream_billing_rate_sync_enabled')
   })
 
   it('exposes Sub2API probing for non-OpenAI API-key accounts', async () => {
