@@ -863,6 +863,94 @@ func TestOpenAIGatewayService_Forward_WSv2RetryFiveTimesThenFallbackHTTP(t *test
 	require.Equal(t, int32(openAIWSReconnectRetryLimit+1), wsAttempts.Load())
 }
 
+func TestOpenAIGatewayService_Forward_WSv2CapacityFailureBeforeOutputReturnsPoolRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var wsAttempts atomic.Int32
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	wsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wsAttempts.Add(1)
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade websocket failed: %v", err)
+			return
+		}
+		defer func() { _ = conn.Close() }()
+
+		var req map[string]any
+		if err := conn.ReadJSON(&req); err != nil {
+			t.Errorf("read ws request failed: %v", err)
+			return
+		}
+		if err := conn.WriteJSON(map[string]any{
+			"type":     "response.created",
+			"response": map[string]any{"id": "resp_capacity"},
+		}); err != nil {
+			t.Errorf("write response.created failed: %v", err)
+			return
+		}
+		if err := conn.WriteJSON(map[string]any{
+			"type": "response.failed",
+			"response": map[string]any{
+				"id": "resp_capacity",
+				"error": map[string]any{
+					"type":    "invalid_request_error",
+					"message": "Selected model is at capacity. Please try a different model.",
+				},
+			},
+		}); err != nil {
+			t.Errorf("write response.failed failed: %v", err)
+		}
+	}))
+	defer wsServer.Close()
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	c.Request.Header.Set("User-Agent", "custom-client/1.0")
+
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = false
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg.Gateway.OpenAIWS.Enabled = true
+	cfg.Gateway.OpenAIWS.OAuthEnabled = true
+	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
+
+	svc := &OpenAIGatewayService{
+		cfg:              cfg,
+		httpUpstream:     &httpUpstreamRecorder{},
+		openaiWSResolver: NewOpenAIWSProtocolResolver(cfg),
+		toolCorrector:    NewCodexToolCorrector(),
+	}
+	account := &Account{
+		ID:          891,
+		Name:        "openai-pool-apikey",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":               "sk-test",
+			"base_url":              wsServer.URL,
+			"pool_mode":             true,
+			"pool_mode_retry_count": float64(3),
+		},
+		Extra: map[string]any{"responses_websockets_v2_enabled": true},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.4","stream":true,"input":"hello"}`))
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.RequestScopedTransient)
+	require.Contains(t, string(failoverErr.ResponseBody), "Selected model is at capacity")
+	require.False(t, c.Writer.Written())
+	require.Empty(t, rec.Body.String())
+	require.Equal(t, int32(1), wsAttempts.Load())
+}
+
 func TestOpenAIGatewayService_Forward_WSv2PolicyViolationFastFallbackHTTP(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

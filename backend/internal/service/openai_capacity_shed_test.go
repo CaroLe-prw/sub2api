@@ -65,6 +65,11 @@ func TestStreamFailedEventCapacityShedRetriesOnSameAccount(t *testing.T) {
 		require.True(t, openAIStreamFailedEventRetryableOnSameAccount(nonPool, payload, "overloaded"), code)
 	}
 
+	messageOnly := []byte(`{"type":"response.failed","response":{"error":{"type":"invalid_request_error","message":"Selected model is at capacity. Please try a different model."}}}`)
+	require.False(t, isOpenAIUpstreamCapacityShedEvent(messageOnly))
+	require.True(t, isOpenAIStreamRequestScopedCapacityError(messageOnly, "Selected model is at capacity. Please try a different model."))
+	require.True(t, openAIStreamFailedEventRetryableOnSameAccount(nonPool, messageOnly, "Selected model is at capacity. Please try a different model."))
+
 	// 非降载的 failed 事件在非池模式下仍不做同账号重试，避免放大改动面。
 	other := []byte(`{"type":"response.failed","response":{"error":{"code":"server_error"}}}`)
 	require.False(t, isOpenAIUpstreamCapacityShedEvent(other))

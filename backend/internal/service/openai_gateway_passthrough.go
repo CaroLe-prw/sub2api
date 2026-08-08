@@ -790,6 +790,11 @@ func isOpenAIUpstreamCapacityShedEvent(payload []byte) bool {
 	}
 }
 
+func isOpenAIStreamRequestScopedCapacityError(payload []byte, message string) bool {
+	return isOpenAIUpstreamCapacityShedEvent(payload) ||
+		isOpenAIRequestScopedCapacityError(http.StatusBadRequest, message, payload)
+}
+
 func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 	if isOpenAIContextWindowError(message, payload) {
 		return http.StatusBadRequest
@@ -952,7 +957,7 @@ func openAIStreamFailedEventRetryableOnSameAccount(account *Account, payload []b
 	// 换账号并不改变被降载的因素（客户端身份、模型容量都与账号无关），
 	// 只会让单个请求把整池账号逐个消耗掉，最终仍以同一个错误告终。
 	// 因此先在同一账号上做有界重试，用尽后才按常规流程切号。
-	if isOpenAIUpstreamCapacityShedEvent(payload) {
+	if isOpenAIStreamRequestScopedCapacityError(payload, message) {
 		return true
 	}
 	if !account.IsPoolMode() {
@@ -1043,7 +1048,7 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverError(
 		ResponseBody:           body,
 		ResponseHeaders:        headers,
 		RetryableOnSameAccount: openAIStreamFailedEventRetryableOnSameAccount(account, payload, message),
-		RequestScopedTransient: isOpenAIUpstreamCapacityShedEvent(payload),
+		RequestScopedTransient: isOpenAIStreamRequestScopedCapacityError(payload, message),
 	}
 }
 

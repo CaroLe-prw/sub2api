@@ -564,6 +564,20 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		imageCounter.AddSSEData(message)
 
 		if eventType == "response.failed" {
+			failedBody := openAIStreamFailedEventPassthroughBody(message, "")
+			failedMessage := extractUpstreamErrorMessage(failedBody)
+			if !wroteDownstream && firstTokenMs == nil && isOpenAIStreamRequestScopedCapacityError(message, failedMessage) {
+				lease.MarkBroken()
+				return nil, s.newOpenAIStreamFailoverError(
+					c,
+					account,
+					false,
+					responseID,
+					message,
+					failedMessage,
+					lease.HandshakeHeaders(),
+				)
+			}
 			if hit, code, msg := detectOpenAICyberPolicy(message); hit {
 				MarkOpsCyberPolicy(c, CyberPolicyMark{
 					Code:           code,
