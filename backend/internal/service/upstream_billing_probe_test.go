@@ -551,7 +551,7 @@ func TestUpstreamBillingProbeSyncsResolvedRateForAllAPIKeyPlatforms(t *testing.T
 	}
 }
 
-func TestUpstreamBillingProbeOnlyDoesNotChangeAccountRate(t *testing.T) {
+func TestUpstreamBillingProbeAlwaysSynchronizesAccountRate(t *testing.T) {
 	initialRate := 0.25
 	account := &Account{
 		ID:             18,
@@ -574,7 +574,7 @@ func TestUpstreamBillingProbeOnlyDoesNotChangeAccountRate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, UpstreamBillingProbeStatusOK, snapshot.Status)
 	require.NotNil(t, account.RateMultiplier)
-	require.Equal(t, initialRate, *account.RateMultiplier)
+	require.Equal(t, 0.8, *account.RateMultiplier)
 	require.Contains(t, account.Extra, UpstreamBillingProbeExtraKey)
 }
 

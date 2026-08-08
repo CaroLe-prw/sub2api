@@ -180,7 +180,7 @@ export default {
       upstreamBilling: {
         trustWarning: '上游声明倍率无法验证。调度排序可使用“上游声明 × 校准系数”，但准入与计费使用持久化的账号倍率。请结合账单和余额变化校准。',
         mode: '上游倍率来源',
-        modeHint: '为该账号选择一种自动倍率来源，Sub2API 探测与 NewAPI 同步不会同时运行。',
+        modeHint: '为该账号选择一种自动倍率来源。Sub2API 探测会自动同步声明倍率，且不会与 NewAPI 同时运行。',
         modes: {
           off: '关闭',
           sub2api: 'Sub2API',
@@ -196,8 +196,6 @@ export default {
         calibration: '校准系数：{value}x',
         manualFallback: '账号计费倍率：{value}x',
         manualProbe: '立即刷新上游倍率和余额',
-        syncRate: '同步上游声明倍率',
-        syncRateHint: '成功探测后自动更新账号倍率，同步的是不含高峰的基准倍率；探测失败或声明超出允许范围时保持不变。开启本项会同时打开“自动探测上游声明倍率”。',
         syncRateManagedHint: '当前倍率由上游声明的基准倍率（不含高峰）自动维护。',
         syncedRateTooltip: '该账号倍率由上游声明的基准倍率（不含高峰）自动同步',
         newapiSyncedRateTooltip: '该账号倍率由 NewAPI 用户有效分组倍率自动同步',

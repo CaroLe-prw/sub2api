@@ -723,13 +723,12 @@ func (s *UpstreamBillingProbeService) SetAccountEnabled(ctx context.Context, acc
 		return ErrUpstreamBillingProbeAccountInvalid
 	}
 	updates := map[string]any{
-		UpstreamBillingProbeEnabledExtraKey: enabled,
+		UpstreamBillingProbeEnabledExtraKey:    enabled,
+		UpstreamBillingRateSyncEnabledExtraKey: enabled,
 	}
 	if enabled {
 		updates[NewAPISyncEnabledExtraKey] = false
 		updates[UpstreamBillingProbeExtraKey] = nil
-	} else {
-		updates[UpstreamBillingRateSyncEnabledExtraKey] = false
 	}
 	return s.accountRepo.UpdateExtra(ctx, accountID, updates)
 }
@@ -1326,16 +1325,10 @@ func upstreamBillingProbeEnabled(account *Account) bool {
 	return ok && enabled
 }
 
-// upstreamBillingRateSyncEnabled is the probe-side pre-filter deciding whether
-// a rate is even proposed for write-back. It is a necessary condition, not the
-// authority: the repository CAS re-checks both switches against the row it
-// updates, so a switch flipped between load and write can never sneak a rate in.
+// upstreamBillingRateSyncEnabled is the probe-side ownership check. Generic
+// probing and declared-rate synchronization are one mode and cannot diverge.
 func upstreamBillingRateSyncEnabled(account *Account) bool {
-	if account == nil || account.Extra == nil {
-		return false
-	}
-	enabled, ok := account.Extra[UpstreamBillingRateSyncEnabledExtraKey].(bool)
-	return ok && enabled && upstreamBillingProbeEnabled(account) && !newAPISyncEnabled(account)
+	return upstreamBillingProbeEnabled(account) && !newAPISyncEnabled(account)
 }
 
 // accountRateMultiplierManagedByAutomation is the single ownership check for

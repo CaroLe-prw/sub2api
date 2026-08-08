@@ -1672,7 +1672,6 @@
       >
         <UpstreamBillingSourceField
           v-model:mode="upstreamBillingMode"
-          v-model:rate-sync-enabled="upstreamBillingRateSyncEnabled"
           :allow-new-api="account?.platform === 'openai'"
         />
         <div v-if="account?.platform === 'openai' && upstreamBillingMode !== 'off'">
@@ -2931,10 +2930,9 @@ const upstreamRateCalibration = ref(1)
 const upstreamBalanceAlertEnabled = shallowRef(DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED)
 const upstreamBalanceAlertThreshold = shallowRef<number | null>(DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD)
 const newapiSyncSettings = ref<NewAPISyncSettingsExpose | null>(null)
-const upstreamBillingRateSyncEnabled = ref(false)
 const accountRateManaged = computed(
   () => upstreamBillingMode.value === 'newapi' ||
-    (upstreamBillingMode.value === 'sub2api' && upstreamBillingRateSyncEnabled.value)
+    upstreamBillingMode.value === 'sub2api'
 )
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
@@ -3448,8 +3446,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 		extra.upstream_balance_alert_threshold >= 0
 				? extra.upstream_balance_alert_threshold
 				: DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD
-	upstreamBillingRateSyncEnabled.value =
-		upstreamBillingMode.value === 'sub2api' && extra?.upstream_billing_rate_sync_enabled === true
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
@@ -4261,8 +4257,6 @@ const handleSubmit = async () => {
       // from being interpreted as an explicit probe disable.
       if (upstreamBillingMode.value !== 'newapi') {
         updatePayload.upstream_billing_probe_enabled = upstreamBillingMode.value === 'sub2api'
-        updatePayload.upstream_billing_rate_sync_enabled =
-          upstreamBillingMode.value === 'sub2api' && upstreamBillingRateSyncEnabled.value
       }
       if (accountRateManaged.value) {
         delete updatePayload.rate_multiplier

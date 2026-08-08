@@ -1180,8 +1180,8 @@ func reconcileCRSUpstreamBillingProbeExtra(
 			extra[UpstreamBillingProbeEnabledExtraKey] = enabled
 			probeEnabled, _ = enabled.(bool)
 		}
-		if enabled, ok := existing.Extra[UpstreamBillingRateSyncEnabledExtraKey].(bool); ok {
-			extra[UpstreamBillingRateSyncEnabledExtraKey] = enabled && probeEnabled
+		if _, present := existing.Extra[UpstreamBillingRateSyncEnabledExtraKey]; present || probeEnabled {
+			extra[UpstreamBillingRateSyncEnabledExtraKey] = probeEnabled
 		}
 		if reflect.DeepEqual(upstreamBillingProbeIdentity(existing), upstreamBillingProbeIdentity(target)) {
 			if snapshot, ok := existing.Extra[UpstreamBillingProbeExtraKey]; ok {

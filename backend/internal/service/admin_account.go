@@ -602,9 +602,8 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Schedulable: true,
 	}
 	probeEnabled := input.ProbeEnabled != nil && *input.ProbeEnabled
-	rateSyncEnabled := input.RateSyncEnabled != nil && *input.RateSyncEnabled
-	// 倍率同步依赖周期探测；与更新账号的行为保持一致，显式冲突时拒绝，未传时自动开启探测。
-	if rateSyncEnabled {
+	// 兼容旧客户端：同步只能开启探测，不能作为独立关闭项。
+	if input.RateSyncEnabled != nil && *input.RateSyncEnabled {
 		if input.ProbeEnabled != nil && !*input.ProbeEnabled {
 			return nil, infraerrors.BadRequest(
 				"UPSTREAM_BILLING_RATE_SYNC_REQUIRES_PROBE",
@@ -613,6 +612,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		}
 		probeEnabled = true
 	}
+	rateSyncEnabled := probeEnabled
 	if probeEnabled {
 		if !isUpstreamBillingProbeAccount(account) {
 			return nil, ErrUpstreamBillingProbeAccountInvalid
@@ -883,9 +883,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		account.Extra[NewAPISyncEnabledExtraKey] = false
 	}
-	if requestedProbeEnabledUpdate != nil && !*requestedProbeEnabledUpdate {
-		disabled := false
-		requestedRateSyncEnabledUpdate = &disabled
+	// 通用探测与倍率同步是一个不可拆分的模式。旧客户端仍可提交
+	// rate_sync=true 来开启该模式，但 rate_sync=false 不再能单独关闭同步。
+	if requestedProbeEnabledUpdate != nil {
+		rateSyncEnabled := *requestedProbeEnabledUpdate
+		requestedRateSyncEnabledUpdate = &rateSyncEnabled
+	} else if requestedRateSyncEnabledUpdate != nil && !*requestedRateSyncEnabledUpdate {
+		requestedRateSyncEnabledUpdate = nil
 	}
 	if (requestedProbeEnabledUpdate != nil && *requestedProbeEnabledUpdate) ||
 		(requestedRateSyncEnabledUpdate != nil && *requestedRateSyncEnabledUpdate) {
@@ -1305,9 +1309,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			repoUpdates.Extra = make(map[string]any)
 		}
 		repoUpdates.Extra[UpstreamBillingProbeEnabledExtraKey] = *input.ProbeEnabled
-		if !*input.ProbeEnabled {
-			repoUpdates.Extra[UpstreamBillingRateSyncEnabledExtraKey] = false
-		}
+		repoUpdates.Extra[UpstreamBillingRateSyncEnabledExtraKey] = *input.ProbeEnabled
 	}
 	if updatesUpstreamBillingProbeIdentity(input.Credentials) || input.ProxyID != nil {
 		if repoUpdates.Extra == nil {
