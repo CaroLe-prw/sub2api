@@ -49,6 +49,14 @@ API 密钥现在可以设置“分组倍率保护阈值”，用于避免分组�
 - 新建 API Key 账号默认启用 Sub2API 探测与倍率同步，避免调度成本和持久化账号倍率不一致。
 - 升级时会自动为已有的 Sub2API 探测账号开启倍率同步；使用 NewAPI 倍率来源的账号不受影响。
 
+## OpenAI 模型容量重试
+
+- 上游返回 `Selected model is at capacity. Please try a different model.` 时，会在尚未向客户端发送语义内容的前提下，按账号的 `pool_mode_retry_count` 配置优先重试当前账号；次数用尽后再切换账号。
+- HTTP/SSE 请求会缓冲 `response.created`、`response.in_progress` 等前导事件，避免已经向客户端写出事件后无法安全重试。
+- WebSocket 客户端的 `ctx_pool` 和 `http_bridge` 模式使用相同的首轮缓冲与重放规则，容量失败帧不会先泄漏给客户端。
+- 该错误属于请求级瞬时容量问题，不会临时停用账号，也不会降低账号的调度健康度。
+- 全双工 `passthrough` 模式不自动重放：该模式收到失败事件时，请求可能已在双向链路中产生语义输出，直接重放存在重复执行风险。
+
 ## 升级说明
 
 - 新增数据库迁移 `196_add_api_key_max_group_rate_multiplier.sql`。

@@ -204,6 +204,15 @@ func isOpenAIWSTerminalEvent(eventType string) bool {
 	}
 }
 
+func isOpenAIWSRetryPreambleEvent(eventType string) bool {
+	switch strings.TrimSpace(eventType) {
+	case "response.created", "response.in_progress", "response.queued":
+		return true
+	default:
+		return false
+	}
+}
+
 func normalizeOpenAIWSTerminalEvent(eventType string) string {
 	switch strings.TrimSpace(eventType) {
 	case "response.completed":

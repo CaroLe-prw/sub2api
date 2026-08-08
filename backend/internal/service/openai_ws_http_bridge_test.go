@@ -149,6 +149,60 @@ func TestProxyOpenAIWSHTTPBridgeTurnRetriesRejectedInputSummary(t *testing.T) {
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "input.0.summary").Exists())
 }
 
+func TestProxyOpenAIWSHTTPBridgeTurnCapacityFailureBeforeOutputReturnsPoolRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.created","response":{"id":"resp_bridge_capacity"}}`,
+			`data: {"type":"response.failed","response":{"id":"resp_bridge_capacity","error":{"type":"invalid_request_error","message":"Selected model is at capacity. Please try a different model."}}}`,
+			"",
+		}, "\n"))),
+	}}}
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		}},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          811,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":               "sk-test",
+			"base_url":              "https://compat.example",
+			"pool_mode":             true,
+			"pool_mode_retry_count": float64(3),
+		},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	payload := []byte(`{"type":"response.create","model":"gpt-5.4","input":"hello"}`)
+	var events [][]byte
+
+	result, err := svc.proxyOpenAIWSHTTPBridgeTurn(
+		context.Background(), c, account, "sk-test", payload, len(payload),
+		"gpt-5.4", "", "", "", "", 1,
+		func(message []byte) error {
+			events = append(events, append([]byte(nil), message...))
+			return nil
+		},
+	)
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.RequestScopedTransient)
+	require.Contains(t, string(failoverErr.ResponseBody), "Selected model is at capacity")
+	require.Empty(t, events)
+}
+
 func TestProxyOpenAIWSHTTPBridgeTurnAdaptsRejectedCustomToolInput(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{

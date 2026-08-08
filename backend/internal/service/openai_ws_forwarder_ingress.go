@@ -818,6 +818,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 		turnStart := time.Now()
 		wroteDownstream := false
+		pendingDownstream := make([][]byte, 0, 3)
 		upstreamPayload, err := applyOpenAIAccountForceFastModeToBody(account, payload)
 		if err != nil {
 			return nil, err
@@ -983,6 +984,20 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			imageCounter.AddSSEData(upstreamMessage)
 
 			if eventType == "response.failed" {
+				failedBody := openAIStreamFailedEventPassthroughBody(upstreamMessage, "")
+				failedMessage := extractUpstreamErrorMessage(failedBody)
+				if turn == 1 && !wroteDownstream && isOpenAIStreamRequestScopedCapacityError(upstreamMessage, failedMessage) {
+					lease.MarkBroken()
+					return nil, s.newOpenAIStreamFailoverError(
+						c,
+						account,
+						false,
+						responseID,
+						upstreamMessage,
+						failedMessage,
+						lease.HandshakeHeaders(),
+					)
+				}
 				if hit, code, msg := detectOpenAICyberPolicy(upstreamMessage); hit {
 					MarkOpsCyberPolicy(c, CyberPolicyMark{
 						Code:           code,
@@ -1005,26 +1020,35 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					}
 				}
 				replayCollector.AddEvent(eventType, upstreamMessage)
-				if err := writeClientMessage(upstreamMessage); err != nil {
-					if isOpenAIWSClientDisconnectError(err) {
-						clientDisconnected = true
-						closeStatus, closeReason := summarizeOpenAIWSReadCloseError(err)
-						logOpenAIWSModeInfo(
-							"ingress_ws_client_disconnected_drain account_id=%d turn=%d conn_id=%s close_status=%s close_reason=%s",
-							account.ID,
-							turn,
-							truncateOpenAIWSLogValue(lease.ConnID(), openAIWSIDValueMaxLen),
-							closeStatus,
-							truncateOpenAIWSLogValue(closeReason, openAIWSHeaderValueMaxLen),
-						)
-					} else {
-						return nil, wrapOpenAIWSIngressTurnError(
-							"write_client",
-							fmt.Errorf("write client websocket event: %w", err),
-							wroteDownstream,
-						)
+				if !wroteDownstream && isOpenAIWSRetryPreambleEvent(eventType) {
+					pendingDownstream = append(pendingDownstream, append([]byte(nil), upstreamMessage...))
+					continue
+				}
+				pendingDownstream = append(pendingDownstream, upstreamMessage)
+				messages := pendingDownstream
+				pendingDownstream = nil
+				for _, downstreamMessage := range messages {
+					if err := writeClientMessage(downstreamMessage); err != nil {
+						if isOpenAIWSClientDisconnectError(err) {
+							clientDisconnected = true
+							closeStatus, closeReason := summarizeOpenAIWSReadCloseError(err)
+							logOpenAIWSModeInfo(
+								"ingress_ws_client_disconnected_drain account_id=%d turn=%d conn_id=%s close_status=%s close_reason=%s",
+								account.ID,
+								turn,
+								truncateOpenAIWSLogValue(lease.ConnID(), openAIWSIDValueMaxLen),
+								closeStatus,
+								truncateOpenAIWSLogValue(closeReason, openAIWSHeaderValueMaxLen),
+							)
+						} else {
+							return nil, wrapOpenAIWSIngressTurnError(
+								"write_client",
+								fmt.Errorf("write client websocket event: %w", err),
+								wroteDownstream,
+							)
+						}
+						break
 					}
-				} else {
 					wroteDownstream = true
 				}
 			}
