@@ -164,6 +164,37 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 	return match(string(upstreamBody))
 }
 
+// isOpenAIRequestScopedCapacityError identifies overload signals that are not
+// attributable to a particular account. Retrying another account does not
+// change the upstream model/client capacity decision, so bounded retries stay
+// on the current account first.
+func isOpenAIRequestScopedCapacityError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if upstreamStatusCode != http.StatusBadRequest && upstreamStatusCode != http.StatusServiceUnavailable {
+		return false
+	}
+	containsCapacityMessage := func(text string) bool {
+		return strings.Contains(strings.ToLower(strings.TrimSpace(text)), "selected model is at capacity")
+	}
+	if containsCapacityMessage(upstreamMsg) {
+		return true
+	}
+	for _, path := range []string{"error.message", "response.error.message", "message"} {
+		if containsCapacityMessage(gjson.GetBytes(upstreamBody, path).String()) {
+			return true
+		}
+	}
+	if containsCapacityMessage(string(upstreamBody)) {
+		return true
+	}
+	for _, path := range []string{"error.code", "response.error.code", "code"} {
+		code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, path).String()))
+		if code == "server_is_overloaded" || code == "slow_down" {
+			return true
+		}
+	}
+	return false
+}
+
 func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 	match := func(text string) bool {
 		lower := strings.ToLower(strings.TrimSpace(text))
@@ -253,6 +284,7 @@ func newOpenAIUpstreamFailoverError(
 		ResponseBody:           responseBody,
 		ResponseHeaders:        responseHeaders.Clone(),
 		RetryableOnSameAccount: retryableOnSameAccount,
+		RequestScopedTransient: isOpenAIRequestScopedCapacityError(statusCode, upstreamMsg, responseBody),
 	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, responseBody) {
 		failoverErr.RetryableOnSameAccount = false

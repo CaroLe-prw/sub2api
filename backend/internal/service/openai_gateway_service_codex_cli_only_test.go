@@ -456,8 +456,7 @@ func TestOpenAIGatewayService_Forward_ModelCapacityErrorTriggersFailoverAndSameA
 		Type:        AccountTypeAPIKey,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"api_key":   "sk-test",
-			"pool_mode": true,
+			"api_key": "sk-test",
 		},
 		Status:         StatusActive,
 		Schedulable:    true,
@@ -472,6 +471,7 @@ func TestOpenAIGatewayService_Forward_ModelCapacityErrorTriggersFailoverAndSameA
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
 	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.RequestScopedTransient)
 	require.Contains(t, string(failoverErr.ResponseBody), "Selected model is at capacity")
 	require.False(t, c.Writer.Written(), "service 层应返回 failover 错误给上层重试/换号，而不是直接向客户端写响应")
 }
