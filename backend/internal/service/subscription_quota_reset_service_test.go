@@ -93,7 +93,7 @@ func (r *quotaResetUserSubRepoStub) List(
 	return result, &pagination.PaginationResult{Page: params.Page, PageSize: params.PageSize, Pages: 1, Total: int64(len(result))}, nil
 }
 
-func (r *quotaResetUserSubRepoStub) ResetUsageWindows(_ context.Context, id int64, daily, weekly, monthly bool, start *time.Time) error {
+func (r *quotaResetUserSubRepoStub) ResetUsageWindows(_ context.Context, id int64, daily, weekly, monthly bool, dailyStart, periodicStart *time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := r.resetErr[id]; err != nil {
@@ -103,30 +103,33 @@ func (r *quotaResetUserSubRepoStub) ResetUsageWindows(_ context.Context, id int6
 	if sub == nil {
 		return ErrSubscriptionNotFound
 	}
-	if start != nil {
-		copy := *start
+	if dailyStart != nil {
+		copy := *dailyStart
+		r.resetStarts[id] = &copy
+	} else if periodicStart != nil {
+		copy := *periodicStart
 		r.resetStarts[id] = &copy
 	} else {
 		r.resetStarts[id] = nil
 	}
 	if daily {
 		sub.DailyUsageUSD = 0
-		if start != nil {
-			copy := *start
+		if dailyStart != nil {
+			copy := *dailyStart
 			sub.DailyWindowStart = &copy
 		}
 	}
 	if weekly {
 		sub.WeeklyUsageUSD = 0
-		if start != nil {
-			copy := *start
+		if periodicStart != nil {
+			copy := *periodicStart
 			sub.WeeklyWindowStart = &copy
 		}
 	}
 	if monthly {
 		sub.MonthlyUsageUSD = 0
-		if start != nil {
-			copy := *start
+		if periodicStart != nil {
+			copy := *periodicStart
 			sub.MonthlyWindowStart = &copy
 		}
 	}
