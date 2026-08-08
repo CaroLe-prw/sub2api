@@ -93,6 +93,15 @@
               </div>
             </div>
             <button
+              v-if="selectedGroupIDs.length > 0"
+              type="button"
+              class="btn btn-secondary"
+              @click="showBatchModelsListDialog = true"
+            >
+              <Icon name="clipboard" size="md" class="mr-2" />
+              {{ t("admin.groups.modelsList.batch.action", { count: selectedGroupIDs.length }) }}
+            </button>
+            <button
               @click="openSortModal"
               class="btn btn-secondary"
               :title="t('admin.groups.sortOrder')"
@@ -117,10 +126,14 @@
           :columns="columns"
           :data="groups"
           :loading="loading"
+          selectable
+          row-key="id"
+          :selected-keys="selectedGroupIDs"
           :server-side-sort="true"
           default-sort-key="sort_order"
           default-sort-order="asc"
           @sort="handleSort"
+          @update:selected-keys="selectedGroupIDs = $event.map(Number)"
         >
           <template #cell-name="{ value }">
             <span class="font-medium text-gray-900 dark:text-white">{{
@@ -4117,6 +4130,14 @@
       @close="closeGroupAccountsModal"
       @success="handleGroupAccountsSuccess"
     />
+
+    <GroupModelsListBatchDialog
+      :show="showBatchModelsListDialog"
+      :selected-count="selectedGroupIDs.length"
+      :saving="batchModelsListSaving"
+      @close="showBatchModelsListDialog = false"
+      @save="handleBatchModelsListSave"
+    />
   </AppLayout>
 </template>
 
@@ -4134,6 +4155,7 @@ import type {
   CompositeRouteEndpoint,
   CompositeRouteMatchType,
   GroupPlatform,
+  ModelsListConfig,
   OpenAISchedulerProfile,
   SubscriptionType,
 } from "@/types";
@@ -4154,6 +4176,7 @@ import GroupAccountsModal from "@/components/admin/group/GroupAccountsModal.vue"
 import GroupAccountCostLimitField from "@/components/admin/group/GroupAccountCostLimitField.vue";
 import GroupSchedulerPolicyField from "@/components/admin/group/GroupSchedulerPolicyField.vue";
 import GroupProfitControlField from "@/components/admin/group/GroupProfitControlField.vue";
+import GroupModelsListBatchDialog from "@/components/admin/group/GroupModelsListBatchDialog.vue";
 import {
   createDefaultOpenAISchedulerConfig,
   normalizeOpenAISchedulerConfig,
@@ -4566,6 +4589,9 @@ const copyAccountsGroupOptionsForEdit = computed(() => {
 
 const groups = ref<AdminGroup[]>([]);
 const loading = ref(false);
+const selectedGroupIDs = ref<number[]>([]);
+const showBatchModelsListDialog = ref(false);
+const batchModelsListSaving = ref(false);
 type GroupUsageSummary = {
   today_cost: number;
   total_cost: number;
@@ -5997,6 +6023,29 @@ const handleGroupAccountsSuccess = async () => {
   if (!groupAccountsGroup.value) return;
   const refreshed = groups.value.find((group) => group.id === groupAccountsGroup.value?.id);
   if (refreshed) groupAccountsGroup.value = refreshed;
+};
+
+const handleBatchModelsListSave = async (modelsListConfig: ModelsListConfig) => {
+  if (selectedGroupIDs.value.length === 0 || batchModelsListSaving.value) return;
+  batchModelsListSaving.value = true;
+  try {
+    const result = await adminAPI.groups.batchSetModelsListConfig(
+      selectedGroupIDs.value,
+      modelsListConfig,
+    );
+    appStore.showSuccess(
+      t("admin.groups.modelsList.batch.success", { count: result.affected }),
+    );
+    selectedGroupIDs.value = [];
+    showBatchModelsListDialog.value = false;
+    await loadGroups();
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(error, t("admin.groups.modelsList.batch.failed")),
+    );
+  } finally {
+    batchModelsListSaving.value = false;
+  }
 };
 
 const handleDuplicate = async (group: AdminGroup) => {

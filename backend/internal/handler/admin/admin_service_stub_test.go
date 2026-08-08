@@ -377,6 +377,10 @@ func (s *stubAdminService) UpdateGroup(ctx context.Context, id int64, input *ser
 	return &group, nil
 }
 
+func (s *stubAdminService) BatchSetGroupModelsListConfig(_ context.Context, groupIDs []int64, _ service.GroupModelsListConfig) (int, error) {
+	return len(groupIDs), nil
+}
+
 func (s *stubAdminService) DeleteGroup(ctx context.Context, id int64) error {
 	return nil
 }
