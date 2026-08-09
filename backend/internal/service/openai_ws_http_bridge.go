@@ -924,7 +924,6 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		for _, downstreamMessage := range pendingDownstream {
 			if err := writeClientMessage(downstreamMessage); err != nil {
 				if isOpenAIWSClientDisconnectError(err) {
-					clientDisconnected = true
 					break
 				}
 				return nil, wrapOpenAIWSIngressTurnError(
