@@ -114,6 +114,93 @@ func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyBindsMaxOutputTokensToRej
 	require.False(t, gjson.GetBytes(retryBody, "max_output_tokens").Exists())
 }
 
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyRemovesIndexedSummary(t *testing.T) {
+	body := []byte(`{"input":[{"type":"reasoning","summary":[],"encrypted_content":"gAAA"},{"type":"message","summary":"keep"}]}`)
+	responseBody := []byte(`{"error":{"code":"unknown_parameter","message":"Unknown parameter: 'input[0].summary'.","param":"input[0].summary"}}`)
+
+	retryBody, reason, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "indexed summary parameter rejection", reason)
+	require.False(t, gjson.GetBytes(retryBody, "input.0.summary").Exists())
+	require.Equal(t, "keep", gjson.GetBytes(retryBody, "input.1.summary").String())
+
+	retryBody, _, changed, err = normalizeOpenAIResponsesRejectedFieldRetryBody(
+		http.StatusBadRequest,
+		body,
+		[]byte(`{"error":{"message":"Unknown parameter: 'input[0].summary'."}}`),
+	)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.False(t, gjson.GetBytes(retryBody, "input.0.summary").Exists())
+}
+
+func TestOpenAIResponsesRejectedParamFromMessageFindsIndexedInput(t *testing.T) {
+	require.Equal(t, "input[7].input", openAIResponsesRejectedParamFromMessage("unknown parameter: 'input[7].input'."))
+	require.Equal(t, "input[70].arguments", openAIResponsesRejectedParamFromMessage("Missing required parameter: 'input[70].arguments'."))
+	require.Equal(t, "input[36].id", openAIResponsesRejectedParamFromMessage("Invalid 'input[36].id': string too long."))
+	require.Equal(t, "input[2].content", openAIResponsesRejectedParamFromMessage("Unknown parameter: 'input[2].content'."))
+	require.Equal(t, "input[51].role", openAIResponsesRejectedParamFromMessage("Unknown parameter: 'input[51].role'."))
+	require.Empty(t, openAIResponsesRejectedParamFromMessage("Unknown parameter: input[2].content.format."))
+}
+
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyRemovesUnknownFieldByItemType(t *testing.T) {
+	body := []byte(`{"input":[
+		{"type":"function_call","call_id":"call_1","name":"first","arguments":"{}","content":"remove"},
+		{"type":"message","role":"user","content":"keep"},
+		{"type":"function_call","call_id":"call_2","name":"second","arguments":"{}","content":"remove-too"}
+	]}`)
+	responseBody := []byte(`{"error":{"message":"Unknown parameter: 'input[0].content'."}}`)
+
+	retryBody, reason, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "indexed content parameter rejection", reason)
+	require.False(t, gjson.GetBytes(retryBody, "input.0.content").Exists())
+	require.Equal(t, "keep", gjson.GetBytes(retryBody, "input.1.content").String())
+	require.False(t, gjson.GetBytes(retryBody, "input.2.content").Exists())
+}
+
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyBackfillsAllMissingArguments(t *testing.T) {
+	input := make([]string, 71)
+	for index := range input {
+		input[index] = `{"type":"message","role":"user","content":"history"}`
+	}
+	input[9] = `{"type":"function_call","call_id":"call_9","name":"first"}`
+	input[70] = `{"type":"function_call","call_id":"call_70","name":"second"}`
+	body := []byte(`{"model":"gpt-5.6-sol","input":[` + strings.Join(input, ",") + `]}`)
+	responseBody := []byte(`{"error":{"code":"missing_required_parameter","message":"Missing required parameter: 'input[70].arguments'."}}`)
+
+	retryBody, reason, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "missing function call arguments", reason)
+	require.Equal(t, "{}", gjson.GetBytes(retryBody, "input.9.arguments").String())
+	require.Equal(t, "{}", gjson.GetBytes(retryBody, "input.70.arguments").String())
+}
+
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyRemovesArbitraryOverlongID(t *testing.T) {
+	input := make([]string, 37)
+	for index := range input {
+		input[index] = `{"type":"message","role":"user","content":"history"}`
+	}
+	overlongID := "fc_" + strings.Repeat("x", 63)
+	input[36] = `{"type":"function_call","id":"` + overlongID + `","call_id":"call_36","name":"lookup","arguments":"{}"}`
+	body := []byte(`{"model":"gpt-5.6-sol","input":[` + strings.Join(input, ",") + `]}`)
+	responseBody := []byte(`{"error":{"message":"Invalid 'input[36].id': string too long. Expected a string with maximum length 64, but got a string with length 66 instead."}}`)
+
+	retryBody, reason, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "overlong input item id", reason)
+	require.False(t, gjson.GetBytes(retryBody, "input.36.id").Exists())
+	require.Equal(t, "call_36", gjson.GetBytes(retryBody, "input.36.call_id").String())
+}
+
 func TestOpenAIGatewayService_APIKeyStripsAllIndexedNamespacesBeforeFirstForward(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.5","stream":false,"input":[{"type":"function_call","name":"first","namespace":"remove-first","arguments":"{}"},{"type":"custom_tool_call","name":"second","namespace":"remove-second","input":"{}"}]}`)
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{

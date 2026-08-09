@@ -557,6 +557,34 @@ func TestGetAvailableModels_UsesShortCacheAndSupportsInvalidation(t *testing.T) 
 	require.Equal(t, int64(2), store)
 }
 
+func TestGetAvailableModels_RequireOAuthOnlyUsesSeparateFilteredCache(t *testing.T) {
+	resetGatewayHotpathStatsForTest()
+	groupID := int64(90)
+	repo := &modelsListAccountRepoStub{byGroup: map[int64][]Account{
+		groupID: {
+			{ID: 1, Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Credentials: map[string]any{
+				"model_mapping": map[string]any{"api-only": "api-only"},
+			}},
+			{ID: 2, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Credentials: map[string]any{
+				"model_mapping": map[string]any{"oauth-only": "oauth-only"},
+			}},
+		},
+	}}
+	svc := &GatewayService{accountRepo: repo, modelsListCache: gocache.New(time.Minute, time.Minute), modelsListCacheTTL: time.Minute}
+
+	plainGroup := &Group{ID: groupID, Platform: PlatformAnthropic, Status: StatusActive, Hydrated: true}
+	plainCtx := context.WithValue(context.Background(), ctxkey.Group, plainGroup)
+	require.ElementsMatch(t, []string{"api-only", "oauth-only"}, svc.GetAvailableModels(plainCtx, &groupID, PlatformAnthropic))
+
+	oauthGroup := *plainGroup
+	oauthGroup.RequireOAuthOnly = true
+	oauthCtx := context.WithValue(context.Background(), ctxkey.Group, &oauthGroup)
+	require.Equal(t, []string{"oauth-only"}, svc.GetAvailableModels(oauthCtx, &groupID, PlatformAnthropic), "OAuth-only model listings must not reuse the unrestricted cache")
+
+	platforms := svc.GetSchedulablePlatforms(oauthCtx, &groupID)
+	require.Equal(t, map[string]struct{}{PlatformAnthropic: {}}, platforms)
+}
+
 func TestGetAvailableModels_ErrorAndGlobalListBranches(t *testing.T) {
 	resetGatewayHotpathStatsForTest()
 

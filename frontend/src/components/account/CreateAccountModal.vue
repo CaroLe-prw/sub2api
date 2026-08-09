@@ -891,7 +891,6 @@
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <UpstreamBillingSourceField
             v-model:mode="upstreamBillingMode"
-            v-model:rate-sync-enabled="upstreamBillingRateSyncEnabled"
           />
         </div>
       </div>
@@ -1152,7 +1151,6 @@
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <UpstreamBillingSourceField
             v-model:mode="upstreamBillingMode"
-            v-model:rate-sync-enabled="upstreamBillingRateSyncEnabled"
             :allow-new-api="form.platform === 'openai'"
           />
         </div>
@@ -3770,7 +3768,6 @@ const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
 const upstreamBillingMode = ref<UpstreamBillingMode>('sub2api')
-const upstreamBillingRateSyncEnabled = ref(false)
 const upstreamBillingAutoProbeEnabled = computed({
   get: () => upstreamBillingMode.value === 'sub2api',
   set: (enabled: boolean) => {
@@ -3787,7 +3784,7 @@ const upstreamBillingConfigActive = computed(() => accountCategory.value === 'ap
   || (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream'))
 const accountRateManaged = computed(() => upstreamBillingConfigActive.value && (
   upstreamBillingMode.value === 'newapi'
-  || (upstreamBillingMode.value === 'sub2api' && upstreamBillingRateSyncEnabled.value)
+  || upstreamBillingMode.value === 'sub2api'
 ))
 const upstreamRateCalibration = ref(1)
 const upstreamBalanceAlertEnabled = shallowRef(DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED)
@@ -4759,7 +4756,6 @@ const resetForm = () => {
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
   upstreamBillingMode.value = 'sub2api'
-  upstreamBillingRateSyncEnabled.value = false
   newAPISyncCreateConfig.newapi_sync_enabled = true
   newAPISyncCreateConfig.newapi_base_url = ''
   newAPISyncCreateConfig.newapi_user_access_token = ''
@@ -5292,7 +5288,6 @@ const handleSubmit = async () => {
     group_ids: form.group_ids,
     extra,
     upstream_billing_probe_enabled: upstreamBillingAutoProbeEnabled.value,
-    upstream_billing_rate_sync_enabled: upstreamBillingRateSyncEnabled.value,
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }
@@ -5431,7 +5426,6 @@ const createAccountAndFinish = async (
     // 上游倍率探测对全部 API-key 平台开放（antigravity upstream 走本 helper）；
     // 非 apikey 类型（bedrock/oauth）不传，后端不动作。
     upstream_billing_probe_enabled: type === 'apikey' ? upstreamBillingAutoProbeEnabled.value : undefined,
-    upstream_billing_rate_sync_enabled: type === 'apikey' ? upstreamBillingRateSyncEnabled.value : undefined,
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }

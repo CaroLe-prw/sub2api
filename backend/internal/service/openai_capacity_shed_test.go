@@ -61,6 +61,16 @@ func TestTempUnscheduleRetryableErrorSkipsRequestScopedTransient(t *testing.T) {
 	})
 }
 
+func TestRequestScopedTransientDoesNotPenalizeAccountScheduling(t *testing.T) {
+	failoverErr := &UpstreamFailoverError{
+		StatusCode:             http.StatusBadRequest,
+		RetryableOnSameAccount: true,
+		RequestScopedTransient: true,
+	}
+
+	require.False(t, failoverErr.ShouldReportAccountScheduleFailure())
+}
+
 // 非池模式账号同样要先在同账号重试：换号不改变降载因素。
 func TestStreamFailedEventCapacityShedRetriesOnSameAccount(t *testing.T) {
 	nonPool := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
@@ -70,6 +80,14 @@ func TestStreamFailedEventCapacityShedRetriesOnSameAccount(t *testing.T) {
 		require.True(t, isOpenAIUpstreamCapacityShedEvent(payload), code)
 		require.True(t, openAIStreamFailedEventRetryableOnSameAccount(nonPool, payload, "overloaded"), code)
 	}
+
+	messageOnly := []byte(`{"type":"response.failed","response":{"error":{"type":"invalid_request_error","message":"Selected model is at capacity. Please try a different model."}}}`)
+	require.False(t, isOpenAIUpstreamCapacityShedEvent(messageOnly))
+	require.True(t, isOpenAIStreamRequestScopedCapacityError(messageOnly, "Selected model is at capacity. Please try a different model."))
+	// OAuth message-only capacity failures first try another account; the
+	// selection-exhausted fallback is tracked separately.
+	require.False(t, openAIStreamFailedEventRetryableOnSameAccount(nonPool, messageOnly, "Selected model is at capacity. Please try a different model."))
+	require.True(t, shouldRetryOpenAIOAuthCapacityOnSameAccount(nonPool, http.StatusBadRequest, "Selected model is at capacity. Please try a different model.", messageOnly))
 
 	// 非降载的 failed 事件在非池模式下仍不做同账号重试，避免放大改动面。
 	other := []byte(`{"type":"response.failed","response":{"error":{"code":"server_error"}}}`)

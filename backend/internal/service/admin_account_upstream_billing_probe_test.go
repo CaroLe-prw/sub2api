@@ -97,13 +97,12 @@ func TestUpdateAccountRoutesRateIntentThroughAtomicBillingUpdater(t *testing.T) 
 	require.Nil(t, repo.lastExplicitRate)
 	require.Equal(t, concurrentRate, *updated.RateMultiplier)
 
-	// 手工倍率只有在同步不再开启时才被接受，所以同一请求先关闭同步再设值
-	// （同步仍开启时的手工倍率由 TestUpdateAccountRejectsManualRateWhileRateSyncEnabled 覆盖）。
+	// 手工倍率只有在 Sub2API 探测关闭时才被接受。
 	zero := 0.0
-	syncDisabled := false
+	probeDisabled := false
 	updated, err = svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
-		RateSyncEnabled: &syncDisabled,
-		RateMultiplier:  &zero,
+		ProbeEnabled:   &probeDisabled,
+		RateMultiplier: &zero,
 	})
 	require.NoError(t, err)
 	require.Equal(t, 2, repo.updateCalls)
@@ -149,6 +148,7 @@ func TestCreateAccountAcceptsDedicatedUpstreamBillingProbeSetting(t *testing.T) 
 
 	require.NoError(t, err)
 	require.Equal(t, true, created.Extra[UpstreamBillingProbeEnabledExtraKey])
+	require.Equal(t, true, created.Extra[UpstreamBillingRateSyncEnabledExtraKey])
 
 	_, err = (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
 		Name:                 "oauth",
@@ -427,11 +427,11 @@ func TestUpdateAccountAcceptsProbeEnabledAndRejectsInjectedSnapshot(t *testing.T
 
 	require.NoError(t, err)
 	require.Equal(t, true, updated.Extra[UpstreamBillingProbeEnabledExtraKey])
-	require.NotContains(t, updated.Extra, UpstreamBillingRateSyncEnabledExtraKey)
+	require.Equal(t, true, updated.Extra[UpstreamBillingRateSyncEnabledExtraKey])
 	require.NotContains(t, updated.Extra, UpstreamBillingProbeExtraKey)
 }
 
-func TestUpdateAccountRateSyncControlsProbeAndManualMode(t *testing.T) {
+func TestUpdateAccountLegacyRateSyncFieldCannotDisableProbeOwnedRate(t *testing.T) {
 	accountID := int64(151)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
 		accountID: {
@@ -458,7 +458,7 @@ func TestUpdateAccountRateSyncControlsProbeAndManualMode(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, true, updated.Extra[UpstreamBillingProbeEnabledExtraKey])
-	require.Equal(t, false, updated.Extra[UpstreamBillingRateSyncEnabledExtraKey])
+	require.Equal(t, true, updated.Extra[UpstreamBillingRateSyncEnabledExtraKey])
 }
 
 // 单账号编辑必须和批量路径语义一致：同步开启时倍率归上游所有，手工值会在下一次
@@ -509,13 +509,14 @@ func TestUpdateAccountRejectsManualRateWhileRateSyncEnabled(t *testing.T) {
 		require.Equal(t, 0.25, *repo.accounts[accountID].RateMultiplier)
 	})
 
-	// 用户显式收回所有权：同一请求关闭同步并改倍率必须放行。
-	t.Run("disabling sync in the same request allows manual rate", func(t *testing.T) {
+	// 用户切换回手动模式：同一请求关闭探测并改倍率必须放行。
+	t.Run("disabling probe in the same request allows manual rate", func(t *testing.T) {
 		accountID := int64(155)
 		repo := newRepo(accountID, mergeMap(nil, syncEnabled))
 		disable := false
 
 		updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+			ProbeEnabled:    &disable,
 			RateSyncEnabled: &disable,
 			RateMultiplier:  &manualRate,
 		})
@@ -526,17 +527,16 @@ func TestUpdateAccountRejectsManualRateWhileRateSyncEnabled(t *testing.T) {
 		require.Equal(t, manualRate, *updated.RateMultiplier)
 	})
 
-	t.Run("sync disabled allows manual rate", func(t *testing.T) {
+	t.Run("probe enabled without legacy sync flag still rejects manual rate", func(t *testing.T) {
 		accountID := int64(156)
 		repo := newRepo(accountID, map[string]any{UpstreamBillingProbeEnabledExtraKey: true})
 
-		updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+		_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
 			RateMultiplier: &manualRate,
 		})
 
-		require.NoError(t, err)
-		require.NotNil(t, updated.RateMultiplier)
-		require.Equal(t, manualRate, *updated.RateMultiplier)
+		require.ErrorIs(t, err, ErrUpstreamBillingRateSyncConflict)
+		require.Equal(t, 0.25, *repo.accounts[accountID].RateMultiplier)
 	})
 
 	t.Run("NewAPI sync enabled rejects manual rate", func(t *testing.T) {

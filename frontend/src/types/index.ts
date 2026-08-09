@@ -733,6 +733,9 @@ export interface ApiKey {
   name: string
   group_id: number | null
   status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
+  scheduling_status?: 'active' | 'inactive' | 'quota_exhausted' | 'expired' | 'temporarily_unavailable'
+  max_group_rate_multiplier?: number
+  effective_group_rate_multiplier?: number
   ip_whitelist: string[]
   ip_blacklist: string[]
   last_used_at: string | null
@@ -769,6 +772,7 @@ export interface CreateApiKeyRequest {
   rate_limit_5h?: number
   rate_limit_1d?: number
   rate_limit_7d?: number
+  max_group_rate_multiplier?: number
 }
 
 export interface UpdateApiKeyRequest {
@@ -784,6 +788,7 @@ export interface UpdateApiKeyRequest {
   rate_limit_1d?: number
   rate_limit_7d?: number
   reset_rate_limit_usage?: boolean
+  max_group_rate_multiplier?: number
 }
 
 export interface CreateGroupRequest {

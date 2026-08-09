@@ -1102,7 +1102,18 @@ export default {
         empty: 'No displayable models',
         selectedSummary: 'Selected {selected} / {total}',
         selectAll: 'Select all',
-        invertSelection: 'Invert'
+        invertSelection: 'Invert',
+        batch: {
+          action: 'Batch set ({count})',
+          title: 'Batch Set /v1/models',
+          description: 'Apply the same custom model list to the selected {count} groups.',
+          enable: 'Enable custom model list',
+          models: 'Model IDs',
+          modelsPlaceholder: 'One model ID per line, for example:\ngpt-5\ngpt-5-mini',
+          modelsHint: 'Separate IDs with new lines or commas. {count} models recognized.',
+          success: 'Updated the /v1/models list for {count} groups',
+          failed: 'Failed to batch set the /v1/models list'
+        }
       },
       compositeRoutes: {
         action: 'Routes',

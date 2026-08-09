@@ -514,6 +514,14 @@ func modelsListCacheKey(groupID *int64, platform string) string {
 	return fmt.Sprintf("%d|%s", derefGroupID(groupID), strings.TrimSpace(platform))
 }
 
+func modelsListCacheKeyForOAuthPolicy(groupID *int64, platform string, oauthOnly bool) string {
+	key := modelsListCacheKey(groupID, platform)
+	if oauthOnly {
+		return key + "|oauth_only"
+	}
+	return key
+}
+
 func prefetchedStickyGroupIDFromContext(ctx context.Context) (int64, bool) {
 	return PrefetchedStickyGroupIDFromContext(ctx)
 }
@@ -565,6 +573,10 @@ type AccountSelectionResult struct {
 	// 局部 ctx 上，handler 必须经 ContextWithSelectionProfitGate 重放后才能在
 	// 调度栈之外做抢槽后终检与准入后粘性绑定。
 	profitGate *openAIProfitControlGate
+	// oauthOnlyFilter carries the account-type policy installed in the scheduler
+	// context so handler-side terminal checks cannot lose it when the selection
+	// crosses the service boundary.
+	oauthOnlyFilter *groupOAuthOnlyFilter
 }
 
 // ProfitGateActive 报告本次选号是否处于利润门之下。
@@ -653,19 +665,20 @@ type GatewayFailureReason string
 // trigger account failover. Additive metadata keeps existing composite literals
 // source-compatible and preserves their legacy retry-next-account behavior.
 type UpstreamFailoverError struct {
-	StatusCode               int
-	ResponseBody             []byte      // 上游响应体，用于错误透传规则匹配
-	ResponseHeaders          http.Header // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
-	ForceCacheBilling        bool        // Antigravity 粘性会话切换时设为 true
-	RetryableOnSameAccount   bool        // 临时性错误（如 Google 间歇性 400、空响应），应在同一账号上重试 N 次再切换
-	RequestScopedTransient   bool        // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
-	SafeToFailoverAfterWrite bool        // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
-	Stage                    GatewayFailureStage
-	Scope                    GatewayFailureScope
-	Reason                   GatewayFailureReason
-	NextAccountAction        NextAccountAction
-	ClientStatusCode         int
-	ClientMessage            string
+	StatusCode                             int
+	ResponseBody                           []byte      // 上游响应体，用于错误透传规则匹配
+	ResponseHeaders                        http.Header // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
+	ForceCacheBilling                      bool        // Antigravity 粘性会话切换时设为 true
+	RetryableOnSameAccount                 bool        // 临时性错误（如 Google 间歇性 400、空响应），应在同一账号上重试 N 次再切换
+	RetryableOnSameAccountIfNoOtherAccount bool        // OAuth 模型容量错误：仅在同组没有其他可用账号时同账号重试
+	RequestScopedTransient                 bool        // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
+	SafeToFailoverAfterWrite               bool        // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
+	Stage                                  GatewayFailureStage
+	Scope                                  GatewayFailureScope
+	Reason                                 GatewayFailureReason
+	NextAccountAction                      NextAccountAction
+	ClientStatusCode                       int
+	ClientMessage                          string
 }
 
 func (e *UpstreamFailoverError) Error() string {
@@ -684,10 +697,13 @@ func (e *UpstreamFailoverError) IsCredentialFailure() bool {
 }
 
 // ShouldReportAccountScheduleFailure prevents provider- and request-scoped
-// credential failures from being misattributed to the selected account. Legacy
-// and inference failures retain their existing scheduler-health behavior.
+// failures from being misattributed to the selected account. Legacy and
+// account-scoped failures retain their existing scheduler-health behavior.
 func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
 	if e == nil {
+		return false
+	}
+	if e.RequestScopedTransient {
 		return false
 	}
 	return !e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount
@@ -1339,7 +1355,12 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 }
 
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
-	cacheKey := modelsListCacheKey(groupID, platform)
+	ctx = resolveGroupOAuthOnlyFilter(ctx, groupID, s.schedulerSnapshot, s.groupRepo)
+	oauthOnly := false
+	if filter, ok := ctx.Value(groupOAuthOnlyFilterContextKey{}).(groupOAuthOnlyFilter); ok {
+		oauthOnly = filter.enabled
+	}
+	cacheKey := modelsListCacheKeyForOAuthPolicy(groupID, platform, oauthOnly)
 	if s.modelsListCache != nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if models, ok := cached.([]string); ok {
@@ -1379,6 +1400,9 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	hasAnyMapping := false
 
 	for _, acc := range accounts {
+		if !accountAllowedByGroupOAuthOnlyFilter(ctx, &acc) {
+			continue
+		}
 		mapping := acc.GetModelMapping()
 		if len(mapping) > 0 {
 			hasAnyMapping = true
@@ -1418,6 +1442,7 @@ func (s *GatewayService) GetSchedulablePlatforms(ctx context.Context, groupID *i
 	if s == nil || s.accountRepo == nil {
 		return platforms
 	}
+	ctx = resolveGroupOAuthOnlyFilter(ctx, groupID, s.schedulerSnapshot, s.groupRepo)
 
 	var accounts []Account
 	var err error
@@ -1431,6 +1456,9 @@ func (s *GatewayService) GetSchedulablePlatforms(ctx context.Context, groupID *i
 	}
 
 	for _, acc := range accounts {
+		if !accountAllowedByGroupOAuthOnlyFilter(ctx, &acc) {
+			continue
+		}
 		platform := strings.TrimSpace(acc.Platform)
 		if platform != "" {
 			platforms[platform] = struct{}{}
@@ -1448,6 +1476,7 @@ func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform
 	// 完整匹配时精准失效；否则按维度批量失效。
 	if groupID != nil && normalizedPlatform != "" {
 		s.modelsListCache.Delete(modelsListCacheKey(groupID, normalizedPlatform))
+		s.modelsListCache.Delete(modelsListCacheKeyForOAuthPolicy(groupID, normalizedPlatform, true))
 		return
 	}
 
@@ -1464,7 +1493,8 @@ func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform
 		if groupID != nil && groupPart != targetGroup {
 			continue
 		}
-		if normalizedPlatform != "" && parts[1] != normalizedPlatform {
+		cachePlatform := strings.SplitN(parts[1], "|", 2)[0]
+		if normalizedPlatform != "" && cachePlatform != normalizedPlatform {
 			continue
 		}
 		s.modelsListCache.Delete(key)

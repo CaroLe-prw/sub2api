@@ -1,53 +1,85 @@
 <template>
-  <div v-if="eligible" class="flex min-h-6 min-w-[8rem] items-center gap-1">
+  <div
+    v-if="eligible"
+    :class="[
+      'flex min-h-6 items-center gap-1',
+      mode === 'cost' ? 'min-w-[8rem]' : 'min-w-[7rem]'
+    ]"
+  >
     <HelpTooltip class="-ml-1" width-class="w-max max-w-[calc(100vw-2rem)]" data-testid="upstream-billing-details">
       <template #trigger>
         <span
+          v-if="mode === 'cost'"
           class="cursor-help border-b border-dotted border-gray-300 font-mono text-sm font-medium text-gray-800 dark:border-dark-600 dark:text-gray-200"
           data-testid="upstream-billing-rate"
         >
           {{ primaryValue }}
         </span>
+        <span
+          v-else
+          :class="balanceDisplayClass"
+          class="cursor-help whitespace-nowrap border-b border-dotted border-gray-300 font-mono text-sm font-medium dark:border-dark-600"
+          data-testid="upstream-billing-balance"
+        >
+          {{ balancePrimaryValue }}
+        </span>
       </template>
       <div class="space-y-1">
-        <p>{{ t('admin.accounts.upstreamBilling.schedulingRate', { value: schedulingRate }) }}</p>
-        <p>
-          {{
-            hasEffectiveRate
-              ? t('admin.accounts.upstreamBilling.schedulingSourceCalibrated')
-              : t('admin.accounts.upstreamBilling.schedulingSourceFallback')
-          }}
-        </p>
-        <p>{{ t('admin.accounts.upstreamBilling.calibration', { value: calibration }) }}</p>
-        <p>{{ t('admin.accounts.upstreamBilling.manualFallback', { value: manualFallbackRate }) }}</p>
-        <template v-if="hasEffectiveRate && data">
-          <p v-if="isNewAPISnapshot">
+        <template v-if="mode === 'cost'">
+          <p>{{ t('admin.accounts.upstreamBilling.schedulingRate', { value: schedulingRate }) }}</p>
+          <p>
             {{
-              t('admin.accounts.upstreamBilling.newapiGroupRate', {
-                group: data.newapi_group || '-',
-                value: data.group_rate_multiplier
-              })
+              hasEffectiveRate
+                ? t('admin.accounts.upstreamBilling.schedulingSourceCalibrated')
+                : t('admin.accounts.upstreamBilling.schedulingSourceFallback')
             }}
           </p>
-          <template v-else>
-            <p>{{ t('admin.accounts.upstreamBilling.groupRate', { value: data.group_rate_multiplier }) }}</p>
-            <p v-if="data.user_rate_multiplier != null">
-              {{ t('admin.accounts.upstreamBilling.userRate', { value: data.user_rate_multiplier }) }}
-            </p>
-            <p>
+          <p>{{ t('admin.accounts.upstreamBilling.calibration', { value: calibration }) }}</p>
+          <p>{{ t('admin.accounts.upstreamBilling.manualFallback', { value: manualFallbackRate }) }}</p>
+          <template v-if="hasEffectiveRate && data">
+            <p v-if="isNewAPISnapshot">
               {{
-                data.peak_rate_enabled
-                  ? t('admin.accounts.upstreamBilling.peakRate', {
-                      start: data.peak_start,
-                      end: data.peak_end,
-                      value: data.peak_rate_multiplier,
-                      timezone: data.timezone
-                    })
-                  : t('admin.accounts.upstreamBilling.noPeakRate')
+                t('admin.accounts.upstreamBilling.newapiGroupRate', {
+                  group: data.newapi_group || '-',
+                  value: data.group_rate_multiplier
+                })
               }}
             </p>
+            <template v-else>
+              <p>{{ t('admin.accounts.upstreamBilling.groupRate', { value: data.group_rate_multiplier }) }}</p>
+              <p v-if="data.user_rate_multiplier != null">
+                {{ t('admin.accounts.upstreamBilling.userRate', { value: data.user_rate_multiplier }) }}
+              </p>
+              <p>
+                {{
+                  data.peak_rate_enabled
+                    ? t('admin.accounts.upstreamBilling.peakRate', {
+                        start: data.peak_start,
+                        end: data.peak_end,
+                        value: data.peak_rate_multiplier,
+                        timezone: data.timezone
+                      })
+                    : t('admin.accounts.upstreamBilling.noPeakRate')
+                }}
+              </p>
+            </template>
+            <p>{{ t('admin.accounts.upstreamBilling.effectiveRate', { value: currentEffectiveRate ?? '-' }) }}</p>
+            <p>{{ t('admin.accounts.upstreamBilling.updatedAt', { value: formatDate(snapshot?.received_at) }) }}</p>
           </template>
-          <p>{{ t('admin.accounts.upstreamBilling.effectiveRate', { value: currentEffectiveRate ?? '-' }) }}</p>
+          <template v-else-if="stale && lastDetectedRate != null">
+            <p data-testid="upstream-billing-last-rate">
+              {{ t('admin.accounts.upstreamBilling.lastDetectedRate', { value: lastDetectedRate }) }}
+            </p>
+            <p data-testid="upstream-billing-last-time">
+              {{ t('admin.accounts.upstreamBilling.lastDetectedAt', { value: formatDate(snapshot?.received_at) }) }}
+            </p>
+            <p data-testid="upstream-billing-elapsed">
+              {{ t('admin.accounts.upstreamBilling.elapsedSince', { value: elapsedSinceLastSuccess }) }}
+            </p>
+          </template>
+          <p v-else>{{ statusLabel || '-' }}</p>
+        </template>
+        <template v-else>
           <p v-if="balanceInsufficient" class="text-red-400" data-testid="upstream-billing-balance-detail">
             {{ t('admin.accounts.upstreamBilling.balanceUnavailable') }}
           </p>
@@ -62,20 +94,11 @@
               })
             }}
           </p>
-          <p>{{ t('admin.accounts.upstreamBilling.updatedAt', { value: formatDate(snapshot?.received_at) }) }}</p>
-        </template>
-        <template v-else-if="stale && lastDetectedRate != null">
-          <p data-testid="upstream-billing-last-rate">
-            {{ t('admin.accounts.upstreamBilling.lastDetectedRate', { value: lastDetectedRate }) }}
-          </p>
-          <p data-testid="upstream-billing-last-time">
-            {{ t('admin.accounts.upstreamBilling.lastDetectedAt', { value: formatDate(snapshot?.received_at) }) }}
-          </p>
-          <p data-testid="upstream-billing-elapsed">
-            {{ t('admin.accounts.upstreamBilling.elapsedSince', { value: elapsedSinceLastSuccess }) }}
+          <p v-if="balance == null && !balanceInsufficient">{{ statusLabel || '-' }}</p>
+          <p v-if="snapshot?.received_at">
+            {{ t('admin.accounts.upstreamBilling.updatedAt', { value: formatDate(snapshot.received_at) }) }}
           </p>
         </template>
-        <p v-else>{{ statusLabel || '-' }}</p>
         <p
           v-if="probeEnabled && globalProbeEnabled !== false && nextProbeAt"
           data-testid="upstream-billing-next-probe"
@@ -98,21 +121,6 @@
         </p>
       </div>
     </HelpTooltip>
-    <span
-      v-if="balanceInsufficient"
-      class="whitespace-nowrap text-xs font-medium text-red-600 dark:text-red-400"
-      data-testid="upstream-billing-balance"
-    >
-      {{ t('admin.accounts.upstreamBilling.balanceUnavailable') }}
-    </span>
-    <span
-      v-else-if="balance != null"
-      :class="balanceAlertActive ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'"
-      class="whitespace-nowrap font-mono text-xs"
-      data-testid="upstream-billing-balance"
-    >
-      {{ formatBalance(balance) }}
-    </span>
     <span v-if="statusLabel" :class="statusClass" class="whitespace-nowrap text-[10px] font-medium">
       {{ statusLabel }}
     </span>
@@ -142,9 +150,11 @@ import type { Account, UpstreamBillingProbeSnapshot } from '@/types'
 const props = withDefaults(defineProps<{
   account: Account
   now: number
+  mode?: 'cost' | 'balance'
   probing?: boolean
   globalProbeEnabled?: boolean
 }>(), {
+  mode: 'cost',
   globalProbeEnabled: true
 })
 
@@ -153,6 +163,7 @@ defineEmits<{
 }>()
 
 const { t } = useI18n()
+const mode = computed(() => props.mode)
 const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000
 // 探测资格已放宽到全部 API-key 平台（上游是 sub2api 即可应答）。
 const eligible = computed(() => props.account.type === 'apikey')
@@ -288,6 +299,15 @@ const statusClass = computed(() => {
 })
 const primaryValue = computed(() => `${schedulingRate.value}x`)
 const formatBalance = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
+const balancePrimaryValue = computed(() => {
+  if (balanceInsufficient.value) return t('admin.accounts.upstreamBilling.balanceUnavailable')
+  return balance.value == null ? '-' : formatBalance(balance.value)
+})
+const balanceDisplayClass = computed(() => {
+  if (balanceInsufficient.value || balanceAlertActive.value) return 'text-red-600 dark:text-red-400'
+  if (balance.value != null) return 'text-gray-700 dark:text-gray-300'
+  return 'text-gray-400 dark:text-dark-500'
+})
 const formatDate = (value?: string) => value
   ? new Date(value).toLocaleString(undefined, {
       month: '2-digit',

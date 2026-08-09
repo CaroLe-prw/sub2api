@@ -723,13 +723,12 @@ func (s *UpstreamBillingProbeService) SetAccountEnabled(ctx context.Context, acc
 		return ErrUpstreamBillingProbeAccountInvalid
 	}
 	updates := map[string]any{
-		UpstreamBillingProbeEnabledExtraKey: enabled,
+		UpstreamBillingProbeEnabledExtraKey:    enabled,
+		UpstreamBillingRateSyncEnabledExtraKey: enabled,
 	}
 	if enabled {
 		updates[NewAPISyncEnabledExtraKey] = false
 		updates[UpstreamBillingProbeExtraKey] = nil
-	} else {
-		updates[UpstreamBillingRateSyncEnabledExtraKey] = false
 	}
 	return s.accountRepo.UpdateExtra(ctx, accountID, updates)
 }
@@ -841,7 +840,7 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 	var syncRate *float64
 	previousRate := account.BillingRateMultiplier()
 	if upstreamBillingRateSyncEnabled(account) {
-		if value, valid := upstreamBillingProbeSyncRate(data); valid {
+		if value, valid := upstreamBillingProbeSyncRate(account, data); valid {
 			syncRate = &value
 			snapshot.SyncedRateMultiplier = &value
 		} else {
@@ -850,6 +849,7 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 				"source", "upstream_billing_probe",
 				"account_id", account.ID,
 				"declared_resolved_rate_multiplier", declared,
+				"calibration", upstreamBillingProbeRateCalibration(account),
 				"max_rate_multiplier", upstreamBillingRateSyncMaxMultiplier,
 				"current_rate_multiplier", previousRate,
 			)
@@ -1154,15 +1154,17 @@ func upstreamBillingRateAt(data map[string]any, now time.Time) (float64, bool) {
 	return base, true
 }
 
-// upstreamBillingProbeSyncRate converts the declared multiplier into the value
-// the automatic write-back may store in accounts.rate_multiplier, at the
-// precision that column supports (DECIMAL(10,4)).
+// upstreamBillingProbeSyncRate converts the declared multiplier into the
+// calibrated value that automatic write-back may store in
+// accounts.rate_multiplier, at the precision that column supports
+// (DECIMAL(10,4)).
 //
-// It reads resolved_rate_multiplier, not effective_rate_multiplier: the
-// effective value folds in the peak coefficient that happened to apply at the
-// instant of the probe, so writing it would freeze one probe cycle's peak (or
-// off-peak) factor into a static column, while display and scheduling
-// recompute the peak factor for the current time through upstreamBillingRateAt.
+// It multiplies resolved_rate_multiplier by the OpenAI account calibration. It
+// does not read effective_rate_multiplier: the effective value folds in the
+// peak coefficient that happened to apply at the instant of the probe, so
+// writing it would freeze one probe cycle's peak (or off-peak) factor into a
+// static column, while display and scheduling recompute the peak factor for
+// the current time through upstreamBillingRateAt.
 //
 // The accepted range is deliberately narrower than the column:
 //   - 0 is rejected. accountCost multiplies the request cost by this value, so
@@ -1173,9 +1175,13 @@ func upstreamBillingRateAt(data map[string]any, now time.Time) (float64, bool) {
 //
 // A rejected declaration leaves the current multiplier untouched; the probe
 // still records an OK snapshot carrying the raw declaration for display.
-func upstreamBillingProbeSyncRate(data map[string]any) (float64, bool) {
+func upstreamBillingProbeSyncRate(account *Account, data map[string]any) (float64, bool) {
 	value, ok := resolveAccountExtraNumber(data, "resolved_rate_multiplier")
 	if !ok || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, false
+	}
+	value *= upstreamBillingProbeRateCalibration(account)
+	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return 0, false
 	}
 	rounded := math.Round(value*upstreamBillingProbeAccountRateScale) / upstreamBillingProbeAccountRateScale
@@ -1183,6 +1189,13 @@ func upstreamBillingProbeSyncRate(data map[string]any) (float64, bool) {
 		return 0, false
 	}
 	return rounded, true
+}
+
+func upstreamBillingProbeRateCalibration(account *Account) float64 {
+	if account == nil || account.Platform != PlatformOpenAI {
+		return 1
+	}
+	return openAIUpstreamRateCalibration(account)
 }
 
 func upstreamBillingPeakMultiplierAt(data map[string]any, now time.Time) (float64, bool) {
@@ -1326,16 +1339,10 @@ func upstreamBillingProbeEnabled(account *Account) bool {
 	return ok && enabled
 }
 
-// upstreamBillingRateSyncEnabled is the probe-side pre-filter deciding whether
-// a rate is even proposed for write-back. It is a necessary condition, not the
-// authority: the repository CAS re-checks both switches against the row it
-// updates, so a switch flipped between load and write can never sneak a rate in.
+// upstreamBillingRateSyncEnabled is the probe-side ownership check. Generic
+// probing and declared-rate synchronization are one mode and cannot diverge.
 func upstreamBillingRateSyncEnabled(account *Account) bool {
-	if account == nil || account.Extra == nil {
-		return false
-	}
-	enabled, ok := account.Extra[UpstreamBillingRateSyncEnabledExtraKey].(bool)
-	return ok && enabled && upstreamBillingProbeEnabled(account) && !newAPISyncEnabled(account)
+	return upstreamBillingProbeEnabled(account) && !newAPISyncEnabled(account)
 }
 
 // accountRateMultiplierManagedByAutomation is the single ownership check for

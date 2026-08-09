@@ -339,16 +339,8 @@
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{ t('keys.noExpiration') }}</span>
           </template>
 
-          <template #cell-status="{ value }">
-            <span :class="[
-              'badge',
-              value === 'active' ? 'badge-success' :
-              value === 'quota_exhausted' ? 'badge-warning' :
-              value === 'expired' ? 'badge-danger' :
-              'badge-gray'
-            ]">
-              {{ t('keys.status.' + value) }}
-            </span>
+          <template #cell-status="{ row }">
+            <KeySchedulingStatusCell :api-key="row" />
           </template>
 
           <template #cell-last_used_at="{ value }">
@@ -548,6 +540,12 @@
             :placeholder="t('keys.selectStatus')"
           />
         </div>
+
+        <GroupRateGuardFields
+          v-model:enabled="formData.enable_group_rate_guard"
+          v-model:threshold="formData.max_group_rate_multiplier"
+          :current-rate="selectedGroupRate"
+        />
 
         <!-- IP Restriction Section -->
         <div class="space-y-3">
@@ -1140,6 +1138,8 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
+	import GroupRateGuardFields from '@/components/keys/GroupRateGuardFields.vue'
+	import KeySchedulingStatusCell from '@/components/keys/KeySchedulingStatusCell.vue'
 	import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
@@ -1344,6 +1344,8 @@ const formData = ref({
   rate_limit_5h: null as number | null,
   rate_limit_1d: null as number | null,
   rate_limit_7d: null as number | null,
+  enable_group_rate_guard: false,
+  max_group_rate_multiplier: null as number | null,
   enable_expiration: false,
   expiration_preset: '30' as '7' | '30' | '90' | 'custom',
   expiration_date: ''
@@ -1369,6 +1371,13 @@ const statusOptions = computed(() => [
   { value: 'active', label: t('common.active') },
   { value: 'inactive', label: t('common.inactive') }
 ])
+
+const selectedGroupRate = computed(() => {
+  if (formData.value.group_id === null) return 0
+  const group = groups.value.find((item) => item.id === formData.value.group_id)
+  if (!group) return 0
+  return userGroupRates.value[group.id] ?? group.rate_multiplier
+})
 
 const shouldSubmitEditStatus = (key: ApiKey, status: 'active' | 'inactive') => {
   if (key.status === 'quota_exhausted' || key.status === 'expired') {
@@ -1576,6 +1585,10 @@ const editKey = (key: ApiKey) => {
     rate_limit_5h: key.rate_limit_5h || null,
     rate_limit_1d: key.rate_limit_1d || null,
     rate_limit_7d: key.rate_limit_7d || null,
+    enable_group_rate_guard: (key.max_group_rate_multiplier ?? 0) > 0,
+    max_group_rate_multiplier: (key.max_group_rate_multiplier ?? 0) > 0
+      ? key.max_group_rate_multiplier ?? null
+      : null,
     enable_expiration: hasExpiration,
     expiration_preset: 'custom',
     expiration_date: key.expires_at ? formatDateTimeLocal(key.expires_at) : ''
@@ -1689,6 +1702,14 @@ const handleSubmit = async () => {
   // Calculate quota value (null/empty/0 = unlimited, stored as 0)
   const quota = formData.value.quota && formData.value.quota > 0 ? formData.value.quota : 0
 
+  const maxGroupRateMultiplier = formData.value.enable_group_rate_guard
+    ? formData.value.max_group_rate_multiplier ?? 0
+    : 0
+  if (formData.value.enable_group_rate_guard && maxGroupRateMultiplier <= 0) {
+    appStore.showError(t('keys.maxGroupRateMultiplierRequired'))
+    return
+  }
+
   // Calculate expiration
   let expiresInDays: number | undefined
   let expiresAt: string | null | undefined
@@ -1728,6 +1749,7 @@ const handleSubmit = async () => {
         rate_limit_5h: rateLimitData.rate_limit_5h,
         rate_limit_1d: rateLimitData.rate_limit_1d,
         rate_limit_7d: rateLimitData.rate_limit_7d,
+        max_group_rate_multiplier: maxGroupRateMultiplier,
       }
       if (shouldSubmitEditStatus(selectedKey.value, formData.value.status)) {
         updates.status = formData.value.status
@@ -1744,7 +1766,8 @@ const handleSubmit = async () => {
         ipBlacklist,
         quota,
         expiresInDays,
-        rateLimitData
+        rateLimitData,
+        maxGroupRateMultiplier
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
@@ -1802,6 +1825,8 @@ const closeModals = () => {
     rate_limit_5h: null,
     rate_limit_1d: null,
     rate_limit_7d: null,
+    enable_group_rate_guard: false,
+    max_group_rate_multiplier: null,
     enable_expiration: false,
     expiration_preset: '30',
     expiration_date: ''

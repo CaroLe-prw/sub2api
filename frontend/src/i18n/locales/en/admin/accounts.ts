@@ -157,7 +157,8 @@ export default {
         notes: 'Notes',
         priority: 'Priority',
         billingRateMultiplier: 'Billing Rate',
-        upstreamBillingRate: 'Scheduling Cost / Upstream Balance',
+        upstreamBillingRate: 'Scheduling Cost',
+        upstreamBalance: 'Upstream Balance',
         weight: 'Weight',
         schedulerScore: 'Scheduler Score',
         status: 'Status',
@@ -231,7 +232,7 @@ export default {
       upstreamBilling: {
         trustWarning: 'Upstream declarations cannot be verified. Scheduling scores may use the declared rate × calibration, while admission and billing use the durable account rate. Verify declarations against bills and balance changes.',
         mode: 'Upstream rate source',
-        modeHint: 'Choose one automatic rate source for this account. NewAPI and Sub2API detection cannot run at the same time.',
+        modeHint: 'Choose one automatic rate source. Sub2API probing always synchronizes the declared rate and cannot run alongside NewAPI.',
         modes: {
           off: 'Off',
           sub2api: 'Sub2API',
@@ -247,8 +248,6 @@ export default {
         calibration: 'Calibration: {value}x',
         manualFallback: 'Account billing rate: {value}x',
         manualProbe: 'Refresh upstream rate and balance now',
-        syncRate: 'Sync upstream declared rate',
-        syncRateHint: 'Update the account rate after each successful probe, using the base rate excluding peak hours. Failed probes or declarations outside the allowed range leave it unchanged. Enabling this also turns on "Automatically probe upstream declared rate".',
         syncRateManagedHint: 'The current rate is maintained automatically from the upstream declared base rate (excluding peak hours).',
         syncedRateTooltip: 'This account rate is synchronized from the upstream declared base rate (excluding peak hours)',
         newapiSyncedRateTooltip: 'This account rate is synchronized from the effective NewAPI user-group ratio',

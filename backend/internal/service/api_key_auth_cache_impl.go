@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 20 // v20: union of group absolute-cost ceiling and search/audio/video-model billing fields
+const apiKeyAuthSnapshotVersion = 22 // v22: include v20 billing fields and reload user-specific group rates after cache invalidation
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -336,20 +336,21 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		return nil
 	}
 	snapshot := &APIKeyAuthSnapshot{
-		Version:     apiKeyAuthSnapshotVersion,
-		APIKeyID:    apiKey.ID,
-		UserID:      apiKey.UserID,
-		GroupID:     apiKey.GroupID,
-		Name:        apiKey.Name,
-		Status:      apiKey.Status,
-		IPWhitelist: apiKey.IPWhitelist,
-		IPBlacklist: apiKey.IPBlacklist,
-		Quota:       apiKey.Quota,
-		QuotaUsed:   apiKey.QuotaUsed,
-		ExpiresAt:   apiKey.ExpiresAt,
-		RateLimit5h: apiKey.RateLimit5h,
-		RateLimit1d: apiKey.RateLimit1d,
-		RateLimit7d: apiKey.RateLimit7d,
+		Version:                apiKeyAuthSnapshotVersion,
+		APIKeyID:               apiKey.ID,
+		UserID:                 apiKey.UserID,
+		GroupID:                apiKey.GroupID,
+		Name:                   apiKey.Name,
+		Status:                 apiKey.Status,
+		MaxGroupRateMultiplier: apiKey.MaxGroupRateMultiplier,
+		IPWhitelist:            apiKey.IPWhitelist,
+		IPBlacklist:            apiKey.IPBlacklist,
+		Quota:                  apiKey.Quota,
+		QuotaUsed:              apiKey.QuotaUsed,
+		ExpiresAt:              apiKey.ExpiresAt,
+		RateLimit5h:            apiKey.RateLimit5h,
+		RateLimit1d:            apiKey.RateLimit1d,
+		RateLimit7d:            apiKey.RateLimit7d,
 		User: APIKeyAuthUserSnapshot{
 			ID:                         apiKey.User.ID,
 			Status:                     apiKey.User.Status,
@@ -367,9 +368,15 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			RPMLimit:                   apiKey.User.RPMLimit,
 		},
 	}
+	if apiKey.Group != nil {
+		snapshot.GroupRateMultiplier = apiKey.Group.RateMultiplier
+	}
 
 	// 填充 (user, group) RPM override —— snapshot 构建时查一次 DB，后续请求零 DB 往返。
 	if apiKey.GroupID != nil && *apiKey.GroupID > 0 && s.userGroupRateRepo != nil {
+		if rate, err := s.userGroupRateRepo.GetByUserAndGroup(ctx, apiKey.UserID, *apiKey.GroupID); err == nil && rate != nil {
+			snapshot.GroupRateMultiplier = *rate
+		}
 		override, err := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, apiKey.UserID, *apiKey.GroupID)
 		if err == nil && override != nil {
 			snapshot.User.UserGroupRPMOverride = override
@@ -415,6 +422,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			SupportedModelScopes:            apiKey.Group.SupportedModelScopes,
 			AllowMessagesDispatch:           apiKey.Group.AllowMessagesDispatch,
 			AllowLive:                       apiKey.Group.AllowLive,
+			RequireOAuthOnly:                apiKey.Group.RequireOAuthOnly,
 			DefaultMappedModel:              apiKey.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     apiKey.Group.MessagesDispatchModelConfig,
 			ModelsListConfig:                apiKey.Group.ModelsListConfig,
@@ -439,20 +447,22 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		return nil
 	}
 	apiKey := &APIKey{
-		ID:          snapshot.APIKeyID,
-		UserID:      snapshot.UserID,
-		GroupID:     snapshot.GroupID,
-		Key:         key,
-		Name:        snapshot.Name,
-		Status:      snapshot.Status,
-		IPWhitelist: snapshot.IPWhitelist,
-		IPBlacklist: snapshot.IPBlacklist,
-		Quota:       snapshot.Quota,
-		QuotaUsed:   snapshot.QuotaUsed,
-		ExpiresAt:   snapshot.ExpiresAt,
-		RateLimit5h: snapshot.RateLimit5h,
-		RateLimit1d: snapshot.RateLimit1d,
-		RateLimit7d: snapshot.RateLimit7d,
+		ID:                     snapshot.APIKeyID,
+		UserID:                 snapshot.UserID,
+		GroupID:                snapshot.GroupID,
+		Key:                    key,
+		Name:                   snapshot.Name,
+		Status:                 snapshot.Status,
+		MaxGroupRateMultiplier: snapshot.MaxGroupRateMultiplier,
+		GroupRateMultiplier:    snapshot.GroupRateMultiplier,
+		IPWhitelist:            snapshot.IPWhitelist,
+		IPBlacklist:            snapshot.IPBlacklist,
+		Quota:                  snapshot.Quota,
+		QuotaUsed:              snapshot.QuotaUsed,
+		ExpiresAt:              snapshot.ExpiresAt,
+		RateLimit5h:            snapshot.RateLimit5h,
+		RateLimit1d:            snapshot.RateLimit1d,
+		RateLimit7d:            snapshot.RateLimit7d,
 		User: &User{
 			ID:                         snapshot.User.ID,
 			Status:                     snapshot.User.Status,
@@ -511,6 +521,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			SupportedModelScopes:            snapshot.Group.SupportedModelScopes,
 			AllowMessagesDispatch:           snapshot.Group.AllowMessagesDispatch,
 			AllowLive:                       snapshot.Group.AllowLive,
+			RequireOAuthOnly:                snapshot.Group.RequireOAuthOnly,
 			DefaultMappedModel:              snapshot.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     snapshot.Group.MessagesDispatchModelConfig,
 			ModelsListConfig:                snapshot.Group.ModelsListConfig,

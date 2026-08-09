@@ -17,7 +17,7 @@ func TestPreviewProfitAdmissionUsesAccountRatesAndPreinitializesModels(t *testin
 		0.5,
 	)
 	cheap.Name = "cheap"
-	cheap.Extra[UpstreamBillingRateSyncEnabledExtraKey] = true
+	cheap.Extra[UpstreamBillingProbeEnabledExtraKey] = true
 	cheap.Credentials = map[string]any{"model_mapping": map[string]any{"gpt-sol": "gpt-sol"}}
 
 	boundary := profitControlTestAccountWithRate(

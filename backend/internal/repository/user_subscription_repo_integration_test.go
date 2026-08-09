@@ -472,14 +472,16 @@ func (s *UserSubscriptionRepoSuite) TestActivateWindows_StaleActivationPreserves
 	sub := s.mustCreateSubscription(user.ID, group.ID, nil)
 	activatedAt := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 	manualResetAt := activatedAt.Add(2 * time.Hour)
+	manualDailyStart := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
 	s.Require().NoError(s.repo.ActivateWindows(s.ctx, sub.ID, activatedAt, activatedAt))
-	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, true, true, &manualResetAt))
+	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, true, true, &manualDailyStart, &manualResetAt))
 	// Simulate a concurrent request carrying the original unactivated snapshot.
 	s.Require().NoError(s.repo.ActivateWindows(s.ctx, sub.ID, activatedAt.Add(time.Hour), activatedAt.Add(time.Hour)))
 
 	got, err := s.repo.GetByID(s.ctx, sub.ID)
 	s.Require().NoError(err)
-	s.Require().WithinDuration(manualResetAt, *got.DailyWindowStart, time.Microsecond)
+	s.Require().WithinDuration(manualDailyStart, *got.DailyWindowStart, time.Microsecond)
 	s.Require().WithinDuration(manualResetAt, *got.WeeklyWindowStart, time.Microsecond)
 	s.Require().WithinDuration(manualResetAt, *got.MonthlyWindowStart, time.Microsecond)
 }
@@ -537,7 +539,7 @@ func (s *UserSubscriptionRepoSuite) TestResetUsageWindows_ClearsUsageAfterAutoma
 	newWindowStart := oldWindowStart.Add(24 * time.Hour)
 	s.Require().NoError(s.repo.ResetDailyUsage(s.ctx, sub.ID, &oldWindowStart, newWindowStart))
 	s.Require().NoError(s.repo.IncrementUsage(s.ctx, sub.ID, 3))
-	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, false, false, &newWindowStart))
+	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, false, false, &newWindowStart, &newWindowStart))
 
 	got, err := s.repo.GetByID(s.ctx, sub.ID)
 	s.Require().NoError(err)
@@ -560,7 +562,7 @@ func (s *UserSubscriptionRepoSuite) TestResetUsageWindows_PreservesWindowStarts(
 		c.SetMonthlyUsageUsd(30)
 	})
 
-	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, false, true, nil))
+	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, false, true, nil, nil))
 
 	got, err := s.repo.GetByID(s.ctx, sub.ID)
 	s.Require().NoError(err)

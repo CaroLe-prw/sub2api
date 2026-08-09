@@ -2328,6 +2328,169 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 	require.Equal(t, []int64{int64(9902)}, accountRepo.rateLimitedIDs)
 }
 
+func TestOpenAIResponsesWebSocket_CapacityFailureRetriesSamePoolAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var upstreamAttempts atomic.Int32
+	upstreamPayloads := make(chan []byte, 2)
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := upstreamAttempts.Add(1)
+		conn, err := coderws.Accept(w, r, &coderws.AcceptOptions{CompressionMode: coderws.CompressionContextTakeover})
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+
+		readCtx, cancelRead := context.WithTimeout(r.Context(), 3*time.Second)
+		_, payload, readErr := conn.Read(readCtx)
+		cancelRead()
+		if readErr != nil {
+			return
+		}
+		upstreamPayloads <- append([]byte(nil), payload...)
+
+		events := []string{
+			`{"type":"response.created","response":{"id":"resp_capacity_retry"}}`,
+		}
+		if attempt == 1 {
+			events = append(events, `{"type":"response.failed","response":{"id":"resp_capacity_retry","error":{"type":"invalid_request_error","message":"Selected model is at capacity. Please try a different model."}}}`)
+		} else {
+			events = append(events,
+				`{"type":"response.output_text.delta","response_id":"resp_capacity_retry","delta":"recovered"}`,
+				`{"type":"response.completed","response":{"id":"resp_capacity_retry","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`,
+			)
+		}
+		for _, event := range events {
+			writeCtx, cancelWrite := context.WithTimeout(r.Context(), 3*time.Second)
+			writeErr := conn.Write(writeCtx, coderws.MessageText, []byte(event))
+			cancelWrite()
+			if writeErr != nil {
+				return
+			}
+		}
+		if attempt > 1 {
+			readCtx, cancelRead = context.WithTimeout(r.Context(), 3*time.Second)
+			_, _, _ = conn.Read(readCtx)
+			cancelRead()
+		}
+	}))
+	defer upstreamServer.Close()
+
+	groupID := int64(4213)
+	account := service.Account{
+		ID:          9914,
+		Name:        "openai-ws-capacity-pool",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":               "sk-pool",
+			"base_url":              upstreamServer.URL,
+			"pool_mode":             true,
+			"pool_mode_retry_count": float64(1),
+		},
+		Extra: map[string]any{
+			"openai_apikey_responses_websockets_v2_enabled": true,
+			"openai_apikey_responses_websockets_v2_mode":    service.OpenAIWSIngressModeCtxPool,
+		},
+	}
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.Default.RateMultiplier = 1
+	cfg.Security.URLAllowlist.Enabled = false
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg.Gateway.OpenAIWS.Enabled = true
+	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
+	cfg.Gateway.OpenAIWS.ModeRouterV2Enabled = true
+	cfg.Gateway.OpenAIWS.IngressModeDefault = service.OpenAIWSIngressModeCtxPool
+	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
+	cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 1
+	cfg.Gateway.OpenAIWS.QueueLimitPerConn = 8
+	cfg.Gateway.OpenAIWS.DialTimeoutSeconds = 3
+	cfg.Gateway.OpenAIWS.ReadTimeoutSeconds = 3
+	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
+	cfg.Gateway.MaxAccountSwitches = 1
+
+	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: []service.Account{account}}
+	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	t.Cleanup(billingCacheSvc.Stop)
+	gatewaySvc := service.NewOpenAIGatewayService(
+		accountRepo, nil, nil, nil, nil, nil, nil, cfg, nil, nil,
+		service.NewBillingService(cfg, nil), nil, billingCacheSvc, nil,
+		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil,
+	)
+	t.Cleanup(gatewaySvc.CloseOpenAIWSPool)
+	cache := &concurrencyCacheMock{
+		acquireUserSlotFn:    func(context.Context, int64, int, string) (bool, error) { return true, nil },
+		acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },
+	}
+	h := &OpenAIGatewayHandler{
+		gatewayService:      gatewaySvc,
+		billingCacheService: billingCacheSvc,
+		apiKeyService:       &service.APIKeyService{},
+		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
+		maxAccountSwitches:  1,
+	}
+	apiKey := &service.APIKey{
+		ID:      1813,
+		GroupID: &groupID,
+		User:    &service.User{ID: 1713, Status: service.StatusActive},
+		Group:   &service.Group{ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive},
+	}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: apiKey.User.ID, Concurrency: 1})
+		c.Next()
+	})
+	router.GET("/openai/v1/responses", h.ResponsesWebSocket)
+	handlerServer := httptest.NewServer(router)
+	defer handlerServer.Close()
+
+	dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
+	clientConn, _, err := coderws.Dial(
+		dialCtx,
+		"ws"+strings.TrimPrefix(handlerServer.URL, "http")+"/openai/v1/responses",
+		&coderws.DialOptions{CompressionMode: coderws.CompressionContextTakeover},
+	)
+	cancelDial()
+	require.NoError(t, err)
+	defer func() { _ = clientConn.CloseNow() }()
+
+	requestPayload := []byte(`{"type":"response.create","model":"gpt-5.1","stream":true,"input":"hello"}`)
+	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 3*time.Second)
+	require.NoError(t, clientConn.Write(writeCtx, coderws.MessageText, requestPayload))
+	cancelWrite()
+
+	readCtx, cancelRead := context.WithTimeout(context.Background(), 5*time.Second)
+	var eventTypes []string
+	for {
+		_, event, readErr := clientConn.Read(readCtx)
+		require.NoError(t, readErr)
+		eventType := gjson.GetBytes(event, "type").String()
+		eventTypes = append(eventTypes, eventType)
+		require.NotEqual(t, "response.failed", eventType)
+		if eventType == "response.completed" {
+			break
+		}
+	}
+	cancelRead()
+	require.NoError(t, clientConn.Close(coderws.StatusNormalClosure, "done"))
+
+	require.Equal(t, []string{"response.created", "response.output_text.delta", "response.completed"}, eventTypes)
+	require.Equal(t, int32(2), upstreamAttempts.Load())
+	for range 2 {
+		select {
+		case payload := <-upstreamPayloads:
+			require.JSONEq(t, string(requestPayload), string(payload))
+		case <-time.After(3 * time.Second):
+			t.Fatal("waiting for replayed upstream request timed out")
+		}
+	}
+}
+
 func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClientForOneFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

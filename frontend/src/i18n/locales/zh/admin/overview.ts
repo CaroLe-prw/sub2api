@@ -1099,7 +1099,18 @@ export default {
         empty: '暂无可展示模型',
         selectedSummary: '已选 {selected} / {total}',
         selectAll: '全选',
-        invertSelection: '反选'
+        invertSelection: '反选',
+        batch: {
+          action: '批量设置 ({count})',
+          title: '批量设置 /v1/models',
+          description: '将同一份自定义模型列表应用到已选的 {count} 个分组。',
+          enable: '启用自定义模型列表',
+          models: '模型 ID',
+          modelsPlaceholder: '每行一个模型 ID，例如：\ngpt-5\ngpt-5-mini',
+          modelsHint: '支持按换行或逗号分隔，已识别 {count} 个模型。',
+          success: '已更新 {count} 个分组的 /v1/models 列表',
+          failed: '批量设置 /v1/models 列表失败'
+        }
       },
       compositeRoutes: {
         action: '路由',

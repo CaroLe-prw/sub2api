@@ -106,6 +106,7 @@ describe('UpstreamBillingRateCell', () => {
     const wrapper = mount(UpstreamBillingRateCell, {
       attachTo: document.body,
       props: {
+        mode: 'balance',
         account: makeAccount({
           extra: {
             upstream_billing_probe_enabled: true,
@@ -144,6 +145,7 @@ describe('UpstreamBillingRateCell', () => {
   it('renders a zero upstream balance as an explicit insufficient-balance state', () => {
     const wrapper = mount(UpstreamBillingRateCell, {
       props: {
+        mode: 'balance',
         account: makeAccount({
           extra: {
             upstream_billing_probe_enabled: true,
@@ -170,6 +172,7 @@ describe('UpstreamBillingRateCell', () => {
   it('shows insufficient balance when NewAPI reports the account unavailable without a numeric balance', () => {
     const wrapper = mount(UpstreamBillingRateCell, {
       props: {
+        mode: 'balance',
         account: makeAccount({
           extra: {
             newapi_sync_enabled: true,
@@ -237,13 +240,20 @@ describe('UpstreamBillingRateCell', () => {
     })
 
     expect(wrapper.get('[data-testid="upstream-billing-rate"]').text()).toBe('0.03x')
+    await wrapper.get('[data-testid="upstream-billing-details"]').trigger('mouseenter')
+    await flushPromises()
+    let tooltips = document.body.querySelectorAll('[role="tooltip"]')
+    let tooltip = tooltips[tooltips.length - 1] as HTMLElement
+    expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.newapiGroupRate:GPT Lite大户组,1')
+    expect(tooltip.textContent).not.toContain('admin.accounts.upstreamBilling.walletBalance')
+
+    await wrapper.setProps({ mode: 'balance' })
     expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe('$19.8645')
     expect(wrapper.get('[data-testid="upstream-billing-balance"]').classes()).toContain('text-red-600')
     await wrapper.get('[data-testid="upstream-billing-details"]').trigger('mouseenter')
     await flushPromises()
-    const tooltips = document.body.querySelectorAll('[role="tooltip"]')
-    const tooltip = tooltips[tooltips.length - 1] as HTMLElement
-    expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.newapiGroupRate:GPT Lite大户组,1')
+    tooltips = document.body.querySelectorAll('[role="tooltip"]')
+    tooltip = tooltips[tooltips.length - 1] as HTMLElement
     expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.walletBalance:$19.8645')
     expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.balanceLow:$19.8645,$20')
     expect(tooltip.textContent).not.toContain('admin.accounts.upstreamBilling.unsupported')
@@ -419,10 +429,16 @@ describe('UpstreamBillingRateCell', () => {
     await wrapper.get('[data-testid="upstream-billing-probe"]').trigger('click')
     expect(wrapper.emitted('probe')).toHaveLength(1)
 
+    await wrapper.setProps({ mode: 'balance' })
+    expect(wrapper.find('[data-testid="upstream-billing-rate"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe('-')
+    await wrapper.get('[data-testid="upstream-billing-probe"]').trigger('click')
+    expect(wrapper.emitted('probe')).toHaveLength(2)
+
     // 探测已放宽到全部 API-key 平台：grok API-key 账号同样可探测。
     await wrapper.setProps({ account: makeAccount({ platform: 'grok' }) })
     await wrapper.get('[data-testid="upstream-billing-probe"]').trigger('click')
-    expect(wrapper.emitted('probe')).toHaveLength(2)
+    expect(wrapper.emitted('probe')).toHaveLength(3)
 
     await wrapper.setProps({ account: makeAccount({ type: 'oauth' }) })
     expect(wrapper.findAll('button')).toHaveLength(0)

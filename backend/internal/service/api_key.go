@@ -8,10 +8,11 @@ import (
 
 // API Key status constants
 const (
-	StatusAPIKeyActive         = "active"
-	StatusAPIKeyDisabled       = "disabled"
-	StatusAPIKeyQuotaExhausted = "quota_exhausted"
-	StatusAPIKeyExpired        = "expired"
+	StatusAPIKeyActive          = "active"
+	StatusAPIKeyDisabled        = "disabled"
+	StatusAPIKeyQuotaExhausted  = "quota_exhausted"
+	StatusAPIKeyExpired         = "expired"
+	StatusAPIKeyTempUnavailable = "temporarily_unavailable"
 )
 
 // Rate limit window durations
@@ -28,14 +29,20 @@ func IsWindowExpired(windowStart *time.Time, duration time.Duration) bool {
 }
 
 type APIKey struct {
-	ID          int64
-	UserID      int64
-	Key         string
-	Name        string
-	GroupID     *int64
-	Status      string
-	IPWhitelist []string
-	IPBlacklist []string
+	ID      int64
+	UserID  int64
+	Key     string
+	Name    string
+	GroupID *int64
+	Status  string
+	// MaxGroupRateMultiplier is the highest effective group billing multiplier
+	// this key accepts. Zero disables automatic rate protection.
+	MaxGroupRateMultiplier float64
+	// GroupRateMultiplier is the user-specific group multiplier when configured,
+	// otherwise the group's default multiplier.
+	GroupRateMultiplier float64
+	IPWhitelist         []string
+	IPBlacklist         []string
 	// 预编译的 IP 规则，用于认证热路径避免重复 ParseIP/ParseCIDR。
 	CompiledIPWhitelist *ip.CompiledIPRules `json:"-"`
 	CompiledIPBlacklist *ip.CompiledIPRules `json:"-"`
@@ -66,6 +73,37 @@ type APIKey struct {
 
 func (k *APIKey) IsActive() bool {
 	return k.Status == StatusActive
+}
+
+// EffectiveGroupRateMultiplier returns the user-specific group multiplier when
+// configured, otherwise the group's default multiplier.
+func (k *APIKey) EffectiveGroupRateMultiplier() float64 {
+	if k == nil || k.Group == nil {
+		return 0
+	}
+	rate := k.GroupRateMultiplier
+	if rate == 0 {
+		rate = k.Group.RateMultiplier
+	}
+	return rate
+}
+
+func (k *APIKey) IsTemporarilyUnavailable() bool {
+	if k == nil || !k.IsActive() || k.MaxGroupRateMultiplier <= 0 || k.Group == nil {
+		return false
+	}
+	const comparisonTolerance = 1e-12
+	return k.EffectiveGroupRateMultiplier()-k.MaxGroupRateMultiplier > comparisonTolerance
+}
+
+func (k *APIKey) SchedulingStatus() string {
+	if k != nil && k.IsTemporarilyUnavailable() {
+		return StatusAPIKeyTempUnavailable
+	}
+	if k == nil {
+		return ""
+	}
+	return k.Status
 }
 
 // HasRateLimits returns true if any rate limit window is configured

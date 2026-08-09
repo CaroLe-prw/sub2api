@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,6 +47,48 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_Hit(t *testing.T
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
+}
+
+func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_RequireOAuthOnlyMiss(t *testing.T) {
+	groupID := int64(23)
+	ctx := context.WithValue(context.Background(), ctxkey.Group, &Group{
+		ID:               groupID,
+		Platform:         PlatformOpenAI,
+		Status:           StatusActive,
+		Hydrated:         true,
+		RequireOAuthOnly: true,
+	})
+	account := Account{
+		ID:          76,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Extra: map[string]any{
+			"openai_apikey_responses_websockets_v2_enabled": true,
+		},
+	}
+	cache := &stubGatewayCache{}
+	store := NewOpenAIWSStateStore(cache)
+	svc := &OpenAIGatewayService{
+		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{account}},
+		cache:              cache,
+		cfg:                newOpenAIWSV2TestConfig(),
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		openaiWSStateStore: store,
+	}
+	require.NoError(t, store.BindResponseAccount(ctx, groupID, "resp_prev_oauth_only", account.ID, time.Hour))
+
+	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_oauth_only", "gpt-5.1", nil, false)
+	require.NoError(t, err)
+	require.Nil(t, selection, "previous_response_id must not revive an API-key binding for an OAuth-only group")
+
+	// The restriction can be removed later, so preserve this otherwise-valid
+	// binding just like quota and profit-control temporary gates do.
+	boundAccountID, getErr := store.GetResponseAccount(ctx, groupID, "resp_prev_oauth_only")
+	require.NoError(t, getErr)
+	require.Equal(t, account.ID, boundAccountID)
 }
 
 func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_QuotaAutoPausedMiss(t *testing.T) {

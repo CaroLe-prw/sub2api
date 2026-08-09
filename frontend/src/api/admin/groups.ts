@@ -12,6 +12,7 @@ import type {
   CompositeRoutePreviewRequest,
   CompositeRouteDecision,
   CreateGroupRequest,
+  ModelsListConfig,
   UpdateGroupRequest,
   PaginatedResponse
 } from '@/types'
@@ -117,6 +118,18 @@ export async function getModelsListCandidates(
     }
   )
   return data.models || []
+}
+
+/** Apply one custom /v1/models list to several selected groups. */
+export async function batchSetModelsListConfig(
+  groupIDs: number[],
+  modelsListConfig: ModelsListConfig,
+): Promise<{ affected: number }> {
+  const { data } = await apiClient.put<{ affected: number }>(
+    '/admin/groups/batch-models-list-config',
+    { group_ids: groupIDs, models_list_config: modelsListConfig },
+  )
+  return data
 }
 
 /**
@@ -481,6 +494,7 @@ export const groupsAPI = {
   getLiveCapability,
   getById,
   getModelsListCandidates,
+  batchSetModelsListConfig,
   create,
   duplicate,
   update,

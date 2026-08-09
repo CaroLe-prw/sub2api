@@ -824,25 +824,21 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.upstream_billing_probe_enabled).toBe(true)
   })
 
-  it('enabling rate sync keeps Sub2API probing on and stops submitting a manual rate', async () => {
+  it('Sub2API probing always syncs the rate and stops submitting a manual rate', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()
     updateAccountMock.mockResolvedValue(account)
 
     const wrapper = mountModal(account)
     await wrapper.get<HTMLSelectElement>('[data-testid="upstream-billing-mode"]').setValue('sub2api')
-    const syncToggle = wrapper.get('[data-testid="upstream-billing-rate-sync"]')
     const rateInput = wrapper.get<HTMLInputElement>('[data-testid="account-rate-multiplier"]')
-    expect(rateInput.element.disabled).toBe(false)
-
-    await syncToggle.trigger('click')
-    expect(syncToggle.attributes('aria-checked')).toBe('true')
+    expect(wrapper.find('[data-testid="upstream-billing-rate-sync"]').exists()).toBe(false)
     expect(rateInput.element.disabled).toBe(true)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     const payload = updateAccountMock.mock.calls[0]?.[1]
     expect(payload?.upstream_billing_probe_enabled).toBe(true)
-    expect(payload?.upstream_billing_rate_sync_enabled).toBe(true)
+    expect(payload).not.toHaveProperty('upstream_billing_rate_sync_enabled')
     expect(payload).not.toHaveProperty('rate_multiplier')
   })
 
@@ -865,7 +861,7 @@ describe('EditAccountModal', () => {
 
     const payload = updateAccountMock.mock.calls[0]?.[1]
     expect(payload?.upstream_billing_probe_enabled).toBe(false)
-    expect(payload?.upstream_billing_rate_sync_enabled).toBe(false)
+    expect(payload).not.toHaveProperty('upstream_billing_rate_sync_enabled')
     expect(payload?.rate_multiplier).toBe(1)
   })
 

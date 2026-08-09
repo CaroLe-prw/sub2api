@@ -998,6 +998,65 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	return group, nil
 }
 
+// BatchSetGroupModelsListConfig applies one custom /v1/models configuration to
+// the selected groups without changing any other group fields.
+func (s *adminServiceImpl) BatchSetGroupModelsListConfig(ctx context.Context, groupIDs []int64, config GroupModelsListConfig) (int, error) {
+	uniqueIDs := make([]int64, 0, len(groupIDs))
+	seen := make(map[int64]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			return 0, infraerrors.BadRequest("INVALID_GROUP_ID", "group_ids must contain positive IDs")
+		}
+		if _, ok := seen[groupID]; ok {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, groupID)
+	}
+	if len(uniqueIDs) == 0 {
+		return 0, infraerrors.BadRequest("INVALID_GROUP_IDS", "at least one group_id is required")
+	}
+
+	// Validate all targets before updating so a nonexistent ID never yields a
+	// partially applied batch.
+	for _, groupID := range uniqueIDs {
+		if _, err := s.groupRepo.GetByID(ctx, groupID); err != nil {
+			return 0, err
+		}
+	}
+
+	config = normalizeGroupModelsListConfig(config)
+	affected := 0
+	if batchRepo, ok := s.groupRepo.(GroupModelsListConfigBatchRepository); ok {
+		count, err := batchRepo.BatchUpdateModelsListConfig(ctx, uniqueIDs, config)
+		if err != nil {
+			return 0, err
+		}
+		affected = count
+	} else {
+		// Test doubles and alternate repositories may not implement the optional
+		// batch capability. They still preserve the narrow field update contract.
+		for _, groupID := range uniqueIDs {
+			group, err := s.groupRepo.GetByID(ctx, groupID)
+			if err != nil {
+				return 0, err
+			}
+			group.ModelsListConfig = config
+			if err := s.groupRepo.Update(ctx, group); err != nil {
+				return 0, err
+			}
+			affected++
+		}
+	}
+
+	if s.authCacheInvalidator != nil {
+		for _, groupID := range uniqueIDs {
+			s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, groupID)
+		}
+	}
+	return affected, nil
+}
+
 func (s *adminServiceImpl) DeleteGroup(ctx context.Context, id int64) error {
 	var groupKeys []string
 	if s.authCacheInvalidator != nil {
@@ -1055,7 +1114,13 @@ func (s *adminServiceImpl) ClearGroupRateMultipliers(ctx context.Context, groupI
 	if s.userGroupRateRepo == nil {
 		return nil
 	}
-	return s.userGroupRateRepo.DeleteByGroupID(ctx, groupID)
+	if err := s.userGroupRateRepo.DeleteByGroupID(ctx, groupID); err != nil {
+		return err
+	}
+	if s.authCacheInvalidator != nil {
+		s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, groupID)
+	}
+	return nil
 }
 
 func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, groupID int64, entries []GroupRateMultiplierInput) error {
@@ -1067,7 +1132,13 @@ func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, gro
 			return fmt.Errorf("rate_multiplier must be > 0 (user_id=%d)", e.UserID)
 		}
 	}
-	return s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, entries)
+	if err := s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, entries); err != nil {
+		return err
+	}
+	if s.authCacheInvalidator != nil {
+		s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, groupID)
+	}
+	return nil
 }
 
 func (s *adminServiceImpl) ClearGroupRPMOverrides(ctx context.Context, groupID int64) error {

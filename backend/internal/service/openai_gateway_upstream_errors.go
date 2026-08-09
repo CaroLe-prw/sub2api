@@ -164,6 +164,72 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 	return match(string(upstreamBody))
 }
 
+// isOpenAIRequestScopedCapacityError identifies overload signals that are not
+// attributable to a particular account. Retrying another account does not
+// change the upstream model/client capacity decision, so bounded retries stay
+// on the current account first.
+func isOpenAIRequestScopedCapacityError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if upstreamStatusCode != http.StatusBadRequest && upstreamStatusCode != http.StatusServiceUnavailable {
+		return false
+	}
+	containsCapacityMessage := func(text string) bool {
+		return strings.Contains(strings.ToLower(strings.TrimSpace(text)), "selected model is at capacity")
+	}
+	if containsCapacityMessage(upstreamMsg) {
+		return true
+	}
+	for _, path := range []string{"error.message", "response.error.message", "message"} {
+		if containsCapacityMessage(gjson.GetBytes(upstreamBody, path).String()) {
+			return true
+		}
+	}
+	if containsCapacityMessage(string(upstreamBody)) {
+		return true
+	}
+	for _, path := range []string{"error.code", "response.error.code", "code"} {
+		code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, path).String()))
+		if code == "server_is_overloaded" || code == "slow_down" {
+			return true
+		}
+	}
+	return false
+
+}
+
+func isOpenAIModelCapacityError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if upstreamStatusCode != http.StatusBadRequest && upstreamStatusCode != http.StatusServiceUnavailable {
+		return false
+	}
+	match := func(text string) bool {
+		return strings.Contains(strings.ToLower(strings.TrimSpace(text)), "selected model is at capacity")
+	}
+	if match(upstreamMsg) {
+		return true
+	}
+	if len(upstreamBody) == 0 {
+		return false
+	}
+	for _, path := range []string{"error.message", "response.error.message", "message"} {
+		if match(gjson.GetBytes(upstreamBody, path).String()) {
+			return true
+		}
+	}
+	return match(string(upstreamBody))
+}
+
+func shouldRetryOpenAIOAuthCapacityOnSameAccount(account *Account, statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	return account != nil && account.Platform == PlatformOpenAI && account.IsOAuth() &&
+		isOpenAIModelCapacityError(statusCode, upstreamMsg, upstreamBody)
+}
+
+// Non-OAuth accounts do not participate in the OAuth account-selection
+// fallback. Request-scoped capacity failures therefore use the normal bounded
+// same-account retry immediately instead of waiting for selection exhaustion.
+func shouldRetryOpenAINonOAuthCapacityOnSameAccount(account *Account, statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	return account != nil && account.Platform == PlatformOpenAI && !account.IsOAuth() &&
+		isOpenAIRequestScopedCapacityError(statusCode, upstreamMsg, upstreamBody)
+}
+
 func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 	match := func(text string) bool {
 		lower := strings.ToLower(strings.TrimSpace(text))
@@ -247,12 +313,15 @@ func newOpenAIUpstreamFailoverError(
 	responseBody []byte,
 	upstreamMsg string,
 	retryableOnSameAccount bool,
+	retryableOnSameAccountIfNoOtherAccount bool,
 ) *UpstreamFailoverError {
 	failoverErr := &UpstreamFailoverError{
-		StatusCode:             statusCode,
-		ResponseBody:           responseBody,
-		ResponseHeaders:        responseHeaders.Clone(),
-		RetryableOnSameAccount: retryableOnSameAccount,
+		StatusCode:                             statusCode,
+		ResponseBody:                           responseBody,
+		ResponseHeaders:                        responseHeaders.Clone(),
+		RetryableOnSameAccount:                 retryableOnSameAccount,
+		RequestScopedTransient:                 isOpenAIRequestScopedCapacityError(statusCode, upstreamMsg, responseBody),
+		RetryableOnSameAccountIfNoOtherAccount: retryableOnSameAccountIfNoOtherAccount,
 	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, responseBody) {
 		failoverErr.RetryableOnSameAccount = false
@@ -400,6 +469,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 			resp.Header,
 			body,
 			upstreamMsg,
+			false,
 			false,
 		)
 	}

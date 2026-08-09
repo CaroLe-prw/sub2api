@@ -20,6 +20,7 @@ const (
 	IngressRejectAPIKeyRequired         IngressRejectReason = "api_key_required"
 	IngressRejectInvalidAPIKey          IngressRejectReason = "invalid_api_key"
 	IngressRejectAPIKeyDisabled         IngressRejectReason = "api_key_disabled"
+	IngressRejectAPIKeyRateProtected    IngressRejectReason = "api_key_rate_protected"
 	IngressRejectIPRestricted           IngressRejectReason = "ip_restricted"
 	IngressRejectUserInactive           IngressRejectReason = "user_inactive"
 	IngressRejectGroupDeleted           IngressRejectReason = "group_deleted"

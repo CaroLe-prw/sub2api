@@ -889,15 +889,18 @@ func (s *SubscriptionService) adminResetQuotaAt(ctx context.Context, subscriptio
 		return nil, ErrInvalidInput
 	}
 
-	var windowStart *time.Time
+	var dailyStart, periodicStart *time.Time
 	switch mode {
 	case "", QuotaWindowStartNaturalDay:
 		naturalDay := startOfDay(resetAt)
-		windowStart = &naturalDay
+		dailyStart = &naturalDay
+		periodicStart = &resetAt
 	case QuotaWindowStartCurrent:
-		windowStart = &resetAt
+		dailyStart = &resetAt
+		periodicStart = &resetAt
 	case QuotaWindowStartPreserve:
-		windowStart = nil
+		dailyStart = nil
+		periodicStart = nil
 	default:
 		return nil, ErrInvalidQuotaWindowStartMode
 	}
@@ -918,7 +921,7 @@ func (s *SubscriptionService) adminResetQuotaAt(ctx context.Context, subscriptio
 			return nil, ErrQuotaWindowNotActivated
 		}
 	}
-	if err := s.userSubRepo.ResetUsageWindows(ctx, sub.ID, resetDaily, resetWeekly, resetMonthly, windowStart); err != nil {
+	if err := s.userSubRepo.ResetUsageWindows(ctx, sub.ID, resetDaily, resetWeekly, resetMonthly, dailyStart, periodicStart); err != nil {
 		return nil, err
 	}
 

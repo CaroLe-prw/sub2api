@@ -247,20 +247,20 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
   })
 
-  it('can enable durable upstream rate synchronization during creation', async () => {
+  it('always enables durable rate synchronization with Sub2API probing', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')
     await selectButtonByText(wrapper, 'API Key')
     await wrapper.get('form#create-account-form input[type="text"]').setValue('managed rate')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
-    await wrapper.get('[data-testid="upstream-billing-rate-sync"]').trigger('click')
+    expect(wrapper.find('[data-testid="upstream-billing-rate-sync"]').exists()).toBe(false)
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
       upstream_billing_probe_enabled: true,
-      upstream_billing_rate_sync_enabled: true,
     }))
+    expect(createAccountMock.mock.calls[0]?.[0]).not.toHaveProperty('upstream_billing_rate_sync_enabled')
   })
 
   it('configures and runs NewAPI sync after creating an OpenAI API key account', async () => {
@@ -278,12 +278,12 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
       upstream_billing_probe_enabled: false,
-      upstream_billing_rate_sync_enabled: false,
       extra: expect.objectContaining({
         upstream_balance_alert_enabled: true,
         upstream_balance_alert_threshold: 5,
       }),
     }))
+    expect(createAccountMock.mock.calls[0]?.[0]).not.toHaveProperty('upstream_billing_rate_sync_enabled')
     expect(updateNewAPISyncConfigMock).toHaveBeenCalledWith(42, {
       newapi_sync_enabled: true,
       newapi_base_url: 'https://newapi.example.com',

@@ -134,6 +134,27 @@ func (_u *APIKeyUpdate) SetNillableStatus(v *string) *APIKeyUpdate {
 	return _u
 }
 
+// SetMaxGroupRateMultiplier sets the "max_group_rate_multiplier" field.
+func (_u *APIKeyUpdate) SetMaxGroupRateMultiplier(v float64) *APIKeyUpdate {
+	_u.mutation.ResetMaxGroupRateMultiplier()
+	_u.mutation.SetMaxGroupRateMultiplier(v)
+	return _u
+}
+
+// SetNillableMaxGroupRateMultiplier sets the "max_group_rate_multiplier" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableMaxGroupRateMultiplier(v *float64) *APIKeyUpdate {
+	if v != nil {
+		_u.SetMaxGroupRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddMaxGroupRateMultiplier adds value to the "max_group_rate_multiplier" field.
+func (_u *APIKeyUpdate) AddMaxGroupRateMultiplier(v float64) *APIKeyUpdate {
+	_u.mutation.AddMaxGroupRateMultiplier(v)
+	return _u
+}
+
 // SetLastUsedAt sets the "last_used_at" field.
 func (_u *APIKeyUpdate) SetLastUsedAt(v time.Time) *APIKeyUpdate {
 	_u.mutation.SetLastUsedAt(v)
@@ -596,6 +617,12 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.MaxGroupRateMultiplier(); ok {
+		_spec.SetField(apikey.FieldMaxGroupRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedMaxGroupRateMultiplier(); ok {
+		_spec.AddField(apikey.FieldMaxGroupRateMultiplier, field.TypeFloat64, value)
+	}
 	if value, ok := _u.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)
 	}
@@ -918,6 +945,27 @@ func (_u *APIKeyUpdateOne) SetNillableStatus(v *string) *APIKeyUpdateOne {
 	if v != nil {
 		_u.SetStatus(*v)
 	}
+	return _u
+}
+
+// SetMaxGroupRateMultiplier sets the "max_group_rate_multiplier" field.
+func (_u *APIKeyUpdateOne) SetMaxGroupRateMultiplier(v float64) *APIKeyUpdateOne {
+	_u.mutation.ResetMaxGroupRateMultiplier()
+	_u.mutation.SetMaxGroupRateMultiplier(v)
+	return _u
+}
+
+// SetNillableMaxGroupRateMultiplier sets the "max_group_rate_multiplier" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableMaxGroupRateMultiplier(v *float64) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetMaxGroupRateMultiplier(*v)
+	}
+	return _u
+}
+
+// AddMaxGroupRateMultiplier adds value to the "max_group_rate_multiplier" field.
+func (_u *APIKeyUpdateOne) AddMaxGroupRateMultiplier(v float64) *APIKeyUpdateOne {
+	_u.mutation.AddMaxGroupRateMultiplier(v)
 	return _u
 }
 
@@ -1412,6 +1460,12 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.MaxGroupRateMultiplier(); ok {
+		_spec.SetField(apikey.FieldMaxGroupRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedMaxGroupRateMultiplier(); ok {
+		_spec.AddField(apikey.FieldMaxGroupRateMultiplier, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)

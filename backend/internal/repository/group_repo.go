@@ -401,6 +401,16 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 	return nil
 }
 
+func (r *groupRepository) BatchUpdateModelsListConfig(ctx context.Context, groupIDs []int64, config service.GroupModelsListConfig) (int, error) {
+	if len(groupIDs) == 0 {
+		return 0, nil
+	}
+	return r.client.Group.Update().
+		Where(group.IDIn(groupIDs...)).
+		SetModelsListConfig(config).
+		Save(ctx)
+}
+
 func (r *groupRepository) Delete(ctx context.Context, id int64) error {
 	_, err := r.client.Group.Delete().Where(group.IDEQ(id)).Exec(ctx)
 	if err != nil {

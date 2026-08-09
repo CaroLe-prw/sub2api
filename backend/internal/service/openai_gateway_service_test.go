@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/model"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
@@ -886,6 +887,74 @@ func TestOpenAISelectAccountForModelWithExclusions_StickyOutsideGroupClearsSessi
 	}
 }
 
+func TestOpenAISelectAccountForModelWithExclusions_RequireOAuthOnlySkipsAPIKey(t *testing.T) {
+	groupID := int64(1002)
+	group := &Group{
+		ID:               groupID,
+		Platform:         PlatformOpenAI,
+		Status:           StatusActive,
+		Hydrated:         true,
+		RequireOAuthOnly: true,
+	}
+	apiKey := Account{
+		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
+	}
+	oauth := Account{
+		ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10,
+	}
+	svc := &OpenAIGatewayService{accountRepo: stubOpenAIAccountRepo{accounts: []Account{apiKey, oauth}}}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+
+	account, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gpt-5", nil)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, oauth.ID, account.ID, "require_oauth_only must be a runtime eligibility gate, not merely a binding-time check")
+}
+
+func TestOpenAISelectAccountForModelWithExclusions_RequireOAuthOnlyRejectsStickyAPIKey(t *testing.T) {
+	groupID := int64(1003)
+	group := &Group{
+		ID:               groupID,
+		Platform:         PlatformOpenAI,
+		Status:           StatusActive,
+		Hydrated:         true,
+		RequireOAuthOnly: true,
+	}
+	apiKey := Account{
+		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
+	}
+	oauth := Account{
+		ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10,
+	}
+	sessionHash := "oauth-only-sticky"
+	cache := &stubGatewayCache{sessionBindings: map[string]int64{"openai:" + sessionHash: apiKey.ID}}
+	svc := &OpenAIGatewayService{
+		accountRepo: stubOpenAIAccountRepo{accounts: []Account{apiKey, oauth}},
+		cache:       cache,
+	}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+
+	account, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, sessionHash, "gpt-5", nil)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, oauth.ID, account.ID)
+	require.Equal(t, oauth.ID, cache.sessionBindings["openai:"+sessionHash], "the legacy API-key sticky binding must be replaced")
+}
+
+func TestDefaultOpenAIAccountScheduler_RequireOAuthOnlyRejectsAPIKey(t *testing.T) {
+	group := &Group{ID: 1004, Platform: PlatformOpenAI, RequireOAuthOnly: true}
+	ctx := withGroupOAuthOnlyFilter(context.Background(), group)
+	apiKey := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	compatible, reason := (&defaultOpenAIAccountScheduler{}).isAccountRequestCompatibleReason(ctx, apiKey, OpenAIAccountScheduleRequest{})
+	require.False(t, compatible)
+	require.Equal(t, "oauth_only", reason)
+}
+
 func TestOpenAISelectAccountWithLoadAwareness_StickyUnschedulableClearsSession(t *testing.T) {
 	sessionHash := "session-2"
 	groupID := int64(1)
@@ -1693,6 +1762,49 @@ func TestOpenAIStreamingResponseFailedBeforeOutputCapacityErrorReturnsFailover(t
 	require.Contains(t, string(failoverErr.ResponseBody), "Selected model is at capacity")
 	require.False(t, c.Writer.Written())
 	require.Empty(t, rec.Body.String())
+}
+
+func TestOpenAIStreamingResponseFailedBeforeOutputOAuthCapacityAllowsSelectionExhaustedRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			StreamDataIntervalTimeout: 0,
+			StreamKeepaliveInterval:   0,
+			MaxLineSize:               defaultMaxLineSize,
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			"event: response.created",
+			`data: {"type":"response.created","response":{"id":"resp_oauth_1"}}`,
+			"",
+			"event: response.failed",
+			`data: {"type":"response.failed","error":{"message":"Selected model is at capacity. Please try a different model.","type":"invalid_request_error"}}`,
+			"",
+		}, "\n"))),
+		Header: http.Header{"X-Request-Id": []string{"rid-oauth-capacity-failed"}},
+	}
+	account := &Account{
+		ID:       2,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Name:     "oauth-account",
+	}
+
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "model", "model")
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.False(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.RetryableOnSameAccountIfNoOtherAccount)
+	require.False(t, c.Writer.Written())
 }
 
 func TestOpenAIStreamingResponseFailedBeforeOutputServerOverloadedCodeReturnsFailover(t *testing.T) {
@@ -3443,7 +3555,7 @@ func TestHandleSSEToJSON_CompletedEventReturnsJSON(t *testing.T) {
 		`data: [DONE]`,
 	}, "\n"))
 
-	usage, err := svc.handleSSEToJSON(resp, c, body, "gpt-4o", "gpt-4o")
+	usage, err := svc.handleSSEToJSON(resp, c, &Account{ID: 1, Type: AccountTypeOAuth}, body, "gpt-4o", "gpt-4o")
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 	require.Equal(t, 7, usage.InputTokens)
@@ -3562,7 +3674,7 @@ func TestHandleSSEToJSON_ReconstructsImageGenerationOutputItemDone(t *testing.T)
 		`data: [DONE]`,
 	}, "\n"))
 
-	usage, err := svc.handleSSEToJSON(resp, c, body, "gpt-5.4", "gpt-5.4")
+	usage, err := svc.handleSSEToJSON(resp, c, &Account{ID: 1, Type: AccountTypeOAuth}, body, "gpt-5.4", "gpt-5.4")
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 	require.Equal(t, 4, usage.ImageOutputTokens)
@@ -3589,7 +3701,7 @@ func TestHandleSSEToJSON_NoFinalResponseKeepsSSEBody(t *testing.T) {
 		`data: [DONE]`,
 	}, "\n"))
 
-	usage, err := svc.handleSSEToJSON(resp, c, body, "gpt-4o", "gpt-4o")
+	usage, err := svc.handleSSEToJSON(resp, c, &Account{ID: 1, Type: AccountTypeOAuth}, body, "gpt-4o", "gpt-4o")
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 	require.Equal(t, 0, usage.InputTokens)
@@ -3597,7 +3709,12 @@ func TestHandleSSEToJSON_NoFinalResponseKeepsSSEBody(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `data: {"type":"response.in_progress"`)
 }
 
-func TestHandleSSEToJSON_ResponseFailedReturnsProtocolError(t *testing.T) {
+// 未被分类为不可重试的 response.failed 走与流式路径相同的判定
+// （openAIStreamFailedEventShouldFailover 对未知错误默认倾向切号），
+// 因此这里返回 UpstreamFailoverError 而不是直接回写 502。
+// 明确不可重试的错误仍然回写协议错误，见
+// TestNonStreamingSSEToJSONInvalidRequestFailedStillWritesError。
+func TestHandleSSEToJSON_ResponseFailedUnclassifiedReturnsFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -3613,12 +3730,12 @@ func TestHandleSSEToJSON_ResponseFailedReturnsProtocolError(t *testing.T) {
 		`data: [DONE]`,
 	}, "\n"))
 
-	usage, err := svc.handleSSEToJSON(resp, c, body, "gpt-4o", "gpt-4o")
+	usage, err := svc.handleSSEToJSON(resp, c, &Account{ID: 1, Type: AccountTypeOAuth}, body, "gpt-4o", "gpt-4o")
 	require.Nil(t, usage)
-	require.Error(t, err)
-	require.Equal(t, http.StatusBadGateway, rec.Code)
-	require.Contains(t, rec.Body.String(), "upstream rejected request")
-	require.Contains(t, rec.Header().Get("Content-Type"), "application/json")
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Empty(t, rec.Body.String(), "切号前不得向下游写入任何字节")
 }
 
 func TestOpenAICompatSSEFrameParserResetsEventTypeAtFrameBoundary(t *testing.T) {

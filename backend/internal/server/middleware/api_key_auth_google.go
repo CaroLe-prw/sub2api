@@ -130,6 +130,11 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			abortWithGoogleError(c, 403, "API Key 所属专属分组不再允许当前用户使用")
 			return
 		}
+		if apiKey.IsTemporarilyUnavailable() {
+			MarkIngressRejected(c, IngressRejectAPIKeyRateProtected)
+			abortWithGoogleError(c, 403, "API key is temporarily unavailable because the current group rate exceeds its configured maximum; update the key settings in the dashboard")
+			return
+		}
 
 		// 简易模式：跳过余额和订阅检查
 		if cfg.RunMode == config.RunModeSimple {

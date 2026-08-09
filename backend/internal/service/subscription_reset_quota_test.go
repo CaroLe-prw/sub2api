@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +25,8 @@ type resetQuotaUserSubRepoStub struct {
 	resetDailyErr      error
 	resetWeeklyErr     error
 	resetMonthlyErr    error
-	windowStart        *time.Time
+	dailyStart         *time.Time
+	periodicStart      *time.Time
 }
 
 type resetQuotaBillingCacheStub struct {
@@ -57,15 +59,21 @@ func (r *resetQuotaUserSubRepoStub) GetByID(_ context.Context, id int64) (*UserS
 	return &cp, nil
 }
 
-func (r *resetQuotaUserSubRepoStub) ResetUsageWindows(_ context.Context, _ int64, resetDaily, resetWeekly, resetMonthly bool, windowStart *time.Time) error {
+func (r *resetQuotaUserSubRepoStub) ResetUsageWindows(_ context.Context, _ int64, resetDaily, resetWeekly, resetMonthly bool, dailyStart, periodicStart *time.Time) error {
 	r.resetDailyCalled = resetDaily
 	r.resetWeeklyCalled = resetWeekly
 	r.resetMonthlyCalled = resetMonthly
-	if windowStart != nil {
-		copy := *windowStart
-		r.windowStart = &copy
+	if dailyStart != nil {
+		copy := *dailyStart
+		r.dailyStart = &copy
 	} else {
-		r.windowStart = nil
+		r.dailyStart = nil
+	}
+	if periodicStart != nil {
+		copy := *periodicStart
+		r.periodicStart = &copy
+	} else {
+		r.periodicStart = nil
 	}
 	if resetDaily && r.resetDailyErr != nil {
 		return r.resetDailyErr
@@ -81,22 +89,22 @@ func (r *resetQuotaUserSubRepoStub) ResetUsageWindows(_ context.Context, _ int64
 	}
 	if resetDaily {
 		r.sub.DailyUsageUSD = 0
-		if windowStart != nil {
-			copy := *windowStart
+		if dailyStart != nil {
+			copy := *dailyStart
 			r.sub.DailyWindowStart = &copy
 		}
 	}
 	if resetWeekly {
 		r.sub.WeeklyUsageUSD = 0
-		if windowStart != nil {
-			copy := *windowStart
+		if periodicStart != nil {
+			copy := *periodicStart
 			r.sub.WeeklyWindowStart = &copy
 		}
 	}
 	if resetMonthly {
 		r.sub.MonthlyUsageUSD = 0
-		if windowStart != nil {
-			copy := *windowStart
+		if periodicStart != nil {
+			copy := *periodicStart
 			r.sub.MonthlyWindowStart = &copy
 		}
 	}
@@ -158,10 +166,13 @@ func TestAdminResetQuota_ResetBoth(t *testing.T) {
 	require.True(t, stub.resetDailyCalled, "应调用 ResetDailyUsage")
 	require.True(t, stub.resetWeeklyCalled, "应调用 ResetWeeklyUsage")
 	require.False(t, stub.resetMonthlyCalled, "不应调用 ResetMonthlyUsage")
-	require.NotNil(t, stub.windowStart)
-	require.Equal(t, startOfDay(resetAt), *stub.windowStart)
-	require.Equal(t, startOfDay(resetAt), *result.DailyWindowStart)
-	require.Equal(t, startOfDay(resetAt), *result.WeeklyWindowStart)
+	// 手动重置后日窗口锚定当天 0 点（保持 0 点刷新节奏），周窗口锚定重置时刻。
+	require.NotNil(t, stub.dailyStart)
+	require.NotNil(t, stub.periodicStart)
+	require.Equal(t, timezone.StartOfDay(resetAt), *stub.dailyStart)
+	require.Equal(t, resetAt, *stub.periodicStart)
+	require.Equal(t, timezone.StartOfDay(resetAt), *result.DailyWindowStart)
+	require.Equal(t, resetAt, *result.WeeklyWindowStart)
 }
 
 func TestAdminResetQuota_ResetDailyOnly(t *testing.T) {
@@ -267,16 +278,17 @@ func TestAdminResetQuota_ResetMonthlyOnly(t *testing.T) {
 func TestAdminResetQuota_BeforeStartsAtSameDayPreservesAutomaticBoundary(t *testing.T) {
 	startsAt := time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC)
 	resetAt := time.Date(2026, 7, 1, 10, 37, 42, 123, time.UTC)
+	activeDaily := startsAt.Add(-24 * time.Hour)
+	activeWeekly := startsAt.Add(-7 * 24 * time.Hour)
 	stub := &resetQuotaUserSubRepoStub{
 		sub: &UserSubscription{
-			ID:                 10,
-			UserID:             10,
-			GroupID:            20,
-			StartsAt:           startsAt,
-			ExpiresAt:          startsAt.Add(45 * 24 * time.Hour),
-			DailyWindowStart:   &startsAt,
-			WeeklyWindowStart:  &startsAt,
-			MonthlyWindowStart: &startsAt,
+			ID:                10,
+			UserID:            10,
+			GroupID:           20,
+			StartsAt:          startsAt,
+			ExpiresAt:         startsAt.Add(45 * 24 * time.Hour),
+			DailyWindowStart:  &activeDaily,
+			WeeklyWindowStart: &activeWeekly,
 		},
 	}
 	svc := newResetQuotaSvc(stub)
@@ -325,14 +337,15 @@ func TestAdminResetQuota_WindowStartModes(t *testing.T) {
 	resetAt := time.Date(2025, 2, 3, 14, 15, 16, 123, location)
 
 	tests := []struct {
-		name          string
-		mode          QuotaWindowStartMode
-		expectedStart *time.Time
+		name             string
+		mode             QuotaWindowStartMode
+		expectedDaily    *time.Time
+		expectedPeriodic *time.Time
 	}{
-		{name: "current", mode: QuotaWindowStartCurrent, expectedStart: &resetAt},
-		{name: "natural day", mode: QuotaWindowStartNaturalDay, expectedStart: timePointer(startOfDay(resetAt))},
-		{name: "preserve", mode: QuotaWindowStartPreserve, expectedStart: nil},
-		{name: "empty defaults to natural day", mode: "", expectedStart: timePointer(startOfDay(resetAt))},
+		{name: "current", mode: QuotaWindowStartCurrent, expectedDaily: &resetAt, expectedPeriodic: &resetAt},
+		{name: "natural day", mode: QuotaWindowStartNaturalDay, expectedDaily: timePointer(startOfDay(resetAt)), expectedPeriodic: &resetAt},
+		{name: "preserve", mode: QuotaWindowStartPreserve},
+		{name: "empty defaults to natural day", mode: "", expectedDaily: timePointer(startOfDay(resetAt)), expectedPeriodic: &resetAt},
 	}
 
 	for _, tt := range tests {
@@ -348,18 +361,21 @@ func TestAdminResetQuota_WindowStartModes(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, result)
-			if tt.expectedStart == nil {
-				require.Nil(t, stub.windowStart)
+			if tt.expectedDaily == nil {
+				require.Nil(t, stub.dailyStart)
+				require.Nil(t, stub.periodicStart)
 				require.Equal(t, originalDaily, *result.DailyWindowStart)
 				require.Equal(t, originalWeekly, *result.WeeklyWindowStart)
 				require.Equal(t, originalMonthly, *result.MonthlyWindowStart)
 				return
 			}
-			require.NotNil(t, stub.windowStart)
-			require.Equal(t, *tt.expectedStart, *stub.windowStart)
-			require.Equal(t, *tt.expectedStart, *result.DailyWindowStart)
-			require.Equal(t, *tt.expectedStart, *result.WeeklyWindowStart)
-			require.Equal(t, *tt.expectedStart, *result.MonthlyWindowStart)
+			require.NotNil(t, stub.dailyStart)
+			require.NotNil(t, stub.periodicStart)
+			require.Equal(t, *tt.expectedDaily, *stub.dailyStart)
+			require.Equal(t, *tt.expectedPeriodic, *stub.periodicStart)
+			require.Equal(t, *tt.expectedDaily, *result.DailyWindowStart)
+			require.Equal(t, *tt.expectedPeriodic, *result.WeeklyWindowStart)
+			require.Equal(t, *tt.expectedPeriodic, *result.MonthlyWindowStart)
 		})
 	}
 }

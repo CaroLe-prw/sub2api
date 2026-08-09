@@ -161,7 +161,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 		"config":                 map[string]any{"region": "us-east-1"},
 		"items":                  []any{map[string]any{"enabled": true}},
 		"quota_limit":            float64(1000),
-		"quota_usage_multiplier": float64(1.25),
+		"quota_usage_multiplier": rateMultiplier,
 		"codex_cli_only":         true,
 	}, duplicate.Extra)
 	require.NotContains(t, duplicate.Extra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -199,6 +199,81 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	require.Equal(t, "us-east-1", storedSource.Extra["config"].(map[string]any)["region"])
 	require.Equal(t, true, storedSource.Extra["items"].([]any)[0].(map[string]any)["enabled"])
 	require.Equal(t, "remote-42", storedSource.Extra["crs_account_id"])
+}
+
+func TestDuplicateAccountPreservesNewAPIConfigurationAndResetsSyncState(t *testing.T) {
+	ctx := context.Background()
+	repo := newDuplicateAccountRepoStub()
+	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+
+	const (
+		baseURL        = "https://newapi.example.com"
+		encryptedToken = "encrypted:user-access-token"
+	)
+	source := &Account{
+		Name:        "newapi-source",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 2,
+		Credentials: map[string]any{
+			"api_key":  "sk-upstream",
+			"base_url": "https://gateway.example.com",
+		},
+		Extra: map[string]any{
+			NewAPISyncEnabledExtraKey:             true,
+			NewAPIBaseURLExtraKey:                 baseURL,
+			NewAPIUserAccessTokenExtraKey:         encryptedToken,
+			NewAPIUserIDExtraKey:                  int64(1010),
+			NewAPIAPIKeyExtraKey:                  "legacy-api-key",
+			NewAPISyncIntervalExtraKey:            5,
+			NewAPISyncIdentityExtraKey:            "stale-source-identity",
+			NewAPILastSyncAtExtraKey:              "2026-08-07T01:02:03Z",
+			NewAPILastSyncStatusExtraKey:          NewAPISyncStatusOK,
+			NewAPILastSyncErrorExtraKey:           "old-error",
+			NewAPIBalanceSnapshotExtraKey:         map[string]any{"remaining": 10},
+			NewAPIResolvedUserGroupExtraKey:       "user-group",
+			NewAPIResolvedTokenGroupExtraKey:      "token-group",
+			NewAPIResolvedActualGroupExtraKey:     "actual-group",
+			NewAPIRatioSourceExtraKey:             NewAPIRatioSourceConfiguredGroup,
+			NewAPICrossGroupRetryExtraKey:         true,
+			UpstreamBillingProbeExtraKey:          map[string]any{"status": "ok"},
+			OpenAIUpstreamRateCalibrationExtraKey: 0.1,
+			UpstreamBalanceAlertEnabledExtraKey:   true,
+			UpstreamBalanceAlertThresholdExtraKey: 10.0,
+		},
+	}
+	require.NoError(t, repo.Create(ctx, source))
+
+	duplicate, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "newapi-copy")
+
+	require.NoError(t, err)
+	require.Equal(t, true, duplicate.Extra[NewAPISyncEnabledExtraKey])
+	require.Equal(t, baseURL, duplicate.Extra[NewAPIBaseURLExtraKey])
+	require.Equal(t, encryptedToken, duplicate.Extra[NewAPIUserAccessTokenExtraKey])
+	require.EqualValues(t, 1010, duplicate.Extra[NewAPIUserIDExtraKey])
+	require.Equal(t, newAPISyncIdentity(baseURL, 1010, encryptedToken), duplicate.Extra[NewAPISyncIdentityExtraKey])
+	require.Equal(t, float64(0.1), duplicate.Extra[OpenAIUpstreamRateCalibrationExtraKey])
+	require.Equal(t, true, duplicate.Extra[UpstreamBalanceAlertEnabledExtraKey])
+	require.Equal(t, float64(10), duplicate.Extra[UpstreamBalanceAlertThresholdExtraKey])
+
+	for _, key := range []string{
+		NewAPIAPIKeyExtraKey,
+		NewAPISyncIntervalExtraKey,
+		NewAPILastSyncAtExtraKey,
+		NewAPILastSyncStatusExtraKey,
+		NewAPILastSyncErrorExtraKey,
+		NewAPIBalanceSnapshotExtraKey,
+		NewAPIResolvedUserGroupExtraKey,
+		NewAPIResolvedTokenGroupExtraKey,
+		NewAPIResolvedActualGroupExtraKey,
+		NewAPIRatioSourceExtraKey,
+		NewAPICrossGroupRetryExtraKey,
+		UpstreamBillingProbeExtraKey,
+	} {
+		require.NotContains(t, duplicate.Extra, key)
+	}
+	require.Equal(t, source.Credentials, duplicate.Credentials)
+	require.False(t, duplicate.Schedulable)
 }
 
 func TestDuplicateAccountRejectsCredentialShadow(t *testing.T) {

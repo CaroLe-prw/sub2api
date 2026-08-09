@@ -71,6 +71,40 @@ func (s *AccountRepoSuite) TestListWithFilters_SortByUpstreamBillingRateWithMiss
 	}
 }
 
+func (s *AccountRepoSuite) TestListWithFilters_SortByUpstreamBalanceWithMissingLast() {
+	makeAccount := func(name string, balance any) {
+		extra := map[string]any{}
+		if balance != nil {
+			extra[service.UpstreamBillingProbeExtraKey] = map[string]any{
+				"status": service.UpstreamBillingProbeStatusOK,
+				"data":   map[string]any{"balance": balance},
+			}
+		}
+		mustCreateAccount(s.T(), s.client, &service.Account{Name: name, Extra: extra})
+	}
+	makeAccount("high-balance", 80.5)
+	makeAccount("low-balance", 3.25)
+	makeAccount("missing-balance", nil)
+	makeAccount("invalid-balance", "unknown")
+
+	for _, tc := range []struct {
+		order string
+		want  []string
+	}{
+		{order: "asc", want: []string{"low-balance", "high-balance", "missing-balance", "invalid-balance"}},
+		{order: "desc", want: []string{"high-balance", "low-balance", "invalid-balance", "missing-balance"}},
+	} {
+		accounts, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{
+			Page: 1, PageSize: 10, SortBy: "upstream_balance", SortOrder: tc.order,
+		}, "", "", "", "", 0, "")
+		s.Require().NoError(err)
+		s.Require().Len(accounts, 4)
+		for i, name := range tc.want {
+			s.Require().Equal(name, accounts[i].Name)
+		}
+	}
+}
+
 func (s *AccountRepoSuite) TestListWithFilters_SortByCurrentUpstreamBillingRateDuringPeak() {
 	now := time.Now()
 	locations := []string{"UTC", "Asia/Shanghai", "America/New_York", "Europe/London"}

@@ -836,6 +836,32 @@ func TestBuildOpenAIWSReplayInputSequence(t *testing.T) {
 		require.Equal(t, "hello", gjson.GetBytes(items[0], "text").String())
 		require.Equal(t, "world", gjson.GetBytes(items[1], "text").String())
 	})
+
+}
+
+func TestShouldReplayOpenAIWSHTTPBridgeInputRequiresSelfContainedHistory(t *testing.T) {
+	t.Parallel()
+	require.False(t, shouldReplayOpenAIWSHTTPBridgeInput(false, true, true, false), "external previous_response_id history is not locally replayable")
+	require.False(t, shouldReplayOpenAIWSHTTPBridgeInput(true, false, true, false), "an empty continuation should keep previous_response_id")
+	require.True(t, shouldReplayOpenAIWSHTTPBridgeInput(true, false, false, false), "an implicit empty WS continuation needs local input replay over HTTP")
+	require.True(t, shouldReplayOpenAIWSHTTPBridgeInput(true, true, true, false))
+	require.True(t, shouldReplayOpenAIWSHTTPBridgeInput(true, true, false, true))
+}
+
+func TestOpenAIWSHTTPBridgeEmptyImplicitContinuationReplaysLocalInput(t *testing.T) {
+	t.Parallel()
+	previous := []json.RawMessage{
+		json.RawMessage(`{"type":"message","role":"user","content":"hello"}`),
+		json.RawMessage(`{"type":"message","role":"assistant","content":"world"}`),
+	}
+	payload := []byte(`{"type":"response.create","model":"gpt-5.6-sol"}`)
+	needsReplay := shouldReplayOpenAIWSHTTPBridgeInput(true, false, false, false)
+
+	items, exists, err := buildOpenAIWSReplayInputSequence(previous, true, payload, needsReplay)
+
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, previous, items)
 }
 
 func TestOpenAIWSRawPayloadHasToolCallOutput(t *testing.T) {

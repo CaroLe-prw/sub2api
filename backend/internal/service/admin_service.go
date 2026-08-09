@@ -47,6 +47,7 @@ type AdminService interface {
 	// It never creates a group.
 	RecoverDuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*Group, error)
 	UpdateGroup(ctx context.Context, id int64, input *UpdateGroupInput) (*Group, error)
+	BatchSetGroupModelsListConfig(ctx context.Context, groupIDs []int64, config GroupModelsListConfig) (int, error)
 	DeleteGroup(ctx context.Context, id int64) error
 	ListCompositeRoutes(ctx context.Context, groupID int64) ([]CompositeModelRoute, error)
 	CreateCompositeRoute(ctx context.Context, groupID int64, input CompositeRouteInput) (*CompositeModelRoute, error)

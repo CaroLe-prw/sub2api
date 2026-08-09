@@ -512,6 +512,30 @@ func (h *GroupHandler) GetModelsListCandidates(c *gin.Context) {
 	response.Success(c, gin.H{"models": models})
 }
 
+type BatchSetGroupModelsListConfigRequest struct {
+	GroupIDs         []int64                       `json:"group_ids" binding:"required,min=1"`
+	ModelsListConfig service.GroupModelsListConfig `json:"models_list_config"`
+}
+
+// BatchSetModelsListConfig updates the custom /v1/models configuration for
+// several selected groups.
+// PUT /api/v1/admin/groups/batch-models-list-config
+func (h *GroupHandler) BatchSetModelsListConfig(c *gin.Context) {
+	var req BatchSetGroupModelsListConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	affected, err := h.adminService.BatchSetGroupModelsListConfig(c.Request.Context(), req.GroupIDs, req.ModelsListConfig)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{"affected": affected})
+}
+
 // Create handles creating a new group
 // POST /api/v1/admin/groups
 func (h *GroupHandler) Create(c *gin.Context) {

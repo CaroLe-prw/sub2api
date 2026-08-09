@@ -46,6 +46,12 @@ type GroupDuplicateRepository interface {
 	CreateFromSource(ctx context.Context, group *Group, sourceGroupID int64) error
 }
 
+// GroupModelsListConfigBatchRepository persists one custom /v1/models
+// configuration across several groups in a single database statement.
+type GroupModelsListConfigBatchRepository interface {
+	BatchUpdateModelsListConfig(ctx context.Context, groupIDs []int64, config GroupModelsListConfig) (int, error)
+}
+
 // AdminGroupRepository makes the group-duplication write capability an explicit
 // admin-service dependency without widening gateway-only group test doubles.
 type AdminGroupRepository interface {

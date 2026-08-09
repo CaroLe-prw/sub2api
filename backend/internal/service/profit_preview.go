@@ -166,7 +166,7 @@ func previewAccountProfitAdmission(
 	}
 	if NewAPISyncEnabled(account) {
 		verdict.RateSource = ProfitPreviewRateSourceNewAPI
-	} else if enabled, _ := account.Extra[UpstreamBillingRateSyncEnabledExtraKey].(bool); enabled {
+	} else if upstreamBillingRateSyncEnabled(account) {
 		verdict.RateSource = ProfitPreviewRateSourceUpstreamProbe
 		verdict.Warnings = append(verdict.Warnings, profitPreviewProbeWarnings(account, evalAt)...)
 	} else if account.RateMultiplier != nil && *account.RateMultiplier == 1 {

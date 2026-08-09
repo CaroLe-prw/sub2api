@@ -18,11 +18,12 @@ func profitAuthTestAPIKey() *APIKey {
 	groupID := int64(50)
 	maxAccountCostMultiplier := 0.04
 	return &APIKey{
-		ID:      82,
-		UserID:  40,
-		GroupID: &groupID,
-		Name:    "profit-auth-roundtrip",
-		Status:  StatusActive,
+		ID:                     82,
+		UserID:                 40,
+		GroupID:                &groupID,
+		Name:                   "profit-auth-roundtrip",
+		Status:                 StatusActive,
+		MaxGroupRateMultiplier: 0.08,
 		User: &User{
 			ID:          40,
 			Email:       "profit@test.local",
@@ -35,6 +36,7 @@ func profitAuthTestAPIKey() *APIKey {
 			Platform:                 PlatformOpenAI,
 			Status:                   StatusActive,
 			Hydrated:                 true,
+			RequireOAuthOnly:         true,
 			RateMultiplier:           0.06,
 			SubscriptionType:         SubscriptionTypeStandard,
 			PeakRateEnabled:          false,
@@ -55,7 +57,7 @@ func TestAPIKeyAuthSnapshotProfitControlRoundtrip(t *testing.T) {
 	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
 	require.NotNil(t, snapshot)
 	require.Equal(t, apiKeyAuthSnapshotVersion, snapshot.Version)
-	require.Equal(t, 20, snapshot.Version, "v20 起认证快照同时携带绝对成本上限与 search/audio/video_model_prices 计费字段")
+	require.Equal(t, 22, snapshot.Version, "v22 强制淘汰可能含旧用户专属倍率的认证快照，并保留完整计费字段")
 
 	// 模拟 L2 缓存的完整 JSON 往返（与 apiKeyCache.SetAuthCache/GetAuthCache 同构）。
 	payload, err := json.Marshal(&APIKeyAuthCacheEntry{Snapshot: snapshot})
@@ -68,10 +70,13 @@ func TestAPIKeyAuthSnapshotProfitControlRoundtrip(t *testing.T) {
 	require.True(t, used)
 	require.NotNil(t, materialized.Group)
 	require.True(t, materialized.Group.Hydrated)
+	require.True(t, materialized.Group.RequireOAuthOnly)
 	require.True(t, materialized.Group.ProfitControlEnabled)
 	require.InDelta(t, 0.2, materialized.Group.ProfitMinMargin, 1e-12)
 	require.InDelta(t, 0.05, materialized.Group.ProfitSafetyBuffer, 1e-12)
 	require.InDelta(t, 0.06, materialized.Group.RateMultiplier, 1e-12)
+	require.InDelta(t, 0.06, materialized.GroupRateMultiplier, 1e-12)
+	require.InDelta(t, 0.08, materialized.MaxGroupRateMultiplier, 1e-12)
 	require.NotNil(t, materialized.Group.MaxAccountCostMultiplier)
 	require.InDelta(t, 0.04, *materialized.Group.MaxAccountCostMultiplier, 1e-12)
 
@@ -81,14 +86,17 @@ func TestAPIKeyAuthSnapshotProfitControlRoundtrip(t *testing.T) {
 	gate := gwSvc.resolveOpenAIProfitControlGate(ctx, materialized.GroupID)
 	require.NotNil(t, gate, "还原后的认证分组必须能装门（投影漏列时本断言最先失败）")
 	require.InDelta(t, 0.04, gate.threshold, 1e-12, "绝对上限应与利润门取更严格值")
+
+	ctx = gwSvc.withGroupOAuthOnlyFilter(ctx, materialized.GroupID)
+	require.False(t, accountAllowedByGroupOAuthOnlyFilter(ctx, &Account{Type: AccountTypeAPIKey}), "认证快照还原后的分组必须拒绝 API-key 账号")
 }
 
-// 旧版本快照（v16 及更早，无利润字段保真保证）必须被淘汰回源，不得复用。
+// 旧版本快照必须被淘汰回源，不得复用。
 func TestAPIKeyAuthSnapshotOldVersionEvicted(t *testing.T) {
 	svc := &APIKeyService{}
 	snapshot := svc.snapshotFromAPIKey(context.Background(), profitAuthTestAPIKey())
 	require.NotNil(t, snapshot)
-	snapshot.Version = 16
+	snapshot.Version = apiKeyAuthSnapshotVersion - 1
 
 	materialized, used, err := svc.applyAuthCacheEntry("sk-old", &APIKeyAuthCacheEntry{Snapshot: snapshot})
 	require.NoError(t, err)

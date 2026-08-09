@@ -923,7 +923,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					resp.Header,
 					respBody,
 					upstreamMsg,
-					!shouldDisable && account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
+					!shouldDisable && ((account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody))) ||
+						shouldRetryOpenAINonOAuthCapacityOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody)),
+					!shouldDisable && shouldRetryOpenAIOAuthCapacityOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody),
 				)
 			}
 			return s.handleErrorResponse(ctx, resp, c, account, body, billingModel)

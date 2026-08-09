@@ -417,6 +417,22 @@ func TestGatewayProfitControlSelectionCarriesGateToHandlerContext(t *testing.T) 
 	require.Equal(t, context.Background(), ContextWithSelectionProfitGate(context.Background(), plain))
 }
 
+func TestGatewaySelectionCarriesOAuthOnlyFilterToHandlerContext(t *testing.T) {
+	group := gatewayProfitTestGroup(3, PlatformAnthropic)
+	group.RequireOAuthOnly = true
+	svc := &GatewayService{}
+	apiKey := gatewayProfitTestAccount(163, PlatformAnthropic, 0.2, group.ID)
+
+	selection, err := svc.newSelectionResult(withGroupOAuthOnlyFilter(context.Background(), group), &apiKey, true, nil, nil)
+	require.NoError(t, err)
+
+	handlerCtx := ContextWithSelectionProfitGate(context.Background(), selection)
+	latest, vetoed, reason := svc.GatewayProfitControlVetoLatest(handlerCtx, &apiKey)
+	require.Same(t, &apiKey, latest)
+	require.True(t, vetoed, "handler-side terminal check must retain the scheduler's OAuth-only gate")
+	require.Equal(t, "oauth_only", reason)
+}
+
 // 生图意图不关门（H1/H2 回归锚点）：/v1/responses 混合请求即使带生图声明，
 // token 定价上下文照常装配，共享门照常安装并否决越线账号。
 func TestGatewayProfitControlImageIntentDoesNotDisableGate(t *testing.T) {

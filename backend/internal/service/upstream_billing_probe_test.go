@@ -286,6 +286,7 @@ func TestUpstreamBillingProbeSuccessPersistsSanitizedSnapshot(t *testing.T) {
 		Extra: map[string]any{
 			UpstreamBillingProbeEnabledExtraKey:    true,
 			UpstreamBillingRateSyncEnabledExtraKey: true,
+			OpenAIUpstreamRateCalibrationExtraKey:  0.033,
 		},
 		RateMultiplier: &initialRate,
 	}
@@ -330,12 +331,12 @@ func TestUpstreamBillingProbeSuccessPersistsSanitizedSnapshot(t *testing.T) {
 	require.Equal(t, fixedNow.Add(time.Hour), *snapshot.FreshUntil)
 	require.False(t, snapshot.NextProbeAt.Before(fixedNow.Add(24*time.Minute)))
 	require.False(t, snapshot.NextProbeAt.After(fixedNow.Add(36*time.Minute)))
-	// 写回的是不含高峰因子的 resolved 倍率（0.6），不是探测那一刻含高峰的
-	// effective 倍率（0.9）——否则一个探测周期的峰值会被冻结进静态列。
+	// 写回的是 resolved 倍率乘账号校准系数（0.6 * 0.033 = 0.0198），
+	// 不包含探测那一刻的高峰因子（effective=0.9）。
 	require.NotNil(t, account.RateMultiplier)
-	require.Equal(t, 0.6, *account.RateMultiplier)
+	require.Equal(t, 0.0198, *account.RateMultiplier)
 	require.NotNil(t, snapshot.SyncedRateMultiplier)
-	require.Equal(t, 0.6, *snapshot.SyncedRateMultiplier)
+	require.Equal(t, 0.0198, *snapshot.SyncedRateMultiplier)
 	require.Equal(t, "https://upstream.example/v1/sub2api/billing", upstream.lastReq.URL.String())
 	require.Equal(t, http.MethodGet, upstream.lastReq.Method)
 	require.Equal(t, "Bearer sk-sensitive", upstream.lastReq.Header.Get("Authorization"))
@@ -468,7 +469,7 @@ func TestApplyUpstreamBalanceAlertSnapshotIgnoresMissingBalance(t *testing.T) {
 	require.Nil(t, current.BalanceAlert)
 }
 
-func TestUpstreamBillingProbeManagedRateUsesResolvedBaseWithoutLocalCalibration(t *testing.T) {
+func TestUpstreamBillingProbeManagedRateUsesResolvedBaseWithLocalCalibration(t *testing.T) {
 	initialRate := 0.04
 	account := &Account{
 		ID:             171,
@@ -509,7 +510,7 @@ func TestUpstreamBillingProbeManagedRateUsesResolvedBaseWithoutLocalCalibration(
 
 	require.NoError(t, err)
 	require.NotNil(t, account.RateMultiplier)
-	require.InDelta(t, 0.0325, *account.RateMultiplier, 1e-12)
+	require.InDelta(t, 0.065, *account.RateMultiplier, 1e-12)
 }
 
 func TestUpstreamBillingProbeSyncsResolvedRateForAllAPIKeyPlatforms(t *testing.T) {
@@ -551,7 +552,7 @@ func TestUpstreamBillingProbeSyncsResolvedRateForAllAPIKeyPlatforms(t *testing.T
 	}
 }
 
-func TestUpstreamBillingProbeOnlyDoesNotChangeAccountRate(t *testing.T) {
+func TestUpstreamBillingProbeAlwaysSynchronizesAccountRate(t *testing.T) {
 	initialRate := 0.25
 	account := &Account{
 		ID:             18,
@@ -574,7 +575,7 @@ func TestUpstreamBillingProbeOnlyDoesNotChangeAccountRate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, UpstreamBillingProbeStatusOK, snapshot.Status)
 	require.NotNil(t, account.RateMultiplier)
-	require.Equal(t, initialRate, *account.RateMultiplier)
+	require.Equal(t, 0.8, *account.RateMultiplier)
 	require.Contains(t, account.Extra, UpstreamBillingProbeExtraKey)
 }
 
@@ -598,7 +599,7 @@ func TestUpstreamBillingProbeSyncRateRangeAndPrecision(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := upstreamBillingProbeSyncRate(map[string]any{"resolved_rate_multiplier": tt.value})
+			got, ok := upstreamBillingProbeSyncRate(nil, map[string]any{"resolved_rate_multiplier": tt.value})
 			require.Equal(t, tt.ok, ok)
 			if tt.ok {
 				require.Equal(t, tt.want, got)
@@ -610,15 +611,33 @@ func TestUpstreamBillingProbeSyncRateRangeAndPrecision(t *testing.T) {
 // 只读取 resolved（时间无关的基准倍率）：effective 含探测那一刻的高峰系数，
 // 写回它会把一个探测周期的峰值/谷值冻结进静态列。
 func TestUpstreamBillingProbeSyncRateIgnoresEffectiveRate(t *testing.T) {
-	got, ok := upstreamBillingProbeSyncRate(map[string]any{
+	got, ok := upstreamBillingProbeSyncRate(nil, map[string]any{
 		"resolved_rate_multiplier":  0.6,
 		"effective_rate_multiplier": 0.9,
 	})
 	require.True(t, ok)
 	require.Equal(t, 0.6, got)
 
-	_, ok = upstreamBillingProbeSyncRate(map[string]any{"effective_rate_multiplier": 0.9})
+	_, ok = upstreamBillingProbeSyncRate(nil, map[string]any{"effective_rate_multiplier": 0.9})
 	require.False(t, ok)
+}
+
+func TestUpstreamBillingProbeSyncRateAppliesOpenAICalibration(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Extra: map[string]any{
+			OpenAIUpstreamRateCalibrationExtraKey: 0.033,
+		},
+	}
+
+	got, ok := upstreamBillingProbeSyncRate(account, map[string]any{"resolved_rate_multiplier": 1.0})
+	require.True(t, ok)
+	require.Equal(t, 0.033, got)
+
+	account.Platform = PlatformAnthropic
+	got, ok = upstreamBillingProbeSyncRate(account, map[string]any{"resolved_rate_multiplier": 1.0})
+	require.True(t, ok)
+	require.Equal(t, 1.0, got, "OpenAI calibration must not affect other platforms")
 }
 
 // 上游声明超出自动写回值域时保持原倍率，但探测本身是成功的：

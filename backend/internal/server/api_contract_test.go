@@ -236,6 +236,9 @@ func TestAPIContracts(t *testing.T) {
 					"last_used_at": null,
 					"last_used_ip": null,
 					"current_concurrency": 0,
+					"max_group_rate_multiplier": 0,
+					"effective_group_rate_multiplier": 0,
+					"scheduling_status": "active",
 					"quota": 0,
 					"quota_used": 0,
 					"rate_limit_5h": 0,
@@ -287,6 +290,9 @@ func TestAPIContracts(t *testing.T) {
 							"last_used_at": null,
 							"last_used_ip": null,
 							"current_concurrency": 0,
+							"max_group_rate_multiplier": 0,
+							"effective_group_rate_multiplier": 0,
+							"scheduling_status": "active",
 							"quota": 0,
 							"quota_used": 0,
 							"rate_limit_5h": 0,
@@ -2370,7 +2376,7 @@ func (stubUserSubscriptionRepo) UpdateNotes(ctx context.Context, subscriptionID 
 func (stubUserSubscriptionRepo) ActivateWindows(ctx context.Context, id int64, dailyStart, periodicStart time.Time) error {
 	return errors.New("not implemented")
 }
-func (stubUserSubscriptionRepo) ResetUsageWindows(ctx context.Context, id int64, resetDaily, resetWeekly, resetMonthly bool, newWindowStart *time.Time) error {
+func (stubUserSubscriptionRepo) ResetUsageWindows(ctx context.Context, id int64, resetDaily, resetWeekly, resetMonthly bool, dailyStart, periodicStart *time.Time) error {
 	return errors.New("not implemented")
 }
 func (stubUserSubscriptionRepo) ResetDailyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error {

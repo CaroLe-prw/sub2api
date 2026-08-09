@@ -1079,7 +1079,7 @@ func (r *accountRepository) ListOpsAccountsForStats(ctx context.Context, platfor
 func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selector) {
 	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
 	sortOrder := params.NormalizedSortOrder(pagination.SortOrderAsc)
-	if sortBy == "upstream_billing_rate" {
+	if sortBy == "upstream_billing_rate" || sortBy == "upstream_balance" {
 		direction := "ASC"
 		tieOrder := entsql.Asc
 		if sortOrder == pagination.SortOrderDesc {
@@ -1089,6 +1089,9 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 		return []func(*entsql.Selector){func(s *entsql.Selector) {
 			extra := s.C(dbaccount.FieldExtra)
 			expression := upstreamBillingRateSortExpression(extra)
+			if sortBy == "upstream_balance" {
+				expression = upstreamBalanceSortExpression(extra)
+			}
 			s.OrderExpr(entsql.Expr(expression + " " + direction + " NULLS LAST"))
 			s.OrderBy(tieOrder(s.C(dbaccount.FieldID)))
 		}}
@@ -1132,6 +1135,12 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 		return []func(*entsql.Selector){dbent.Asc(dbaccount.FieldName), dbent.Asc(dbaccount.FieldID)}
 	}
 	return []func(*entsql.Selector){dbent.Asc(field), dbent.Asc(dbaccount.FieldID)}
+}
+
+func upstreamBalanceSortExpression(extra string) string {
+	balanceJSON := extra + " #> '{upstream_billing_probe,data,balance}'"
+	balance := extra + " #>> '{upstream_billing_probe,data,balance}'"
+	return "CASE WHEN jsonb_typeof(" + balanceJSON + ") = 'number' THEN (" + balance + ")::numeric END"
 }
 
 func upstreamBillingRateSortExpression(extra string) string {
