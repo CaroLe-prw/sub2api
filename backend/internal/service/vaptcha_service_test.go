@@ -21,7 +21,9 @@ func TestVaptchaServiceVerifyTokenWithConfig(t *testing.T) {
 	config := VaptchaConfig{Enabled: true, VID: "vid", Key: "key", Scene: 0}
 
 	t.Run("accepts successful verification", func(t *testing.T) {
-		svc := NewVaptchaService(vaptchaVerifierStub{result: &VaptchaVerifyResponse{Success: 1}})
+		result := &VaptchaVerifyResponse{}
+		result.Data.Result = true
+		svc := NewVaptchaService(vaptchaVerifierStub{result: result})
 		require.NoError(t, svc.VerifyTokenWithConfig(context.Background(), config, "token", "127.0.0.1"))
 	})
 
@@ -31,7 +33,7 @@ func TestVaptchaServiceVerifyTokenWithConfig(t *testing.T) {
 	})
 
 	t.Run("rejects failed verification and request errors", func(t *testing.T) {
-		failed := NewVaptchaService(vaptchaVerifierStub{result: &VaptchaVerifyResponse{Success: 0}})
+		failed := NewVaptchaService(vaptchaVerifierStub{result: &VaptchaVerifyResponse{}})
 		require.ErrorIs(t, failed.VerifyTokenWithConfig(context.Background(), config, "token", ""), ErrVaptchaVerificationFailed)
 
 		unavailable := NewVaptchaService(vaptchaVerifierStub{err: errors.New("network")})

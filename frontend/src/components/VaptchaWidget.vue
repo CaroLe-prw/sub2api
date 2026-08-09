@@ -6,11 +6,15 @@
 import { onBeforeUnmount } from 'vue'
 
 interface VaptchaInstance {
-  listen(event: string, callback: () => void): void
-  render(): void
-  validate(): void
+  validate(): Promise<VaptchaValidationResult | null>
   reset(): void
-  getServerToken(): { token: string; server?: string }
+}
+
+interface VaptchaValidationResult {
+  token?: string
+  knock?: string
+  dfu?: string
+  ip?: string
 }
 
 declare global {
@@ -33,7 +37,7 @@ function loadScript(): Promise<void> {
 
   const pendingScript = new Promise<void>((resolve, reject) => {
     const script = document.createElement('script')
-    script.src = 'https://v.vaptcha.com/v3.js'
+    script.src = 'https://c4.vaptcha.com/src/v4.js'
     script.async = true
     script.onload = () => resolve()
     script.onerror = () => reject(new Error('Failed to load VAPTCHA SDK'))
@@ -46,12 +50,13 @@ function loadScript(): Promise<void> {
   return pendingScript
 }
 
-function serializeServerToken(captcha: VaptchaInstance): string | null {
-  const serverToken = captcha.getServerToken()
-  if (!serverToken?.token) return null
+function serializeProof(result: VaptchaValidationResult): string | null {
+  if (!result.token || !result.knock) return null
   return JSON.stringify({
-    token: serverToken.token,
-    server: serverToken.server || ''
+    token: result.token,
+    knock: result.knock,
+    dfu: result.dfu || '',
+    ip: result.ip || ''
   })
 }
 
@@ -77,8 +82,6 @@ function createVerificationPromise(): Promise<string | null> {
 
         const captcha = await window.vaptcha({
           vid: props.vid,
-          mode: 'invisible',
-          scene: props.scene ?? 0,
           lang: 'auto',
           area: 'auto'
         })
@@ -88,18 +91,19 @@ function createVerificationPromise(): Promise<string | null> {
         }
 
         instance = captcha
-        captcha.listen('pass', () => {
-          const token = serializeServerToken(captcha)
-          if (!token) {
-            finish(() => reject(new Error('VAPTCHA verification returned no token')))
-            return
-          }
-          emit('verify', token)
-          finish(() => resolve(token))
-        })
-        captcha.listen('close', cancel)
-        captcha.render()
-        captcha.validate()
+        const result = await captcha.validate()
+        if (cancelPending !== cancel) return
+        if (!result) {
+          cancel()
+          return
+        }
+        const proof = serializeProof(result)
+        if (!proof) {
+          finish(() => reject(new Error('VAPTCHA verification returned an incomplete proof')))
+          return
+        }
+        emit('verify', proof)
+        finish(() => resolve(proof))
       })
       .catch((error: unknown) => {
         finish(() => reject(error))

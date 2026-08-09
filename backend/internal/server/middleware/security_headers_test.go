@@ -360,6 +360,8 @@ func TestEnhanceCSPPolicy(t *testing.T) {
 
 		assert.Equal(t, 1, countDirectiveValue(enhanced, "script-src", VaptchaDomain))
 		assert.Equal(t, 1, countDirectiveValue(enhanced, "script-src", VaptchaNetDomain))
+		assert.Equal(t, 1, countDirectiveValue(enhanced, "connect-src", VaptchaDomain))
+		assert.Equal(t, 1, countDirectiveValue(enhanced, "connect-src", VaptchaNetDomain))
 		assert.Equal(t, 1, countDirectiveValue(enhanced, "frame-src", VaptchaDomain))
 		assert.Equal(t, 1, countDirectiveValue(enhanced, "frame-src", VaptchaNetDomain))
 	})

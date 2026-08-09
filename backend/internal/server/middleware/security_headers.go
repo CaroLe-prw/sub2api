@@ -62,6 +62,8 @@ var requiredCSPDirectiveValues = []struct {
 	{"style-src", TencentCaptchaStaticDomain},
 	{"script-src", VaptchaDomain},
 	{"script-src", VaptchaNetDomain},
+	{"connect-src", VaptchaDomain},
+	{"connect-src", VaptchaNetDomain},
 	{"frame-src", VaptchaDomain},
 	{"frame-src", VaptchaNetDomain},
 	{"script-src", TencentCaptchaCDNDomain},

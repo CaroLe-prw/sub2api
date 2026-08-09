@@ -90,7 +90,8 @@ type AuthService struct {
 }
 
 type CaptchaProof struct {
-	// TurnstileToken 承载 Cloudflare Turnstile token；阿里云验证码复用该字段承载 captchaVerifyParam
+	// TurnstileToken 承载 Cloudflare token；阿里云复用它承载 captchaVerifyParam，
+	// VAPTCHA 复用它承载 V4 SDK 返回的 token/knock/dfu/ip JSON 证明。
 	TurnstileToken string
 	TencentTicket  string
 	TencentRandstr string

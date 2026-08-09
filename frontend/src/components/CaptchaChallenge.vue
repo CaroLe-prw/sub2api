@@ -41,7 +41,8 @@ import AliyunCaptchaWidget from '@/components/AliyunCaptchaWidget.vue'
 import VaptchaWidget from '@/components/VaptchaWidget.vue'
 
 // ActionCaptchaResult 动作触发式验证（腾讯/阿里云/VAPTCHA）的结果：
-// 腾讯 token=ticket、randstr 非空；阿里云 token=captchaVerifyParam、randstr 恒为空。
+// 腾讯 token=ticket、randstr 非空；阿里云 token=captchaVerifyParam；
+// VAPTCHA token=V4 的 token/knock/dfu/ip JSON，后二者 randstr 恒为空。
 export interface ActionCaptchaResult {
   token: string
   randstr: string

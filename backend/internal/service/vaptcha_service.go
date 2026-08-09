@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
 var (
@@ -22,8 +23,14 @@ type VaptchaConfig struct {
 }
 
 type VaptchaVerifyResponse struct {
-	Success int    `json:"success"`
-	Msg     string `json:"msg"`
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data struct {
+		Code   int    `json:"code"`
+		Note   string `json:"note"`
+		Result bool   `json:"result"`
+		VID    string `json:"vid"`
+	} `json:"data"`
 }
 
 type VaptchaVerifier interface {
@@ -47,9 +54,19 @@ func (s *VaptchaService) VerifyTokenWithConfig(ctx context.Context, config Vaptc
 	}
 	result, err := s.verifier.Verify(ctx, config, token, remoteIP)
 	if err != nil {
+		logger.LegacyPrintf("service.vaptcha", "[VAPTCHA] verify request failed: %v", err)
 		return fmt.Errorf("%w: verifier request failed", ErrVaptchaVerificationFailed)
 	}
-	if result == nil || result.Success != 1 {
+	if result == nil || result.Code != 0 || result.Data.Code != 0 || !result.Data.Result {
+		if result != nil {
+			logger.LegacyPrintf(
+				"service.vaptcha",
+				"[VAPTCHA] verify rejected: response_code=%d verify_code=%d note=%q",
+				result.Code,
+				result.Data.Code,
+				result.Data.Note,
+			)
+		}
 		return ErrVaptchaVerificationFailed
 	}
 	return nil

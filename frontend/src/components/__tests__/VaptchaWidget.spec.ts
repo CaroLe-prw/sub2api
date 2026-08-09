@@ -4,25 +4,26 @@ import VaptchaWidget from '../VaptchaWidget.vue'
 
 describe('VaptchaWidget', () => {
   let config: Record<string, unknown> | null
-  let listeners: Record<string, () => void>
-  let token: string
-  let server: string
+  let validationResult: {
+    token?: string
+    knock?: string
+    dfu?: string
+    ip?: string
+  } | null
 
   const instance = {
-    listen: vi.fn((event: string, callback: () => void) => {
-      listeners[event] = callback
-    }),
-    render: vi.fn(),
-    validate: vi.fn(),
-    reset: vi.fn(),
-    getServerToken: vi.fn(() => ({ token, server }))
+    validate: vi.fn(async () => validationResult),
+    reset: vi.fn()
   }
 
   beforeEach(() => {
     config = null
-    listeners = {}
-    token = 'token-1'
-    server = 'https://0.vaptcha.com/verify'
+    validationResult = {
+      token: '1700000000.token-id.signature',
+      knock: 'knock-1',
+      dfu: 'dfu-1',
+      ip: '203.0.113.8'
+    }
     vi.clearAllMocks()
     window.vaptcha = vi.fn(async (nextConfig: Record<string, unknown>) => {
       config = nextConfig
@@ -32,6 +33,7 @@ describe('VaptchaWidget', () => {
 
   afterEach(() => {
     delete window.vaptcha
+    vi.restoreAllMocks()
   })
 
   function mountWidget() {
@@ -47,40 +49,69 @@ describe('VaptchaWidget', () => {
     wrapper.unmount()
   })
 
-  it('点击业务提交后才初始化隐藏式 VAPTCHA 并等待令牌', async () => {
+  it('从官方 V4 地址加载 SDK', async () => {
+    delete window.vaptcha
+    const appendSpy = vi.spyOn(document.head, 'appendChild').mockImplementation((node) => {
+      const script = node as HTMLScriptElement
+      window.vaptcha = vi.fn(async (nextConfig: Record<string, unknown>) => {
+        config = nextConfig
+        return instance
+      })
+      queueMicrotask(() => script.onload?.(new Event('load')))
+      return node
+    })
+    const wrapper = mountWidget()
+
+    await expect(wrapper.vm.verify()).resolves.toContain('token-id')
+
+    expect(appendSpy).toHaveBeenCalledOnce()
+    expect((appendSpy.mock.calls[0]?.[0] as HTMLScriptElement).src).toBe(
+      'https://c4.vaptcha.com/src/v4.js'
+    )
+    wrapper.unmount()
+  })
+
+  it('点击业务提交后按 V4 协议初始化并返回完整验签参数', async () => {
     const wrapper = mountWidget()
     const verification = wrapper.vm.verify()
     await flushPromises()
 
     expect(config).toMatchObject({
       vid: 'vid-1',
-      mode: 'invisible',
-      scene: 0
+      lang: 'auto',
+      area: 'auto'
     })
+    expect(config).not.toHaveProperty('mode')
+    expect(config).not.toHaveProperty('scene')
     expect(config).not.toHaveProperty('container')
-    expect(instance.render).toHaveBeenCalledOnce()
     expect(instance.validate).toHaveBeenCalledOnce()
 
-    listeners.pass()
-
     await expect(verification).resolves.toBe(
-      JSON.stringify({ token: 'token-1', server: 'https://0.vaptcha.com/verify' })
+      JSON.stringify({
+        token: '1700000000.token-id.signature',
+        knock: 'knock-1',
+        dfu: 'dfu-1',
+        ip: '203.0.113.8'
+      })
     )
     expect(wrapper.emitted('verify')).toEqual([
-      [JSON.stringify({ token: 'token-1', server: 'https://0.vaptcha.com/verify' })]
+      [
+        JSON.stringify({
+          token: '1700000000.token-id.signature',
+          knock: 'knock-1',
+          dfu: 'dfu-1',
+          ip: '203.0.113.8'
+        })
+      ]
     ])
 
     wrapper.unmount()
   })
 
   it('用户关闭弹框时返回 null，不继续业务请求', async () => {
+    validationResult = null
     const wrapper = mountWidget()
-    const verification = wrapper.vm.verify()
-    await flushPromises()
-
-    listeners.close()
-
-    await expect(verification).resolves.toBeNull()
+    await expect(wrapper.vm.verify()).resolves.toBeNull()
     wrapper.unmount()
   })
 
@@ -88,12 +119,8 @@ describe('VaptchaWidget', () => {
     const wrapper = mountWidget()
     const first = wrapper.vm.verify()
     const second = wrapper.vm.verify()
-    await flushPromises()
-
-    listeners.pass()
-
-    await expect(first).resolves.toContain('token-1')
-    await expect(second).resolves.toContain('token-1')
+    await expect(first).resolves.toContain('token-id')
+    await expect(second).resolves.toContain('token-id')
     expect(window.vaptcha).toHaveBeenCalledOnce()
     expect(instance.validate).toHaveBeenCalledOnce()
 
@@ -101,11 +128,18 @@ describe('VaptchaWidget', () => {
   })
 
   it('重置时关闭当前验证并结束等待', async () => {
+    let resolveValidation: (result: typeof validationResult) => void = () => {}
+    instance.validate.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveValidation = resolve
+      })
+    )
     const wrapper = mountWidget()
     const verification = wrapper.vm.verify()
     await flushPromises()
 
     wrapper.vm.reset()
+    resolveValidation(validationResult)
 
     await expect(verification).resolves.toBeNull()
     expect(instance.reset).toHaveBeenCalled()
