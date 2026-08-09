@@ -145,3 +145,6 @@ frontend/coverage/
 aicodex
 output/
 tools/quota-reset.zip
+
+# Vitest / Vite cache at repo root
+.vite/
