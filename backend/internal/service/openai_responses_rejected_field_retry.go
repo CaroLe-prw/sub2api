@@ -22,6 +22,7 @@ var (
 	openAIResponsesRejectedInputParamPattern     = regexp.MustCompile(`(?i)^input\[(\d+)\]\.input$`)
 	openAIResponsesRejectedArgumentsParamPattern = regexp.MustCompile(`(?i)^input\[(\d+)\]\.arguments$`)
 	openAIResponsesRejectedIDParamPattern        = regexp.MustCompile(`(?i)^input\[(\d+)\]\.id$`)
+	openAIResponsesMissingEncryptedParamPattern  = regexp.MustCompile(`(?i)^input\[(\d+)\]\.encrypted_content$`)
 	openAIResponsesRejectedIndexedParamPattern   = regexp.MustCompile(`(?i)^input\[(\d+)\]\.([a-z][a-z0-9_]*)$`)
 	openAIResponsesRejectedMessageParamPattern   = regexp.MustCompile(`(?i)(?:(?:unknown|unsupported)[ _-]+parameter|missing required parameter|invalid)\s*(?::|=|is)?\s*["']?(context_management(?:\[\d+\](?:\.[a-z][a-z0-9_]*)?)?|max_output_tokens|input\[\d+\]\.[a-z][a-z0-9_]*)(?:["']|\.(?:\s|$)|[,:;](?:\s|$)|\s|$)`)
 )
@@ -68,14 +69,26 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 	}
 
 	code := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(responseBody)))
+	if code == "" {
+		code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "response.error.code").String()))
+	}
 	message := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(responseBody)))
+	if message == "" {
+		message = strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "response.error.message").String()))
+	}
 	if !isExplicitOpenAIResponsesFieldRejection(code, message) {
 		return nil, "", false, nil
 	}
 
 	param := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.param").String()))
 	if param == "" {
+		param = strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "response.error.param").String()))
+	}
+	if param == "" {
 		param = openAIResponsesRejectedParamFromMessage(message)
+	}
+	if index, ok := openAIResponsesMissingEncryptedContentIndex(param); ok && code == "missing_required_parameter" {
+		return removeOpenAIResponsesItemMissingEncryptedContent(body, index)
 	}
 	if index, ok := openAIResponsesRejectedNamespaceIndex(param); ok {
 		return removeOpenAIResponsesRejectedNamespaceAtIndex(body, index)
@@ -115,6 +128,47 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 		}
 	}
 	return nil, "", false, nil
+}
+
+func openAIResponsesMissingEncryptedContentIndex(param string) (int, bool) {
+	return openAIResponsesRejectedIndexedField(openAIResponsesMissingEncryptedParamPattern, param)
+}
+
+// removeOpenAIResponsesItemMissingEncryptedContent drops one history item that
+// cannot be replayed. Encrypted reasoning/compaction state is opaque: when the
+// client omitted encrypted_content the gateway cannot reconstruct it, and
+// switching accounts only repeats the same deterministic 400. Keep every other
+// input item intact and let the same account retry once through the bounded
+// rejected-field retry state.
+func removeOpenAIResponsesItemMissingEncryptedContent(body []byte, rejectedIndex int) ([]byte, string, bool, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var requestBody map[string]any
+	if err := decoder.Decode(&requestBody); err != nil {
+		return nil, "", false, fmt.Errorf("decode missing encrypted_content retry body: %w", err)
+	}
+	input, _ := requestBody["input"].([]any)
+	if rejectedIndex < 0 || rejectedIndex >= len(input) || len(input) <= 1 {
+		return nil, "", false, nil
+	}
+	item, _ := input[rejectedIndex].(map[string]any)
+	if item == nil {
+		return nil, "", false, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(stringFromAny(item["type"]))) {
+	case "reasoning", "compaction", "compaction_summary":
+	default:
+		return nil, "", false, nil
+	}
+	if _, present := item["encrypted_content"]; present {
+		return nil, "", false, nil
+	}
+	requestBody["input"] = append(input[:rejectedIndex:rejectedIndex], input[rejectedIndex+1:]...)
+	retryBody, err := marshalOpenAIUpstreamJSON(requestBody)
+	if err != nil {
+		return nil, "", false, fmt.Errorf("encode missing encrypted_content retry body: %w", err)
+	}
+	return retryBody, "missing encrypted_content history item", true, nil
 }
 
 func openAIResponsesRejectedSummaryIndex(param string) (int, bool) {

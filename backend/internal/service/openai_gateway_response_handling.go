@@ -41,6 +41,16 @@ type openaiNonStreamingResult struct {
 	searchCount      int
 }
 
+// openAIStreamRequestBodyRetryError asks Forward to repair and replay the
+// request on the same account. It is only produced before semantic output.
+type openAIStreamRequestBodyRetryError struct {
+	responseBody []byte
+}
+
+func (e *openAIStreamRequestBodyRetryError) Error() string {
+	return "OpenAI stream rejected a repairable request body"
+}
+
 func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string) (*openaiStreamingResult, error) {
 	return s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, mappedModel, "")
 }
@@ -474,6 +484,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 					})
 				}
 				if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+					if openAIStreamMissingEncryptedContentRejection(dataBytes) {
+						sawFailedEvent = true
+						streamEarlyErr = &openAIStreamRequestBodyRetryError{responseBody: append([]byte(nil), dataBytes...)}
+						return
+					}
 					if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {
 						sawFailedEvent = true
 						// 命中透传规则也要记录 ops 上游错误事件（对齐 CC/Messages 与
@@ -789,6 +804,25 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		}
 	}
 
+}
+
+func openAIStreamMissingEncryptedContentRejection(payload []byte) bool {
+	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.code").String()))
+	if code == "" {
+		code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.code").String()))
+	}
+	if code != "missing_required_parameter" {
+		return false
+	}
+	param := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.param").String()))
+	if param == "" {
+		param = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.param").String()))
+	}
+	if param == "" {
+		param = openAIResponsesRejectedParamFromMessage(extractOpenAISSEErrorMessage(payload))
+	}
+	_, ok := openAIResponsesMissingEncryptedContentIndex(param)
+	return ok
 }
 
 // extractOpenAISSEDataLine 低开销提取 SSE `data:` 行内容。

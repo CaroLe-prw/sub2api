@@ -973,6 +973,23 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if reqStream {
 			streamResult, err := s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, upstreamModel, reasoningEffortValue)
 			if err != nil {
+				var requestBodyRetryErr *openAIStreamRequestBodyRetryError
+				if errors.As(err, &requestBodyRetryErr) {
+					retryBody, reason, changed, retryErr := normalizeOpenAIResponsesRejectedFieldRetryBody(
+						http.StatusBadRequest, body, requestBodyRetryErr.responseBody,
+					)
+					if retryErr != nil {
+						return nil, fmt.Errorf("normalize streamed Responses field retry body: %w", retryErr)
+					}
+					if changed && rejectedFieldRetryState.Allow(retryBody) {
+						body = retryBody
+						requestView = newOpenAIRequestView(body)
+						reqBody = nil
+						logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying streamed request after %s (account: %s)", reason, account.Name)
+						continue
+					}
+					return nil, fmt.Errorf("streamed Responses request-body recovery was not applicable: %w", err)
+				}
 				if streamResult == nil || !streamResult.clientDisconnect {
 					return nil, err
 				}
