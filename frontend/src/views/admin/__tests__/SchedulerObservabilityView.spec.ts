@@ -36,6 +36,7 @@ const messages = vi.hoisted<Record<string, string>>(() => ({
   "admin.schedulerObservability.drawer.candidates": "候选评分",
   "admin.schedulerObservability.attempts.account_reselected": "本地重新选择账号 {account}",
   "admin.schedulerObservability.attempts.admission_rejected": "账号 {account} 本地准入未通过",
+  "admin.schedulerObservability.attempts.request_success": "账号 {account} 请求成功",
   "admin.schedulerObservability.reasons.profit_veto": "当前定价下未达到分组利润准入要求，未发起上游请求",
   "admin.schedulerObservability.candidateStates.rejected": "本地否决",
 }));
@@ -229,6 +230,7 @@ describe("SchedulerObservabilityView", () => {
         { id: "local-1", kind: "candidate_selected" as const, accountId: 32, accountName: "account-32", offsetMs: 0 },
         { id: "local-2", kind: "admission_rejected" as const, accountId: 32, accountName: "account-32", offsetMs: 1_904, reason: "profit_veto" },
         { id: "local-3", kind: "account_reselected" as const, accountId: 29, accountName: "account-29", offsetMs: 2_117 },
+        { id: "local-4", kind: "request_success" as const, accountId: 29, accountName: "account-29", offsetMs: 8_420 },
       ],
       candidates: schedulerTraces[0].candidates.map((candidate, index) => index === 0
         ? { ...candidate, accountId: 32, state: "rejected" as const, reason: "profit_veto" }
@@ -264,5 +266,71 @@ describe("SchedulerObservabilityView", () => {
     expect(dialogText).toContain("本地重新选择账号 #29");
     expect(dialogText).toContain("本地否决");
     expect(dialogText).not.toContain("切换到账号 #29");
+  });
+
+  it("refreshes an open pending trace with its success event and first-token timing", async () => {
+    const pendingTrace = {
+      ...schedulerTraces[0],
+      id: "request-pending",
+      requestId: "request-pending",
+      status: "pending" as const,
+      firstTokenMs: null,
+      endToEndFirstTokenMs: null,
+      attempts: schedulerTraces[0].attempts.filter((attempt) => attempt.kind !== "request_success"),
+    };
+    const completedTrace = {
+      ...pendingTrace,
+      status: "success" as const,
+      firstTokenMs: 2_813,
+      endToEndFirstTokenMs: 2_819,
+      attempts: [
+        ...pendingTrace.attempts,
+        {
+          id: "request-pending-success",
+          kind: "request_success" as const,
+          accountId: pendingTrace.accountPath.at(-1)?.id,
+          accountName: pendingTrace.accountPath.at(-1)?.name,
+          offsetMs: 24_599,
+        },
+      ],
+    };
+    const snapshot = (trace: typeof pendingTrace | typeof completedTrace) => ({
+      enabled: true,
+      generatedAt: "2026-08-11T21:31:43+08:00",
+      timeRange: "1h" as const,
+      view: "requests" as const,
+      retentionMode: "memory" as const,
+      retentionMax: 1_000,
+      retentionDays: 7,
+      pagination: { page: 1, pageSize: 20, total: 1, pages: 1 },
+      traceCounts: { all: 1, sticky: 0, switch: 0, failed: 0 },
+      metrics: {
+        requests: 1, stickyRequests: 0, stickyHitRate: 0, switchedRequests: 0, switches: 0,
+        switchRate: 0, stableSessions: 0, sessions: 0, sessionStability: 0,
+        cacheReadTokens: 0, cacheEligibleTokens: 0, followUpCacheRate: 0,
+      },
+      switchReasons: [],
+      groups: [],
+      models: [trace.model],
+      accounts: [],
+      apiKeys: [],
+      traces: [trace],
+      sessions: [],
+    });
+    getSnapshotMock.mockReset();
+    getSnapshotMock
+      .mockResolvedValueOnce(snapshot(pendingTrace))
+      .mockResolvedValueOnce(snapshot(completedTrace));
+
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.find("tbody tr").trigger("click");
+    await flushPromises();
+
+    const dialogText = document.body.querySelector<HTMLElement>('[role="dialog"]')?.textContent ?? "";
+    expect(getSnapshotMock).toHaveBeenCalledTimes(2);
+    expect(dialogText).toContain("账号 #15 请求成功");
+    expect(dialogText).toContain("2813ms");
+    expect(dialogText).toContain("2819ms");
   });
 });

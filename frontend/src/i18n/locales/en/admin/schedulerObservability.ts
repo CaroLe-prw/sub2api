@@ -70,6 +70,7 @@ export default {
         failed: 'Failed',
       },
       status: {
+        pending: 'In progress',
         success: 'Success',
         switched: 'Succeeded after switch',
         failed: 'Failed',

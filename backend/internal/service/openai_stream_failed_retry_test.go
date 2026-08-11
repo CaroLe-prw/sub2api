@@ -69,6 +69,47 @@ func TestOpenAIStreamInvalidRequestClientFaultStillPassesThrough(t *testing.T) {
 	require.False(t, isOpenAIStreamRetryableUpstreamFailure(payload, "Invalid value for temperature"))
 }
 
+func TestOpenAIStreamItemNotPersistedRequestsOneRepairRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	payload := []byte(`{"type":"response.failed","response":{"error":{"type":"invalid_request_error","message":"Item with id 'rs_missing' not found. Items are not persisted when store is set to false."}}}`)
+	message := extractOpenAISSEErrorMessage(payload)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			"event: response.created",
+			`data: {"type":"response.created","response":{"id":"resp_missing_item"}}`,
+			"",
+			"event: codex.rate_limits",
+			`data: {"type":"codex.rate_limits","rate_limits":{"primary":{"used_percent":12}}}`,
+			"",
+			"event: response.failed",
+			"data: " + string(payload),
+			"",
+		}, "\n"))),
+	}
+
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 29, Platform: PlatformOpenAI}, time.Now(), "gpt-5.6-sol", "gpt-5.6-sol")
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, openAIResponsesItemReferenceRecoveryRequested(c))
+	require.False(t, openAIResponsesItemReferenceRecoveryApplied(c))
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.RequestScopedTransient)
+	require.Equal(t, 1, failoverErr.MinimumSameAccountRetries)
+	require.Equal(t, 1, failoverErr.SameAccountRetryLimit(0))
+	require.Equal(t, openAIResponsesItemNotPersistedReason, failoverErr.Reason)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, rec.Body.String())
+
+	markOpenAIResponsesItemReferenceRecoveryApplied(c)
+	require.False(t, openAIStreamFailedEventShouldFailover(payload, message, c), "repair failure must not loop forever")
+}
+
 func TestOpenAIStreamFailedAfterOutputRecordsErrorMetadata(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}

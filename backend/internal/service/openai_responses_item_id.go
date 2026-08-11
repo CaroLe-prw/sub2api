@@ -11,8 +11,16 @@ import (
 // Invalid replayed IDs are removed rather than rewritten because a fabricated
 // msg/fc ID may point at a different upstream object.
 func shouldStripOpenAIResponsesInputItemID(itemType, id string) bool {
+	return shouldStripOpenAIResponsesInputItemIDWithOptions(itemType, id, false)
+}
+
+func shouldStripOpenAIResponsesInputItemIDWithOptions(itemType, id string, stripReasoningIDs bool) bool {
 	if id == "" {
 		return false
+	}
+	itemType = strings.ToLower(strings.TrimSpace(itemType))
+	if itemType == "reasoning" {
+		return stripReasoningIDs && strings.HasPrefix(strings.ToLower(strings.TrimSpace(id)), "rs_")
 	}
 	if itemType == "message" {
 		return !strings.HasPrefix(id, "msg") || len(id) > codexCallIDMaxLength
@@ -24,6 +32,11 @@ func shouldStripOpenAIResponsesInputItemID(itemType, id string) bool {
 }
 
 func sanitizeOpenAIResponsesInputItemIDs(body []byte) ([]byte, bool, error) {
+	store := gjson.GetBytes(body, "store")
+	return sanitizeOpenAIResponsesInputItemIDsWithOptions(body, store.Exists() && store.Type == gjson.False)
+}
+
+func sanitizeOpenAIResponsesInputItemIDsWithOptions(body []byte, stripReasoningIDs bool) ([]byte, bool, error) {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
 		return body, false, nil
@@ -41,7 +54,7 @@ func sanitizeOpenAIResponsesInputItemIDs(body []byte) ([]byte, bool, error) {
 			itemType := item.Get("type")
 			id := item.Get("id")
 			if itemType.Type == gjson.String && id.Type == gjson.String &&
-				shouldStripOpenAIResponsesInputItemID(itemType.String(), id.String()) {
+				shouldStripOpenAIResponsesInputItemIDWithOptions(itemType.String(), id.String(), stripReasoningIDs) {
 				itemBody, sanitizeErr = sjson.DeleteBytes(itemBody, "id")
 				if sanitizeErr != nil {
 					sanitizeErr = fmt.Errorf("delete input.%d.id: %w", currentIndex, sanitizeErr)

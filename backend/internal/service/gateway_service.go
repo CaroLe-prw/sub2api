@@ -674,6 +674,7 @@ type UpstreamFailoverError struct {
 	ResponseHeaders                        http.Header // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
 	ForceCacheBilling                      bool        // Antigravity 粘性会话切换时设为 true
 	RetryableOnSameAccount                 bool        // 临时性错误（如 Google 间歇性 400、空响应），应在同一账号上重试 N 次再切换
+	MinimumSameAccountRetries              int         // 请求体可本地修复时的最低同账号重试次数，不受账号池配置为 0 影响
 	RetryableOnSameAccountIfNoOtherAccount bool        // OAuth 模型容量错误：仅在同组没有其他可用账号时同账号重试
 	RequestScopedTransient                 bool        // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
 	SafeToFailoverAfterWrite               bool        // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
@@ -694,6 +695,13 @@ func (e *UpstreamFailoverError) Error() string {
 
 func (e *UpstreamFailoverError) ShouldRetryNextAccount() bool {
 	return e != nil && e.NextAccountAction != NextAccountStop
+}
+
+func (e *UpstreamFailoverError) SameAccountRetryLimit(configured int) int {
+	if e != nil && configured < e.MinimumSameAccountRetries {
+		return e.MinimumSameAccountRetries
+	}
+	return configured
 }
 
 func (e *UpstreamFailoverError) IsCredentialFailure() bool {

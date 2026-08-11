@@ -34,13 +34,15 @@ func TestOpenAIGatewayService_APIKeyPassthrough_StripsInvalidInputItemIDs(t *tes
 	body := []byte(`{
 		"model":"gpt-5.6-sol",
 		"stream":false,
+		"store":false,
 		"input":[
 			{"type":"message","id":"item_bad_message","role":"assistant","content":[{"type":"output_text","text":"hello"}]},
 			{"type":"function_call","id":"item_bad_call","call_id":"call_123","name":"exec_command","arguments":"{}"},
 			{"type":"message","id":"msg_valid","role":"user","content":[{"type":"input_text","text":"continue"}]},
 			{"type":"function_call","id":"fc_valid","call_id":"call_456","name":"apply_patch","arguments":"{}"},
 			{"type":"function_call_output","id":"item_output","call_id":"call_123","output":"done"},
-			{"type":"web_search_call","id":"item_unconstrained"}
+			{"type":"web_search_call","id":"item_unconstrained"},
+			{"type":"reasoning","id":"rs_not_persisted","encrypted_content":"encrypted-state","summary":[]}
 		]
 	}`)
 
@@ -61,6 +63,51 @@ func TestOpenAIGatewayService_APIKeyPassthrough_StripsInvalidInputItemIDs(t *tes
 	require.Equal(t, "item_output", gjson.GetBytes(forwarded, "input.4.id").String())
 	require.Equal(t, "call_123", gjson.GetBytes(forwarded, "input.4.call_id").String())
 	require.Equal(t, "item_unconstrained", gjson.GetBytes(forwarded, "input.5.id").String())
+	require.False(t, gjson.GetBytes(forwarded, "input.6.id").Exists())
+	require.Equal(t, "encrypted-state", gjson.GetBytes(forwarded, "input.6.encrypted_content").String())
+}
+
+func TestSanitizeOpenAIResponsesInputItemIDs_PreservesReasoningIDWhenStoreEnabled(t *testing.T) {
+	body := []byte(`{"store":true,"input":[{"type":"reasoning","id":"rs_persisted","summary":[]}]}`)
+
+	sanitized, changed, err := sanitizeOpenAIResponsesInputItemIDs(body)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.JSONEq(t, string(body), string(sanitized))
+}
+
+func TestSanitizeOpenAIResponsesInputItemIDs_ForceStripsReasoningID(t *testing.T) {
+	body := []byte(`{"input":[{"type":"reasoning","id":"rs_not_persisted","summary":[]}]}`)
+
+	sanitized, changed, err := sanitizeOpenAIResponsesInputItemIDsWithOptions(body, true)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.False(t, gjson.GetBytes(sanitized, "input.0.id").Exists())
+	require.True(t, gjson.GetBytes(sanitized, "input.0.summary").IsArray())
+}
+
+func TestOpenAIGatewayService_APIKeyPassthrough_AppliesRequestedItemReferenceRecovery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"resp_recovered","model":"gpt-5.6-sol","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`,
+		)),
+	}}
+	svc := newOpenAIImageGenerationControlTestService(upstream)
+	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.144.1")
+	requestOpenAIResponsesItemReferenceRecovery(c)
+	account := newOpenAIImageGenerationControlTestAccount()
+	account.Extra = map[string]any{"openai_passthrough": true}
+	body := []byte(`{"model":"gpt-5.6-sol","stream":false,"store":true,"input":[{"type":"reasoning","id":"rs_missing","summary":[]}]}`)
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, openAIResponsesItemReferenceRecoveryApplied(c))
+	require.False(t, gjson.GetBytes(upstream.lastBody, "input.0.id").Exists())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "store").Bool())
 }
 
 func TestSanitizeOpenAIResponsesInputItemIDs_AllocationGrowthIsLinear(t *testing.T) {

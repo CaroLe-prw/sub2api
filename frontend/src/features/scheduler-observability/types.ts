@@ -1,4 +1,4 @@
-export type SchedulerTraceStatus = "success" | "switched" | "failed" | "canceled";
+export type SchedulerTraceStatus = "pending" | "success" | "switched" | "failed" | "canceled";
 
 export type SchedulerCandidateScope = "scored" | "sticky_short_circuit";
 

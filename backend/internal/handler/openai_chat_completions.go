@@ -150,6 +150,34 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	var lastFailoverErr *service.UpstreamFailoverError
 	var lastFailoverAccountID int64
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
+	var observabilityAccountID int64
+	var observabilityAccountName string
+	observabilityOutcomeRecorded := true
+	recordObservabilityOutcome := func(ctx context.Context, outcome service.OpenAISchedulerObservabilityOutcome) {
+		h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(ctx, outcome)
+		if outcome.AccountID == observabilityAccountID {
+			observabilityOutcomeRecorded = true
+		}
+	}
+	// Keep every selected Chat Completions trace terminal even when a local
+	// admission/concurrency branch returns before forwarding. Explicit upstream
+	// outcomes below take precedence; this defer is only the last-resort guard.
+	defer func() {
+		if observabilityAccountID == 0 || observabilityOutcomeRecorded {
+			return
+		}
+		outcome := service.OpenAISchedulerObservabilityOutcome{
+			AccountID: observabilityAccountID, AccountName: observabilityAccountName,
+			Reason: "request_terminated", DurationMs: time.Since(routingStart).Milliseconds(),
+		}
+		if failoverClientGone(c) {
+			outcome.Canceled = true
+			outcome.Reason = "client_disconnected"
+		} else if status := c.Writer.Status(); status >= http.StatusBadRequest {
+			outcome.UpstreamStatus = status
+		}
+		h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), outcome)
+	}()
 
 	// 分组利润控制：chat completions 文本入口请求级装门并固定 pricingAt。
 	ccPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
@@ -230,6 +258,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			return
 		}
 		account := selection.Account
+		observabilityAccountID = account.ID
+		observabilityAccountName = account.Name
+		observabilityOutcomeRecorded = false
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
 		reqLog.Debug("openai_chat_completions.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -290,7 +321,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					if failoverClientGone(c) {
-						h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
+						recordObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
 							AccountID: account.ID, AccountName: account.Name, Canceled: true, Reason: "client_disconnected",
 							DurationMs: time.Since(requestStart).Milliseconds(),
 						})
@@ -300,13 +331,6 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						)
 						return
 					}
-					if c.Writer.Size() != writerSizeBeforeForward {
-						h.handleFailoverExhausted(c, failoverErr, true)
-						return
-					}
-					if failoverErr.ShouldReportAccountScheduleFailure() {
-						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
-					}
 					observabilityReason := string(failoverErr.Reason)
 					if observabilityReason == "" {
 						if failoverErr.StatusCode == http.StatusTooManyRequests {
@@ -315,10 +339,17 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 							observabilityReason = "upstream_error"
 						}
 					}
-					h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
+					recordObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
 						AccountID: account.ID, AccountName: account.Name, UpstreamStatus: failoverErr.StatusCode,
 						Reason: observabilityReason, DurationMs: time.Since(routingStart).Milliseconds(),
 					})
+					if c.Writer.Size() != writerSizeBeforeForward {
+						h.handleFailoverExhausted(c, failoverErr, true)
+						return
+					}
+					if failoverErr.ShouldReportAccountScheduleFailure() {
+						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
+					}
 					if !failoverErr.ShouldRetryNextAccount() {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
@@ -390,7 +421,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					continue
 				}
 				if openAIForwardClientCanceled(c, result, err) {
-					h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
+					recordObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
 						AccountID: account.ID, AccountName: account.Name, Canceled: true, Reason: "client_disconnected",
 						DurationMs: time.Since(requestStart).Milliseconds(),
 					})
@@ -398,6 +429,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					return
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
+				recordObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
+					AccountID: account.ID, AccountName: account.Name, Reason: "upstream_error",
+					DurationMs: time.Since(routingStart).Milliseconds(),
+				})
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
@@ -416,10 +451,24 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			}
 		}
 		if result != nil {
-			h.gatewayService.RecordOpenAIFirstOutputSlow(account, result)
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), true, result.FirstTokenMs)
+			observabilityReason := openAIClientDisconnectReason(result)
+			if observabilityReason == "" && h.gatewayService.RecordOpenAIFirstOutputSlow(account, result) {
+				observabilityReason = "slow_first_output"
+			}
+			succeeded := openAIForwardSucceededForScheduling(result)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), succeeded, result.FirstTokenMs)
+			recordObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
+				AccountID: account.ID, AccountName: account.Name, Success: succeeded, Canceled: result.ClientDisconnect,
+				Reason: observabilityReason, FirstTokenMs: result.FirstTokenMs,
+				DurationMs: time.Since(routingStart).Milliseconds(), CacheReadTokens: int64(result.Usage.CacheReadInputTokens),
+				CacheEligibleTokens: openAISchedulerCacheEligibleTokens(result.Usage),
+			})
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), true, nil)
+			recordObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
+				AccountID: account.ID, AccountName: account.Name, Success: true,
+				DurationMs: time.Since(routingStart).Milliseconds(),
+			})
 		}
 
 		userAgent := c.GetHeader("User-Agent")

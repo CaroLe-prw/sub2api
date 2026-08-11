@@ -664,7 +664,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					}
 					// 池模式：同账号重试
 					if failoverErr.RetryableOnSameAccount {
-						retryLimit := account.GetPoolModeRetryCount()
+						retryLimit := failoverErr.SameAccountRetryLimit(account.GetPoolModeRetryCount())
 						if sameAccountRetryCount[account.ID] < retryLimit {
 							budgetDecision := failoverBudget.evaluateSameAccountRetry(
 								c.Request.Context(), switchCount,

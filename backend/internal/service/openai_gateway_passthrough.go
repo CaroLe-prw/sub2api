@@ -863,7 +863,7 @@ func openAIStreamClientOutputStarted(c *gin.Context, localStarted bool) bool {
 
 func openAIStreamEventIsPreamble(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
-	case "response.created", "response.in_progress", "response.queued":
+	case "response.created", "response.in_progress", "response.queued", "codex.rate_limits":
 		return true
 	default:
 		return false
@@ -1096,6 +1096,58 @@ func isOpenAIStreamRetryableUpstreamFailure(payload []byte, message string) bool
 	return false
 }
 
+const (
+	openAIResponsesItemReferenceRecoveryRequestedKey = "openai_responses_item_reference_recovery_requested"
+	openAIResponsesItemReferenceRecoveryAppliedKey   = "openai_responses_item_reference_recovery_applied"
+)
+
+var openAIResponsesItemNotPersistedReason = GatewayFailureReason("responses_item_not_persisted")
+
+func openAIResponsesStoreDisabled(body []byte) bool {
+	store := gjson.GetBytes(body, "store")
+	return store.Exists() && store.Type == gjson.False
+}
+
+func isOpenAIResponsesItemNotPersistedError(payload []byte, message string) bool {
+	combined := strings.ToLower(strings.TrimSpace(message + " " +
+		gjson.GetBytes(payload, "response.error.message").String() + " " +
+		gjson.GetBytes(payload, "error.message").String()))
+	return strings.Contains(combined, "item with id") &&
+		strings.Contains(combined, "not found") &&
+		strings.Contains(combined, "items are not persisted") &&
+		strings.Contains(combined, "store") &&
+		strings.Contains(combined, "false")
+}
+
+func openAIResponsesItemReferenceRecoveryRequested(c *gin.Context) bool {
+	return openAIResponsesContextBool(c, openAIResponsesItemReferenceRecoveryRequestedKey)
+}
+
+func openAIResponsesItemReferenceRecoveryApplied(c *gin.Context) bool {
+	return openAIResponsesContextBool(c, openAIResponsesItemReferenceRecoveryAppliedKey)
+}
+
+func openAIResponsesContextBool(c *gin.Context, key string) bool {
+	if c == nil {
+		return false
+	}
+	value, exists := c.Get(key)
+	enabled, _ := value.(bool)
+	return exists && enabled
+}
+
+func markOpenAIResponsesItemReferenceRecoveryApplied(c *gin.Context) {
+	if c != nil {
+		c.Set(openAIResponsesItemReferenceRecoveryAppliedKey, true)
+	}
+}
+
+func requestOpenAIResponsesItemReferenceRecovery(c *gin.Context) {
+	if c != nil {
+		c.Set(openAIResponsesItemReferenceRecoveryRequestedKey, true)
+	}
+}
+
 func openAIStreamFailureStatus(payload []byte, message string) int {
 	if len(bytes.TrimSpace(payload)) == 0 || !gjson.ValidBytes(payload) {
 		return http.StatusBadGateway
@@ -1182,6 +1234,17 @@ func applyOpenAIStreamFailedErrorPassthroughRule(
 }
 
 func openAIStreamFailedEventShouldFailover(payload []byte, message string, contexts ...*gin.Context) bool {
+	if isOpenAIResponsesItemNotPersistedError(payload, message) {
+		for _, c := range contexts {
+			if openAIResponsesItemReferenceRecoveryApplied(c) {
+				return false
+			}
+		}
+		for _, c := range contexts {
+			requestOpenAIResponsesItemReferenceRecovery(c)
+		}
+		return true
+	}
 	if isOpenAIContextWindowError(message, payload) {
 		for _, c := range contexts {
 			if openAIAutoContextCompactionMayFailover(c) {
@@ -1244,6 +1307,9 @@ func openAIStreamFailedEventRetryableOnSameAccount(account *Account, payload []b
 	// OAuth selection first tries another account and uses the separate
 	// RetryableOnSameAccountIfNoOtherAccount fallback when selection is exhausted.
 	if !account.IsOAuth() && isOpenAIStreamRequestScopedCapacityError(payload, message) {
+		return true
+	}
+	if isOpenAIResponsesItemNotPersistedError(payload, message) {
 		return true
 	}
 	if !account.IsPoolMode() {
@@ -1407,7 +1473,7 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverError(
 			"message": message,
 		},
 	})
-	return &UpstreamFailoverError{
+	failoverErr := &UpstreamFailoverError{
 		StatusCode:                             statusCode,
 		ResponseBody:                           body,
 		ResponseHeaders:                        headers,
@@ -1415,6 +1481,13 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverError(
 		RequestScopedTransient:                 isOpenAIStreamRequestScopedCapacityError(payload, message),
 		RetryableOnSameAccountIfNoOtherAccount: shouldRetryOpenAIOAuthCapacityOnSameAccount(account, http.StatusBadRequest, message, payload),
 	}
+	if isOpenAIResponsesItemNotPersistedError(payload, message) {
+		failoverErr.RetryableOnSameAccount = true
+		failoverErr.MinimumSameAccountRetries = 1
+		failoverErr.RequestScopedTransient = true
+		failoverErr.Reason = openAIResponsesItemNotPersistedReason
+	}
+	return failoverErr
 }
 
 func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
