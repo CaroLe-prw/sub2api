@@ -98,8 +98,7 @@ func classifyOpenAITransportError(err error) openAITransportErrorClass {
 //     temporarily unschedules the account (DB + in-memory) and logs a stable
 //     warn event that alert rules can key on;
 //  3. returns an error that is *UpstreamFailoverError (so the handler fails over
-//     to a healthy account) for all non-canceled errors, or a plain error for
-//     context.Canceled (client gone — no failover, no eviction).
+//     to a healthy account) unless the inbound client context is already done.
 //
 // It deliberately does NOT write to the response: the handler owns the response
 // (failover, or a protocol-correct error once failover is exhausted).
@@ -118,9 +117,11 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 		Message:            safeErr,
 	})
 
-	// Client disconnected: do NOT fail over to another account and do NOT evict
-	// this one — the upstream never had a chance to exhibit a fault.
-	if errors.Is(err, context.Canceled) {
+	// context.Canceled can originate either from the inbound client or from the
+	// upstream/proxy round trip itself. Only suppress replay when the inbound
+	// request is actually done; otherwise a status-less upstream cancellation
+	// must be allowed to switch to another candidate.
+	if errors.Is(err, context.Canceled) && openAIInboundRequestDone(ctx, c) {
 		return err
 	}
 
@@ -137,6 +138,13 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 		StatusCode:   http.StatusBadGateway,
 		ResponseBody: openAITransportFailoverBody,
 	}
+}
+
+func openAIInboundRequestDone(ctx context.Context, c *gin.Context) bool {
+	if ctx != nil && ctx.Err() != nil {
+		return true
+	}
+	return c != nil && c.Request != nil && c.Request.Context().Err() != nil
 }
 
 // tempUnscheduleOpenAITransportError marks an account temporarily unschedulable

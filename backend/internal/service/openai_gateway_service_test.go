@@ -194,7 +194,7 @@ func TestOpenAIGatewayService_ForwardAsAnthropic_TempUnschedulableReturnsFailove
 	require.NotEmpty(t, secondRec.Body.String())
 }
 
-func TestFailoverOpenAIUpstreamHTTPError_NilContextSkipsTempUnschedulablePolicy(t *testing.T) {
+func TestFailoverOpenAIUpstreamHTTPError_NilContextClassifiesOverloadAndAppliesAccountPolicy(t *testing.T) {
 	repo := &tempUnschedulableOpenAIAccountRepo{}
 	svc := &OpenAIGatewayService{
 		rateLimitService: NewRateLimitService(repo, nil, &config.Config{}, nil, nil),
@@ -218,9 +218,12 @@ func TestFailoverOpenAIUpstreamHTTPError_NilContextSkipsTempUnschedulablePolicy(
 		"Our servers are currently overloaded.", "gpt-5.4",
 	)
 
-	require.Nil(t, got)
-	require.Zero(t, repo.modelRateLimitAccountID)
-	require.Empty(t, repo.modelRateLimitKey)
+	require.NotNil(t, got)
+	require.Equal(t, http.StatusBadRequest, got.StatusCode)
+	require.True(t, got.ShouldRetryNextAccount())
+	require.True(t, got.RequestScopedTransient)
+	require.Equal(t, account.ID, repo.modelRateLimitAccountID)
+	require.Equal(t, "gpt-5.4", repo.modelRateLimitKey)
 }
 
 type groupAwareStubOpenAIAccountRepo struct {
@@ -1843,6 +1846,46 @@ func TestOpenAIStreamingResponseFailedBeforeOutputServerOverloadedCodeReturnsFai
 	require.Contains(t, string(failoverErr.ResponseBody), "Please retry later")
 	// 容量降载是请求级信号：非池模式账号也要先在同账号重试，且不得据此临时封禁账号。
 	// 否则单个被降载的请求会把整池账号逐个消耗掉，而降载因素在每个账号上都相同。
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.RequestScopedTransient)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, rec.Body.String())
+}
+
+func TestOpenAIStreamingResponseFailedBeforeOutputServerOverloadedMessageReturnsFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			"event: response.created",
+			`data: {"type":"response.created","response":{"id":"resp_message_only"}}`,
+			"",
+			"event: error",
+			`data: {"type":"error","error":{"type":"invalid_request_error","message":"Our servers are currently overloaded. Please try again later."}}`,
+			"",
+			"event: response.failed",
+			`data: {"type":"response.failed","response":{"id":"resp_message_only","error":{"type":"invalid_request_error","message":"Our servers are currently overloaded. Please try again later."}}}`,
+			"",
+		}, "\n"))),
+		Header: http.Header{"X-Request-Id": []string{"rid-overloaded-message-only"}},
+	}
+
+	_, err := svc.handleStreamingResponse(
+		c.Request.Context(), resp, c,
+		&Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Name: "acc"},
+		time.Now(), "model", "model",
+	)
+
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
 	require.True(t, failoverErr.RetryableOnSameAccount)
 	require.True(t, failoverErr.RequestScopedTransient)
 	require.False(t, c.Writer.Written())

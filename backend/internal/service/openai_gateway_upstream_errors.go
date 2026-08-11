@@ -116,6 +116,11 @@ func isOpenAIInstructionsRequiredError(upstreamStatusCode int, upstreamMsg strin
 	return false
 }
 
+func isOpenAIServerOverloadedMessage(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	return strings.Contains(lower, "server") && strings.Contains(lower, "overloaded")
+}
+
 func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	if upstreamStatusCode != http.StatusBadRequest && upstreamStatusCode != http.StatusServiceUnavailable {
 		return false
@@ -140,6 +145,9 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 		lower := strings.ToLower(strings.TrimSpace(text))
 		if lower == "" {
 			return false
+		}
+		if isOpenAIServerOverloadedMessage(lower) {
+			return true
 		}
 		if strings.Contains(lower, "an error occurred while processing your request") {
 			return true
@@ -173,7 +181,8 @@ func isOpenAIRequestScopedCapacityError(upstreamStatusCode int, upstreamMsg stri
 		return false
 	}
 	containsCapacityMessage := func(text string) bool {
-		return strings.Contains(strings.ToLower(strings.TrimSpace(text)), "selected model is at capacity")
+		return strings.Contains(strings.ToLower(strings.TrimSpace(text)), "selected model is at capacity") ||
+			isOpenAIServerOverloadedMessage(text)
 	}
 	if containsCapacityMessage(upstreamMsg) {
 		return true

@@ -107,9 +107,10 @@ func TestHandleOpenAIUpstreamTransportError_TransientFailsOverWithoutEviction(t 
 	require.Equal(t, 0, rec.Body.Len())
 }
 
-// context.Canceled means the client disconnected — do NOT fail over to another
-// account and do NOT temporarily evict this one.
-func TestHandleOpenAIUpstreamTransportError_ContextCanceled_NoFailoverNoEviction(t *testing.T) {
+// A transport can surface context.Canceled even while the inbound client request
+// is still alive (for example an upstream/proxy cancels its own round trip). That
+// is an upstream failure and must remain eligible for another account.
+func TestHandleOpenAIUpstreamTransportError_InternalContextCanceled_FailsOver(t *testing.T) {
 	repo := &openaiTransportAccountRepoStub{}
 	svc := &OpenAIGatewayService{accountRepo: repo}
 	account := &Account{ID: 77, Name: "healthy", Platform: PlatformOpenAI}
@@ -118,31 +119,50 @@ func TestHandleOpenAIUpstreamTransportError_ContextCanceled_NoFailoverNoEviction
 	err := svc.handleOpenAIUpstreamTransportError(context.Background(), c, account,
 		context.Canceled, false)
 
-	// Must NOT be a failover error.
 	var fo *UpstreamFailoverError
-	require.False(t, errors.As(err, &fo), "context.Canceled must NOT return *UpstreamFailoverError")
-	require.NotNil(t, err, "must return a non-nil error")
+	require.True(t, errors.As(err, &fo), "upstream-only context.Canceled must return *UpstreamFailoverError")
+	require.Equal(t, http.StatusBadGateway, fo.StatusCode)
 
-	// Must NOT evict the account.
-	require.Empty(t, repo.tempUnschedCalls, "context.Canceled must not trigger temp-unsched DB write")
-	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account), "context.Canceled must not block account in-memory")
+	// An ambiguous cancellation is transient: switch accounts but do not evict.
+	require.Empty(t, repo.tempUnschedCalls)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 
 	// Must NOT write a response body.
 	require.Equal(t, 0, rec.Body.Len())
 }
 
-// context.Canceled wrapped inside another error must also avoid failover.
-func TestHandleOpenAIUpstreamTransportError_WrappedContextCanceled_NoFailover(t *testing.T) {
+func TestHandleOpenAIUpstreamTransportError_ClientContextCanceled_NoFailoverNoEviction(t *testing.T) {
 	repo := &openaiTransportAccountRepoStub{}
 	svc := &OpenAIGatewayService{accountRepo: repo}
 	account := &Account{ID: 78, Name: "healthy2", Platform: PlatformOpenAI}
+	c, rec := newOpenAITransportErrTestContext()
+	clientCtx, cancel := context.WithCancel(c.Request.Context())
+	cancel()
+	c.Request = c.Request.WithContext(clientCtx)
+
+	err := svc.handleOpenAIUpstreamTransportError(clientCtx, c, account, context.Canceled, false)
+
+	var fo *UpstreamFailoverError
+	require.False(t, errors.As(err, &fo), "a canceled inbound request must not be replayed")
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, repo.tempUnschedCalls)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Equal(t, 0, rec.Body.Len())
+}
+
+// Wrapping does not change the distinction: if the client is still connected,
+// the cancellation belongs to the upstream attempt and another account may run.
+func TestHandleOpenAIUpstreamTransportError_WrappedInternalContextCanceled_FailsOver(t *testing.T) {
+	repo := &openaiTransportAccountRepoStub{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	account := &Account{ID: 79, Name: "healthy3", Platform: PlatformOpenAI}
 	c, _ := newOpenAITransportErrTestContext()
 
 	wrapped := fmt.Errorf("http request failed: %w", context.Canceled)
 	err := svc.handleOpenAIUpstreamTransportError(context.Background(), c, account, wrapped, false)
 
 	var fo *UpstreamFailoverError
-	require.False(t, errors.As(err, &fo), "wrapped context.Canceled must NOT return *UpstreamFailoverError")
+	require.True(t, errors.As(err, &fo), "wrapped upstream context.Canceled must return *UpstreamFailoverError")
 	require.Empty(t, repo.tempUnschedCalls)
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
@@ -247,8 +267,11 @@ func TestHandleOpenAIUpstreamTransportError_ContextCanceledSkipsOllamaActivity(t
 		Credentials: map[string]any{"api_key": "k-ollama", "base_url": "https://ollama.com"},
 	}
 	c, _ := newOpenAITransportErrTestContext()
+	clientCtx, cancel := context.WithCancel(c.Request.Context())
+	cancel()
+	c.Request = c.Request.WithContext(clientCtx)
 
-	err := svc.handleOpenAIUpstreamTransportError(context.Background(), c, ollama, context.Canceled, false)
+	err := svc.handleOpenAIUpstreamTransportError(clientCtx, c, ollama, context.Canceled, false)
 
 	require.ErrorIs(t, err, context.Canceled)
 	_, ok := deferred.lastUsedUpdates.Load(int64(503))
