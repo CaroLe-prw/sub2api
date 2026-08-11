@@ -127,6 +127,20 @@ describe('VaptchaWidget', () => {
     wrapper.unmount()
   })
 
+  it('连续验证会复用同一个 V4 实例', async () => {
+    const wrapper = mountWidget()
+
+    await expect(wrapper.vm.verify()).resolves.toContain('token-id')
+    wrapper.vm.reset()
+    await expect(wrapper.vm.verify()).resolves.toContain('token-id')
+    wrapper.vm.reset()
+
+    expect(window.vaptcha).toHaveBeenCalledOnce()
+    expect(instance.validate).toHaveBeenCalledTimes(2)
+    expect(instance.reset).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
   it('重置时关闭当前验证并结束等待', async () => {
     let resolveValidation: (result: typeof validationResult) => void = () => {}
     instance.validate.mockImplementationOnce(
