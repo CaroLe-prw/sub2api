@@ -54,7 +54,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	if account != nil && account.Platform == PlatformOpenAI {
 		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffort)
 	}
-	guardFirstOutput := firstOutputTimeout > 0
+	// A keepalive must never publish attempt-local response.created /
+	// response.in_progress frames before semantic output. Otherwise a later
+	// response.failed cannot be replayed on another account even though TTFT is
+	// still nil. Stage preamble frames whenever OpenAI keepalive is enabled,
+	// independently from whether a first-output timeout is configured.
+	streamKeepaliveEnabled := s != nil && s.cfg != nil && s.cfg.Gateway.StreamKeepaliveInterval > 0
+	guardFirstOutput := firstOutputTimeout > 0 ||
+		(account != nil && account.Platform == PlatformOpenAI && streamKeepaliveEnabled)
 	var attemptResponseHeaders http.Header
 	if guardFirstOutput {
 		if s.responseHeaderFilter != nil {
@@ -766,29 +773,19 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if time.Since(lastDownstreamWriteAt) < keepaliveInterval {
 				continue
 			}
-			if guardFirstOutput {
-				// Bypass attempt-local buffered frames. The stable SSE headers may be
-				// committed here, but account headers remain private until semantic output.
-				if _, err := w.Write([]byte(":\n\n")); err != nil {
-					clientDisconnected = true
-					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
-					continue
-				}
-				flusher.Flush()
-				lastDownstreamWriteAt = time.Now()
-				continue
-			}
-			if _, err := writePendingString(":\n\n"); err != nil {
+			// Always bypass attempt-local buffered frames. Besides preventing an SSE
+			// event from being split, this keeps response.created/in_progress private
+			// until semantic output selects the winning account attempt.
+			heartbeat := []byte(":\n\n")
+			n, err := w.Write(heartbeat)
+			recordOpenAIStreamKeepaliveBytes(c, n)
+			if err != nil {
 				clientDisconnected = true
 				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
 				continue
 			}
-			if err := flushBuffered(); err != nil {
-				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during keepalive flush, continuing to drain upstream for billing")
-			} else {
-				lastDownstreamWriteAt = time.Now()
-			}
+			flusher.Flush()
+			lastDownstreamWriteAt = time.Now()
 		}
 	}
 

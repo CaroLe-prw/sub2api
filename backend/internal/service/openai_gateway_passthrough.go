@@ -855,10 +855,9 @@ func openAIStreamClientOutputStarted(c *gin.Context, localStarted bool) bool {
 	if c == nil || c.Writer == nil {
 		return false
 	}
-	// compact keepalive comments commit the HTTP response as 200, but they are
-	// not semantic model output and therefore must not block a safe retry.
-	// Without a compact keepalive this is equivalent to checking Writer.Size().
-	return OpenAICompactKeepaliveAdjustedWrittenSize(c) >= 0
+	// Compact and regular SSE keepalive comments commit HTTP 200 but are not
+	// semantic model output, so neither may block a safe retry.
+	return OpenAIResponseSemanticAdjustedWrittenSize(c) >= 0
 }
 
 func openAIStreamEventIsPreamble(eventType string) bool {

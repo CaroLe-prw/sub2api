@@ -100,3 +100,61 @@ func TestOpenAIStreamFailedAfterOutputRecordsErrorMetadata(t *testing.T) {
 	require.Equal(t, "http_error", events[0].Kind)
 	require.JSONEq(t, `{"error":{"type":"server_error","code":"internal_error"}}`, events[0].Detail)
 }
+
+func TestOpenAIStreamKeepaliveBeforeUpstreamFailureStillAllowsFailover(t *testing.T) {
+	recorder := newOpenAIResponseFlushRecorder()
+	reader, writer := io.Pipe()
+	resultCh, errCh := runOpenAIResponseFlushTestAsync(recorder, reader, config.GatewayConfig{
+		StreamKeepaliveInterval: 1,
+		MaxLineSize:             defaultMaxLineSize,
+	})
+
+	_, err := writer.Write([]byte(strings.Join([]string{
+		"event: response.created",
+		`data: {"type":"response.created","response":{"id":"resp_keepalive_retry"}}`,
+		"",
+		"event: response.in_progress",
+		`data: {"type":"response.in_progress","response":{"id":"resp_keepalive_retry"}}`,
+		"",
+	}, "\n") + "\n"))
+	require.NoError(t, err)
+	waitOpenAIResponseFlushCount(t, recorder, 1)
+	body, _ := recorder.snapshot()
+	require.Equal(t, ":\n\n", body)
+
+	_, err = writer.Write([]byte(strings.Join([]string{
+		"event: response.failed",
+		`data: {"type":"response.failed","response":{"id":"resp_keepalive_retry","status":"failed","error":{"code":"upstream_error","message":"Upstream request failed"},"output":[]}}`,
+		"",
+	}, "\n") + "\n"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	result := <-resultCh
+	streamErr := <-errCh
+	require.NotNil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, streamErr, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Nil(t, result.firstTokenMs)
+	body, _ = recorder.snapshot()
+	require.Equal(t, ":\n\n", body)
+	require.NotContains(t, body, "response.created")
+	require.NotContains(t, body, "response.failed")
+}
+
+func TestOpenAIResponseSemanticAdjustedWrittenSizeExcludesStreamKeepalive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	require.Equal(t, -1, OpenAIResponseSemanticAdjustedWrittenSize(c))
+
+	n, err := c.Writer.Write([]byte(":\n\n"))
+	require.NoError(t, err)
+	recordOpenAIStreamKeepaliveBytes(c, n)
+	require.Equal(t, -1, OpenAIResponseSemanticAdjustedWrittenSize(c))
+
+	_, err = c.Writer.Write([]byte("data: semantic\n\n"))
+	require.NoError(t, err)
+	require.Greater(t, OpenAIResponseSemanticAdjustedWrittenSize(c), 0)
+}
