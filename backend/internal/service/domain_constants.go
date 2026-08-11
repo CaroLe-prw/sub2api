@@ -550,6 +550,12 @@ const (
 	SettingKeyOpenAIAdvancedSchedulerWeightUpstreamCost          = "openai_advanced_scheduler_weight_upstream_cost"
 	SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse      = "openai_advanced_scheduler_weight_previous_response"
 	SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky         = "openai_advanced_scheduler_weight_session_sticky"
+	// SettingKeyOpenAISchedulerObservabilityEnabled controls in-memory scheduler trace collection.
+	SettingKeyOpenAISchedulerObservabilityEnabled = "openai_scheduler_observability_enabled"
+	// SettingKeyOpenAISchedulerObservabilityMaxTraces bounds retained in-memory request traces.
+	SettingKeyOpenAISchedulerObservabilityMaxTraces = "openai_scheduler_observability_max_traces"
+	// SettingKeyOpenAISchedulerObservabilityRetentionDays controls database aggregate/abnormal trace retention.
+	SettingKeyOpenAISchedulerObservabilityRetentionDays = "openai_scheduler_observability_retention_days"
 	// SettingKeyOpenAISchedulerTemplates stores editable SLA/balanced/cost
 	// group scheduler presets as one validated JSON document.
 	SettingKeyOpenAISchedulerTemplates = "openai_scheduler_templates"

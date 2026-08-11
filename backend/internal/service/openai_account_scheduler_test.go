@@ -1060,7 +1060,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_EnabledUsesAdvancedPrev
 	require.True(t, decision.StickyPreviousHit)
 }
 
-func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedSessionInTopKUsesStickyFirst(t *testing.T) {
+func TestOpenAIGatewayService_SelectAccountWithScheduler_HealthySessionOwnerOverridesScoreGap(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 
 	ctx := context.Background()
@@ -1120,12 +1120,158 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedSessionIn
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
 	require.Equal(t, int64(37101), selection.Account.ID)
-	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
+	require.Equal(t, openAIAccountScheduleLayerSessionSticky, decision.Layer)
 	require.True(t, decision.StickySessionHit)
-	require.Equal(t, 2, decision.TopK)
+	require.Zero(t, decision.TopK)
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
+}
+
+func TestOpenAIGatewayService_SelectPinnedAccountWithSchedulerForCapability_KeepsSameAccount(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	groupID := int64(101079)
+	accounts := []Account{
+		{ID: 37131, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}},
+		{ID: 37132, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 100, GroupIDs: []int64{groupID}},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cfg:                &config.Config{},
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+
+	selection, decision, err := svc.SelectPinnedAccountWithSchedulerForCapability(
+		context.Background(), 37131, &groupID, "", "", "gpt-5.1", nil,
+		OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityChatCompletions, false, false, true,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(37131), selection.Account.ID)
+	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
+	require.False(t, decision.StickySessionHit)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestBuildOpenAIAccountLoadPlan_WeightedStickyHealthEscapeSkipsBonus(t *testing.T) {
+	stats := newOpenAIAccountRuntimeStats()
+	stats.report(37104, false, nil)
+	stats.report(37104, false, nil)
+
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.LBTopK = 2
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Priority = 1
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.SessionSticky = 10
+	cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = true
+	cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 15000
+	cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate = 1
+	scheduler := &defaultOpenAIAccountScheduler{
+		service: &OpenAIGatewayService{cfg: cfg},
+		stats:   stats,
+	}
+	accounts := []*Account{
+		{ID: 37103, Priority: 0},
+		{ID: 37104, Priority: 0},
+	}
+	plan := scheduler.buildOpenAIAccountLoadPlan(
+		context.Background(),
+		OpenAIAccountScheduleRequest{
+			StickyWeighted:  true,
+			StickyAccountID: 37104,
+			SessionHash:     "weighted_sticky_health_escape",
+		},
+		accounts,
+		map[int64]*AccountLoadInfo{
+			37103: {AccountID: 37103},
+			37104: {AccountID: 37104},
+		},
+	)
+
+	require.Len(t, plan.selectionOrder, 1)
+	require.Equal(t, int64(37103), plan.selectionOrder[0].account.ID)
+	require.InDelta(t, plan.candidates[0].score, plan.candidates[1].score, 1e-9)
+	require.True(t, plan.candidates[1].excluded)
+	require.Len(t, plan.candidates, 2)
+	require.Len(t, plan.selectionOrder, 1)
+	require.NotNil(t, plan.candidates[1].account)
+	require.Equal(t, int64(37104), plan.candidates[1].account.ID)
+}
+
+func TestBuildOpenAIAccountLoadPlan_DirectStickyEscapeExcludesAccountWithoutWeightedMode(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.LBTopK = 2
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Priority = 1
+	observation := &openAIAccountScheduleObservation{}
+	observation.recordStickyEscape(37114, "consecutive_errors")
+	scheduler := &defaultOpenAIAccountScheduler{
+		service: &OpenAIGatewayService{cfg: cfg},
+		stats:   newOpenAIAccountRuntimeStats(),
+	}
+	accounts := []*Account{
+		{ID: 37113, Priority: 0},
+		{ID: 37114, Priority: 0},
+	}
+
+	plan := scheduler.buildOpenAIAccountLoadPlan(
+		context.Background(),
+		OpenAIAccountScheduleRequest{
+			StickyAccountID: 37114,
+			SessionHash:     "direct_sticky_health_escape",
+			observation:     observation,
+		},
+		accounts,
+		map[int64]*AccountLoadInfo{
+			37113: {AccountID: 37113},
+			37114: {AccountID: 37114},
+		},
+	)
+
+	require.Len(t, plan.selectionOrder, 1)
+	require.Equal(t, int64(37113), plan.selectionOrder[0].account.ID)
+	require.Len(t, observation.candidates, 2)
+	for _, candidate := range observation.candidates {
+		if candidate.AccountID == 37114 {
+			require.Equal(t, "excluded", candidate.State)
+			require.Equal(t, "consecutive_errors", candidate.Reason)
+			return
+		}
+	}
+	t.Fatal("escaped sticky account was not retained in candidate observability")
+}
+
+func TestTryFallbackToWeightedSticky_BusyAccountEscapes(t *testing.T) {
+	account := Account{
+		ID:          37105,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+	}
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = true
+	cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 15000
+	cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate = 0.5
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: []Account{account}},
+		cfg:                cfg,
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{acquireResults: map[int64]bool{account.ID: false}}),
+	}
+	scheduler := &defaultOpenAIAccountScheduler{
+		service: svc,
+		stats:   newOpenAIAccountRuntimeStats(),
+	}
+
+	selection, err := scheduler.tryFallbackToWeightedSticky(context.Background(), OpenAIAccountScheduleRequest{
+		Platform:          PlatformOpenAI,
+		StickyWeighted:    true,
+		StickyAccountID:   account.ID,
+		RequiredTransport: OpenAIUpstreamTransportAny,
+	})
+	require.NoError(t, err)
+	require.Nil(t, selection)
 }
 
 func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedPreviousRequiresMovableContext(t *testing.T) {
@@ -2315,7 +2461,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByTT
 	}
 }
 
-func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByErrorRate(t *testing.T) {
+func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByConsecutiveErrors(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(10102)
 	accounts := []Account{
@@ -2335,9 +2481,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByEr
 		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{acquireResults: map[int64]bool{21202: true}}),
 		openaiAccountStats: newOpenAIAccountRuntimeStats(),
 	}
-	for i := 0; i < 3; i++ {
-		svc.openaiAccountStats.report(21201, false, nil)
-	}
+	svc.openaiAccountStats.report(21201, false, nil)
 	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_hash_sticky_error_rate", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
@@ -2348,9 +2492,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByEr
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
-	for i := 0; i < 2; i++ {
-		svc.openaiAccountStats.report(21201, false, nil)
-	}
+	svc.openaiAccountStats.report(21201, false, nil)
 
 	selection, decision, err = svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_hash_sticky_error_rate", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
@@ -2718,6 +2860,7 @@ func TestDefaultOpenAIAccountScheduler_ShouldEscapeStickyAccount_ThresholdBounda
 	for i := 0; i < 4; i++ {
 		stats.report(accountID, false, nil)
 	}
+	stats.report(accountID, true, nil)
 	reason, errorRate, _, shouldEscape = scheduler.shouldEscapeStickyAccount(accountID, openAIStickyEscapeConfig{
 		enabled:   true,
 		ttftMs:    15000,
@@ -2732,7 +2875,7 @@ func TestDefaultOpenAIAccountScheduler_ShouldEscapeStickyAccount_ThresholdBounda
 	})
 	require.False(t, shouldEscape)
 	require.Empty(t, reason)
-	require.InDelta(t, 0.655936, errorRate, 1e-9)
+	require.InDelta(t, 0.5247488, errorRate, 1e-9)
 	require.InDelta(t, 15000, observedTTFT, 1e-9)
 }
 
@@ -3179,6 +3322,9 @@ func TestOpenAIAccountRuntimeStats_ReportAndSnapshot(t *testing.T) {
 	require.True(t, hasTTFT)
 	require.InDelta(t, 0.36, errorRate, 1e-9)
 	require.InDelta(t, 120.0, ttft, 1e-9)
+	require.Equal(t, int64(2), stats.consecutiveErrorCount(1001))
+	stats.report(1001, true, nil)
+	require.Zero(t, stats.consecutiveErrorCount(1001))
 	require.Equal(t, 1, stats.size())
 }
 
@@ -3253,6 +3399,36 @@ func TestSelectTopKOpenAICandidates(t *testing.T) {
 	require.Equal(t, int64(14), topAll[3].account.ID)
 }
 
+func TestOpenAIWeightedStickyWithinScoreGap(t *testing.T) {
+	require.True(t, openAIWeightedStickyWithinScoreGap(10, 10))
+	require.True(t, openAIWeightedStickyWithinScoreGap(8.5, 10))
+	require.False(t, openAIWeightedStickyWithinScoreGap(8.49, 10))
+	require.False(t, openAIWeightedStickyWithinScoreGap(math.NaN(), 10))
+}
+
+func TestBuildOpenAIAccountSchedulerScoreSnapshot_StickyScoreHonorsScoreGap(t *testing.T) {
+	best := &Account{ID: 21, Priority: 0}
+	poor := &Account{ID: 22, Priority: 100}
+	scores := buildOpenAIAccountSchedulerScoreSnapshot(
+		[]*Account{best, poor},
+		map[int64]*AccountLoadInfo{
+			best.ID: {AccountID: best.ID},
+			poor.ID: {AccountID: poor.ID},
+		},
+		GatewayOpenAIWSSchedulerScoreWeightsView{
+			Priority:      1,
+			Previous:      0.5,
+			SessionSticky: 0.15,
+		},
+		true,
+		defaultOpenAIOAuthSchedulingRateMultiplier,
+		nil,
+	)
+
+	require.InDelta(t, 1.65, scores[best.ID].StickyScore, 1e-9)
+	require.InDelta(t, scores[poor.ID].BaseScore, scores[poor.ID].StickyScore, 1e-9)
+}
+
 func TestBuildOpenAIWeightedSelectionOrder_DeterministicBySessionSeed(t *testing.T) {
 	candidates := []openAIAccountCandidateScore{
 		{
@@ -3284,6 +3460,34 @@ func TestBuildOpenAIWeightedSelectionOrder_DeterministicBySessionSeed(t *testing
 	for i := range first {
 		require.Equal(t, first[i].account.ID, second[i].account.ID)
 	}
+}
+
+func TestBuildOpenAISelectionOrder_WeightedStickyIsNotForcedFirst(t *testing.T) {
+	scheduler := &defaultOpenAIAccountScheduler{}
+	plan := openAIAccountLoadPlan{
+		candidates: []openAIAccountCandidateScore{
+			{account: &Account{ID: 201}, loadInfo: &AccountLoadInfo{}, score: 4},
+			{account: &Account{ID: 202}, loadInfo: &AccountLoadInfo{}, score: 3},
+		},
+		topK: 2,
+	}
+	stickyFirst := false
+	nonStickyFirst := false
+	for i := 0; i < 64; i++ {
+		order := scheduler.buildOpenAISelectionOrder(OpenAIAccountScheduleRequest{
+			StickyWeighted:  true,
+			StickyAccountID: 201,
+			SessionHash:     fmt.Sprintf("soft_sticky_%d", i),
+		}, plan)
+		require.Len(t, order, 2)
+		if order[0].account.ID == 201 {
+			stickyFirst = true
+		} else {
+			nonStickyFirst = true
+		}
+	}
+	require.True(t, stickyFirst)
+	require.True(t, nonStickyFirst)
 }
 
 func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesAcrossSessions(t *testing.T) {

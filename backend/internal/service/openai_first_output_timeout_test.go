@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -89,6 +90,133 @@ func TestOpenAIForwardFirstOutputTimeoutIncludesResponseHeaderWait(t *testing.T)
 	}
 }
 
+func TestOpenAIPassthroughFirstOutputTimeoutIncludesResponseHeaderWait(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &blockingOpenAIResponseHeaderUpstream{canceled: make(chan struct{})}
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Gateway: config.GatewayConfig{
+			OpenAIFirstOutputTimeoutSeconds: 1,
+			MaxLineSize:                     defaultMaxLineSize,
+		}},
+		httpUpstream: upstream,
+	}
+	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":"hello"}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	account := &Account{
+		ID: 35, Name: "apikey-passthrough", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1,
+		Credentials: map[string]any{"api_key": "test-key"},
+		Extra: map[string]any{
+			"openai_passthrough":         true,
+			"openai_responses_supported": true,
+		},
+	}
+
+	started := time.Now()
+	_, err := svc.Forward(context.Background(), c, account, body)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusGatewayTimeout, failoverErr.StatusCode)
+	require.Equal(t, GatewayFailureReason("first_output_timeout"), failoverErr.Reason)
+	require.Less(t, time.Since(started), 1300*time.Millisecond)
+	require.Empty(t, rec.Body.String())
+	select {
+	case <-upstream.canceled:
+	default:
+		t.Fatal("passthrough response-header timeout did not cancel the upstream request context")
+	}
+}
+
+func TestOpenAIPassthroughFirstOutputTimeoutKeepsPreamblePrivate(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds: 1,
+		MaxLineSize:                     defaultMaxLineSize,
+	}}}
+	pr, pw := io.Pipe()
+	body := &firstOutputCloseTrackingBody{ReadCloser: pr, closed: make(chan struct{})}
+	go func() {
+		defer func() { _ = pw.Close() }()
+		_, _ = pw.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_passthrough_slow\"}}\n\n"))
+		<-body.closed
+	}()
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: body}
+
+	_, err := svc.handleStreamingResponsePassthrough(
+		c.Request.Context(), resp, c, &Account{ID: 35, Name: "sky-pro", Platform: PlatformOpenAI},
+		time.Now().Add(-2*time.Second), "gpt-5.6-sol", "gpt-5.6-sol",
+	)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusGatewayTimeout, failoverErr.StatusCode)
+	require.Equal(t, GatewayFailureReason("first_output_timeout"), failoverErr.Reason)
+	require.Empty(t, rec.Body.String())
+}
+
+func TestOpenAIPassthroughPreOutputDeadlineErrorFailsOver(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds: 0,
+		MaxLineSize:                     defaultMaxLineSize,
+	}}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body: &passthroughFlushTestErrorBody{
+			payload: []byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_deadline\"}}\n\n"),
+			err:     context.DeadlineExceeded,
+		},
+	}
+
+	_, err := svc.handleStreamingResponsePassthrough(
+		c.Request.Context(), resp, c, &Account{ID: 35, Name: "sky-pro", Platform: PlatformOpenAI},
+		time.Now(), "gpt-5.6-sol", "gpt-5.6-sol",
+	)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.Empty(t, rec.Body.String())
+}
+
+func TestOpenAINativePreOutputDeadlineErrorFailsOver(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds: 0,
+		MaxLineSize:                     defaultMaxLineSize,
+	}}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body: &passthroughFlushTestErrorBody{
+			payload: []byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_native_deadline\"}}\n\n"),
+			err:     context.DeadlineExceeded,
+		},
+	}
+
+	_, err := svc.handleStreamingResponse(
+		c.Request.Context(), resp, c, &Account{ID: 35, Name: "sky-pro", Platform: PlatformOpenAI},
+		time.Now(), "gpt-5.6-sol", "gpt-5.6-sol",
+	)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.Empty(t, rec.Body.String())
+}
+
 func TestOpenAINativeFirstOutputTimeoutDisabledPreservesSynchronousStream(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
 		OpenAIFirstOutputTimeoutSeconds: 0,
@@ -150,6 +278,139 @@ func TestOpenAINativeFirstOutputTimeoutIgnoresPreambleAndCleansReader(t *testing
 	case <-time.After(time.Second):
 		t.Fatal("stream reader/writer goroutine did not exit after first-output timeout")
 	}
+}
+
+func TestOpenAIChatCompatFirstOutputTimeoutIgnoresResponsesPreamble(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds: 1,
+		MaxLineSize:                     defaultMaxLineSize,
+	}}}
+	pr, pw := io.Pipe()
+	body := &firstOutputCloseTrackingBody{ReadCloser: pr, closed: make(chan struct{})}
+	go func() {
+		defer func() { _ = pw.Close() }()
+		_, _ = pw.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_chat_slow\"}}\n\n"))
+		<-body.closed
+	}()
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: body}
+
+	_, err := svc.handleChatStreamingResponse(
+		resp, c, &Account{ID: 1, Platform: PlatformOpenAI}, "model", "model", "model", time.Now().Add(-2*time.Second), 0,
+	)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, GatewayFailureReason("first_output_timeout"), failoverErr.Reason)
+	require.Empty(t, rec.Body.String())
+}
+
+func TestOpenAIMessagesCompatFirstOutputTimeoutKeepsPreamblePrivate(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds: 1,
+		MaxLineSize:                     defaultMaxLineSize,
+	}}}
+	pr, pw := io.Pipe()
+	body := &firstOutputCloseTrackingBody{ReadCloser: pr, closed: make(chan struct{})}
+	go func() {
+		defer func() { _ = pw.Close() }()
+		_, _ = pw.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_messages_slow\"}}\n\n"))
+		<-body.closed
+	}()
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: body}
+
+	_, err := svc.handleAnthropicStreamingResponse(
+		resp, c, &Account{ID: 1, Platform: PlatformOpenAI}, "model", "model", "model", time.Now().Add(-2*time.Second),
+	)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, GatewayFailureReason("first_output_timeout"), failoverErr.Reason)
+	require.Empty(t, rec.Body.String())
+}
+
+func TestOpenAICompatBufferedFirstOutputTimeoutIgnoresResponsesPreamble(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		MaxLineSize: defaultMaxLineSize,
+	}}}
+	pr, pw := io.Pipe()
+	body := &firstOutputCloseTrackingBody{ReadCloser: pr, closed: make(chan struct{})}
+	go func() {
+		defer func() { _ = pw.Close() }()
+		_, _ = pw.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_buffered_slow\"}}\n\n"))
+		<-body.closed
+	}()
+	wantErr := errors.New("compat first output timeout")
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: body}
+
+	_, _, _, err := svc.readOpenAICompatBufferedTerminalWithFirstOutput(
+		resp, "compat buffered test", "request-id", time.Now().Add(-time.Second), func() error { return wantErr },
+	)
+
+	require.ErrorIs(t, err, wantErr)
+}
+
+func TestOpenAIRawChatFirstOutputTimeoutIgnoresRoleOnlyChunk(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds: 1,
+		MaxLineSize:                     defaultMaxLineSize,
+	}}}
+	pr, pw := io.Pipe()
+	body := &firstOutputCloseTrackingBody{ReadCloser: pr, closed: make(chan struct{})}
+	go func() {
+		defer func() { _ = pw.Close() }()
+		_, _ = pw.Write([]byte("data: {\"id\":\"chatcmpl-slow\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}\n\n"))
+		<-body.closed
+	}()
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: body}
+
+	_, err := svc.streamRawChatCompletions(
+		c, resp, &Account{ID: 1, Platform: PlatformOpenAI}, "model", "model", "model", nil, nil,
+		time.Now().Add(-2*time.Second), 0,
+	)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, GatewayFailureReason("first_output_timeout"), failoverErr.Reason)
+	require.Empty(t, rec.Body.String())
+}
+
+func TestOpenAIChatFallbackScannerTimesOutBeforeSemanticChunk(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds: 1,
+		MaxLineSize:                     defaultMaxLineSize,
+	}}}
+	pr, pw := io.Pipe()
+	body := &firstOutputCloseTrackingBody{ReadCloser: pr, closed: make(chan struct{})}
+	go func() {
+		defer func() { _ = pw.Close() }()
+		_, _ = pw.Write([]byte("data: {\"id\":\"chatcmpl-fallback-slow\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}\n\n"))
+		<-body.closed
+	}()
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: body}
+	emitted := 0
+
+	scan := svc.scanCCStream(
+		c.Request.Context(), c, &Account{ID: 1, Platform: PlatformOpenAI}, resp,
+		"fallback timeout test", "request-id", "model", "", time.Now().Add(-2*time.Second),
+		func(*apicompat.ChatCompletionsChunk) { emitted++ },
+	)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, scan.Err, &failoverErr)
+	require.Equal(t, GatewayFailureReason("first_output_timeout"), failoverErr.Reason)
+	require.Zero(t, emitted)
 }
 
 func TestOpenAIFirstOutputTimeoutForReasoningEffort(t *testing.T) {

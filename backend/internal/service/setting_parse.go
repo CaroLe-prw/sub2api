@@ -261,6 +261,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAIAdvancedSchedulerWeightUpstreamCost:          "",
 		SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse:      "",
 		SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky:         "",
+		SettingKeyOpenAISchedulerObservabilityEnabled:                "true",
+		SettingKeyOpenAISchedulerObservabilityMaxTraces:              strconv.Itoa(DefaultOpenAISchedulerObservabilityMaxTraces),
+		SettingKeyOpenAISchedulerObservabilityRetentionDays:          strconv.Itoa(DefaultOpenAISchedulerObservabilityRetentionDays),
 		SettingKeyOpenAISchedulerTemplates:                           openAISchedulerTemplatesJSON,
 
 		SettingKeyAllowUserViewErrorRequests: "false",
@@ -931,6 +934,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.UpstreamCost)
 	result.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.PreviousResponse)
 	result.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.SessionSticky)
+	result.OpenAISchedulerObservabilityEnabled = !isFalseSettingValue(settings[SettingKeyOpenAISchedulerObservabilityEnabled])
+	result.OpenAISchedulerObservabilityMaxTraces = parseOpenAISchedulerObservabilityMaxTraces(settings[SettingKeyOpenAISchedulerObservabilityMaxTraces])
+	result.OpenAISchedulerObservabilityRetentionDays = parseOpenAISchedulerObservabilityRetentionDays(settings[SettingKeyOpenAISchedulerObservabilityRetentionDays])
 	result.OpenAISchedulerTemplates = ParseOpenAISchedulerTemplates(settings[SettingKeyOpenAISchedulerTemplates])
 
 	// 余额、订阅到期与账号限额通知

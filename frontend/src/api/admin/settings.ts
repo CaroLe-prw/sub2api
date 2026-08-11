@@ -43,46 +43,46 @@ export function createDefaultOpenAISchedulerTemplates(): OpenAISchedulerTemplate
   return {
     sla: {
       top_k: 2,
-      priority: 0.5,
+      priority: 1,
       load: 1.5,
       queue: 1.5,
-      error_rate: 2,
+      error_rate: 3,
       ttft: 2.5,
       reset: 0,
       quota_headroom: 0.5,
       upstream_cost: 0,
-      previous_response: 1.5,
-      session_sticky: 0.75,
+      previous_response: 0.5,
+      session_sticky: 0.15,
       sticky_weighted_enabled: true,
       subscription_priority_enabled: false,
     },
     balanced: {
       top_k: 3,
       priority: 1,
-      load: 1,
-      queue: 0.8,
-      error_rate: 1,
-      ttft: 1,
+      load: 1.2,
+      queue: 1,
+      error_rate: 2,
+      ttft: 1.2,
       reset: 0.3,
-      quota_headroom: 0.7,
+      quota_headroom: 0.8,
       upstream_cost: 1.5,
-      previous_response: 1,
-      session_sticky: 0.5,
+      previous_response: 0.35,
+      session_sticky: 0.15,
       sticky_weighted_enabled: true,
       subscription_priority_enabled: false,
     },
     cost: {
       top_k: 2,
       priority: 0.3,
-      load: 0.7,
-      queue: 0.5,
-      error_rate: 0.8,
-      ttft: 0.3,
+      load: 0.8,
+      queue: 0.7,
+      error_rate: 2,
+      ttft: 0.8,
       reset: 0.5,
-      quota_headroom: 1,
-      upstream_cost: 8,
-      previous_response: 0.5,
-      session_sticky: 0.25,
+      quota_headroom: 1.2,
+      upstream_cost: 5,
+      previous_response: 0.25,
+      session_sticky: 0.1,
       sticky_weighted_enabled: true,
       subscription_priority_enabled: false,
     },
@@ -785,6 +785,9 @@ export interface SystemSettings {
   openai_advanced_scheduler_effective_weight_upstream_cost?: string;
   openai_advanced_scheduler_effective_weight_previous_response?: string;
   openai_advanced_scheduler_effective_weight_session_sticky?: string;
+  openai_scheduler_observability_enabled?: boolean;
+  openai_scheduler_observability_max_traces?: number;
+  openai_scheduler_observability_retention_days?: number;
   openai_scheduler_templates?: OpenAISchedulerTemplates;
 
   // 余额、订阅到期与账号限额通知
@@ -1085,6 +1088,9 @@ export interface UpdateSettingsRequest {
   openai_advanced_scheduler_weight_upstream_cost?: string;
   openai_advanced_scheduler_weight_previous_response?: string;
   openai_advanced_scheduler_weight_session_sticky?: string;
+  openai_scheduler_observability_enabled?: boolean;
+  openai_scheduler_observability_max_traces?: number;
+  openai_scheduler_observability_retention_days?: number;
   openai_scheduler_templates?: OpenAISchedulerTemplates;
   // 余额、订阅到期与账号限额通知
   balance_low_notify_enabled?: boolean;

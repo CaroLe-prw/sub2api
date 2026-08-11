@@ -430,6 +430,42 @@ func (s *OpenAIGatewayService) BindStickySessionAfterProfitAdmission(ctx context
 	return s.BindStickySession(ctx, groupID, sessionHash, accountID)
 }
 
+// RebindStickySessionAfterUpstreamFailover moves a sticky session to the
+// account that actually completed the request, but only when the current
+// binding belongs to an account that failed upstream during this request.
+// Profit-vetoed accounts are intentionally not included in failedAccountIDs,
+// so their bindings keep the existing "recover when the rate recovers"
+// behavior. The membership check also avoids overwriting a binding that a
+// concurrent request has already moved elsewhere.
+func (s *OpenAIGatewayService) RebindStickySessionAfterUpstreamFailover(
+	ctx context.Context,
+	groupID *int64,
+	sessionHash string,
+	accountID int64,
+	failedAccountIDs map[int64]struct{},
+) (bool, error) {
+	if sessionHash == "" || accountID <= 0 || len(failedAccountIDs) == 0 {
+		return false, nil
+	}
+	existingAccountID, err := s.getStickySessionAccountID(ctx, groupID, sessionHash)
+	if err != nil {
+		if errors.Is(err, ErrStickySessionNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	if existingAccountID <= 0 || existingAccountID == accountID {
+		return false, nil
+	}
+	if _, failed := failedAccountIDs[existingAccountID]; !failed {
+		return false, nil
+	}
+	if err := s.BindStickySession(ctx, groupID, sessionHash, accountID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // ---- 可观测性：按分组累计计数 + 采样日志（无逐请求输出） ----
 //
 // 计数按"每次准入评估"累计，而非每请求：粘性层校验与候选池过滤可能对同一账号

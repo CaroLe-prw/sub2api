@@ -126,6 +126,26 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if err := s.normalizeOpenAIAdvancedSchedulerOverrides(settings); err != nil {
 		return nil, err
 	}
+	if settings.OpenAISchedulerObservabilityMaxTraces == 0 {
+		settings.OpenAISchedulerObservabilityMaxTraces = DefaultOpenAISchedulerObservabilityMaxTraces
+	}
+	if settings.OpenAISchedulerObservabilityMaxTraces < MinOpenAISchedulerObservabilityMaxTraces ||
+		settings.OpenAISchedulerObservabilityMaxTraces > MaxOpenAISchedulerObservabilityMaxTraces {
+		return nil, infraerrors.BadRequest(
+			"INVALID_OPENAI_SCHEDULER_OBSERVABILITY_MAX_TRACES",
+			fmt.Sprintf("scheduler observability retention must be between %d and %d", MinOpenAISchedulerObservabilityMaxTraces, MaxOpenAISchedulerObservabilityMaxTraces),
+		)
+	}
+	if settings.OpenAISchedulerObservabilityRetentionDays == 0 {
+		settings.OpenAISchedulerObservabilityRetentionDays = DefaultOpenAISchedulerObservabilityRetentionDays
+	}
+	if settings.OpenAISchedulerObservabilityRetentionDays < MinOpenAISchedulerObservabilityRetentionDays ||
+		settings.OpenAISchedulerObservabilityRetentionDays > MaxOpenAISchedulerObservabilityRetentionDays {
+		return nil, infraerrors.BadRequest(
+			"INVALID_OPENAI_SCHEDULER_OBSERVABILITY_RETENTION_DAYS",
+			fmt.Sprintf("scheduler observability database retention must be between %d and %d days", MinOpenAISchedulerObservabilityRetentionDays, MaxOpenAISchedulerObservabilityRetentionDays),
+		)
+	}
 	normalizedSchedulerTemplates, err := NormalizeOpenAISchedulerTemplates(settings.OpenAISchedulerTemplates)
 	if err != nil {
 		return nil, infraerrors.BadRequest("INVALID_OPENAI_SCHEDULER_TEMPLATES", err.Error())
@@ -512,6 +532,9 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyOpenAIAdvancedSchedulerWeightUpstreamCost] = settings.OpenAIAdvancedSchedulerWeightUpstreamCost
 	updates[SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse] = settings.OpenAIAdvancedSchedulerWeightPreviousResponse
 	updates[SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky] = settings.OpenAIAdvancedSchedulerWeightSessionSticky
+	updates[SettingKeyOpenAISchedulerObservabilityEnabled] = strconv.FormatBool(settings.OpenAISchedulerObservabilityEnabled)
+	updates[SettingKeyOpenAISchedulerObservabilityMaxTraces] = strconv.Itoa(settings.OpenAISchedulerObservabilityMaxTraces)
+	updates[SettingKeyOpenAISchedulerObservabilityRetentionDays] = strconv.Itoa(settings.OpenAISchedulerObservabilityRetentionDays)
 	updates[SettingKeyOpenAISchedulerTemplates] = openAISchedulerTemplatesJSON
 
 	// 余额、订阅到期与账号限额通知
@@ -739,12 +762,15 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	s.InvalidateOpenAICodexClientVersionCache()
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
 	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
-		lowUpstreamRatePriorityEnabled: settings.OpenAILowUpstreamRatePriorityEnabled,
-		oauthSchedulingRateMultiplier:  settings.OpenAIOAuthSchedulingRateMultiplier,
-		enabled:                        settings.OpenAIAdvancedSchedulerEnabled,
-		stickyWeightedEnabled:          settings.OpenAIAdvancedSchedulerStickyWeightedEnabled,
-		subscriptionPriorityEnabled:    settings.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled,
-		lbTopKOverride:                 parsePositiveIntOverride(settings.OpenAIAdvancedSchedulerLBTopK),
+		lowUpstreamRatePriorityEnabled:      settings.OpenAILowUpstreamRatePriorityEnabled,
+		oauthSchedulingRateMultiplier:       settings.OpenAIOAuthSchedulingRateMultiplier,
+		enabled:                             settings.OpenAIAdvancedSchedulerEnabled,
+		stickyWeightedEnabled:               settings.OpenAIAdvancedSchedulerStickyWeightedEnabled,
+		subscriptionPriorityEnabled:         settings.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled,
+		schedulerObservabilityEnabled:       settings.OpenAISchedulerObservabilityEnabled,
+		schedulerObservabilityMaxTraces:     settings.OpenAISchedulerObservabilityMaxTraces,
+		schedulerObservabilityRetentionDays: settings.OpenAISchedulerObservabilityRetentionDays,
+		lbTopKOverride:                      parsePositiveIntOverride(settings.OpenAIAdvancedSchedulerLBTopK),
 		weightOverrides: parseOpenAIAdvancedSchedulerWeightOverrides(map[string]string{
 			SettingKeyOpenAIAdvancedSchedulerWeightPriority:         settings.OpenAIAdvancedSchedulerWeightPriority,
 			SettingKeyOpenAIAdvancedSchedulerWeightLoad:             settings.OpenAIAdvancedSchedulerWeightLoad,

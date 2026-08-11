@@ -3,10 +3,11 @@ import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Toggle from "@/components/common/Toggle.vue";
-import type {
-  OpenAISchedulerTemplate,
-  OpenAISchedulerTemplateProfile,
-  OpenAISchedulerTemplates,
+import {
+  createDefaultOpenAISchedulerTemplates,
+  type OpenAISchedulerTemplate,
+  type OpenAISchedulerTemplateProfile,
+  type OpenAISchedulerTemplates,
 } from "@/api/admin/settings";
 
 const templates = defineModel<OpenAISchedulerTemplates>({ required: true });
@@ -58,17 +59,32 @@ function updateNumber(key: NumericKey, event: Event) {
   if (!Number.isFinite(value) || value < minimum) return;
   updateTemplate(key, value as OpenAISchedulerTemplate[NumericKey]);
 }
+
+function resetToRecommendedDefaults() {
+  templates.value = createDefaultOpenAISchedulerTemplates();
+}
 </script>
 
 <template>
   <div class="mt-5 border-t border-gray-100 pt-5 dark:border-dark-700">
-    <div class="flex flex-col gap-1">
-      <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-        {{ t("admin.settings.openaiSchedulerTemplates.title") }}
-      </h3>
-      <p class="text-xs text-gray-500 dark:text-gray-400">
-        {{ t("admin.settings.openaiSchedulerTemplates.description") }}
-      </p>
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div class="flex flex-col gap-1">
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+          {{ t("admin.settings.openaiSchedulerTemplates.title") }}
+        </h3>
+        <p class="text-xs text-gray-500 dark:text-gray-400">
+          {{ t("admin.settings.openaiSchedulerTemplates.description") }}
+        </p>
+      </div>
+      <button
+        type="button"
+        class="btn btn-secondary btn-sm shrink-0"
+        data-testid="openai-scheduler-reset-defaults"
+        :title="t('admin.settings.openaiSchedulerTemplates.resetDefaultsHint')"
+        @click="resetToRecommendedDefaults"
+      >
+        {{ t("admin.settings.openaiSchedulerTemplates.resetDefaults") }}
+      </button>
     </div>
 
     <div class="mt-4 flex flex-wrap gap-2" role="tablist">

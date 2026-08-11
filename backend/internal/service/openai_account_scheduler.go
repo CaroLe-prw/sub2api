@@ -20,10 +20,12 @@ import (
 )
 
 const (
-	openAIAccountScheduleLayerPreviousResponse = "previous_response_id"
-	openAIAccountScheduleLayerSessionSticky    = "session_hash"
-	openAIAccountScheduleLayerLoadBalance      = "load_balance"
-	openAIAdvancedSchedulerSettingKey          = "openai_advanced_scheduler_enabled"
+	openAIAccountScheduleLayerPreviousResponse       = "previous_response_id"
+	openAIAccountScheduleLayerSessionSticky          = "session_hash"
+	openAIAccountScheduleLayerLoadBalance            = "load_balance"
+	openAIAdvancedSchedulerSettingKey                = "openai_advanced_scheduler_enabled"
+	openAIStickyEscapeConsecutiveErrors        int64 = 2
+	openAIWeightedStickyMaxScoreGapRatio             = 0.15
 )
 
 const (
@@ -43,26 +45,32 @@ const (
 )
 
 type cachedOpenAIAdvancedSchedulerSetting struct {
-	lowUpstreamRatePriorityEnabled bool
-	oauthSchedulingRateMultiplier  float64
-	enabled                        bool
-	stickyWeightedEnabled          bool
-	subscriptionPriorityEnabled    bool
-	lbTopKOverride                 int
-	weightOverrides                map[string]float64
-	schedulerTemplates             OpenAISchedulerTemplates
-	expiresAt                      int64
+	lowUpstreamRatePriorityEnabled      bool
+	oauthSchedulingRateMultiplier       float64
+	enabled                             bool
+	stickyWeightedEnabled               bool
+	subscriptionPriorityEnabled         bool
+	schedulerObservabilityEnabled       bool
+	schedulerObservabilityMaxTraces     int
+	schedulerObservabilityRetentionDays int
+	lbTopKOverride                      int
+	weightOverrides                     map[string]float64
+	schedulerTemplates                  OpenAISchedulerTemplates
+	expiresAt                           int64
 }
 
 type openAIAdvancedSchedulerRuntimeSettings struct {
-	lowUpstreamRatePriorityEnabled bool
-	oauthSchedulingRateMultiplier  float64
-	enabled                        bool
-	stickyWeightedEnabled          bool
-	subscriptionPriorityEnabled    bool
-	lbTopKOverride                 int
-	weightOverrides                map[string]float64
-	schedulerTemplates             OpenAISchedulerTemplates
+	lowUpstreamRatePriorityEnabled      bool
+	oauthSchedulingRateMultiplier       float64
+	enabled                             bool
+	stickyWeightedEnabled               bool
+	subscriptionPriorityEnabled         bool
+	schedulerObservabilityEnabled       bool
+	schedulerObservabilityMaxTraces     int
+	schedulerObservabilityRetentionDays int
+	lbTopKOverride                      int
+	weightOverrides                     map[string]float64
+	schedulerTemplates                  OpenAISchedulerTemplates
 }
 
 var openAIAdvancedSchedulerSettingCache atomic.Value // *cachedOpenAIAdvancedSchedulerSetting
@@ -74,6 +82,7 @@ type OpenAIAccountScheduleRequest struct {
 	SessionHash             string
 	StickyAccountID         int64
 	StickyPreviousAccountID int64
+	PinnedAccountID         int64
 	StickyWeighted          bool
 	SubscriptionPriority    bool
 	PreserveStickyBinding   bool
@@ -86,11 +95,14 @@ type OpenAIAccountScheduleRequest struct {
 	RequiredImageCapability OpenAIImagesCapability
 	RequireCompact          bool
 	ExcludedIDs             map[int64]struct{}
+	observation             *openAIAccountScheduleObservation
 }
 
 type openAIGroupSchedulerPolicyContextKey struct{}
 
 type openAIGroupSchedulingContextKey struct{}
+
+type openAIPinnedRetryAccountContextKey struct{}
 
 type openAIGroupSchedulingContext struct {
 	groupID int64
@@ -112,6 +124,15 @@ type OpenAIAccountScheduleDecision struct {
 	LoadSkew            float64
 	SelectedAccountID   int64
 	SelectedAccountType string
+	StickyEscapeReason  string
+	Candidates          []OpenAISchedulerObservabilityCandidate
+}
+
+type openAIAccountScheduleObservation struct {
+	stickyEscapeReason     string
+	stickyEscapeAccountIDs map[int64]struct{}
+	candidates             []OpenAISchedulerObservabilityCandidate
+	candidateReasons       map[int64]string
 }
 
 type OpenAIAccountSchedulerMetricsSnapshot struct {
@@ -200,6 +221,7 @@ type openAIAccountRuntimeStats struct {
 type openAIAccountRuntimeStat struct {
 	errorRateEWMABits atomic.Uint64
 	ttftEWMABits      atomic.Uint64
+	consecutiveErrors atomic.Int64
 }
 
 func newOpenAIAccountRuntimeStats() *openAIAccountRuntimeStats {
@@ -249,6 +271,9 @@ func (s *openAIAccountRuntimeStats) report(accountID int64, success bool, firstT
 	errorSample := 1.0
 	if success {
 		errorSample = 0.0
+		stat.consecutiveErrors.Store(0)
+	} else {
+		stat.consecutiveErrors.Add(1)
 	}
 	updateEWMAAtomic(&stat.errorRateEWMABits, errorSample, alpha)
 
@@ -290,6 +315,21 @@ func (s *openAIAccountRuntimeStats) snapshot(accountID int64) (errorRate float64
 		return errorRate, 0, false
 	}
 	return errorRate, ttftValue, true
+}
+
+func (s *openAIAccountRuntimeStats) consecutiveErrorCount(accountID int64) int64 {
+	if s == nil || accountID <= 0 {
+		return 0
+	}
+	value, ok := s.accounts.Load(accountID)
+	if !ok {
+		return 0
+	}
+	stat, _ := value.(*openAIAccountRuntimeStat)
+	if stat == nil {
+		return 0
+	}
+	return stat.consecutiveErrors.Load()
 }
 
 func (s *openAIAccountRuntimeStats) size() int {
@@ -386,15 +426,42 @@ func newDefaultOpenAIAccountScheduler(service *OpenAIGatewayService, stats *open
 func (s *defaultOpenAIAccountScheduler) Select(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
-) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
-	decision := OpenAIAccountScheduleDecision{}
+) (selectionResult *AccountSelectionResult, decision OpenAIAccountScheduleDecision, selectionErr error) {
+	observation := &openAIAccountScheduleObservation{}
+	req.observation = observation
 	start := time.Now()
 	defer func() {
 		decision.LatencyMs = time.Since(start).Milliseconds()
+		decision.StickyEscapeReason = observation.stickyEscapeReason
+		if len(observation.candidates) == 0 && selectionResult != nil && selectionResult.Account != nil {
+			observation.candidates = []OpenAISchedulerObservabilityCandidate{{
+				AccountID:   selectionResult.Account.ID,
+				AccountName: selectionResult.Account.Name,
+				Rank:        1,
+				State:       "selected",
+			}}
+		}
+		decision.Candidates = cloneSchedulerCandidates(observation.candidates)
 		s.metrics.recordSelect(decision)
+		if s.service != nil {
+			s.service.RecordOpenAISchedulerObservabilitySelection(ctx, req, decision, selectionResult, selectionErr)
+		}
 	}()
 
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
+	if req.PinnedAccountID > 0 {
+		selection, _, err := s.selectBySessionHash(ctx, req)
+		if err != nil {
+			return nil, decision, err
+		}
+		decision.Layer = openAIAccountScheduleLayerLoadBalance
+		if selection == nil || selection.Account == nil {
+			return nil, decision, ErrNoAvailableAccounts
+		}
+		decision.SelectedAccountID = selection.Account.ID
+		decision.SelectedAccountType = selection.Account.Type
+		return selection, decision, nil
+	}
 	if previousResponseID != "" && normalizeOpenAICompatiblePlatform(req.Platform) == PlatformOpenAI &&
 		(!req.StickyWeighted || !req.PreviousResponseCanMove) {
 		selection, err := s.service.selectAccountByPreviousResponseIDForCapability(
@@ -429,8 +496,11 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	if !req.StickyWeighted {
-		selection, escapedSticky, err := s.selectBySessionHash(ctx, req)
+	// An established session owns its account while that account remains healthy.
+	// Weighted scoring is used for initial placement and failover, not to reshuffle
+	// a healthy conversation on every turn.
+	{
+		selection, stickyEscapeReason, err := s.selectBySessionHash(ctx, req)
 		if err != nil {
 			return nil, decision, err
 		}
@@ -441,7 +511,8 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			decision.SelectedAccountType = selection.Account.Type
 			return selection, decision, nil
 		}
-		if escapedSticky {
+		if stickyEscapeReason != "" {
+			observation.stickyEscapeReason = stickyEscapeReason
 			req.PreserveStickyBinding = true
 		}
 	}
@@ -472,91 +543,112 @@ func (s *defaultOpenAIAccountScheduler) Select(
 func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
-) (*AccountSelectionResult, bool, error) {
+) (*AccountSelectionResult, string, error) {
 	sessionHash := strings.TrimSpace(req.SessionHash)
-	if sessionHash == "" || s == nil || s.service == nil || s.service.cache == nil {
-		return nil, false, nil
+	pinned := req.PinnedAccountID > 0
+	if s == nil || s.service == nil || (!pinned && (sessionHash == "" || s.service.cache == nil)) {
+		return nil, "", nil
 	}
 
-	accountID := req.StickyAccountID
+	accountID := req.PinnedAccountID
+	if accountID <= 0 {
+		accountID = req.StickyAccountID
+	}
 	if accountID <= 0 {
 		var err error
 		accountID, err = s.service.getStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		if err != nil || accountID <= 0 {
-			return nil, false, nil
+			return nil, "", nil
 		}
 	}
 	if accountID <= 0 {
-		return nil, false, nil
+		return nil, "", nil
 	}
 	if req.ExcludedIDs != nil {
 		if _, excluded := req.ExcludedIDs[accountID]; excluded {
-			return nil, false, nil
+			return nil, "", nil
 		}
 	}
 
 	account, err := s.service.getSchedulableAccount(ctx, accountID)
 	if err != nil || account == nil {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		if !pinned {
+			_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		}
+		return nil, "", nil
 	}
 	if shouldClearStickySession(account, req.RequestedModel) || account.Platform != normalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() || !account.IsSchedulable() {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		if !pinned {
+			_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		}
+		return nil, "", nil
 	}
 	if !s.isAccountRequestCompatible(ctx, account, req) {
-		return nil, false, nil
+		return nil, "", nil
 	}
 	if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		if !pinned {
+			_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		}
+		return nil, "", nil
 	}
 	account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
 	if account == nil || !s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		if !pinned {
+			_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		}
+		return nil, "", nil
 	}
 	// Free-tier soft gate: sticky session must not pin an over-quota free OAuth account.
 	// Admin QueryQuota / import probes do not use this path.
 	if account != nil && len(s.filterGrokFreeQuotaAccounts(ctx, []Account{*account})) == 0 {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		if !pinned {
+			_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		}
+		return nil, "", nil
 	}
 	// Team+model cool: sticky must not pin a sibling under the same team 429 window.
 	now := time.Now()
 	upstreamModel := canonicalOpenAIAccountSchedulingModel(account, req.RequestedModel)
 	if account != nil && isGrokTeamModelRateLimited(account, upstreamModel, now) {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		if !pinned {
+			_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		}
+		return nil, "", nil
 	}
 	if account != nil && isGrokModelQuotaBlocked(account.ID, upstreamModel, now) {
-		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		if !pinned {
+			_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		}
+		return nil, "", nil
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
-	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape {
+	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); !pinned && shouldEscape {
 		slog.Info("sticky_escape_triggered",
 			"account_id", accountID,
 			"reason", reason,
 			"error_rate", errorRate,
 			"ttft", ttft,
 		)
-		return nil, true, nil
+		req.observation.recordStickyEscape(accountID, reason)
+		return nil, reason, nil
 	}
 	result, acquireErr := s.service.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 	if acquireErr == nil && result != nil && result.Acquired {
-		_ = s.service.refreshStickySessionTTL(ctx, req.GroupID, sessionHash, s.service.openAIWSSessionStickyTTL())
+		if !pinned {
+			_ = s.service.refreshStickySessionTTL(ctx, req.GroupID, sessionHash, s.service.openAIWSSessionStickyTTL())
+		}
 		return attachSelectionProfitGate(ctx, &AccountSelectionResult{
 			Account:     account,
 			Acquired:    true,
 			ReleaseFunc: result.ReleaseFunc,
-		}), false, nil
+		}), "", nil
 	}
 
 	cfg := s.service.schedulingConfig()
 	// WaitPlan.MaxConcurrency 使用 Concurrency（非 EffectiveLoadFactor），因为 WaitPlan 控制的是 Redis 实际并发槽位等待。
 	if s.service.concurrencyService != nil {
-		if escapeCfg.enabled && acquireErr == nil && result != nil && !result.Acquired {
+		if !pinned && escapeCfg.enabled && acquireErr == nil && result != nil && !result.Acquired {
 			errorRate, ttft, _ := s.stats.snapshot(accountID)
 			slog.Info("sticky_escape_triggered",
 				"account_id", accountID,
@@ -564,7 +656,8 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 				"error_rate", errorRate,
 				"ttft", ttft,
 			)
-			return nil, true, nil
+			req.observation.recordStickyEscape(accountID, "concurrency_full")
+			return nil, "concurrency_full", nil
 		}
 		return attachSelectionProfitGate(ctx, &AccountSelectionResult{
 			Account: account,
@@ -574,9 +667,9 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 				Timeout:        cfg.StickySessionWaitTimeout,
 				MaxWaiting:     cfg.StickySessionMaxWaiting,
 			},
-		}), false, nil
+		}), "", nil
 	}
-	return nil, false, nil
+	return nil, "", nil
 }
 
 func openAIStickyAccountMatchesGroup(account *Account, groupID *int64) bool {
@@ -618,6 +711,9 @@ func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int6
 		return "", 0, 0, false
 	}
 	errorRate, ttft, hasTTFT := s.stats.snapshot(accountID)
+	if s.stats.consecutiveErrorCount(accountID) >= openAIStickyEscapeConsecutiveErrors {
+		return "consecutive_errors", errorRate, ttft, true
+	}
 	if hasTTFT && ttft > cfg.ttftMs {
 		return "ttft", errorRate, ttft, true
 	}
@@ -631,11 +727,91 @@ type openAIAccountCandidateScore struct {
 	account   *Account
 	loadInfo  *AccountLoadInfo
 	loadKnown bool
+	excluded  bool
+	baseScore float64
 	score     float64
 	priority  int
 	errorRate float64
 	ttft      float64
 	hasTTFT   bool
+}
+
+func (o *openAIAccountScheduleObservation) recordStickyEscape(accountID int64, reason string) {
+	if o == nil || strings.TrimSpace(reason) == "" {
+		return
+	}
+	if o.stickyEscapeReason == "" {
+		o.stickyEscapeReason = reason
+	}
+	if accountID > 0 {
+		if o.stickyEscapeAccountIDs == nil {
+			o.stickyEscapeAccountIDs = make(map[int64]struct{})
+		}
+		o.stickyEscapeAccountIDs[accountID] = struct{}{}
+	}
+	o.recordCandidateReason(accountID, reason)
+}
+
+func (o *openAIAccountScheduleObservation) isStickyEscapeAccount(accountID int64) bool {
+	if o == nil || accountID <= 0 {
+		return false
+	}
+	_, ok := o.stickyEscapeAccountIDs[accountID]
+	return ok
+}
+
+func (o *openAIAccountScheduleObservation) recordCandidateReason(accountID int64, reason string) {
+	if o == nil || accountID <= 0 || strings.TrimSpace(reason) == "" {
+		return
+	}
+	if o.candidateReasons == nil {
+		o.candidateReasons = make(map[int64]string)
+	}
+	o.candidateReasons[accountID] = reason
+}
+
+func (o *openAIAccountScheduleObservation) captureCandidates(candidates []openAIAccountCandidateScore) {
+	if o == nil || len(candidates) == 0 {
+		return
+	}
+	ranked := append([]openAIAccountCandidateScore(nil), candidates...)
+	sort.SliceStable(ranked, func(i, j int) bool {
+		return isOpenAIAccountCandidateBetter(ranked[i], ranked[j])
+	})
+	if len(ranked) > 12 {
+		ranked = ranked[:12]
+	}
+	o.candidates = make([]OpenAISchedulerObservabilityCandidate, 0, len(ranked))
+	for index, candidate := range ranked {
+		if candidate.account == nil {
+			continue
+		}
+		state := "eligible"
+		if candidate.excluded {
+			state = "excluded"
+		}
+		o.candidates = append(o.candidates, OpenAISchedulerObservabilityCandidate{
+			AccountID:   candidate.account.ID,
+			AccountName: candidate.account.Name,
+			Rank:        index + 1,
+			BaseScore:   candidate.baseScore,
+			StickyBonus: candidate.score - candidate.baseScore,
+			TotalScore:  candidate.score,
+			State:       state,
+			Reason:      o.candidateReasons[candidate.account.ID],
+		})
+	}
+}
+
+func openAIWeightedStickyWithinScoreGap(baseScore float64, bestBaseScore float64) bool {
+	if math.IsNaN(baseScore) || math.IsInf(baseScore, 0) || math.IsNaN(bestBaseScore) || math.IsInf(bestBaseScore, 0) {
+		return false
+	}
+	if baseScore >= bestBaseScore {
+		return true
+	}
+	scale := math.Max(math.Abs(bestBaseScore), 1)
+	return bestBaseScore-baseScore <= scale*openAIWeightedStickyMaxScoreGapRatio
 }
 
 type openAIAccountCandidateHeap []openAIAccountCandidateScore
@@ -851,6 +1027,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			account:   account,
 			loadInfo:  loadInfo,
 			loadKnown: loadKnown,
+			excluded:  req.observation.isStickyEscapeAccount(account.ID),
 			errorRate: errorRate,
 			ttft:      ttft,
 			hasTTFT:   hasTTFT,
@@ -961,6 +1138,30 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		}
 	}
 
+	if req.StickyWeighted {
+		escapeCfg := s.service.openAIStickyEscapeConfig()
+		for i := range candidates {
+			item := &candidates[i]
+			previousMatch := req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID
+			sessionMatch := req.StickyAccountID > 0 && item.account.ID == req.StickyAccountID
+			if item.excluded || (!previousMatch && !sessionMatch) {
+				continue
+			}
+			if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(item.account.ID, escapeCfg); shouldEscape {
+				slog.Info("sticky_escape_triggered",
+					"account_id", item.account.ID,
+					"reason", reason,
+					"error_rate", errorRate,
+					"ttft", ttft,
+					"weighted", true,
+				)
+				item.excluded = true
+				req.observation.recordStickyEscape(item.account.ID, reason)
+			}
+		}
+	}
+
+	bestBaseScore := -math.MaxFloat64
 	for i := range candidates {
 		item := &candidates[i]
 		priorityFactor := 1.0
@@ -994,7 +1195,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			upstreamCostFactor = factor
 		}
 
-		item.score = weights.Priority*priorityFactor +
+		item.baseScore = weights.Priority*priorityFactor +
 			weights.Load*loadFactor +
 			weights.Queue*queueFactor +
 			weights.ErrorRate*errorFactor +
@@ -1002,15 +1203,41 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			weights.Reset*resetFactor +
 			weights.QuotaHeadroom*quotaHeadroomFactor +
 			weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor)
-		if req.StickyWeighted {
-			if req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID {
+		item.score = item.baseScore
+		if !item.excluded && item.baseScore > bestBaseScore {
+			bestBaseScore = item.baseScore
+		}
+	}
+	if req.StickyWeighted {
+		for i := range candidates {
+			item := &candidates[i]
+			if item.excluded {
+				continue
+			}
+			previousMatch := req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID
+			sessionMatch := req.StickyAccountID > 0 && item.account.ID == req.StickyAccountID
+			if !previousMatch && !sessionMatch {
+				continue
+			}
+			if !openAIWeightedStickyWithinScoreGap(item.baseScore, bestBaseScore) {
+				slog.Debug("weighted_sticky_score_gap_exceeded",
+					"account_id", item.account.ID,
+					"base_score", item.baseScore,
+					"best_base_score", bestBaseScore,
+					"max_gap_ratio", openAIWeightedStickyMaxScoreGapRatio,
+				)
+				req.observation.recordCandidateReason(item.account.ID, "score_gap")
+				continue
+			}
+			if previousMatch {
 				item.score += weights.Previous
 			}
-			if req.StickyAccountID > 0 && item.account.ID == req.StickyAccountID {
+			if sessionMatch {
 				item.score += weights.SessionSticky
 			}
 		}
 	}
+	req.observation.captureCandidates(candidates)
 	plan.candidates = candidates
 
 	plan.topK = s.service.openAIWSLBTopKForRequest(ctx)
@@ -1029,7 +1256,17 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	req OpenAIAccountScheduleRequest,
 	plan openAIAccountLoadPlan,
 ) []openAIAccountCandidateScore {
+	selectableCandidates := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+		selectable := make([]openAIAccountCandidateScore, 0, len(pool))
+		for _, candidate := range pool {
+			if !candidate.excluded {
+				selectable = append(selectable, candidate)
+			}
+		}
+		return selectable
+	}
 	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+		pool = selectableCandidates(pool)
 		if len(pool) == 0 || plan.topK <= 0 {
 			return nil
 		}
@@ -1038,27 +1275,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 			groupTopK = len(pool)
 		}
 		ranked := selectTopKOpenAICandidates(pool, groupTopK)
-		var primary []openAIAccountCandidateScore
-		if req.StickyWeighted {
-			for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
-				if stickyID <= 0 {
-					continue
-				}
-				for i, candidate := range ranked {
-					if candidate.account != nil && candidate.account.ID == stickyID {
-						primary = append([]openAIAccountCandidateScore{candidate}, ranked[:i]...)
-						primary = append(primary, ranked[i+1:]...)
-						break
-					}
-				}
-				if len(primary) > 0 {
-					break
-				}
-			}
-		}
-		if len(primary) == 0 {
-			primary = buildOpenAIWeightedSelectionOrder(ranked, req)
-		}
+		primary := buildOpenAIWeightedSelectionOrder(ranked, req)
 		if !plan.includeOverflowFallback || groupTopK >= len(pool) {
 			return primary
 		}
@@ -1094,7 +1311,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		selectionOrder = append(selectionOrder, buildSelectionOrder(supported)...)
 		selectionOrder = append(selectionOrder, buildSelectionOrder(unknown)...)
 		if len(plan.staleSnapshotCompactRetry) > 0 && s.service.schedulerSnapshot != nil {
-			selectionOrder = append(selectionOrder, sortOpenAICompactRetryCandidates(plan.staleSnapshotCompactRetry)...)
+			selectionOrder = append(selectionOrder, sortOpenAICompactRetryCandidates(selectableCandidates(plan.staleSnapshotCompactRetry))...)
 		}
 		return selectionOrder
 	}
@@ -1247,6 +1464,7 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 	if !req.StickyWeighted {
 		return nil, nil
 	}
+	escapeCfg := s.service.openAIStickyEscapeConfig()
 	for _, accountID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
 		if accountID <= 0 {
 			continue
@@ -1255,6 +1473,17 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 			if _, excluded := req.ExcludedIDs[accountID]; excluded {
 				continue
 			}
+		}
+		if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape {
+			slog.Info("sticky_escape_triggered",
+				"account_id", accountID,
+				"reason", reason,
+				"error_rate", errorRate,
+				"ttft", ttft,
+				"weighted", true,
+				"fallback", true,
+			)
+			continue
 		}
 		account, err := s.service.getSchedulableAccount(ctx, accountID)
 		if err != nil || account == nil {
@@ -1309,6 +1538,18 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 			}), nil
 		}
 		if s.service.concurrencyService != nil {
+			if escapeCfg.enabled && result != nil && !result.Acquired {
+				errorRate, ttft, _ := s.stats.snapshot(accountID)
+				slog.Info("sticky_escape_triggered",
+					"account_id", accountID,
+					"reason", "concurrency_full",
+					"error_rate", errorRate,
+					"ttft", ttft,
+					"weighted", true,
+					"fallback", true,
+				)
+				continue
+			}
 			cfg := s.service.schedulingConfig()
 			return attachSelectionProfitGate(ctx, &AccountSelectionResult{
 				Account: account,
@@ -1853,14 +2094,17 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 	if cached, ok := openAIAdvancedSchedulerSettingCache.Load().(*cachedOpenAIAdvancedSchedulerSetting); ok && cached != nil {
 		if time.Now().UnixNano() < cached.expiresAt {
 			return openAIAdvancedSchedulerRuntimeSettings{
-				lowUpstreamRatePriorityEnabled: cached.lowUpstreamRatePriorityEnabled,
-				oauthSchedulingRateMultiplier:  cached.oauthSchedulingRateMultiplier,
-				enabled:                        cached.enabled,
-				stickyWeightedEnabled:          cached.stickyWeightedEnabled,
-				subscriptionPriorityEnabled:    cached.subscriptionPriorityEnabled,
-				lbTopKOverride:                 cached.lbTopKOverride,
-				weightOverrides:                cloneOpenAIAdvancedSchedulerWeightOverrides(cached.weightOverrides),
-				schedulerTemplates:             cached.schedulerTemplates,
+				lowUpstreamRatePriorityEnabled:      cached.lowUpstreamRatePriorityEnabled,
+				oauthSchedulingRateMultiplier:       cached.oauthSchedulingRateMultiplier,
+				enabled:                             cached.enabled,
+				stickyWeightedEnabled:               cached.stickyWeightedEnabled,
+				subscriptionPriorityEnabled:         cached.subscriptionPriorityEnabled,
+				schedulerObservabilityEnabled:       cached.schedulerObservabilityEnabled,
+				schedulerObservabilityMaxTraces:     cached.schedulerObservabilityMaxTraces,
+				schedulerObservabilityRetentionDays: cached.schedulerObservabilityRetentionDays,
+				lbTopKOverride:                      cached.lbTopKOverride,
+				weightOverrides:                     cloneOpenAIAdvancedSchedulerWeightOverrides(cached.weightOverrides),
+				schedulerTemplates:                  cached.schedulerTemplates,
 			}
 		}
 	}
@@ -1869,14 +2113,17 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 		if cached, ok := openAIAdvancedSchedulerSettingCache.Load().(*cachedOpenAIAdvancedSchedulerSetting); ok && cached != nil {
 			if time.Now().UnixNano() < cached.expiresAt {
 				return openAIAdvancedSchedulerRuntimeSettings{
-					lowUpstreamRatePriorityEnabled: cached.lowUpstreamRatePriorityEnabled,
-					oauthSchedulingRateMultiplier:  cached.oauthSchedulingRateMultiplier,
-					enabled:                        cached.enabled,
-					stickyWeightedEnabled:          cached.stickyWeightedEnabled,
-					subscriptionPriorityEnabled:    cached.subscriptionPriorityEnabled,
-					lbTopKOverride:                 cached.lbTopKOverride,
-					weightOverrides:                cloneOpenAIAdvancedSchedulerWeightOverrides(cached.weightOverrides),
-					schedulerTemplates:             cached.schedulerTemplates,
+					lowUpstreamRatePriorityEnabled:      cached.lowUpstreamRatePriorityEnabled,
+					oauthSchedulingRateMultiplier:       cached.oauthSchedulingRateMultiplier,
+					enabled:                             cached.enabled,
+					stickyWeightedEnabled:               cached.stickyWeightedEnabled,
+					subscriptionPriorityEnabled:         cached.subscriptionPriorityEnabled,
+					schedulerObservabilityEnabled:       cached.schedulerObservabilityEnabled,
+					schedulerObservabilityMaxTraces:     cached.schedulerObservabilityMaxTraces,
+					schedulerObservabilityRetentionDays: cached.schedulerObservabilityRetentionDays,
+					lbTopKOverride:                      cached.lbTopKOverride,
+					weightOverrides:                     cloneOpenAIAdvancedSchedulerWeightOverrides(cached.weightOverrides),
+					schedulerTemplates:                  cached.schedulerTemplates,
 				}, nil
 			}
 		}
@@ -1886,6 +2133,9 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 		enabled := false
 		stickyWeightedEnabled := false
 		subscriptionPriorityEnabled := false
+		schedulerObservabilityEnabled := true
+		schedulerObservabilityMaxTraces := DefaultOpenAISchedulerObservabilityMaxTraces
+		schedulerObservabilityRetentionDays := DefaultOpenAISchedulerObservabilityRetentionDays
 		lbTopKOverride := 0
 		weightOverrides := map[string]float64{}
 		schedulerTemplates := DefaultOpenAISchedulerTemplates()
@@ -1899,6 +2149,9 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 				enabled = strings.EqualFold(strings.TrimSpace(values[openAIAdvancedSchedulerSettingKey]), "true")
 				stickyWeightedEnabled = strings.EqualFold(strings.TrimSpace(values[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled]), "true")
 				subscriptionPriorityEnabled = strings.EqualFold(strings.TrimSpace(values[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled]), "true")
+				schedulerObservabilityEnabled = !isFalseSettingValue(values[SettingKeyOpenAISchedulerObservabilityEnabled])
+				schedulerObservabilityMaxTraces = parseOpenAISchedulerObservabilityMaxTraces(values[SettingKeyOpenAISchedulerObservabilityMaxTraces])
+				schedulerObservabilityRetentionDays = parseOpenAISchedulerObservabilityRetentionDays(values[SettingKeyOpenAISchedulerObservabilityRetentionDays])
 				lbTopKOverride = parsePositiveIntOverride(values[SettingKeyOpenAIAdvancedSchedulerLBTopK])
 				weightOverrides = parseOpenAIAdvancedSchedulerWeightOverrides(values)
 				schedulerTemplates = ParseOpenAISchedulerTemplates(values[SettingKeyOpenAISchedulerTemplates])
@@ -1917,6 +2170,9 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 				enabled = strings.EqualFold(strings.TrimSpace(fallbackValues[openAIAdvancedSchedulerSettingKey]), "true")
 				stickyWeightedEnabled = strings.EqualFold(strings.TrimSpace(fallbackValues[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled]), "true")
 				subscriptionPriorityEnabled = strings.EqualFold(strings.TrimSpace(fallbackValues[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled]), "true")
+				schedulerObservabilityEnabled = !isFalseSettingValue(fallbackValues[SettingKeyOpenAISchedulerObservabilityEnabled])
+				schedulerObservabilityMaxTraces = parseOpenAISchedulerObservabilityMaxTraces(fallbackValues[SettingKeyOpenAISchedulerObservabilityMaxTraces])
+				schedulerObservabilityRetentionDays = parseOpenAISchedulerObservabilityRetentionDays(fallbackValues[SettingKeyOpenAISchedulerObservabilityRetentionDays])
 				lbTopKOverride = parsePositiveIntOverride(fallbackValues[SettingKeyOpenAIAdvancedSchedulerLBTopK])
 				weightOverrides = parseOpenAIAdvancedSchedulerWeightOverrides(fallbackValues)
 				schedulerTemplates = ParseOpenAISchedulerTemplates(fallbackValues[SettingKeyOpenAISchedulerTemplates])
@@ -1924,25 +2180,31 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 		}
 
 		openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
-			lowUpstreamRatePriorityEnabled: lowUpstreamRatePriorityEnabled,
-			oauthSchedulingRateMultiplier:  oauthSchedulingRateMultiplier,
-			enabled:                        enabled,
-			stickyWeightedEnabled:          stickyWeightedEnabled,
-			subscriptionPriorityEnabled:    subscriptionPriorityEnabled,
-			lbTopKOverride:                 lbTopKOverride,
-			weightOverrides:                cloneOpenAIAdvancedSchedulerWeightOverrides(weightOverrides),
-			schedulerTemplates:             schedulerTemplates,
-			expiresAt:                      time.Now().Add(openAIAdvancedSchedulerSettingCacheTTL).UnixNano(),
+			lowUpstreamRatePriorityEnabled:      lowUpstreamRatePriorityEnabled,
+			oauthSchedulingRateMultiplier:       oauthSchedulingRateMultiplier,
+			enabled:                             enabled,
+			stickyWeightedEnabled:               stickyWeightedEnabled,
+			subscriptionPriorityEnabled:         subscriptionPriorityEnabled,
+			schedulerObservabilityEnabled:       schedulerObservabilityEnabled,
+			schedulerObservabilityMaxTraces:     schedulerObservabilityMaxTraces,
+			schedulerObservabilityRetentionDays: schedulerObservabilityRetentionDays,
+			lbTopKOverride:                      lbTopKOverride,
+			weightOverrides:                     cloneOpenAIAdvancedSchedulerWeightOverrides(weightOverrides),
+			schedulerTemplates:                  schedulerTemplates,
+			expiresAt:                           time.Now().Add(openAIAdvancedSchedulerSettingCacheTTL).UnixNano(),
 		})
 		return openAIAdvancedSchedulerRuntimeSettings{
-			lowUpstreamRatePriorityEnabled: lowUpstreamRatePriorityEnabled,
-			oauthSchedulingRateMultiplier:  oauthSchedulingRateMultiplier,
-			enabled:                        enabled,
-			stickyWeightedEnabled:          stickyWeightedEnabled,
-			subscriptionPriorityEnabled:    subscriptionPriorityEnabled,
-			lbTopKOverride:                 lbTopKOverride,
-			weightOverrides:                weightOverrides,
-			schedulerTemplates:             schedulerTemplates,
+			lowUpstreamRatePriorityEnabled:      lowUpstreamRatePriorityEnabled,
+			oauthSchedulingRateMultiplier:       oauthSchedulingRateMultiplier,
+			enabled:                             enabled,
+			stickyWeightedEnabled:               stickyWeightedEnabled,
+			subscriptionPriorityEnabled:         subscriptionPriorityEnabled,
+			schedulerObservabilityEnabled:       schedulerObservabilityEnabled,
+			schedulerObservabilityMaxTraces:     schedulerObservabilityMaxTraces,
+			schedulerObservabilityRetentionDays: schedulerObservabilityRetentionDays,
+			lbTopKOverride:                      lbTopKOverride,
+			weightOverrides:                     weightOverrides,
+			schedulerTemplates:                  schedulerTemplates,
 		}, nil
 	})
 
@@ -2078,6 +2340,9 @@ func openAIAdvancedSchedulerRuntimeSettingKeys() []string {
 		openAIAdvancedSchedulerSettingKey,
 		SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled,
 		SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled,
+		SettingKeyOpenAISchedulerObservabilityEnabled,
+		SettingKeyOpenAISchedulerObservabilityMaxTraces,
+		SettingKeyOpenAISchedulerObservabilityRetentionDays,
 		SettingKeyOpenAIAdvancedSchedulerLBTopK,
 		SettingKeyOpenAISchedulerTemplates,
 	}
@@ -2204,6 +2469,30 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForCapability(
 		platform = platformOverride[0]
 	}
 	return s.selectAccountWithScheduler(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, "", requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+}
+
+// SelectPinnedAccountWithSchedulerForCapability revalidates and reacquires the
+// exact account requested by a pool-mode same-account retry. It deliberately
+// bypasses weighted competition; falling back to another account is the outer
+// failover loop's responsibility after the retry budget is exhausted.
+func (s *OpenAIGatewayService) SelectPinnedAccountWithSchedulerForCapability(
+	ctx context.Context,
+	accountID int64,
+	groupID *int64,
+	previousResponseID string,
+	sessionHash string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requiredTransport OpenAIUpstreamTransport,
+	requiredCapability OpenAIEndpointCapability,
+	requireCompact bool,
+	previousResponseCanMove bool,
+	useUpstreamTokenCost bool,
+	platformOverride ...string,
+) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	ctx = context.WithValue(ctx, openAIPinnedRetryAccountContextKey{}, accountID)
+	return s.SelectAccountWithSchedulerForCapability(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs,
+		requiredTransport, requiredCapability, requireCompact, previousResponseCanMove, useUpstreamTokenCost, platformOverride...)
 }
 
 func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
@@ -2369,6 +2658,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		}
 	}
 	stickyWeighted := s.isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx)
+	pinnedAccountID, _ := ctx.Value(openAIPinnedRetryAccountContextKey{}).(int64)
 	subscriptionPriority := s.isOpenAIAdvancedSchedulerSubscriptionPriorityEnabled(ctx)
 	stickyPreviousAccountID := int64(0)
 	if stickyWeighted && previousResponseCanMove && strings.TrimSpace(previousResponseID) != "" && platform == PlatformOpenAI {
@@ -2381,6 +2671,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		SessionHash:             sessionHash,
 		StickyAccountID:         stickyAccountID,
 		StickyPreviousAccountID: stickyPreviousAccountID,
+		PinnedAccountID:         pinnedAccountID,
 		StickyWeighted:          stickyWeighted,
 		SubscriptionPriority:    subscriptionPriority,
 		PreviousResponseID:      previousResponseID,
@@ -2801,8 +3092,9 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 		}
 	}
 
-	result := make(map[int64]OpenAIAccountSchedulerScoreSnapshot, len(candidates))
-	for _, candidate := range candidates {
+	bestBaseScore := -math.MaxFloat64
+	for i := range candidates {
+		candidate := &candidates[i]
 		priorityFactor := 1.0
 		if maxPriority > minPriority {
 			priorityFactor = 1 - float64(candidate.priority-minPriority)/float64(maxPriority-minPriority)
@@ -2829,7 +3121,7 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 		if factor, ok := upstreamCostFactors[candidate.account.ID]; ok {
 			upstreamCostFactor = factor
 		}
-		baseScore := weights.Priority*priorityFactor +
+		candidate.baseScore = weights.Priority*priorityFactor +
 			weights.Load*loadFactor +
 			weights.Queue*queueFactor +
 			weights.ErrorRate*errorFactor +
@@ -2837,13 +3129,23 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 			weights.Reset*resetFactor +
 			weights.QuotaHeadroom*quotaHeadroomFactor +
 			weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor)
+		if candidate.baseScore > bestBaseScore {
+			bestBaseScore = candidate.baseScore
+		}
+	}
+
+	result := make(map[int64]OpenAIAccountSchedulerScoreSnapshot, len(candidates))
+	for _, candidate := range candidates {
 		score := OpenAIAccountSchedulerScoreSnapshot{
-			BaseScore:             baseScore,
+			BaseScore:             candidate.baseScore,
 			StickyWeightedEnabled: stickyWeightedEnabled,
 			StickyScoreInfinity:   !stickyWeightedEnabled,
 		}
 		if stickyWeightedEnabled {
-			score.StickyScore = baseScore + weights.Previous + weights.SessionSticky
+			score.StickyScore = candidate.baseScore
+			if openAIWeightedStickyWithinScoreGap(candidate.baseScore, bestBaseScore) {
+				score.StickyScore += weights.Previous + weights.SessionSticky
+			}
 		}
 		result[candidate.account.ID] = score
 	}

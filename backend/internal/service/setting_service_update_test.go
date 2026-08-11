@@ -425,6 +425,9 @@ func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler
 		OpenAIAdvancedSchedulerWeightUpstreamCost:          "1.5",
 		OpenAIAdvancedSchedulerWeightPreviousResponse:      "8",
 		OpenAIAdvancedSchedulerWeightSessionSticky:         "4",
+		OpenAISchedulerObservabilityEnabled:                true,
+		OpenAISchedulerObservabilityMaxTraces:              1500,
+		OpenAISchedulerObservabilityRetentionDays:          14,
 	})
 	require.NoError(t, err)
 	require.Equal(t, VisibleMethodSourceOfficialAlipay, repo.updates[SettingPaymentVisibleMethodAlipaySource])
@@ -447,6 +450,27 @@ func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler
 	require.Equal(t, "1.5", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightUpstreamCost])
 	require.Equal(t, "8", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse])
 	require.Equal(t, "4", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky])
+	require.Equal(t, "true", repo.updates[SettingKeyOpenAISchedulerObservabilityEnabled])
+	require.Equal(t, "1500", repo.updates[SettingKeyOpenAISchedulerObservabilityMaxTraces])
+	require.Equal(t, "14", repo.updates[SettingKeyOpenAISchedulerObservabilityRetentionDays])
+}
+
+func TestSettingService_UpdateSettingsRejectsInvalidSchedulerObservabilityRetention(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	for _, maxTraces := range []int{99, MaxOpenAISchedulerObservabilityMaxTraces + 1} {
+		err := svc.UpdateSettings(context.Background(), &SystemSettings{
+			OpenAISchedulerObservabilityMaxTraces: maxTraces,
+		})
+		require.Error(t, err)
+	}
+	for _, days := range []int{-1, MaxOpenAISchedulerObservabilityRetentionDays + 1} {
+		err := svc.UpdateSettings(context.Background(), &SystemSettings{
+			OpenAISchedulerObservabilityRetentionDays: days,
+		})
+		require.Error(t, err)
+	}
 }
 
 func TestSettingService_UpdateSettingsRejectsInvalidOpenAIOAuthSchedulingRateMultiplier(t *testing.T) {
@@ -515,7 +539,11 @@ func TestSettingService_UpdateSettings_OpenAIAdvancedSchedulerWeightSums(t *test
 func TestSettingService_ParseSettingsDefaultsOpenAIOAuthSchedulingRateMultiplier(t *testing.T) {
 	svc := NewSettingService(&settingUpdateRepoStub{}, &config.Config{})
 
-	require.Equal(t, 1.0, svc.parseSettings(map[string]string{}).OpenAIOAuthSchedulingRateMultiplier)
+	defaults := svc.parseSettings(map[string]string{})
+	require.Equal(t, 1.0, defaults.OpenAIOAuthSchedulingRateMultiplier)
+	require.True(t, defaults.OpenAISchedulerObservabilityEnabled)
+	require.Equal(t, 1000, defaults.OpenAISchedulerObservabilityMaxTraces)
+	require.Equal(t, 7, defaults.OpenAISchedulerObservabilityRetentionDays)
 	require.Equal(t, 0.05, svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: "0.05"}).OpenAIOAuthSchedulingRateMultiplier)
 }
 
@@ -571,6 +599,9 @@ func TestSettingService_InitializeDefaultSettingsPersistsConfiguredForwardedClie
 
 	require.NoError(t, svc.InitializeDefaultSettings(context.Background()))
 	require.JSONEq(t, `["X-Cdn-Ip","True-Client-Ip"]`, repo.values[SettingKeyForwardedClientIPHeaders])
+	require.Equal(t, "true", repo.values[SettingKeyOpenAISchedulerObservabilityEnabled])
+	require.Equal(t, "1000", repo.values[SettingKeyOpenAISchedulerObservabilityMaxTraces])
+	require.Equal(t, "7", repo.values[SettingKeyOpenAISchedulerObservabilityRetentionDays])
 }
 
 func TestSettingService_UpdateSettings_APIKeyACLTrustForwardedIPRefreshesConfig(t *testing.T) {

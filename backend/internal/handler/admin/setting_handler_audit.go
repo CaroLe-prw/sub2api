@@ -549,6 +549,15 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAIAdvancedSchedulerWeightSessionSticky != after.OpenAIAdvancedSchedulerWeightSessionSticky {
 		changed = append(changed, "openai_advanced_scheduler_weight_session_sticky")
 	}
+	if before.OpenAISchedulerObservabilityEnabled != after.OpenAISchedulerObservabilityEnabled {
+		changed = append(changed, service.SettingKeyOpenAISchedulerObservabilityEnabled)
+	}
+	if before.OpenAISchedulerObservabilityMaxTraces != after.OpenAISchedulerObservabilityMaxTraces {
+		changed = append(changed, service.SettingKeyOpenAISchedulerObservabilityMaxTraces)
+	}
+	if before.OpenAISchedulerObservabilityRetentionDays != after.OpenAISchedulerObservabilityRetentionDays {
+		changed = append(changed, service.SettingKeyOpenAISchedulerObservabilityRetentionDays)
+	}
 	if !reflect.DeepEqual(before.OpenAISchedulerTemplates, after.OpenAISchedulerTemplates) {
 		changed = append(changed, service.SettingKeyOpenAISchedulerTemplates)
 	}

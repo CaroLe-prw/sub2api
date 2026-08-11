@@ -426,6 +426,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/scheduler-observability',
+    name: 'AdminSchedulerObservability',
+    component: () => import('@/views/admin/SchedulerObservabilityView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Scheduler Observability',
+      titleKey: 'admin.schedulerObservability.title',
+      descriptionKey: 'admin.schedulerObservability.description'
+    }
+  },
+  {
     path: '/admin/audit-logs',
     name: 'AdminAuditLogs',
     component: () => import('@/views/admin/AuditLogView.vue'),

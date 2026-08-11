@@ -288,6 +288,9 @@ type UpdateSettingsRequest struct {
 	OpenAIAdvancedSchedulerWeightUpstreamCost          *string                           `json:"openai_advanced_scheduler_weight_upstream_cost"`
 	OpenAIAdvancedSchedulerWeightPreviousResponse      *string                           `json:"openai_advanced_scheduler_weight_previous_response"`
 	OpenAIAdvancedSchedulerWeightSessionSticky         *string                           `json:"openai_advanced_scheduler_weight_session_sticky"`
+	OpenAISchedulerObservabilityEnabled                *bool                             `json:"openai_scheduler_observability_enabled"`
+	OpenAISchedulerObservabilityMaxTraces              *int                              `json:"openai_scheduler_observability_max_traces"`
+	OpenAISchedulerObservabilityRetentionDays          *int                              `json:"openai_scheduler_observability_retention_days"`
 	OpenAISchedulerTemplates                           *service.OpenAISchedulerTemplates `json:"openai_scheduler_templates"`
 
 	// 余额不足提醒
@@ -1819,6 +1822,24 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled
 		}(),
+		OpenAISchedulerObservabilityEnabled: func() bool {
+			if req.OpenAISchedulerObservabilityEnabled != nil {
+				return *req.OpenAISchedulerObservabilityEnabled
+			}
+			return previousSettings.OpenAISchedulerObservabilityEnabled
+		}(),
+		OpenAISchedulerObservabilityMaxTraces: func() int {
+			if req.OpenAISchedulerObservabilityMaxTraces != nil {
+				return *req.OpenAISchedulerObservabilityMaxTraces
+			}
+			return previousSettings.OpenAISchedulerObservabilityMaxTraces
+		}(),
+		OpenAISchedulerObservabilityRetentionDays: func() int {
+			if req.OpenAISchedulerObservabilityRetentionDays != nil {
+				return *req.OpenAISchedulerObservabilityRetentionDays
+			}
+			return previousSettings.OpenAISchedulerObservabilityRetentionDays
+		}(),
 		OpenAIAdvancedSchedulerLBTopK:                 stringSetting(req.OpenAIAdvancedSchedulerLBTopK, previousSettings.OpenAIAdvancedSchedulerLBTopK),
 		OpenAIAdvancedSchedulerWeightPriority:         stringSetting(req.OpenAIAdvancedSchedulerWeightPriority, previousSettings.OpenAIAdvancedSchedulerWeightPriority),
 		OpenAIAdvancedSchedulerWeightLoad:             stringSetting(req.OpenAIAdvancedSchedulerWeightLoad, previousSettings.OpenAIAdvancedSchedulerWeightLoad),
@@ -2315,6 +2336,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost:     updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost,
 		OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse: updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse,
 		OpenAIAdvancedSchedulerEffectiveWeightSessionSticky:    updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky,
+		OpenAISchedulerObservabilityEnabled:                    updatedSettings.OpenAISchedulerObservabilityEnabled,
+		OpenAISchedulerObservabilityMaxTraces:                  updatedSettings.OpenAISchedulerObservabilityMaxTraces,
+		OpenAISchedulerObservabilityRetentionDays:              updatedSettings.OpenAISchedulerObservabilityRetentionDays,
 		OpenAISchedulerTemplates:                               updatedSettings.OpenAISchedulerTemplates,
 		BalanceLowNotifyEnabled:                                updatedSettings.BalanceLowNotifyEnabled,
 		BalanceLowNotifyThreshold:                              updatedSettings.BalanceLowNotifyThreshold,

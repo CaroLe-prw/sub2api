@@ -4960,6 +4960,75 @@
                 </div>
               </div>
 
+              <div class="flex items-center justify-between border-t border-gray-100 pt-5 dark:border-dark-700">
+                <div>
+                  <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t("admin.settings.schedulerObservability.enabledTitle") }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.schedulerObservability.enabledDescription") }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.openai_scheduler_observability_enabled"
+                  data-testid="openai-scheduler-observability-toggle"
+                />
+              </div>
+
+              <div
+                v-if="form.openai_scheduler_observability_enabled"
+                class="flex flex-col items-stretch gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6 dark:border-dark-700"
+              >
+                <div class="min-w-0">
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                    for="openai-scheduler-observability-max-traces"
+                  >
+                    {{ t("admin.settings.schedulerObservability.retentionTitle") }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.schedulerObservability.retentionDescription") }}
+                  </p>
+                </div>
+                <input
+                  id="openai-scheduler-observability-max-traces"
+                  v-model.number="form.openai_scheduler_observability_max_traces"
+                  class="input w-full shrink-0 sm:w-32"
+                  data-testid="openai-scheduler-observability-max-traces"
+                  min="100"
+                  max="10000"
+                  step="100"
+                  type="number"
+                />
+              </div>
+
+              <div
+                v-if="form.openai_scheduler_observability_enabled"
+                class="flex flex-col items-stretch gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6 dark:border-dark-700"
+              >
+                <div class="min-w-0">
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                    for="openai-scheduler-observability-retention-days"
+                  >
+                    {{ t("admin.settings.schedulerObservability.databaseRetentionTitle") }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.schedulerObservability.databaseRetentionDescription") }}
+                  </p>
+                </div>
+                <input
+                  id="openai-scheduler-observability-retention-days"
+                  v-model.number="form.openai_scheduler_observability_retention_days"
+                  class="input w-full shrink-0 sm:w-32"
+                  data-testid="openai-scheduler-observability-retention-days"
+                  min="1"
+                  max="30"
+                  step="1"
+                  type="number"
+                />
+              </div>
+
               <div
                 v-if="!form.openai_advanced_scheduler_enabled"
                 class="flex items-center justify-between border-t border-gray-100 pt-5 dark:border-dark-700"
@@ -9422,6 +9491,9 @@ type SettingsForm = Omit<
   openai_advanced_scheduler_weight_upstream_cost: string;
   openai_advanced_scheduler_weight_previous_response: string;
   openai_advanced_scheduler_weight_session_sticky: string;
+  openai_scheduler_observability_enabled: boolean;
+  openai_scheduler_observability_max_traces: number;
+  openai_scheduler_observability_retention_days: number;
   openai_scheduler_templates: OpenAISchedulerTemplates;
   // 系统全局平台限额 map；form 内始终归一化为全 4 平台对象（模板非空绑定依赖此不变量）
   default_platform_quotas: DefaultPlatformQuotasMap;
@@ -9665,6 +9737,9 @@ const form = reactive<SettingsForm>({
   openai_advanced_scheduler_weight_upstream_cost: "",
   openai_advanced_scheduler_weight_previous_response: "",
   openai_advanced_scheduler_weight_session_sticky: "",
+  openai_scheduler_observability_enabled: true,
+  openai_scheduler_observability_max_traces: 1000,
+  openai_scheduler_observability_retention_days: 7,
   openai_scheduler_templates: createDefaultOpenAISchedulerTemplates(),
   // Gateway forwarding behavior
   enable_fingerprint_unification: true,
@@ -11338,6 +11413,12 @@ async function saveSettings() {
         form.openai_advanced_scheduler_weight_previous_response.trim(),
       openai_advanced_scheduler_weight_session_sticky:
         form.openai_advanced_scheduler_weight_session_sticky.trim(),
+      openai_scheduler_observability_enabled:
+        form.openai_scheduler_observability_enabled,
+      openai_scheduler_observability_max_traces:
+        Number(form.openai_scheduler_observability_max_traces) || 1000,
+      openai_scheduler_observability_retention_days:
+        Number(form.openai_scheduler_observability_retention_days) || 7,
       openai_scheduler_templates: form.openai_scheduler_templates,
       // 余额、订阅到期与账号限额通知
       balance_low_notify_enabled: form.balance_low_notify_enabled,

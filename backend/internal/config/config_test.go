@@ -365,13 +365,13 @@ func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	}
 }
 
-func TestLoadDefaultOpenAIFirstOutputTimeoutsDisabled(t *testing.T) {
+func TestLoadDefaultOpenAIFirstOutputTimeoutsEnabled(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
-	require.Zero(t, cfg.Gateway.OpenAIFirstOutputTimeoutSeconds)
-	require.Zero(t, cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds)
+	require.Equal(t, 15, cfg.Gateway.OpenAIFirstOutputTimeoutSeconds)
+	require.Equal(t, 30, cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds)
 }
 
 func TestLoadOpenAIFirstOutputTimeoutsFromEnv(t *testing.T) {
@@ -389,7 +389,7 @@ func TestValidateOpenAIFirstOutputTimeoutMinimum(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	cfg, err := Load()
 	require.NoError(t, err)
-	cfg.Gateway.OpenAIFirstOutputTimeoutSeconds = 30
+	cfg.Gateway.OpenAIFirstOutputTimeoutSeconds = 5
 	require.NoError(t, cfg.Validate())
 }
 
@@ -1774,13 +1774,28 @@ func TestValidateConfigErrors(t *testing.T) {
 		},
 		{
 			name:    "gateway openai first output timeout below minimum",
-			mutate:  func(c *Config) { c.Gateway.OpenAIFirstOutputTimeoutSeconds = 29 },
+			mutate:  func(c *Config) { c.Gateway.OpenAIFirstOutputTimeoutSeconds = 4 },
 			wantErr: "gateway.openai_first_output_timeout_seconds",
 		},
 		{
 			name:    "gateway openai high effort first output timeout too large",
 			mutate:  func(c *Config) { c.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds = 1801 },
 			wantErr: "gateway.openai_high_effort_first_output_timeout_seconds",
+		},
+		{
+			name: "gateway openai failover soft budget must precede hard budget",
+			mutate: func(c *Config) {
+				c.Gateway.OpenAIFailover.SoftBudgetSeconds = 75
+				c.Gateway.OpenAIFailover.HardBudgetSeconds = 75
+			},
+			wantErr: "gateway.openai_failover.soft_budget_seconds",
+		},
+		{
+			name: "gateway openai failover first output switch limit",
+			mutate: func(c *Config) {
+				c.Gateway.OpenAIFailover.MaxFirstOutputSwitches = 11
+			},
+			wantErr: "gateway.openai_failover.max_first_output_switches",
 		},
 		{
 			name:    "gateway max idle conns",

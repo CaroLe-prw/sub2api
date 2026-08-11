@@ -314,6 +314,28 @@ func (s *OpenAIGatewayService) openAIWSReadTimeout() time.Duration {
 	return 15 * time.Minute
 }
 
+func (s *OpenAIGatewayService) openAIWSFirstOutputTimeout() time.Duration {
+	if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.FirstOutputTimeoutSeconds > 0 {
+		return time.Duration(s.cfg.Gateway.OpenAIWS.FirstOutputTimeoutSeconds) * time.Second
+	}
+	return 45 * time.Second
+}
+
+func (s *OpenAIGatewayService) openAIWSActiveReadTimeout(start time.Time, firstTokenMs *int) time.Duration {
+	readTimeout := s.openAIWSReadTimeout()
+	if firstTokenMs != nil {
+		return readTimeout
+	}
+	remaining := time.Until(start.Add(s.openAIWSFirstOutputTimeout()))
+	if remaining <= 0 {
+		return time.Millisecond
+	}
+	if readTimeout <= 0 || remaining < readTimeout {
+		return remaining
+	}
+	return readTimeout
+}
+
 func (s *OpenAIGatewayService) openAIWSPassthroughIdleTimeout() time.Duration {
 	if timeout := s.openAIWSReadTimeout(); timeout > 0 {
 		return timeout

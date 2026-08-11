@@ -1290,9 +1290,19 @@ export default {
         previousResponseWeight: 'previous_response 粘性',
         sessionStickyWeight: 'session_hash 粘性'
       },
+      schedulerObservability: {
+        enabledTitle: '调度观测',
+        enabledDescription: '记录 OpenAI 调度轨迹用于分析选号、粘性、切号和缓存命中。完整实时轨迹保存在内存，分钟指标和切号/最终失败明细异步写入数据库。关闭后停止采集并清空内存轨迹。',
+        retentionTitle: '内存最多保留条数',
+        retentionDescription: '当前节点完整实时轨迹的上限，范围 100–10,000 条；默认 1,000 条。',
+        databaseRetentionTitle: '数据库保留天数',
+        databaseRetentionDescription: '保留分钟聚合指标，以及发生切号或最终失败的异常明细。范围 1–30 天；默认 7 天。'
+      },
       openaiSchedulerTemplates: {
         title: '分组调度预设模板',
         description: '编辑分组选择 SLA、均衡或成本优先时使用的系统模板；分组自定义策略不受影响。',
+        resetDefaults: '恢复推荐默认值',
+        resetDefaultsHint: '回填当前三套推荐模板；点击页面保存设置后生效。',
         profiles: {
           sla: 'SLA 优先',
           balanced: '均衡',

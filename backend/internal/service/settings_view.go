@@ -284,6 +284,9 @@ type SystemSettings struct {
 	OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost     string
 	OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse string
 	OpenAIAdvancedSchedulerEffectiveWeightSessionSticky    string
+	OpenAISchedulerObservabilityEnabled                    bool
+	OpenAISchedulerObservabilityMaxTraces                  int
+	OpenAISchedulerObservabilityRetentionDays              int
 	OpenAISchedulerTemplates                               OpenAISchedulerTemplates
 
 	// 余额不足提醒
