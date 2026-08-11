@@ -23,7 +23,7 @@ var (
 	openAIResponsesRejectedArgumentsParamPattern = regexp.MustCompile(`(?i)^input\[(\d+)\]\.arguments$`)
 	openAIResponsesRejectedIDParamPattern        = regexp.MustCompile(`(?i)^input\[(\d+)\]\.id$`)
 	openAIResponsesRejectedIndexedParamPattern   = regexp.MustCompile(`(?i)^input\[(\d+)\]\.([a-z][a-z0-9_]*)$`)
-	openAIResponsesRejectedMessageParamPattern   = regexp.MustCompile(`(?i)(?:(?:unknown|unsupported)[ _-]+parameter|missing required parameter|invalid)\s*(?::|=|is)?\s*["']?(max_output_tokens|input\[\d+\]\.[a-z][a-z0-9_]*)(?:["']|\.(?:\s|$)|[,:;](?:\s|$)|\s|$)`)
+	openAIResponsesRejectedMessageParamPattern   = regexp.MustCompile(`(?i)(?:(?:unknown|unsupported)[ _-]+parameter|missing required parameter|invalid)\s*(?::|=|is)?\s*["']?(context_management(?:\[\d+\](?:\.[a-z][a-z0-9_]*)?)?|max_output_tokens|input\[\d+\]\.[a-z][a-z0-9_]*)(?:["']|\.(?:\s|$)|[,:;](?:\s|$)|\s|$)`)
 )
 
 type openAIResponsesRejectedFieldRetryState struct {
@@ -95,6 +95,14 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 			return nil, "", false, fmt.Errorf("delete rejected max_output_tokens: %w", err)
 		}
 		return retryBody, "max_output_tokens parameter rejection", true, nil
+	}
+	if (param == "context_management" || strings.HasPrefix(param, "context_management[")) &&
+		gjson.GetBytes(body, "context_management").Exists() {
+		retryBody, err := sjson.DeleteBytes(body, "context_management")
+		if err != nil {
+			return nil, "", false, fmt.Errorf("delete rejected context_management: %w", err)
+		}
+		return retryBody, "context_management parameter rejection", true, nil
 	}
 	if index, field, ok := openAIResponsesRejectedIndexedParam(param); ok &&
 		isExplicitOpenAIResponsesUnknownParameter(code, message) {

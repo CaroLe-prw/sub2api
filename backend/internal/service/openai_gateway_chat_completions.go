@@ -678,7 +678,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponseWithReasoning(
 		}
 		observer.ObserveOpenAI([]byte(payload), event.Type)
 		refusalDetector.ObservePayload([]byte(payload))
-		startsClientOutput := openAIStreamDataStartsClientOutput(payload, event.Type)
+		startsClientOutput := openAIStreamDataStartsClientOutput(payload, event.Type, c)
 		if startsClientOutput && firstTokenMs == nil {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms

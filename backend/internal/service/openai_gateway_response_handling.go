@@ -483,12 +483,17 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						streamEarlyErr = fmt.Errorf("upstream response failed: passthrough rule matched message=%s", errMsg)
 						return
 					}
-					if openAIStreamFailedEventShouldFailover(dataBytes, failedMessage) {
+					if openAIStreamFailedEventShouldFailover(dataBytes, failedMessage, c) {
 						sawFailedEvent = true
 						streamEarlyErr = s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, dataBytes, failedMessage, resp.Header)
 						return
 					}
 				}
+				// A terminal failed event that cannot safely fail over (for example a
+				// real client error or a failure after semantic output) must still be
+				// visible in ops. HTTP remains 200 once SSE starts, so the middleware
+				// cannot recover this payload unless it is recorded here.
+				s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "http_error", dataBytes, failedMessage)
 				forceFlushFailedEvent = true
 				sawFailedEvent = true
 			}
@@ -552,7 +557,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if needModelReplace && mappedModel != "" && strings.Contains(line, mappedModel) {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
 			}
-			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
+			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType, c)
 			if guardFirstOutput {
 				eventStartsClientOutput = eventStartsClientOutput || startsClientOutput
 			}
