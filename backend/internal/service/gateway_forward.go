@@ -385,7 +385,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if !errors.Is(err, context.Canceled) {
 				scheduleOllamaCloudUsageActivity(s.deferredService, account)
 			}
-			// Ensure the client receives an error response (handlers assume Forward writes on non-failover errors).
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			setOpsUpstreamError(c, 0, safeErr, "")
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -397,14 +396,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
-			c.JSON(http.StatusBadGateway, gin.H{
-				"type": "error",
-				"error": gin.H{
-					"type":    "upstream_error",
-					"message": "Upstream request failed",
-				},
-			})
-			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+			return nil, upstreamTransportFailoverError(ctx, err)
 		}
 
 		// 优先检测thinking block签名错误（400）并重试一次
@@ -662,7 +654,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		break
 	}
 	if resp == nil || resp.Body == nil {
-		return nil, errors.New("upstream request failed: empty response")
+		return nil, upstreamTransportFailoverError(ctx, errors.New("upstream request failed: empty response"))
 	}
 	defer func() { _ = resp.Body.Close() }()
 

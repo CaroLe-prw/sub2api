@@ -33,6 +33,7 @@ export function normalizeSchedulerObservabilitySnapshot(
     traceCounts: snapshot.traceCounts ?? { all: 0, sticky: 0, switch: 0, failed: 0 },
     traces: (snapshot.traces ?? []).map((trace) => ({
       ...trace,
+      platform: trace.platform || "openai",
       accountPath: trace.accountPath ?? [],
       attempts: trace.attempts ?? [],
       candidates: trace.candidates ?? [],

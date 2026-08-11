@@ -170,6 +170,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			return
 		}
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
+		h.recordGatewaySchedulerSelection(c.Request.Context(), apiKey.GroupID, groupPlatform, selectionSessionHash, reqModel, selection, err)
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, groupPlatform)
@@ -292,6 +293,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 
 		if err != nil {
+			h.recordGatewaySchedulerFailure(c.Request.Context(), account, err)
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				if c.Writer.Size() != writerSizeBeforeForward {
@@ -323,6 +325,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			)
 			return
 		}
+		h.recordGatewaySchedulerSuccess(c.Request.Context(), account, result)
 
 		// 6. Record usage
 		userAgent := c.GetHeader("User-Agent")

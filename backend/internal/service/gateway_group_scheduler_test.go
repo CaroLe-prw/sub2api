@@ -94,6 +94,39 @@ func TestBuildGatewayGroupSelectionOrderHonorsLoadPolicy(t *testing.T) {
 	require.Equal(t, idle.ID, order[0].account.ID)
 }
 
+func TestBuildGatewayGroupSelectionOrderCapturesObservableScores(t *testing.T) {
+	groupID := int64(10)
+	first := &Account{ID: 1, Name: "first", Platform: PlatformGemini, Priority: 1}
+	second := &Account{ID: 2, Name: "second", Platform: PlatformGemini, Priority: 2}
+	ctx := gatewaySchedulerTestPolicy(resolvedGroupOpenAISchedulerConfig{
+		TopK:     2,
+		Priority: 1,
+		Load:     1,
+	})
+	ctx = withGatewayScheduleObservation(ctx, 0)
+
+	order, ok := buildGatewayGroupSelectionOrder(
+		ctx,
+		&groupID,
+		[]accountWithLoad{
+			{account: second, loadInfo: &AccountLoadInfo{AccountID: second.ID, LoadRate: 80}},
+			{account: first, loadInfo: &AccountLoadInfo{AccountID: first.ID, LoadRate: 10}},
+		},
+		0,
+		"session",
+		"gemini-2.5-pro",
+	)
+
+	require.True(t, ok)
+	require.Len(t, order, 2)
+	observation := gatewayScheduleObservationFromContext(ctx)
+	require.NotNil(t, observation)
+	require.Equal(t, openAIAccountScheduleLayerLoadBalance, observation.decision.Layer)
+	require.Len(t, observation.decision.Candidates, 2)
+	require.Equal(t, first.ID, observation.decision.Candidates[0].AccountID)
+	require.Greater(t, observation.decision.Candidates[0].TotalScore, observation.decision.Candidates[1].TotalScore)
+}
+
 func TestGatewayGroupSchedulerWeightedStickyIsAWeightNotHardHit(t *testing.T) {
 	groupID := int64(11)
 	sticky := &Account{ID: 1, Platform: PlatformGemini, Priority: 1}

@@ -62,6 +62,7 @@ type OpenAISchedulerObservabilityTrace struct {
 	APIKeyName           string                                  `json:"apiKeyName"`
 	GroupID              int64                                   `json:"groupId"`
 	GroupName            string                                  `json:"groupName"`
+	Platform             string                                  `json:"platform"`
 	Model                string                                  `json:"model"`
 	SessionFingerprint   *string                                 `json:"sessionFingerprint"`
 	SessionSource        string                                  `json:"sessionSource"`
@@ -377,6 +378,7 @@ func (s *OpenAISchedulerObservabilityStore) RecordSelection(
 			APIKeyName:         contextString(ctx, ctxkey.APIKeyName),
 			GroupID:            groupID,
 			GroupName:          groupName,
+			Platform:           strings.TrimSpace(req.Platform),
 			Model:              req.RequestedModel,
 			SessionFingerprint: fingerprint,
 			SessionSource:      sessionSource,

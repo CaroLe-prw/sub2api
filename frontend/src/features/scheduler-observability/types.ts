@@ -79,6 +79,7 @@ export interface SchedulerTrace {
   apiKeyName: string;
   groupId?: number;
   groupName: string;
+  platform?: string;
   model: string;
   sessionFingerprint: string | null;
   sessionSource: SchedulerSessionSource;

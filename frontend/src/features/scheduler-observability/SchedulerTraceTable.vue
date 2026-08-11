@@ -107,7 +107,7 @@ function statusLabel(status: SchedulerTraceStatus): string {
                 {{ trace.groupName || (trace.groupId ? `#${trace.groupId}` : "—") }}
               </p>
               <p class="truncate font-mono text-[11px] text-gray-500 dark:text-dark-400" :title="trace.model">
-                {{ trace.model || "—" }}
+                {{ trace.platform || "openai" }} · {{ trace.model || "—" }}
               </p>
             </div>
           </td>

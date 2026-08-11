@@ -17,6 +17,61 @@ type gatewayGroupSchedulerPolicyContextValue struct {
 	policy  openAIGroupSchedulerPolicy
 }
 
+type gatewayScheduleObservationContextKey struct{}
+
+type gatewayScheduleObservation struct {
+	stickyAccountID int64
+	decision        OpenAIAccountScheduleDecision
+}
+
+func withGatewayScheduleObservation(ctx context.Context, stickyAccountID int64) context.Context {
+	return context.WithValue(ctx, gatewayScheduleObservationContextKey{}, &gatewayScheduleObservation{
+		stickyAccountID: stickyAccountID,
+	})
+}
+
+func gatewayScheduleObservationFromContext(ctx context.Context) *gatewayScheduleObservation {
+	if ctx == nil {
+		return nil
+	}
+	observation, _ := ctx.Value(gatewayScheduleObservationContextKey{}).(*gatewayScheduleObservation)
+	return observation
+}
+
+func attachGatewayScheduleDecision(ctx context.Context, selection *AccountSelectionResult) *AccountSelectionResult {
+	if selection == nil || selection.Account == nil {
+		return selection
+	}
+	observation := gatewayScheduleObservationFromContext(ctx)
+	decision := OpenAIAccountScheduleDecision{
+		Layer:             openAIAccountScheduleLayerLoadBalance,
+		SelectedAccountID: selection.Account.ID,
+	}
+	if observation != nil {
+		decision = observation.decision
+		decision.SelectedAccountID = selection.Account.ID
+		if decision.Layer == "" {
+			decision.Layer = openAIAccountScheduleLayerLoadBalance
+			if observation.stickyAccountID > 0 && observation.stickyAccountID == selection.Account.ID {
+				decision.Layer = openAIAccountScheduleLayerSessionSticky
+				decision.StickySessionHit = true
+			}
+		}
+	}
+	if len(decision.Candidates) == 0 {
+		decision.Candidates = []OpenAISchedulerObservabilityCandidate{{
+			AccountID:   selection.Account.ID,
+			AccountName: selection.Account.Name,
+			Rank:        1,
+			State:       "selected",
+		}}
+	} else {
+		markSchedulerCandidateStates(decision.Candidates, nil, selection.Account.ID)
+	}
+	selection.SchedulerDecision = &decision
+	return selection
+}
+
 func gatewayGroupSchedulerPolicyFromContext(ctx context.Context) (openAIGroupSchedulerPolicy, bool) {
 	if ctx == nil {
 		return openAIGroupSchedulerPolicy{}, false
@@ -50,10 +105,33 @@ func (s *GatewayService) withGatewayGroupSchedulerPolicyContext(
 	resolver := &OpenAIGatewayService{
 		cfg:              s.cfg,
 		rateLimitService: s.rateLimitService,
+		settingService:   s.settingService,
 	}
 	policy, ok := resolver.resolveOpenAIGroupSchedulerPolicy(ctx, group)
 	if !ok {
-		return ctx
+		settings := resolver.openAIAdvancedSchedulerRuntimeSettings(ctx)
+		if !settings.enabled {
+			return ctx
+		}
+		weights := resolver.openAIWSSchedulerWeightsForRequest(ctx)
+		policy = openAIGroupSchedulerPolicy{
+			profile: "global",
+			config: resolvedGroupOpenAISchedulerConfig{
+				TopK:                        resolver.openAIWSLBTopKForRequest(ctx),
+				Priority:                    weights.Priority,
+				Load:                        weights.Load,
+				Queue:                       weights.Queue,
+				ErrorRate:                   weights.ErrorRate,
+				TTFT:                        weights.TTFT,
+				Reset:                       weights.Reset,
+				QuotaHeadroom:               weights.QuotaHeadroom,
+				UpstreamCost:                weights.UpstreamCost,
+				PreviousResponse:            weights.Previous,
+				SessionSticky:               weights.SessionSticky,
+				StickyWeightedEnabled:       settings.stickyWeightedEnabled,
+				SubscriptionPriorityEnabled: settings.subscriptionPriorityEnabled,
+			},
+		}
 	}
 	return context.WithValue(ctx, gatewayGroupSchedulerPolicyContextKey{}, gatewayGroupSchedulerPolicyContextValue{
 		groupID: group.ID,
@@ -189,6 +267,7 @@ func buildGatewayGroupSelectionOrder(
 
 	costFactors := gatewaySchedulingCostFactors(accounts)
 	weights := groupOpenAISchedulerWeights(policy.config)
+	stickyBonuses := make(map[int64]float64, len(scored))
 	for i := range scored {
 		candidate := &scored[i]
 		priorityFactor := 1.0
@@ -231,6 +310,32 @@ func buildGatewayGroupSelectionOrder(
 			stickyAccountID > 0 &&
 			candidate.account.ID == stickyAccountID {
 			candidate.score += weights.SessionSticky
+			stickyBonuses[candidate.account.ID] = weights.SessionSticky
+		}
+	}
+
+	if observation := gatewayScheduleObservationFromContext(ctx); observation != nil {
+		ranked := append([]openAIAccountCandidateScore(nil), scored...)
+		sort.SliceStable(ranked, func(i, j int) bool {
+			return isOpenAIAccountCandidateBetter(ranked[i], ranked[j])
+		})
+		observedCandidates := make([]OpenAISchedulerObservabilityCandidate, 0, len(ranked))
+		for index, candidate := range ranked {
+			stickyBonus := stickyBonuses[candidate.account.ID]
+			observedCandidates = append(observedCandidates, OpenAISchedulerObservabilityCandidate{
+				AccountID:   candidate.account.ID,
+				AccountName: candidate.account.Name,
+				Rank:        index + 1,
+				BaseScore:   candidate.score - stickyBonus,
+				StickyBonus: stickyBonus,
+				TotalScore:  candidate.score,
+				State:       "eligible",
+			})
+		}
+		observation.decision = OpenAIAccountScheduleDecision{
+			Layer:          openAIAccountScheduleLayerLoadBalance,
+			CandidateCount: len(observedCandidates),
+			Candidates:     observedCandidates,
 		}
 	}
 

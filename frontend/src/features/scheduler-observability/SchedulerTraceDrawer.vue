@@ -174,7 +174,7 @@ function percent(value: number): string {
               <div class="rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-dark-700 dark:bg-dark-800/70">
                 <p class="text-[10px] font-medium uppercase tracking-wide text-gray-500 dark:text-dark-400">{{ t("admin.schedulerObservability.drawer.model") }}</p>
                 <p class="mt-1.5 truncate text-xs font-semibold text-gray-800 dark:text-dark-100">{{ trace.model }}</p>
-                <p class="mt-1 text-[10px] text-gray-500 dark:text-dark-400">{{ trace.apiKeyName }}</p>
+                <p class="mt-1 text-[10px] text-gray-500 dark:text-dark-400">{{ trace.platform || "openai" }} · {{ trace.apiKeyName }}</p>
               </div>
               <div class="rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-dark-700 dark:bg-dark-800/70">
                 <p class="text-[10px] font-medium uppercase tracking-wide text-gray-500 dark:text-dark-400">{{ t("admin.schedulerObservability.drawer.started") }}</p>
