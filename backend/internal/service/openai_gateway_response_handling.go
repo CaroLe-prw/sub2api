@@ -41,6 +41,16 @@ type openaiNonStreamingResult struct {
 	searchCount      int
 }
 
+// openAIStreamRequestBodyRetryError asks Forward to repair and replay the
+// request on the same account. It is only produced before semantic output.
+type openAIStreamRequestBodyRetryError struct {
+	responseBody []byte
+}
+
+func (e *openAIStreamRequestBodyRetryError) Error() string {
+	return "OpenAI stream rejected a repairable request body"
+}
+
 func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string) (*openaiStreamingResult, error) {
 	return s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, mappedModel, "")
 }
@@ -54,7 +64,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	if account != nil && account.Platform == PlatformOpenAI {
 		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffort)
 	}
-	guardFirstOutput := firstOutputTimeout > 0
+	// A keepalive must never publish attempt-local lifecycle preamble frames
+	// before semantic output. Otherwise a later response.failed cannot be
+	// replayed on another account even though TTFT is still nil. Stage preamble
+	// frames whenever OpenAI keepalive is enabled, independently from whether a
+	// first-output timeout is configured.
+	streamKeepaliveEnabled := s != nil && s.cfg != nil && s.cfg.Gateway.StreamKeepaliveInterval > 0
+	guardFirstOutput := firstOutputTimeout > 0 ||
+		(account != nil && account.Platform == PlatformOpenAI && streamKeepaliveEnabled)
 	var attemptResponseHeaders http.Header
 	if guardFirstOutput {
 		if s.responseHeaderFilter != nil {
@@ -231,6 +248,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	sawFailedEvent := false
 	failedMessage := ""
 	clientOutputStarted := false
+	firstClientOutputEventType := ""
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	var streamEarlyErr error
 	eventInProgress := false
@@ -392,7 +410,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			result, err := finalizeStream()
 			return result, err, true
 		}
-		if guardFirstOutput && firstTokenMs == nil &&
+		if firstOutputTimeout > 0 && guardFirstOutput && firstTokenMs == nil &&
 			!openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush &&
 			time.Until(startTime.Add(firstOutputTimeout)) <= 5*time.Millisecond {
 			return resultWithUsage(), s.newOpenAIFirstOutputTimeoutError(
@@ -470,6 +488,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 					})
 				}
 				if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+					if openAIStreamMissingEncryptedContentRejection(dataBytes) {
+						sawFailedEvent = true
+						streamEarlyErr = &openAIStreamRequestBodyRetryError{responseBody: append([]byte(nil), dataBytes...)}
+						return
+					}
 					if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {
 						sawFailedEvent = true
 						// 命中透传规则也要记录 ops 上游错误事件（对齐 CC/Messages 与
@@ -486,12 +509,24 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						streamEarlyErr = fmt.Errorf("upstream response failed: passthrough rule matched message=%s", errMsg)
 						return
 					}
-					if openAIStreamFailedEventShouldFailover(dataBytes, failedMessage) {
+					if openAIStreamFailedEventShouldFailover(dataBytes, failedMessage, c) {
 						sawFailedEvent = true
 						streamEarlyErr = s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, dataBytes, failedMessage, resp.Header)
 						return
 					}
 				}
+				if firstClientOutputEventType != "" {
+					logger.LegacyPrintf(
+						"service.openai_gateway",
+						"[OpenAI] Stream failed after client output; retry suppressed: account=%d model=%s first_output_event_type=%s response_id=%s",
+						account.ID, originalModel, firstClientOutputEventType, responseID,
+					)
+				}
+				// A terminal failed event that cannot safely fail over (for example a
+				// real client error or a failure after semantic output) must still be
+				// visible in ops. HTTP remains 200 once SSE starts, so the middleware
+				// cannot recover this payload unless it is recorded here.
+				s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "http_error", dataBytes, failedMessage)
 				forceFlushFailedEvent = true
 				sawFailedEvent = true
 			}
@@ -555,7 +590,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if needModelReplace && mappedModel != "" && strings.Contains(line, mappedModel) {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
 			}
-			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
+			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType, c)
+			if startsClientOutput && firstClientOutputEventType == "" && eventType != "response.failed" {
+				firstClientOutputEventType = eventType
+			}
 			if guardFirstOutput {
 				eventStartsClientOutput = eventStartsClientOutput || startsClientOutput
 			}
@@ -764,32 +802,41 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if time.Since(lastDownstreamWriteAt) < keepaliveInterval {
 				continue
 			}
-			if guardFirstOutput {
-				// Bypass attempt-local buffered frames. The stable SSE headers may be
-				// committed here, but account headers remain private until semantic output.
-				if _, err := w.Write([]byte(":\n\n")); err != nil {
-					clientDisconnected = true
-					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
-					continue
-				}
-				flusher.Flush()
-				lastDownstreamWriteAt = time.Now()
-				continue
-			}
-			if _, err := writePendingString(":\n\n"); err != nil {
+			// Always bypass attempt-local buffered frames. Besides preventing an SSE
+			// event from being split, this keeps response.created/in_progress private
+			// until semantic output selects the winning account attempt.
+			heartbeat := []byte(":\n\n")
+			n, err := w.Write(heartbeat)
+			recordOpenAIStreamKeepaliveBytes(c, n)
+			if err != nil {
 				clientDisconnected = true
 				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
 				continue
 			}
-			if err := flushBuffered(); err != nil {
-				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during keepalive flush, continuing to drain upstream for billing")
-			} else {
-				lastDownstreamWriteAt = time.Now()
-			}
+			flusher.Flush()
+			lastDownstreamWriteAt = time.Now()
 		}
 	}
 
+}
+
+func openAIStreamMissingEncryptedContentRejection(payload []byte) bool {
+	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.code").String()))
+	if code == "" {
+		code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.code").String()))
+	}
+	if code != "missing_required_parameter" {
+		return false
+	}
+	param := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.param").String()))
+	if param == "" {
+		param = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.param").String()))
+	}
+	if param == "" {
+		param = openAIResponsesRejectedParamFromMessage(extractOpenAISSEErrorMessage(payload))
+	}
+	_, ok := openAIResponsesMissingEncryptedContentIndex(param)
+	return ok
 }
 
 // extractOpenAISSEDataLine 低开销提取 SSE `data:` 行内容。

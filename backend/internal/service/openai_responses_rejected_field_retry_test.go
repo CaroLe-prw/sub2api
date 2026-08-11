@@ -80,6 +80,31 @@ func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyFindsNamespacePathInMessa
 	require.False(t, gjson.GetBytes(retryBody, "input.1.namespace").Exists())
 }
 
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyDropsMissingEncryptedReasoningItemFromStreamEvent(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-sol","input":[{"type":"message","role":"user","content":"keep"},{"type":"reasoning","id":"rs_missing","summary":[]},{"type":"function_call_output","call_id":"call_1","output":"keep too"}]}`)
+	responseBody := []byte(`{"type":"response.failed","response":{"error":{"code":"missing_required_parameter","type":"invalid_request_error","message":"Missing required parameter: 'input[1].encrypted_content'."}}}`)
+
+	retryBody, reason, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "missing encrypted_content history item", reason)
+	require.Equal(t, 2, int(gjson.GetBytes(retryBody, "input.#").Int()))
+	require.Equal(t, "message", gjson.GetBytes(retryBody, "input.0.type").String())
+	require.Equal(t, "function_call_output", gjson.GetBytes(retryBody, "input.1.type").String())
+}
+
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyDoesNotDropNonReasoningMissingEncryptedItem(t *testing.T) {
+	body := []byte(`{"input":[{"type":"message","role":"user","content":"keep"},{"type":"message","role":"assistant","content":"also keep"}]}`)
+	responseBody := []byte(`{"error":{"code":"missing_required_parameter","message":"Missing required parameter: 'input[1].encrypted_content'.","param":"input[1].encrypted_content"}}`)
+
+	retryBody, _, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Nil(t, retryBody)
+}
+
 func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyBindsNamespacePathToRejectionPhrase(t *testing.T) {
 	body := []byte(`{"input":[{"type":"function_call","namespace":"keep","arguments":"{}"},{"type":"function_call","namespace":"remove","arguments":"{}"}]}`)
 	responseBody := []byte(`{"error":{"code":"unknown_parameter","message":"input[0].namespace is supported; Unknown parameter: input[1].namespace."}}`)

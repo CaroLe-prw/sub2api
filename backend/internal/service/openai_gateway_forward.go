@@ -781,6 +781,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, wsErr
 	}
 
+	autoContextCompactionInjected := false
+	body, autoContextCompactionInjected, err = applyOpenAIAutoContextCompactionToBody(c, account, body)
+	if err != nil {
+		return nil, err
+	}
+
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
 	// 国产模型默认 effort 补充：此处 reqModel 已被 mapping 重写为 billingModel。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, reqModel)
@@ -871,6 +877,22 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			respBody = s.redactAgentIdentitySensitiveBody(ctx, account, respBody)
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			if autoContextCompactionInjected {
+				retryBody, rejected, retryErr := openAIContextCompactionRejectedRetryBody(resp.StatusCode, body, respBody)
+				if retryErr != nil {
+					return nil, fmt.Errorf("normalize rejected context_management retry body: %w", retryErr)
+				}
+				if rejected && rejectedFieldRetryState.Allow(retryBody) {
+					s.recordOpenAIContextCompactionObservation(ctx, account, false, resp.StatusCode, upstreamMsg)
+					body = retryBody
+					requestView = newOpenAIRequestView(body)
+					reqBody = nil
+					autoContextCompactionInjected = false
+					setOpenAIAutoContextCompactionState(c, false, false)
+					logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying request without unsupported context_management (account: %s)", account.Name)
+					continue
+				}
+			}
 			if !httpInvalidEncryptedContentRetryTried && resp.StatusCode == http.StatusBadRequest && upstreamCode == "invalid_encrypted_content" {
 				decoded, decodeErr := ensureReqBody()
 				if decodeErr != nil {
@@ -897,7 +919,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying non-WSv2 request after %s (account: %s)", reason, account.Name)
 				continue
 			}
-			if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
+			if openAIContextCompactionHTTPShouldFailover(c, resp.StatusCode, upstreamMsg, respBody) ||
+				s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
 				upstreamDetail := ""
 				if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 					maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
@@ -930,6 +953,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			return s.handleErrorResponse(ctx, resp, c, account, body, billingModel)
 		}
+		if autoContextCompactionInjected {
+			s.recordOpenAIContextCompactionObservation(ctx, account, true, resp.StatusCode, "")
+		}
 		defer func() { _ = resp.Body.Close() }()
 
 		serviceTier := extractOpenAIServiceTierFromBody(body)
@@ -948,6 +974,23 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if reqStream {
 			streamResult, err := s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, upstreamModel, reasoningEffortValue)
 			if err != nil {
+				var requestBodyRetryErr *openAIStreamRequestBodyRetryError
+				if errors.As(err, &requestBodyRetryErr) {
+					retryBody, reason, changed, retryErr := normalizeOpenAIResponsesRejectedFieldRetryBody(
+						http.StatusBadRequest, body, requestBodyRetryErr.responseBody,
+					)
+					if retryErr != nil {
+						return nil, fmt.Errorf("normalize streamed Responses field retry body: %w", retryErr)
+					}
+					if changed && rejectedFieldRetryState.Allow(retryBody) {
+						body = retryBody
+						requestView = newOpenAIRequestView(body)
+						reqBody = nil
+						logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying streamed request after %s (account: %s)", reason, account.Name)
+						continue
+					}
+					return nil, fmt.Errorf("streamed Responses request-body recovery was not applicable: %w", err)
+				}
 				if streamResult == nil || !streamResult.clientDisconnect {
 					return nil, err
 				}

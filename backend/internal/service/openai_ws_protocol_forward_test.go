@@ -272,6 +272,78 @@ func TestOpenAIGatewayService_Forward_HTTPIngressRetriesInvalidEncryptedContentO
 	require.Equal(t, "client_protocol_http", reason)
 }
 
+func TestOpenAIGatewayService_Forward_HTTPIngressRetriesStreamedMissingEncryptedContentOnce(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	c.Request.Header.Set("User-Agent", "custom-client/1.0")
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+	upstream := &httpUpstreamSequenceRecorder{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+					"event: response.created",
+					`data: {"type":"response.created","response":{"id":"resp_missing_encrypted"}}`,
+					"",
+					"event: response.queued",
+					`data: {"type":"response.queued","response":{"id":"resp_missing_encrypted"}}`,
+					"",
+					"event: response.failed",
+					`data: {"type":"response.failed","response":{"id":"resp_missing_encrypted","status":"failed","error":{"code":"missing_required_parameter","type":"invalid_request_error","message":"Missing required parameter: 'input[1].encrypted_content'."}}}`,
+					"",
+				}, "\n"))),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"req_missing_encrypted_retry_ok"}},
+				Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+					"event: response.created",
+					`data: {"type":"response.created","response":{"id":"resp_missing_encrypted_retry_ok"}}`,
+					"",
+					"event: response.output_text.delta",
+					`data: {"type":"response.output_text.delta","delta":"ok"}`,
+					"",
+					"event: response.completed",
+					`data: {"type":"response.completed","response":{"id":"resp_missing_encrypted_retry_ok","status":"completed","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+					"",
+				}, "\n"))),
+			},
+		},
+	}
+
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = false
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg.Gateway.StreamKeepaliveInterval = 1
+	cfg.Gateway.MaxLineSize = defaultMaxLineSize
+	svc := &OpenAIGatewayService{
+		cfg:              cfg,
+		httpUpstream:     upstream,
+		openaiWSResolver: NewOpenAIWSProtocolResolver(cfg),
+	}
+	account := &Account{
+		ID: 104, Name: "newapi-apikey", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "http://newapi.example"},
+	}
+	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"user","content":"keep"},{"type":"reasoning","id":"rs_missing","summary":[]},{"type":"message","role":"user","content":"continue"}]}`)
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 2, upstream.callCount)
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, "reasoning", gjson.GetBytes(upstream.bodies[0], "input.1.type").String())
+	require.Equal(t, 2, int(gjson.GetBytes(upstream.bodies[1], "input.#").Int()))
+	require.Equal(t, "message", gjson.GetBytes(upstream.bodies[1], "input.1.type").String())
+	require.NotContains(t, rec.Body.String(), "response.failed")
+	require.Contains(t, rec.Body.String(), `"delta":"ok"`)
+}
+
 func TestOpenAIGatewayService_Forward_HTTPIngressRetriesWrappedInvalidEncryptedContentOnce(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	wsFallbackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

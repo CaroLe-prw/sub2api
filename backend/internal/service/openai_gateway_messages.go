@@ -1028,7 +1028,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 		observer.ObserveOpenAI([]byte(payload), event.Type)
 
 		eventType := strings.TrimSpace(event.Type)
-		startsClientOutput := openAIStreamDataStartsClientOutput(payload, eventType)
+		startsClientOutput := openAIStreamDataStartsClientOutput(payload, eventType, c)
 		if startsClientOutput && firstTokenMs == nil {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
