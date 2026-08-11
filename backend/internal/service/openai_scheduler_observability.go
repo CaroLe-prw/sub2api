@@ -716,7 +716,7 @@ func (s *OpenAISchedulerObservabilityStore) recordOutcomeLocked(trace *OpenAISch
 				trace.Summary = "sticky_failed_over_upstream_error"
 			}
 		}
-		trace.appendAttemptLocked("request_success", outcome.AccountID, outcome.AccountName, now, 0, "")
+		trace.appendAttemptLocked("request_success", outcome.AccountID, outcome.AccountName, now, 0, strings.TrimSpace(outcome.Reason))
 		return
 	}
 	trace.Status = "failed"

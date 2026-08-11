@@ -135,6 +135,7 @@ export default {
         error_rate: 'Recent error rate was too high',
         ttft: 'Time to first token was too high',
         first_output_timeout: 'First semantic output timed out',
+        slow_first_output: 'First semantic output was slow; continued waiting for the current account',
         score_gap: 'Base-score gap was too large',
         profit_veto: 'The current pricing did not meet the group profit admission requirement; no upstream request was sent',
         admission_rejected: 'Local admission rules rejected the account; no upstream request was sent',

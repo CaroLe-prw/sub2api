@@ -17,6 +17,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 const (
@@ -229,7 +230,7 @@ func (s *openAIFirstOutputStage) Close() error {
 	return closeErr
 }
 
-func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) time.Duration {
+func (s *OpenAIGatewayService) openAIFirstOutputSlowThreshold(reasoningEffort string) time.Duration {
 	if s == nil || s.cfg == nil || s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds <= 0 {
 		return 0
 	}
@@ -241,6 +242,46 @@ func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) 
 		}
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) time.Duration {
+	if s == nil || s.cfg == nil || s.cfg.Gateway.DisableOpenAIFirstOutputFailover {
+		return 0
+	}
+	return s.openAIFirstOutputSlowThreshold(reasoningEffort)
+}
+
+// RecordOpenAIFirstOutputSlow records a successful but slow first semantic
+// output. It deliberately has no scheduling side effects: the current account
+// remains selected and the paid upstream request is allowed to finish.
+func (s *OpenAIGatewayService) RecordOpenAIFirstOutputSlow(account *Account, result *OpenAIForwardResult) bool {
+	if result == nil || result.FirstTokenMs == nil {
+		return false
+	}
+	reasoningEffort := ""
+	if result.ReasoningEffort != nil {
+		reasoningEffort = *result.ReasoningEffort
+	}
+	threshold := s.openAIFirstOutputSlowThreshold(reasoningEffort)
+	if threshold <= 0 || time.Duration(*result.FirstTokenMs)*time.Millisecond <= threshold {
+		return false
+	}
+	accountID := int64(0)
+	accountName := ""
+	if account != nil {
+		accountID = account.ID
+		accountName = account.Name
+	}
+	logger.With(
+		zap.String("component", "service.openai_gateway"),
+		zap.Int64("account_id", accountID),
+		zap.String("account_name", accountName),
+		zap.String("model", result.Model),
+		zap.String("reasoning_effort", reasoningEffort),
+		zap.Int("first_token_ms", *result.FirstTokenMs),
+		zap.Int64("slow_threshold_ms", threshold.Milliseconds()),
+	).Warn("openai.first_output_slow")
+	return true
 }
 
 func (s *OpenAIGatewayService) newOpenAIFirstOutputTimeoutError(

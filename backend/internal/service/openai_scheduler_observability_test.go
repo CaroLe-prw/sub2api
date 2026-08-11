@@ -124,6 +124,28 @@ func TestOpenAISchedulerObservabilityHandlesMissingContextAndGroupFilter(t *test
 	require.Empty(t, filtered.Traces)
 }
 
+func TestOpenAISchedulerObservabilityPreservesSlowReasonOnSuccess(t *testing.T) {
+	store := NewOpenAISchedulerObservabilityStore()
+	ctx := schedulerObservabilityTestContext("request-slow-success", nil)
+	store.RecordSelection(
+		ctx,
+		OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.6"},
+		OpenAIAccountScheduleDecision{},
+		&AccountSelectionResult{Account: &Account{ID: 68, Name: "slow-success"}},
+		nil,
+	)
+	firstTokenMs := 68_000
+	store.RecordOutcome(ctx, OpenAISchedulerObservabilityOutcome{
+		AccountID: 68, AccountName: "slow-success", Success: true,
+		Reason: "slow_first_output", FirstTokenMs: &firstTokenMs,
+	})
+
+	trace := store.Snapshot(OpenAISchedulerObservabilityQuery{TimeRange: "1h"}).Traces[0]
+	require.Equal(t, "success", trace.Status)
+	require.Equal(t, "request_success", trace.Attempts[len(trace.Attempts)-1].Kind)
+	require.Equal(t, "slow_first_output", trace.Attempts[len(trace.Attempts)-1].Reason)
+}
+
 func TestOpenAISchedulerObservabilityDistinguishesDetectedFromAdoptedSticky(t *testing.T) {
 	store := NewOpenAISchedulerObservabilityStore()
 	groupID := int64(5)

@@ -889,11 +889,15 @@ type GatewayConfig struct {
 	// OpenAIResponseHeaderTimeout: OpenAI/Codex 上游等待响应头的超时时间（秒），0表示无超时
 	// OpenAI/Codex 请求可能在上游排队较久；默认不使用通用响应头超时截断。
 	OpenAIResponseHeaderTimeout int `mapstructure:"openai_response_header_timeout"`
-	// OpenAIFirstOutputTimeoutSeconds: native HTTP Responses 首个语义输出超时（秒），0表示禁用。
+	// OpenAIFirstOutputTimeoutSeconds: OpenAI HTTP/SSE 首个语义输出慢响应阈值（秒），0表示禁用。
+	// 默认只记录告警和首字耗时；仅在 DisableOpenAIFirstOutputFailover=false 时用于取消请求并切号。
 	OpenAIFirstOutputTimeoutSeconds int `mapstructure:"openai_first_output_timeout_seconds"`
-	// OpenAIHighEffortFirstOutputTimeoutSeconds: high/xhigh/max 推理的首个语义输出超时（秒）。
+	// OpenAIHighEffortFirstOutputTimeoutSeconds: high/xhigh/max 推理的首个语义输出慢响应阈值（秒）。
 	// 0 表示回退到 OpenAIFirstOutputTimeoutSeconds。
 	OpenAIHighEffortFirstOutputTimeoutSeconds int `mapstructure:"openai_high_effort_first_output_timeout_seconds"`
+	// DisableOpenAIFirstOutputFailover: 首个语义输出超过阈值时继续等待当前账号，避免切号重试导致重复计费。
+	// 默认开启；置 false 恢复旧的超时取消与切号行为。
+	DisableOpenAIFirstOutputFailover bool `mapstructure:"disable_openai_first_output_failover"`
 	// OpenAIFailover: OpenAI HTTP/SSE 请求级内部切号预算。
 	OpenAIFailover GatewayOpenAIFailoverConfig `mapstructure:"openai_failover"`
 	// 请求体最大字节数，用于网关请求体大小限制
@@ -2310,11 +2314,11 @@ func setDefaults() {
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
-	// Bound the full HTTP/SSE wait from request start through the first semantic
-	// output. High-effort reasoning gets a little more headroom without allowing
-	// a single dead attempt to hold the whole failover chain for minutes.
+	// Record slow first semantic output without canceling the paid upstream request.
+	// Operators can explicitly restore the legacy timeout/failover behavior.
 	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 15)
 	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 30)
+	viper.SetDefault("gateway.disable_openai_first_output_failover", true)
 	viper.SetDefault("gateway.openai_failover.soft_budget_seconds", 45)
 	viper.SetDefault("gateway.openai_failover.hard_budget_seconds", 75)
 	viper.SetDefault("gateway.openai_failover.high_effort_soft_budget_seconds", 60)

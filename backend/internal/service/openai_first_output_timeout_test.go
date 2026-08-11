@@ -425,6 +425,63 @@ func TestOpenAIFirstOutputTimeoutForReasoningEffort(t *testing.T) {
 	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("max"))
 }
 
+func TestOpenAIFirstOutputTimeoutDisabledKeepsSlowThreshold(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds:           15,
+		OpenAIHighEffortFirstOutputTimeoutSeconds: 30,
+		DisableOpenAIFirstOutputFailover:          true,
+	}}}
+
+	require.Zero(t, svc.openAIFirstOutputTimeout("low"))
+	require.Zero(t, svc.openAIFirstOutputTimeout("high"))
+	require.Equal(t, 15*time.Second, svc.openAIFirstOutputSlowThreshold("low"))
+	require.Equal(t, 30*time.Second, svc.openAIFirstOutputSlowThreshold("high"))
+}
+
+func TestOpenAIFirstOutputFailoverDisabledAllowsLateSemanticOutput(t *testing.T) {
+	cfg := &config.Config{Gateway: config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds:  15,
+		DisableOpenAIFirstOutputFailover: true,
+		MaxLineSize:                      defaultMaxLineSize,
+	}}
+	svc := &OpenAIGatewayService{cfg: cfg, responseHeaderFilter: compileResponseHeaderFilter(cfg)}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.output_text.delta","delta":"late but successful"}`,
+			"",
+			`data: {"type":"response.completed","response":{"id":"resp_late","usage":{"input_tokens":1,"output_tokens":1}}}`,
+			"",
+		}, "\n"))),
+	}
+
+	result, err := svc.handleStreamingResponse(
+		c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI},
+		time.Now().Add(-68*time.Second), "model", "model",
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.firstTokenMs)
+	require.GreaterOrEqual(t, *result.firstTokenMs, 68_000)
+	require.Contains(t, rec.Body.String(), "late but successful")
+}
+
+func TestRecordOpenAIFirstOutputSlowOnlyMarksResponsesPastThreshold(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds: 15,
+	}}}
+	fastTTFT := 15_000
+	slowTTFT := 68_000
+
+	require.False(t, svc.RecordOpenAIFirstOutputSlow(&Account{ID: 1}, &OpenAIForwardResult{FirstTokenMs: &fastTTFT}))
+	require.True(t, svc.RecordOpenAIFirstOutputSlow(&Account{ID: 1}, &OpenAIForwardResult{FirstTokenMs: &slowTTFT}))
+}
+
 func TestOpenAIFirstOutputStageDefaultLimitIsIndependentFromScannerLimit(t *testing.T) {
 	stage := newDefaultOpenAIFirstOutputStage()
 	defer func() { require.NoError(t, stage.Close()) }()

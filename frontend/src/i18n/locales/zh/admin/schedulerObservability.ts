@@ -135,6 +135,7 @@ export default {
         error_rate: '近期错误率过高',
         ttft: '首字延迟过高',
         first_output_timeout: '首个语义输出超时',
+        slow_first_output: '首个语义输出较慢，但已继续等待当前账号',
         score_gap: '基础评分差距过大',
         profit_veto: '当前定价下未达到分组利润准入要求，未发起上游请求',
         admission_rejected: '本地准入规则未通过，未发起上游请求',

@@ -791,6 +791,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 
 		if result != nil {
+			observabilityReason := openAIClientDisconnectReason(result)
+			if observabilityReason == "" && h.gatewayService.RecordOpenAIFirstOutputSlow(account, result) {
+				observabilityReason = "slow_first_output"
+			}
 			// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
 			if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
@@ -801,7 +805,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				AccountName:         account.Name,
 				Success:             openAIForwardSucceededForScheduling(result),
 				Canceled:            result.ClientDisconnect,
-				Reason:              openAIClientDisconnectReason(result),
+				Reason:              observabilityReason,
 				FirstTokenMs:        result.FirstTokenMs,
 				DurationMs:          time.Since(routingStart).Milliseconds(),
 				CacheReadTokens:     int64(result.Usage.CacheReadInputTokens),
@@ -1415,10 +1419,14 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}
 		}
 		if result != nil {
+			observabilityReason := openAIClientDisconnectReason(result)
+			if observabilityReason == "" && h.gatewayService.RecordOpenAIFirstOutputSlow(account, result) {
+				observabilityReason = "slow_first_output"
+			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(currentRoutingModel), true, result.FirstTokenMs)
 			h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
 				AccountID: account.ID, AccountName: account.Name, Success: true, Canceled: result.ClientDisconnect,
-				Reason: openAIClientDisconnectReason(result), FirstTokenMs: result.FirstTokenMs,
+				Reason: observabilityReason, FirstTokenMs: result.FirstTokenMs,
 				DurationMs: time.Since(routingStart).Milliseconds(), CacheReadTokens: int64(result.Usage.CacheReadInputTokens),
 				CacheEligibleTokens: openAISchedulerCacheEligibleTokens(result.Usage),
 			})
@@ -2409,6 +2417,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					turnOutcome.DurationMs = result.Duration.Milliseconds()
 					turnOutcome.CacheReadTokens = int64(result.Usage.CacheReadInputTokens)
 					turnOutcome.CacheEligibleTokens = openAISchedulerCacheEligibleTokens(result.Usage)
+					if turnOutcome.Success && h.gatewayService.RecordOpenAIFirstOutputSlow(account, result) {
+						turnOutcome.Reason = "slow_first_output"
+					}
 				}
 				// The first-turn failure is recorded by the outer failover loop with the real
 				// HTTP status. Recording it here too produced a duplicate status-less node.
