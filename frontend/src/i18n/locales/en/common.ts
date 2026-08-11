@@ -180,6 +180,7 @@ export default {
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',
+    schedulerObservability: 'Scheduler Observability',
     promoCodes: 'Promo Codes',
     settings: 'Settings',
     myAccount: 'My Account',

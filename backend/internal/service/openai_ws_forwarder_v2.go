@@ -445,7 +445,6 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 	}
 
-	readTimeout := s.openAIWSReadTimeout()
 	var pendingJSONDocuments [][]byte
 
 	for {
@@ -455,7 +454,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			message = pendingJSONDocuments[0]
 			pendingJSONDocuments = pendingJSONDocuments[1:]
 		} else {
-			message, readErr = lease.ReadMessageWithContextTimeout(ctx, readTimeout)
+			message, readErr = lease.ReadMessageWithContextTimeout(ctx, s.openAIWSActiveReadTimeout(startTime, firstTokenMs))
 			if readErr == nil {
 				if documents, repaired := splitOpenAIConcatenatedJSONDocuments(message); repaired {
 					logOpenAIWSModeInfo(
@@ -508,6 +507,12 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 				truncateOpenAIWSLogValue(firstEventType, openAIWSLogValueMaxLen),
 				truncateOpenAIWSLogValue(lastEventType, openAIWSLogValueMaxLen),
 			)
+			if firstTokenMs == nil && ctx.Err() == nil && time.Until(startTime.Add(s.openAIWSFirstOutputTimeout())) <= 5*time.Millisecond {
+				return nil, s.newOpenAIFirstOutputTimeoutError(
+					ctx, c, account, startTime, originalModel, "", s.openAIWSFirstOutputTimeout(),
+					"websocket_first_semantic_output", lease.HandshakeHeaders(),
+				)
+			}
 			if !wroteDownstream {
 				return nil, wrapOpenAIWSFallback(classifyOpenAIWSReadFallbackReason(readErr), readErr)
 			}

@@ -13,22 +13,38 @@ import (
 
 func TestResolveGroupOpenAISchedulerPresets(t *testing.T) {
 	tests := []struct {
-		profile      string
-		topK         int
-		upstreamCost float64
-		ttft         float64
+		profile          string
+		topK             int
+		priority         float64
+		load             float64
+		queue            float64
+		errorRate        float64
+		ttft             float64
+		reset            float64
+		quotaHeadroom    float64
+		upstreamCost     float64
+		previousResponse float64
+		sessionSticky    float64
 	}{
-		{profile: GroupOpenAISchedulerProfileSLA, topK: 2, upstreamCost: 0, ttft: 2.5},
-		{profile: GroupOpenAISchedulerProfileBalanced, topK: 3, upstreamCost: 1.5, ttft: 1},
-		{profile: GroupOpenAISchedulerProfileCost, topK: 2, upstreamCost: 8, ttft: 0.3},
+		{profile: GroupOpenAISchedulerProfileSLA, topK: 2, priority: 1, load: 1.5, queue: 1.5, errorRate: 3, ttft: 2.5, reset: 0, quotaHeadroom: 0.5, upstreamCost: 0, previousResponse: 0.5, sessionSticky: 0.15},
+		{profile: GroupOpenAISchedulerProfileBalanced, topK: 3, priority: 1, load: 1.2, queue: 1, errorRate: 2, ttft: 1.2, reset: 0.3, quotaHeadroom: 0.8, upstreamCost: 1.5, previousResponse: 0.35, sessionSticky: 0.15},
+		{profile: GroupOpenAISchedulerProfileCost, topK: 2, priority: 0.3, load: 0.8, queue: 0.7, errorRate: 2, ttft: 0.8, reset: 0.5, quotaHeadroom: 1.2, upstreamCost: 5, previousResponse: 0.25, sessionSticky: 0.1},
 	}
 	for _, test := range tests {
 		t.Run(test.profile, func(t *testing.T) {
 			resolved, ok := resolveGroupOpenAISchedulerPreset(test.profile)
 			require.True(t, ok)
 			require.Equal(t, test.topK, resolved.TopK)
+			require.Equal(t, test.priority, resolved.Priority)
+			require.Equal(t, test.load, resolved.Load)
+			require.Equal(t, test.queue, resolved.Queue)
+			require.Equal(t, test.errorRate, resolved.ErrorRate)
 			require.Equal(t, test.upstreamCost, resolved.UpstreamCost)
 			require.Equal(t, test.ttft, resolved.TTFT)
+			require.Equal(t, test.reset, resolved.Reset)
+			require.Equal(t, test.quotaHeadroom, resolved.QuotaHeadroom)
+			require.Equal(t, test.previousResponse, resolved.PreviousResponse)
+			require.Equal(t, test.sessionSticky, resolved.SessionSticky)
 			require.True(t, resolved.StickyWeightedEnabled)
 			require.False(t, resolved.SubscriptionPriorityEnabled)
 		})

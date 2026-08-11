@@ -885,9 +885,15 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 		}
 		for {
-			upstreamMessage, readErr := lease.ReadMessageWithContextTimeout(ctx, s.openAIWSReadTimeout())
+			upstreamMessage, readErr := lease.ReadMessageWithContextTimeout(ctx, s.openAIWSActiveReadTimeout(turnStart, firstTokenMs))
 			if readErr != nil {
 				lease.MarkBroken()
+				if firstTokenMs == nil && ctx.Err() == nil && time.Until(turnStart.Add(s.openAIWSFirstOutputTimeout())) <= 5*time.Millisecond {
+					return nil, s.newOpenAIFirstOutputTimeoutError(
+						ctx, c, account, turnStart, originalModel, "", s.openAIWSFirstOutputTimeout(),
+						"websocket_first_semantic_output", lease.HandshakeHeaders(),
+					)
+				}
 				return nil, wrapOpenAIWSIngressTurnError(
 					"read_upstream",
 					fmt.Errorf("read upstream websocket event: %w", readErr),

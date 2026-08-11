@@ -205,15 +205,27 @@ gateway:
   # OpenAI/Codex upstream response header timeout (seconds, 0=disabled)
   # OpenAI/Codex 等待上游响应头超时时间（秒，0=禁用本地响应头超时）
   openai_response_header_timeout: 0
-  # Native OpenAI HTTP Responses first semantic output timeout (seconds, 0=disabled)
-  # Includes response-header wait; does not apply to passthrough or WebSocket transports.
+  # OpenAI HTTP/SSE first semantic output timeout (seconds, 0=disabled)
+  # Includes response-header wait. WebSocket has a separate default below.
   # A timed-out request may already have incurred upstream usage; account failover can therefore duplicate upstream billing.
   # 超时请求可能已产生上游用量；切换账号重试可能导致上游重复计费。
   # Pre-output attempt staging is capped at 8 MiB; overflow fails over without exposing partial SSE data.
   # 首次输出前的单次尝试暂存上限为 8 MiB；溢出时切号且不暴露不完整 SSE 数据。
-  openai_first_output_timeout_seconds: 0
+  openai_first_output_timeout_seconds: 15
   # Optional high/xhigh/max override (seconds, 0=use the standard timeout)
-  openai_high_effort_first_output_timeout_seconds: 0
+  openai_high_effort_first_output_timeout_seconds: 30
+  # OpenAI HTTP/SSE internal account failover budget. The soft limit permits
+  # one final candidate; the hard limit prevents starting another retry.
+  # OpenAI HTTP/SSE 内部切号预算：超过软上限后只再尝试一个候选，硬上限后不再发起新尝试。
+  openai_failover:
+    soft_budget_seconds: 45
+    hard_budget_seconds: 75
+    high_effort_soft_budget_seconds: 60
+    high_effort_hard_budget_seconds: 120
+    max_first_output_switches: 2
+  # Maximum account switches after the initial attempt (max 6 accounts total).
+  # 初始账号失败后最多切号 5 次（总计最多尝试 6 个账号）。
+  max_account_switches: 5
   # Max request body size in bytes (default: 256MB)
   # 请求体最大字节数（默认 256MB）
   max_body_size: 268435456
@@ -373,6 +385,8 @@ gateway:
     apikey_max_conns_factor: 1.0
     dial_timeout_seconds: 10
     read_timeout_seconds: 900
+    # 首个语义输出的绝对超时；首字后继续使用上面的逐帧读取超时。
+    first_output_timeout_seconds: 45
     write_timeout_seconds: 120
     pool_target_utilization: 0.7
     queue_limit_per_conn: 64

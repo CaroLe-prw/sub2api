@@ -79,6 +79,9 @@ func RegisterAdminRoutes(
 		// 运维监控（Ops）
 		registerOpsRoutes(admin, h)
 
+		// OpenAI 调度观测
+		registerSchedulerObservabilityRoutes(admin, h)
+
 		// 系统管理
 		registerSystemRoutes(admin, h)
 
@@ -121,6 +124,13 @@ func RegisterAdminRoutes(
 
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
+	}
+}
+
+func registerSchedulerObservabilityRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	scheduler := admin.Group("/scheduler-observability")
+	{
+		scheduler.GET("/snapshot", h.Admin.SchedulerObservability.GetSnapshot)
 	}
 }
 

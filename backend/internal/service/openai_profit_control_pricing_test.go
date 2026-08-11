@@ -200,6 +200,34 @@ func TestOpenAIProfitControlStickyBindingOccursOnlyAfterTerminalAdmission(t *tes
 	require.Equal(t, cheapID, cache.sessionBindings[cacheKey], "无既有绑定时应在终检通过后建立粘性")
 }
 
+func TestProfitControlStickyBindingMigratesAfterUpstreamFailover(t *testing.T) {
+	const sessionHash = "profit-sticky-upstream-failover"
+	const cacheKey = "openai:" + sessionHash
+	groupID := int64(64)
+	failedID := int64(641)
+	successID := int64(642)
+	cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{cacheKey: failedID}}
+	svc := &OpenAIGatewayService{cache: cache}
+
+	rebound, err := svc.RebindStickySessionAfterUpstreamFailover(
+		context.Background(), &groupID, sessionHash, successID, map[int64]struct{}{failedID: {}},
+	)
+	require.NoError(t, err)
+	require.True(t, rebound)
+	require.Equal(t, successID, cache.sessionBindings[cacheKey])
+
+	// A concurrent request may already have moved the binding to an unrelated
+	// healthy account. The stale failover completion must not overwrite it.
+	concurrentID := int64(643)
+	cache.sessionBindings[cacheKey] = concurrentID
+	rebound, err = svc.RebindStickySessionAfterUpstreamFailover(
+		context.Background(), &groupID, sessionHash, successID, map[int64]struct{}{failedID: {}},
+	)
+	require.NoError(t, err)
+	require.False(t, rebound)
+	require.Equal(t, concurrentID, cache.sessionBindings[cacheKey])
+}
+
 // WithOpenAITurnPricingContext：长连接 turn 边界重新冻结 pricingAt 并按当前
 // 配置重装门（区别于请求级同门复用）；已装门时以门所属调度分组为准。
 func TestProfitControl_TurnPricingContext(t *testing.T) {

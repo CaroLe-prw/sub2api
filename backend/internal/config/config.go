@@ -894,6 +894,8 @@ type GatewayConfig struct {
 	// OpenAIHighEffortFirstOutputTimeoutSeconds: high/xhigh/max 推理的首个语义输出超时（秒）。
 	// 0 表示回退到 OpenAIFirstOutputTimeoutSeconds。
 	OpenAIHighEffortFirstOutputTimeoutSeconds int `mapstructure:"openai_high_effort_first_output_timeout_seconds"`
+	// OpenAIFailover: OpenAI HTTP/SSE 请求级内部切号预算。
+	OpenAIFailover GatewayOpenAIFailoverConfig `mapstructure:"openai_failover"`
 	// 请求体最大字节数，用于网关请求体大小限制
 	MaxBodySize int64 `mapstructure:"max_body_size"`
 	// TextMaxBodySize limits endpoints that cannot carry inline image/video payloads.
@@ -1027,6 +1029,47 @@ type GatewayConfig struct {
 
 	// Grok: Grok/xAI gateway scheduling and free-tier soft-gate settings.
 	Grok GatewayGrokConfig `mapstructure:"grok"`
+}
+
+// GatewayOpenAIFailoverConfig bounds HTTP/SSE account failover without forcing
+// fast upstream errors and slow first-output timeouts into the same fixed limit.
+type GatewayOpenAIFailoverConfig struct {
+	SoftBudgetSeconds           int `mapstructure:"soft_budget_seconds"`
+	HardBudgetSeconds           int `mapstructure:"hard_budget_seconds"`
+	HighEffortSoftBudgetSeconds int `mapstructure:"high_effort_soft_budget_seconds"`
+	HighEffortHardBudgetSeconds int `mapstructure:"high_effort_hard_budget_seconds"`
+	MaxFirstOutputSwitches      int `mapstructure:"max_first_output_switches"`
+}
+
+func validateGatewayOpenAIFailoverConfig(cfg GatewayOpenAIFailoverConfig) error {
+	validateSeconds := func(name string, value int, max int) error {
+		if value < 0 || value > max || (value > 0 && value < 10) {
+			return fmt.Errorf("gateway.openai_failover.%s must be 0 or between 10-%d seconds", name, max)
+		}
+		return nil
+	}
+	if err := validateSeconds("soft_budget_seconds", cfg.SoftBudgetSeconds, 600); err != nil {
+		return err
+	}
+	if err := validateSeconds("hard_budget_seconds", cfg.HardBudgetSeconds, 1800); err != nil {
+		return err
+	}
+	if err := validateSeconds("high_effort_soft_budget_seconds", cfg.HighEffortSoftBudgetSeconds, 1800); err != nil {
+		return err
+	}
+	if err := validateSeconds("high_effort_hard_budget_seconds", cfg.HighEffortHardBudgetSeconds, 3600); err != nil {
+		return err
+	}
+	if cfg.SoftBudgetSeconds > 0 && cfg.HardBudgetSeconds > 0 && cfg.SoftBudgetSeconds >= cfg.HardBudgetSeconds {
+		return fmt.Errorf("gateway.openai_failover.soft_budget_seconds must be less than hard_budget_seconds")
+	}
+	if cfg.HighEffortSoftBudgetSeconds > 0 && cfg.HighEffortHardBudgetSeconds > 0 && cfg.HighEffortSoftBudgetSeconds >= cfg.HighEffortHardBudgetSeconds {
+		return fmt.Errorf("gateway.openai_failover.high_effort_soft_budget_seconds must be less than high_effort_hard_budget_seconds")
+	}
+	if cfg.MaxFirstOutputSwitches < 0 || cfg.MaxFirstOutputSwitches > 10 {
+		return fmt.Errorf("gateway.openai_failover.max_first_output_switches must be between 0-10")
+	}
+	return nil
 }
 
 // GatewayGrokConfig holds Grok-specific gateway scheduling knobs.
@@ -1195,12 +1238,15 @@ type GatewayOpenAIWSConfig struct {
 	// OAuthMaxConnsFactor: OAuth 账号连接池系数（effective=ceil(concurrency*factor)）
 	OAuthMaxConnsFactor float64 `mapstructure:"oauth_max_conns_factor"`
 	// APIKeyMaxConnsFactor: API Key 账号连接池系数（effective=ceil(concurrency*factor)）
-	APIKeyMaxConnsFactor  float64 `mapstructure:"apikey_max_conns_factor"`
-	DialTimeoutSeconds    int     `mapstructure:"dial_timeout_seconds"`
-	ReadTimeoutSeconds    int     `mapstructure:"read_timeout_seconds"`
-	WriteTimeoutSeconds   int     `mapstructure:"write_timeout_seconds"`
-	PoolTargetUtilization float64 `mapstructure:"pool_target_utilization"`
-	QueueLimitPerConn     int     `mapstructure:"queue_limit_per_conn"`
+	APIKeyMaxConnsFactor float64 `mapstructure:"apikey_max_conns_factor"`
+	DialTimeoutSeconds   int     `mapstructure:"dial_timeout_seconds"`
+	ReadTimeoutSeconds   int     `mapstructure:"read_timeout_seconds"`
+	// FirstOutputTimeoutSeconds limits the absolute wait for the first semantic
+	// output event. ReadTimeoutSeconds remains the per-frame timeout afterwards.
+	FirstOutputTimeoutSeconds int     `mapstructure:"first_output_timeout_seconds"`
+	WriteTimeoutSeconds       int     `mapstructure:"write_timeout_seconds"`
+	PoolTargetUtilization     float64 `mapstructure:"pool_target_utilization"`
+	QueueLimitPerConn         int     `mapstructure:"queue_limit_per_conn"`
 	// EventFlushBatchSize: WS 流式写出批量 flush 阈值（事件条数）
 	EventFlushBatchSize int `mapstructure:"event_flush_batch_size"`
 	// EventFlushIntervalMS: WS 流式写出最大等待时间（毫秒）；0 表示仅按 batch 触发
@@ -2264,13 +2310,23 @@ func setDefaults() {
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
-	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 0)
-	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 0)
+	// Bound the full HTTP/SSE wait from request start through the first semantic
+	// output. High-effort reasoning gets a little more headroom without allowing
+	// a single dead attempt to hold the whole failover chain for minutes.
+	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 15)
+	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 30)
+	viper.SetDefault("gateway.openai_failover.soft_budget_seconds", 45)
+	viper.SetDefault("gateway.openai_failover.hard_budget_seconds", 75)
+	viper.SetDefault("gateway.openai_failover.high_effort_soft_budget_seconds", 60)
+	viper.SetDefault("gateway.openai_failover.high_effort_hard_budget_seconds", 120)
+	viper.SetDefault("gateway.openai_failover.max_first_output_switches", 2)
 	viper.SetDefault("gateway.log_upstream_error_body", true)
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)
 	viper.SetDefault("gateway.inject_beta_for_apikey", false)
 	viper.SetDefault("gateway.failover_on_400", false)
-	viper.SetDefault("gateway.max_account_switches", 10)
+	// Five failovers cover up to six accounts. The HTTP/SSE time budget below
+	// prevents this count from turning slow failures into an unbounded chain.
+	viper.SetDefault("gateway.max_account_switches", 5)
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)
 	viper.SetDefault("gateway.force_codex_cli", false)
 	viper.SetDefault("gateway.disable_codex_identity_enforcement", false)
@@ -2307,6 +2363,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.apikey_max_conns_factor", 1.0)
 	viper.SetDefault("gateway.openai_ws.dial_timeout_seconds", 10)
 	viper.SetDefault("gateway.openai_ws.read_timeout_seconds", 900)
+	viper.SetDefault("gateway.openai_ws.first_output_timeout_seconds", 45)
 	viper.SetDefault("gateway.openai_ws.write_timeout_seconds", 120)
 	viper.SetDefault("gateway.openai_ws.pool_target_utilization", 0.7)
 	viper.SetDefault("gateway.openai_ws.queue_limit_per_conn", 64)
@@ -3170,12 +3227,15 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("gateway.openai_response_header_timeout must be non-negative")
 	}
 	if c.Gateway.OpenAIFirstOutputTimeoutSeconds < 0 || c.Gateway.OpenAIFirstOutputTimeoutSeconds > 600 ||
-		(c.Gateway.OpenAIFirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIFirstOutputTimeoutSeconds < 30) {
-		return fmt.Errorf("gateway.openai_first_output_timeout_seconds must be 0 or between 30-600 seconds")
+		(c.Gateway.OpenAIFirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIFirstOutputTimeoutSeconds < 5) {
+		return fmt.Errorf("gateway.openai_first_output_timeout_seconds must be 0 or between 5-600 seconds")
 	}
 	if c.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds < 0 || c.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds > 1800 ||
 		(c.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds < 30) {
 		return fmt.Errorf("gateway.openai_high_effort_first_output_timeout_seconds must be 0 or between 30-1800 seconds")
+	}
+	if err := validateGatewayOpenAIFailoverConfig(c.Gateway.OpenAIFailover); err != nil {
+		return err
 	}
 	if c.Gateway.Live.MaxSessionDurationSeconds <= 0 {
 		c.Gateway.Live.MaxSessionDurationSeconds = 3600
@@ -3301,6 +3361,10 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.OpenAIWS.ReadTimeoutSeconds <= 0 {
 		return fmt.Errorf("gateway.openai_ws.read_timeout_seconds must be positive")
+	}
+	if c.Gateway.OpenAIWS.FirstOutputTimeoutSeconds < 0 || c.Gateway.OpenAIWS.FirstOutputTimeoutSeconds > 600 ||
+		(c.Gateway.OpenAIWS.FirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIWS.FirstOutputTimeoutSeconds < 5) {
+		return fmt.Errorf("gateway.openai_ws.first_output_timeout_seconds must be 0 or between 5 and 600")
 	}
 	if c.Gateway.OpenAIWS.WriteTimeoutSeconds <= 0 {
 		return fmt.Errorf("gateway.openai_ws.write_timeout_seconds must be positive")

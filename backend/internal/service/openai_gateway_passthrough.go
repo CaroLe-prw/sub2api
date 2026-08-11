@@ -161,6 +161,14 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		reqModel,
 		reqStream,
 	)
+	reasoningEffortValue := ""
+	if reasoningEffort != nil {
+		reasoningEffortValue = strings.TrimSpace(*reasoningEffort)
+	}
+	firstOutputTimeout := time.Duration(0)
+	if reqStream && account.Platform == PlatformOpenAI {
+		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffortValue)
+	}
 	if reqStream && c != nil && c.Request != nil {
 		if timeoutHeaders := collectOpenAIPassthroughTimeoutHeaders(c.Request.Header); len(timeoutHeaders) > 0 {
 			streamWarnLogger := logger.FromContext(ctx).With(
@@ -195,19 +203,49 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	var resp *http.Response
 	for {
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+		var headerGuard *openAIFirstOutputHeaderGuard
+		if firstOutputTimeout > 0 {
+			upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
+				upstreamCtx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
+			)
+		}
 		upstreamReq, buildErr := s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, body, token)
-		releaseUpstreamCtx()
+		if headerGuard == nil {
+			releaseUpstreamCtx()
+		}
 		if buildErr != nil {
+			if headerGuard != nil {
+				headerGuard.close()
+			}
 			return nil, buildErr
 		}
 
 		upstreamStart := time.Now()
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
+		if headerGuard != nil && headerGuard.stopHeaderWait() {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			headerGuard.close()
+			return nil, s.newOpenAIFirstOutputTimeoutError(
+				ctx, c, account, startTime, reqModel, reasoningEffortValue,
+				firstOutputTimeout, "response_headers", nil,
+			)
+		}
 		if err != nil {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			if headerGuard != nil {
+				headerGuard.close()
+			}
 			// Transport-level failure (proxy/DNS/TCP/TLS — no HTTP response). Convert to
 			// a failover so the handler switches to a healthy account.
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
+		}
+		if headerGuard != nil {
+			resp.Body = &openAIRequestContextReadCloser{ReadCloser: resp.Body, cleanup: headerGuard.close}
 		}
 		if resp.StatusCode < 400 {
 			break
@@ -241,13 +279,24 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 
 	var usage *OpenAIUsage
 	var firstTokenMs *int
+	clientDisconnect := false
+	var forwardErr error
 	responseID := ""
 	imageCount := 0
 	var imageOutputSizes []string
 	if reqStream {
-		result, err := s.handleStreamingResponsePassthrough(ctx, resp, c, account, startTime, reqModel, upstreamPassthroughModel)
+		result, err := s.handleStreamingResponsePassthroughWithFirstOutput(
+			ctx, resp, c, account, startTime, reqModel, upstreamPassthroughModel,
+			reasoningEffortValue, firstOutputTimeout,
+		)
 		if err != nil {
-			return nil, err
+			if result == nil || !result.clientDisconnect {
+				return nil, err
+			}
+			forwardErr = err
+		}
+		if result.clientDisconnect {
+			clientDisconnect = true
 		}
 		usage = result.usage
 		firstTokenMs = result.firstTokenMs
@@ -291,6 +340,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		OpenAIWSMode:                  false,
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
+		ClientDisconnect:              clientDisconnect,
 	}
 	if imageCount > 0 {
 		forwardResult.ImageCount = imageCount
@@ -299,7 +349,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		forwardResult.ImageOutputSizes = imageOutputSizes
 		forwardResult.BillingModel = imageBillingModel
 	}
-	return forwardResult, nil
+	return forwardResult, forwardErr
 }
 
 func logOpenAIPassthroughInstructionsRejected(
@@ -762,6 +812,7 @@ type openaiStreamingResultPassthrough struct {
 	usage            *OpenAIUsage
 	firstTokenMs     *int
 	responseID       string
+	clientDisconnect bool
 	imageCount       int
 	imageOutputSizes []string
 }
@@ -1192,6 +1243,26 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	originalModel string,
 	mappedModel string,
 ) (*openaiStreamingResultPassthrough, error) {
+	firstOutputTimeout := time.Duration(0)
+	if account != nil && account.Platform == PlatformOpenAI {
+		firstOutputTimeout = s.openAIFirstOutputTimeout("")
+	}
+	return s.handleStreamingResponsePassthroughWithFirstOutput(
+		ctx, resp, c, account, startTime, originalModel, mappedModel, "", firstOutputTimeout,
+	)
+}
+
+func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithFirstOutput(
+	ctx context.Context,
+	resp *http.Response,
+	c *gin.Context,
+	account *Account,
+	startTime time.Time,
+	originalModel string,
+	mappedModel string,
+	reasoningEffort string,
+	firstOutputTimeout time.Duration,
+) (*openaiStreamingResultPassthrough, error) {
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
@@ -1258,12 +1329,41 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	defer putSSEScannerBuf64K(scanBuf)
 	documentScanner := newOpenAISSEJSONDocumentScanner(scanner)
 
+	var firstOutputTimer *time.Timer
+	firstOutputTimeoutFired := make(chan struct{})
+	if firstOutputTimeout > 0 {
+		remaining := time.Until(startTime.Add(firstOutputTimeout))
+		if remaining <= 0 {
+			remaining = time.Nanosecond
+		}
+		firstOutputTimer = time.AfterFunc(remaining, func() {
+			close(firstOutputTimeoutFired)
+			_ = resp.Body.Close()
+		})
+		defer firstOutputTimer.Stop()
+	}
+	firstOutputTimedOut := func() bool {
+		select {
+		case <-firstOutputTimeoutFired:
+			return true
+		default:
+			return false
+		}
+	}
+	firstOutputTimeoutError := func() error {
+		return s.newOpenAIFirstOutputTimeoutError(
+			ctx, c, account, startTime, originalModel, reasoningEffort,
+			firstOutputTimeout, "semantic_output", resp.Header,
+		)
+	}
+
 	needModelReplace := strings.TrimSpace(originalModel) != "" && strings.TrimSpace(mappedModel) != "" && strings.TrimSpace(originalModel) != strings.TrimSpace(mappedModel)
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
 		return &openaiStreamingResultPassthrough{
 			usage:            usage,
 			firstTokenMs:     firstTokenMs,
 			responseID:       responseID,
+			clientDisconnect: clientDisconnected,
 			imageCount:       imageCounter.Count(),
 			imageOutputSizes: imageCounter.Sizes(),
 		}
@@ -1369,6 +1469,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			if firstTokenMs == nil && lineStartsClientOutput && trimmedData != "[DONE]" {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
+				if firstOutputTimer != nil {
+					firstOutputTimer.Stop()
+				}
 			}
 			s.parseSSEUsageBytes(dataBytes, usage)
 		}
@@ -1395,6 +1498,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			}
 		}
 	}
+	if firstTokenMs == nil && firstOutputTimedOut() {
+		return resultWithUsage(), firstOutputTimeoutError()
+	}
 	if err := documentScanner.Err(); err != nil {
 		if (sawDone || sawTerminalEvent) && !sawFailedEvent {
 			s.clearOpenAIProxyStreamDisconnect(account)
@@ -1403,7 +1509,8 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		if sawFailedEvent {
 			return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage)
 		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) &&
+			(ctx.Err() != nil || clientDisconnected) {
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", err)
 		}
 		if errors.Is(err, bufio.ErrTooLong) {

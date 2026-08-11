@@ -1306,9 +1306,19 @@ export default {
         previousResponseWeight: 'previous_response sticky',
         sessionStickyWeight: 'session_hash sticky'
       },
+      schedulerObservability: {
+        enabledTitle: 'Scheduler observability',
+        enabledDescription: 'Records OpenAI scheduling traces for account selection, affinity, switching, and cache analysis. Full live traces stay in memory; minute metrics and switched/final-failure details are written to the database asynchronously. Disabling collection clears in-memory traces.',
+        retentionTitle: 'Maximum in-memory traces',
+        retentionDescription: 'Limits full live traces on this node from 100 to 10,000. The default is 1,000.',
+        databaseRetentionTitle: 'Database retention days',
+        databaseRetentionDescription: 'Retains minute aggregates and switched or final-failure details for 1 to 30 days. The default is 7 days.'
+      },
       openaiSchedulerTemplates: {
         title: 'Group scheduler preset templates',
         description: 'Edit the system templates used by groups selecting SLA, balanced, or cost priority. Group custom policies are unchanged.',
+        resetDefaults: 'Restore recommended defaults',
+        resetDefaultsHint: 'Restore all three recommended templates. Changes take effect after saving the page.',
         profiles: {
           sla: 'SLA priority',
           balanced: 'Balanced',

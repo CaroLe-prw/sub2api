@@ -265,6 +265,9 @@ type SystemSettings struct {
 	OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost     string                           `json:"openai_advanced_scheduler_effective_weight_upstream_cost"`
 	OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse string                           `json:"openai_advanced_scheduler_effective_weight_previous_response"`
 	OpenAIAdvancedSchedulerEffectiveWeightSessionSticky    string                           `json:"openai_advanced_scheduler_effective_weight_session_sticky"`
+	OpenAISchedulerObservabilityEnabled                    bool                             `json:"openai_scheduler_observability_enabled"`
+	OpenAISchedulerObservabilityMaxTraces                  int                              `json:"openai_scheduler_observability_max_traces"`
+	OpenAISchedulerObservabilityRetentionDays              int                              `json:"openai_scheduler_observability_retention_days"`
 	OpenAISchedulerTemplates                               service.OpenAISchedulerTemplates `json:"openai_scheduler_templates"`
 
 	// Payment configuration

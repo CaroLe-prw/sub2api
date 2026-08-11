@@ -902,7 +902,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			}
 			timeout := s.openAIFirstOutputTimeout(reasoningEffort)
 			if timeout <= 0 {
-				timeout = s.openAIWSPassthroughIdleTimeout()
+				timeout = s.openAIWSFirstOutputTimeout()
 			}
 			model := openAIWSPassthroughRequestModelForFrame(payload)
 			if model == "" {

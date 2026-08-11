@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
@@ -179,15 +180,33 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	bearerToken string,
 	userAgent string,
 	grokCacheIdentity string,
+	startTime time.Time,
+	originalModel string,
+	reasoningEffort string,
 ) (*http.Response, error) {
 	body, err := applyOpenAIAccountForceFastModeToBody(account, body)
 	if err != nil {
 		return nil, err
 	}
+	firstOutputTimeout := time.Duration(0)
+	if stream && account.Platform == PlatformOpenAI {
+		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffort)
+	}
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	var headerGuard *openAIFirstOutputHeaderGuard
+	if firstOutputTimeout > 0 {
+		upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
+			upstreamCtx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
+		)
+	}
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
-	releaseUpstreamCtx()
+	if headerGuard == nil {
+		releaseUpstreamCtx()
+	}
 	if err != nil {
+		if headerGuard != nil {
+			headerGuard.close()
+		}
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 	upstreamReq = upstreamReq.WithContext(WithHTTPUpstreamProfile(upstreamReq.Context(), HTTPUpstreamProfileOpenAI))
@@ -227,8 +246,24 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 		proxyURL = account.Proxy.URL()
 	}
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	if headerGuard != nil && headerGuard.stopHeaderWait() {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		headerGuard.close()
+		return nil, s.newOpenAIFirstOutputTimeoutError(
+			ctx, c, account, startTime, originalModel, reasoningEffort,
+			firstOutputTimeout, "response_headers", nil,
+		)
+	}
 	if err != nil {
+		if headerGuard != nil {
+			headerGuard.close()
+		}
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+	}
+	if headerGuard != nil {
+		resp.Body = &openAIRequestContextReadCloser{ReadCloser: resp.Body, cleanup: headerGuard.close}
 	}
 	return resp, nil
 }
@@ -253,13 +288,44 @@ type ccStreamScanState struct {
 // emit 回调做各自的协议转换与写出。读错误按既有约定过滤 context 取消类噪声后
 // 记入 Warn 日志。
 func (s *OpenAIGatewayService) scanCCStream(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
 	resp *http.Response,
 	logPrefix string,
 	requestID string,
+	originalModel string,
+	reasoningEffort string,
 	startTime time.Time,
 	emit func(*apicompat.ChatCompletionsChunk),
 ) ccStreamScanState {
 	var st ccStreamScanState
+	firstOutputTimeout := time.Duration(0)
+	if account != nil && account.Platform == PlatformOpenAI {
+		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffort)
+	}
+	var firstOutputTimedOut atomic.Bool
+	var firstOutputTimer *time.Timer
+	if firstOutputTimeout > 0 {
+		remaining := time.Until(startTime.Add(firstOutputTimeout))
+		if remaining <= 0 {
+			remaining = time.Nanosecond
+		}
+		firstOutputTimer = time.AfterFunc(remaining, func() {
+			firstOutputTimedOut.Store(true)
+			_ = resp.Body.Close()
+		})
+		defer firstOutputTimer.Stop()
+	}
+	pendingChunks := make([]*apicompat.ChatCompletionsChunk, 0, 4)
+	pendingBytes := 0
+	flushPending := func() {
+		for _, pending := range pendingChunks {
+			emit(pending)
+		}
+		pendingChunks = pendingChunks[:0]
+		pendingBytes = 0
+	}
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 	for scanner.Scan() {
@@ -274,6 +340,10 @@ func (s *OpenAIGatewayService) scanCCStream(
 		}
 		if payload == "[DONE]" {
 			st.SawDone = true
+			if firstOutputTimer != nil {
+				firstOutputTimer.Stop()
+			}
+			flushPending()
 			break
 		}
 
@@ -289,11 +359,36 @@ func (s *OpenAIGatewayService) scanCCStream(
 			)
 			continue
 		}
-		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
+		startsOutput := !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk)
+		if st.FirstTokenMs == nil && startsOutput {
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
+			if firstOutputTimer != nil {
+				firstOutputTimer.Stop()
+			}
+			flushPending()
+		}
+		if firstOutputTimeout > 0 && st.FirstTokenMs == nil {
+			pendingBytes += len(payload)
+			if pendingBytes > openAIFirstOutputStageMaxBytes {
+				failoverErr := s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, "OpenAI Chat Completions first-output staging limit exceeded")
+				failoverErr.SafeToFailoverAfterWrite = true
+				st.Err = failoverErr
+				_ = resp.Body.Close()
+				return st
+			}
+			chunkCopy := chunk
+			pendingChunks = append(pendingChunks, &chunkCopy)
+			continue
 		}
 		emit(&chunk)
+	}
+	if firstOutputTimedOut.Load() && st.FirstTokenMs == nil {
+		st.Err = s.newOpenAIFirstOutputTimeoutError(
+			ctx, c, account, startTime, originalModel, reasoningEffort,
+			firstOutputTimeout, "semantic_output", resp.Header,
+		)
+		return st
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -304,6 +399,11 @@ func (s *OpenAIGatewayService) scanCCStream(
 			)
 		}
 		st.Err = err
+	} else if st.FirstTokenMs == nil {
+		if firstOutputTimer != nil {
+			firstOutputTimer.Stop()
+		}
+		flushPending()
 	}
 	return st
 }
