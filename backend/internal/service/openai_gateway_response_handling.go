@@ -54,11 +54,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	if account != nil && account.Platform == PlatformOpenAI {
 		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffort)
 	}
-	// A keepalive must never publish attempt-local response.created /
-	// response.in_progress frames before semantic output. Otherwise a later
-	// response.failed cannot be replayed on another account even though TTFT is
-	// still nil. Stage preamble frames whenever OpenAI keepalive is enabled,
-	// independently from whether a first-output timeout is configured.
+	// A keepalive must never publish attempt-local lifecycle preamble frames
+	// before semantic output. Otherwise a later response.failed cannot be
+	// replayed on another account even though TTFT is still nil. Stage preamble
+	// frames whenever OpenAI keepalive is enabled, independently from whether a
+	// first-output timeout is configured.
 	streamKeepaliveEnabled := s != nil && s.cfg != nil && s.cfg.Gateway.StreamKeepaliveInterval > 0
 	guardFirstOutput := firstOutputTimeout > 0 ||
 		(account != nil && account.Platform == PlatformOpenAI && streamKeepaliveEnabled)
@@ -399,7 +399,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			result, err := finalizeStream()
 			return result, err, true
 		}
-		if guardFirstOutput && firstTokenMs == nil &&
+		if firstOutputTimeout > 0 && guardFirstOutput && firstTokenMs == nil &&
 			!openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush &&
 			time.Until(startTime.Add(firstOutputTimeout)) <= 5*time.Millisecond {
 			return resultWithUsage(), s.newOpenAIFirstOutputTimeoutError(

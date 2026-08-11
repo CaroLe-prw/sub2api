@@ -29,6 +29,9 @@ func TestOpenAIStreamInvalidRequestLabeledUpstreamFailureRetriesBeforeOutput(t *
 			"event: response.created",
 			`data: {"type":"response.created","response":{"id":"resp_1"}}`,
 			"",
+			"event: response.queued",
+			`data: {"type":"response.queued","response":{"id":"resp_1"}}`,
+			"",
 			"event: response.failed",
 			"data: " + payload,
 			"",
@@ -116,6 +119,9 @@ func TestOpenAIStreamKeepaliveBeforeUpstreamFailureStillAllowsFailover(t *testin
 		"event: response.in_progress",
 		`data: {"type":"response.in_progress","response":{"id":"resp_keepalive_retry"}}`,
 		"",
+		"event: response.queued",
+		`data: {"type":"response.queued","response":{"id":"resp_keepalive_retry"}}`,
+		"",
 	}, "\n") + "\n"))
 	require.NoError(t, err)
 	waitOpenAIResponseFlushCount(t, recorder, 1)
@@ -140,6 +146,7 @@ func TestOpenAIStreamKeepaliveBeforeUpstreamFailureStillAllowsFailover(t *testin
 	body, _ = recorder.snapshot()
 	require.Equal(t, ":\n\n", body)
 	require.NotContains(t, body, "response.created")
+	require.NotContains(t, body, "response.queued")
 	require.NotContains(t, body, "response.failed")
 }
 
