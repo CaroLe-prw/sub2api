@@ -124,6 +124,32 @@ func TestOpenAISchedulerObservabilityHandlesMissingContextAndGroupFilter(t *test
 	require.Empty(t, filtered.Traces)
 }
 
+func TestOpenAISchedulerObservabilityKeepsSelectedRequestPendingUntilOutcome(t *testing.T) {
+	store := NewOpenAISchedulerObservabilityStore()
+	ctx := schedulerObservabilityTestContext("request-pending", nil)
+	decision := OpenAIAccountScheduleDecision{Candidates: []OpenAISchedulerObservabilityCandidate{
+		{AccountID: 32, AccountName: "account-32", Rank: 1},
+	}}
+	store.RecordSelection(ctx, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.5"}, decision, &AccountSelectionResult{
+		Account: &Account{ID: 32, Name: "account-32"},
+	}, nil)
+
+	selected := store.Snapshot(OpenAISchedulerObservabilityQuery{TimeRange: "1h", View: "requests"}).Traces[0]
+	require.Equal(t, "pending", selected.Status)
+	require.Nil(t, selected.FirstTokenMs)
+	require.NotContains(t, schedulerObservabilityAttemptKinds(selected.Attempts), "request_success")
+
+	firstTokenMs := 2813
+	store.RecordOutcome(ctx, OpenAISchedulerObservabilityOutcome{
+		AccountID: 32, AccountName: "account-32", Success: true, FirstTokenMs: &firstTokenMs,
+	})
+
+	completed := store.Snapshot(OpenAISchedulerObservabilityQuery{TimeRange: "1h", View: "requests"}).Traces[0]
+	require.Equal(t, "success", completed.Status)
+	require.Equal(t, firstTokenMs, *completed.FirstTokenMs)
+	require.Contains(t, schedulerObservabilityAttemptKinds(completed.Attempts), "request_success")
+}
+
 func TestOpenAISchedulerObservabilityDistinguishesDetectedFromAdoptedSticky(t *testing.T) {
 	store := NewOpenAISchedulerObservabilityStore()
 	groupID := int64(5)

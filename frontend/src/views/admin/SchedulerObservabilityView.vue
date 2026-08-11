@@ -32,7 +32,7 @@ const searchQuery = shallowRef("");
 const requestPage = shallowRef(1);
 const sessionPage = shallowRef(1);
 const pageSize = shallowRef(getPersistedPageSize());
-const selectedTrace = shallowRef<SchedulerTrace | null>(null);
+const selectedTraceId = shallowRef<string | null>(null);
 const currentPage = computed({
   get: () => activeTab.value === "requests" ? requestPage.value : sessionPage.value,
   set: (value: number) => {
@@ -79,6 +79,28 @@ const traceFilters = computed<Array<{ key: SchedulerTraceFilter; count: number }
   { key: "failed", count: snapshot.value?.traceCounts.failed ?? 0 },
 ]);
 
+const selectedTrace = computed<SchedulerTrace | null>(() => {
+  if (!selectedTraceId.value) return null;
+  return schedulerTraces.value.find((trace) => trace.id === selectedTraceId.value) ?? null;
+});
+
+function traceNeedsCompletionRefresh(trace: SchedulerTrace | null): boolean {
+  if (!trace || trace.status === "failed" || trace.status === "canceled") return false;
+  return !trace.attempts.some((attempt) => attempt.kind === "request_success");
+}
+
+watch(
+  () => traceNeedsCompletionRefresh(selectedTrace.value),
+  (shouldRefresh, _, onCleanup) => {
+    if (!shouldRefresh) return;
+    const timer = window.setInterval(() => {
+      if (!isLoading.value) void refresh();
+    }, 2_000);
+    onCleanup(() => window.clearInterval(timer));
+  },
+  { immediate: true },
+);
+
 const reasonTones = ["bg-amber-500", "bg-orange-500", "bg-rose-500", "bg-violet-500", "bg-gray-400 dark:bg-dark-500"];
 const switchReasons = computed(() => {
   const total = switchReasonCounts.value.reduce((sum, reason) => sum + reason.count, 0);
@@ -91,7 +113,12 @@ const switchReasons = computed(() => {
 const totalSwitchReasons = computed(() => switchReasonCounts.value.reduce((sum, reason) => sum + reason.count, 0));
 
 function selectTrace(trace: SchedulerTrace) {
-  selectedTrace.value = trace;
+  selectedTraceId.value = trace.id;
+  if (traceNeedsCompletionRefresh(trace) && !isLoading.value) void refresh();
+}
+
+function closeTrace() {
+  selectedTraceId.value = null;
 }
 
 function updateGroupId(value: string | number | boolean | null) {
@@ -332,6 +359,6 @@ function reasonLabel(reason: string): string {
       </section>
     </div>
 
-    <SchedulerTraceDrawer :trace="selectedTrace" @close="selectedTrace = null" />
+    <SchedulerTraceDrawer :trace="selectedTrace" @close="closeTrace" />
   </AppLayout>
 </template>

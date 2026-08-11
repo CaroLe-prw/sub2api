@@ -460,10 +460,11 @@ func (s *OpenAISchedulerObservabilityStore) RecordSelection(
 		selectionKind = "sticky_selected"
 	}
 	trace.appendAttemptLocked(selectionKind, account.ID, account.Name, now, 0, "")
-	trace.Status = "success"
-	if trace.SwitchCount > 0 {
-		trace.Status = "switched"
-	}
+	// Selecting an account only means the upstream attempt can start. Keep the
+	// trace pending until RecordOutcome records the actual terminal result; an
+	// optimistic success here makes an in-flight request look completed without
+	// a request_success event or first-token timing.
+	trace.Status = "pending"
 	if decision.StickyEscapeReason != "" || trace.Summary == "" || trace.Summary == "no_available_account" {
 		trace.Summary = schedulerObservabilitySummary(decision)
 	}
@@ -538,11 +539,7 @@ func (s *OpenAISchedulerObservabilityStore) RecordAdmissionRejection(
 	if last := len(trace.AccountPath) - 1; last >= 0 && trace.AccountPath[last].ID == rejection.AccountID {
 		trace.AccountPath = trace.AccountPath[:last]
 	}
-	if trace.SwitchCount > 0 {
-		trace.Status = "switched"
-	} else {
-		trace.Status = "success"
-	}
+	trace.Status = "pending"
 	markSchedulerCandidateAdmissionRejected(trace.Candidates, rejection.AccountID, rejection.Reason)
 	trace.appendAttemptLocked("admission_rejected", rejection.AccountID, rejection.AccountName, now, 0, rejection.Reason)
 	s.publishLocked(trace)
@@ -642,7 +639,7 @@ func (s *OpenAISchedulerObservabilityStore) RecordTurnOutcome(ctx context.Contex
 		cloned.CacheEligibleTokens = 0
 		cloned.FirstTokenMs = nil
 		cloned.DurationMs = 0
-		cloned.Status = "success"
+		cloned.Status = "pending"
 		cloned.Attempts = nil
 		cloned.updatedAt = now
 		if parent.SessionTurn != nil {

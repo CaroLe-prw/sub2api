@@ -70,6 +70,7 @@ export default {
         failed: '最终失败',
       },
       status: {
+        pending: '请求中',
         success: '成功',
         switched: '切号后成功',
         failed: '失败',
