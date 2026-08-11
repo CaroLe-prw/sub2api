@@ -175,6 +175,26 @@ func TestOpenAIStreamingPassthroughFailedBeforeOutputCanStillFailOverWithoutFlus
 	require.Empty(t, writer.flushBodyLengths)
 }
 
+func TestOpenAIStreamingPassthroughRateLimitsBeforeMissingItemCanStillRepairWithoutFlush(t *testing.T) {
+	upstream := "event: response.created\n" +
+		`data: {"type":"response.created","response":{"id":"resp_missing_item"}}` + "\n\n" +
+		"event: codex.rate_limits\n" +
+		`data: {"type":"codex.rate_limits","rate_limits":{"primary":{"used_percent":12}}}` + "\n\n" +
+		"event: response.failed\n" +
+		`data: {"type":"response.failed","response":{"error":{"type":"invalid_request_error","message":"Item with id 'rs_missing' not found. Items are not persisted when store is set to false."}}}` + "\n\n"
+
+	_, recorder, writer, err := runPassthroughFlushTest(t, io.NopCloser(strings.NewReader(upstream)), -1)
+
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.Equal(t, 1, failoverErr.MinimumSameAccountRetries)
+	require.Equal(t, openAIResponsesItemNotPersistedReason, failoverErr.Reason)
+	require.Empty(t, recorder.Body.String())
+	require.Empty(t, writer.flushBodyLengths)
+}
+
 func TestOpenAIStreamingPassthroughEmptyStructuralFramesBeforeFailureCanStillFailOver(t *testing.T) {
 	upstream := "event: response.created\n" +
 		`data: {"type":"response.created","response":{"id":"resp_empty_structure"}}` + "\n\n" +

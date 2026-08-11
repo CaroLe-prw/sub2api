@@ -112,9 +112,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 	}
 	if account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey {
-		sanitizedBody, changed, sanitizeErr := sanitizeOpenAIResponsesInputItemIDs(body)
+		forceReasoningIDStrip := openAIResponsesItemReferenceRecoveryRequested(c)
+		sanitizedBody, changed, sanitizeErr := sanitizeOpenAIResponsesInputItemIDsWithOptions(
+			body,
+			forceReasoningIDStrip || openAIResponsesStoreDisabled(body),
+		)
 		if sanitizeErr != nil {
 			return nil, fmt.Errorf("sanitize OpenAI Responses input item IDs: %w", sanitizeErr)
+		}
+		if forceReasoningIDStrip {
+			markOpenAIResponsesItemReferenceRecoveryApplied(c)
 		}
 		if changed {
 			body = sanitizedBody
