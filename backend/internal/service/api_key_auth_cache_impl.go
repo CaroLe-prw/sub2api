@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 22 // v22: include v20 billing fields and reload user-specific group rates after cache invalidation
+const apiKeyAuthSnapshotVersion = 23 // v23: include search/audio/video pricing and reload user-specific group rates after cache invalidation
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
