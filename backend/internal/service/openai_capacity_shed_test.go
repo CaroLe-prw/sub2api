@@ -110,12 +110,59 @@ func TestOpenAIStreamErrorFrameDoesNotStartClientOutput(t *testing.T) {
 		{`{"type":"response.created","response":{"id":"resp_1"}}`, "response.created", false},
 		{`{"type":"response.in_progress","response":{"id":"resp_1"}}`, "response.in_progress", false},
 		{`{"type":"response.queued","response":{"id":"resp_1"}}`, "response.queued", false},
+		{`{"type":"response.output_item.added","item":{"id":"rs_1","type":"reasoning","summary":[]}}`, "response.output_item.added", false},
+		{`{"type":"response.output_item.added","item":{"id":"msg_1","type":"message","role":"assistant","content":[]}}`, "response.output_item.added", true},
+		{`{"type":"response.reasoning_summary_part.added","part":{"type":"summary_text","text":""}}`, "response.reasoning_summary_part.added", false},
+		{`{"type":"response.content_part.added","part":{"type":"output_text","text":"","annotations":[],"logprobs":[]}}`, "response.content_part.added", false},
+		{`{"type":"response.output_item.added","item":{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"thinking"}]}}`, "response.output_item.added", true},
+		{`{"type":"response.output_item.added","item":{"id":"call_1","type":"function_call","name":"shell","arguments":""}}`, "response.output_item.added", true},
+		{`{"type":"response.reasoning_summary_text.delta","delta":"thinking"}`, "response.reasoning_summary_text.delta", true},
 		{`{"type":"response.output_text.delta","delta":"hi"}`, "response.output_text.delta", true},
 		{`[DONE]`, "", true},
 	}
 	for _, tc := range cases {
 		require.Equal(t, tc.want, openAIStreamDataStartsClientOutput(tc.data, tc.eventType), "data=%s type=%s", tc.data, tc.eventType)
 	}
+}
+
+func TestOpenAIStreamEmptyStructuralFramesBeforeFailureStillFailOver(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		MaxLineSize:             defaultMaxLineSize,
+		StreamKeepaliveInterval: 1,
+	}}}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"X-Request-Id": []string{"rid-empty-structure-failed"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			"event: response.created",
+			`data: {"type":"response.created","response":{"id":"resp_empty_structure"}}`,
+			"",
+			"event: response.output_item.added",
+			`data: {"type":"response.output_item.added","item":{"id":"rs_1","type":"reasoning","summary":[]}}`,
+			"",
+			"event: response.reasoning_summary_part.added",
+			`data: {"type":"response.reasoning_summary_part.added","item_id":"rs_1","part":{"type":"summary_text","text":""}}`,
+			"",
+			"event: response.failed",
+			`data: {"type":"response.failed","response":{"id":"resp_empty_structure","status":"failed","error":{"code":"upstream_error","message":"Upstream request failed"},"output":[]}}`,
+			"",
+		}, "\n"))),
+	}
+	account := &Account{ID: 324, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Name: "coder", Credentials: map[string]any{"pool_mode": true}}
+
+	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "gpt-5.6-sol", "gpt-5.6-sol")
+
+	require.NotNil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.Nil(t, result.firstTokenMs)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, rec.Body.String())
 }
 
 // 回归用例（真实上游降载序列）：created → in_progress → error 帧 → response.failed。

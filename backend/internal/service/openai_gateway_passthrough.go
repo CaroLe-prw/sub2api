@@ -874,7 +874,8 @@ func openAIStreamDataStartsClientOutput(data, eventType string, contexts ...*gin
 	if trimmed == "" {
 		return false
 	}
-	switch strings.TrimSpace(eventType) {
+	eventType = strings.TrimSpace(eventType)
+	switch eventType {
 	case "response.failed":
 		return false
 	case "error":
@@ -886,7 +887,72 @@ func openAIStreamDataStartsClientOutput(data, eventType string, contexts ...*gin
 		payload := []byte(trimmed)
 		return !openAIStreamFailedEventShouldFailover(payload, extractOpenAISSEErrorMessage(payload), contexts...)
 	}
+	if openAIStreamEventIsEmptyStructure(trimmed, eventType) {
+		return false
+	}
 	return !openAIStreamEventIsPreamble(eventType)
+}
+
+// openAIStreamEventIsEmptyStructure recognizes Responses events that only
+// announce an empty output container. OpenAI/NewAPI may emit these before any
+// text, reasoning summary, or tool action and later terminate with
+// response.failed. Publishing them immediately makes a safe retry impossible
+// even though the client has received no usable model output.
+//
+// Keep the allowlist deliberately narrow: complete items, non-empty deltas,
+// tool calls, images, annotations, and unknown future event shapes remain
+// semantic output and are never replayed across accounts.
+func openAIStreamEventIsEmptyStructure(data, eventType string) bool {
+	payload := []byte(strings.TrimSpace(data))
+	if len(payload) == 0 || !gjson.ValidBytes(payload) {
+		return false
+	}
+	switch strings.TrimSpace(eventType) {
+	case "response.output_item.added":
+		item := gjson.GetBytes(payload, "item")
+		if !item.Exists() || !item.IsObject() {
+			return false
+		}
+		switch strings.ToLower(strings.TrimSpace(item.Get("type").String())) {
+		case "reasoning":
+			return !openAIJSONValueHasContent(item.Get("summary")) &&
+				!openAIJSONValueHasContent(item.Get("content")) &&
+				!openAIJSONValueHasContent(item.Get("encrypted_content"))
+		default:
+			return false
+		}
+	case "response.content_part.added", "response.reasoning_summary_part.added":
+		part := gjson.GetBytes(payload, "part")
+		if !part.Exists() || !part.IsObject() {
+			return false
+		}
+		partType := strings.ToLower(strings.TrimSpace(part.Get("type").String()))
+		switch partType {
+		case "output_text", "summary_text", "reasoning_text", "refusal":
+		default:
+			return false
+		}
+		return !openAIJSONValueHasContent(part.Get("text")) &&
+			!openAIJSONValueHasContent(part.Get("refusal")) &&
+			!openAIJSONValueHasContent(part.Get("annotations")) &&
+			!openAIJSONValueHasContent(part.Get("logprobs"))
+	default:
+		return false
+	}
+}
+
+func openAIJSONValueHasContent(value gjson.Result) bool {
+	if !value.Exists() || value.Type == gjson.Null {
+		return false
+	}
+	switch {
+	case value.IsArray(), value.IsObject():
+		return len(value.Array()) > 0 || (value.IsObject() && value.Raw != "{}")
+	case value.Type == gjson.String:
+		return strings.TrimSpace(value.String()) != ""
+	default:
+		return strings.TrimSpace(value.Raw) != "" && value.Raw != "null"
+	}
 }
 
 // openAIStreamFailedEventErrorCode 提取流内 failed 事件的错误码（小写），
@@ -1399,6 +1465,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithFirstOutput
 	sawFailedEvent := false
 	failedMessage := ""
 	clientOutputStarted := false
+	firstClientOutputEventType := ""
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	// pendingLines 在首个可见输出前保留前导事件，确保无输出失败仍可安全 failover。
 	pendingLines := make([]string, 0, 8)
@@ -1548,6 +1615,13 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithFirstOutput
 							s.newOpenAIStreamFailoverError(c, account, true, upstreamRequestID, dataBytes, failedMessage, resp.Header)
 					}
 				}
+				if firstClientOutputEventType != "" {
+					logger.LegacyPrintf(
+						"service.openai_gateway",
+						"[OpenAI passthrough] Stream failed after client output; retry suppressed: account=%d model=%s first_output_event_type=%s response_id=%s",
+						account.ID, originalModel, firstClientOutputEventType, responseID,
+					)
+				}
 				s.recordOpenAIStreamUpstreamError(c, account, true, upstreamRequestID, "http_error", dataBytes, failedMessage)
 				forceFlushFailedEvent = true
 				sawFailedEvent = true
@@ -1572,6 +1646,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithFirstOutput
 				line = "data: " + string(sanitizedData)
 			}
 			lineStartsClientOutput = forceFlushFailedEvent || openAIStreamDataStartsClientOutput(trimmedData, eventType, c)
+			if lineStartsClientOutput && firstClientOutputEventType == "" && eventType != "response.failed" {
+				firstClientOutputEventType = eventType
+			}
 			if firstTokenMs == nil && lineStartsClientOutput && trimmedData != "[DONE]" {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms

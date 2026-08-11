@@ -248,6 +248,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	sawFailedEvent := false
 	failedMessage := ""
 	clientOutputStarted := false
+	firstClientOutputEventType := ""
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	var streamEarlyErr error
 	eventInProgress := false
@@ -511,6 +512,13 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						return
 					}
 				}
+				if firstClientOutputEventType != "" {
+					logger.LegacyPrintf(
+						"service.openai_gateway",
+						"[OpenAI] Stream failed after client output; retry suppressed: account=%d model=%s first_output_event_type=%s response_id=%s",
+						account.ID, originalModel, firstClientOutputEventType, responseID,
+					)
+				}
 				// A terminal failed event that cannot safely fail over (for example a
 				// real client error or a failure after semantic output) must still be
 				// visible in ops. HTTP remains 200 once SSE starts, so the middleware
@@ -580,6 +588,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
 			}
 			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType, c)
+			if startsClientOutput && firstClientOutputEventType == "" && eventType != "response.failed" {
+				firstClientOutputEventType = eventType
+			}
 			if guardFirstOutput {
 				eventStartsClientOutput = eventStartsClientOutput || startsClientOutput
 			}
