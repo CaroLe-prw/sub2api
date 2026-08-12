@@ -14,6 +14,12 @@ const messages = vi.hoisted<Record<string, string>>(() => ({
   "admin.schedulerObservability.title": "调度观测",
   "admin.schedulerObservability.liveTitle": "已连接当前节点的实时调度轨迹",
   "admin.schedulerObservability.filters.switch": "发生切号",
+  "admin.schedulerObservability.requestTypeFilter": "请求类型",
+  "admin.schedulerObservability.requestTypes.all": "全部类型",
+  "admin.schedulerObservability.requestTypes.ws_v2": "WS",
+  "admin.schedulerObservability.requestTypes.stream": "流式",
+  "admin.schedulerObservability.requestTypes.sync": "同步",
+  "admin.schedulerObservability.requestTypes.cyber": "安全策略",
   "admin.schedulerObservability.groupFilter": "筛选分组",
   "admin.schedulerObservability.filterOptions.model": "模型",
   "admin.schedulerObservability.filterOptions.account": "账号",
@@ -83,9 +89,11 @@ afterEach(() => {
 
 beforeEach(() => {
   getSnapshotMock.mockReset();
-  getSnapshotMock.mockImplementation(async (query: { view: "requests" | "sessions"; page: number; pageSize: number; traceFilter?: string; search?: string }) => {
+  getSnapshotMock.mockImplementation(async (query: { view: "requests" | "sessions"; page: number; pageSize: number; traceFilter?: string; requestType?: string; search?: string }) => {
     const traces = query.view === "requests"
-      ? schedulerTraces.filter((trace) => query.traceFilter !== "switch" || trace.switchCount > 0)
+      ? schedulerTraces.filter((trace) =>
+        (query.traceFilter !== "switch" || trace.switchCount > 0)
+        && (query.requestType === "all" || trace.requestType === query.requestType))
       : [];
     const sessions = query.view === "sessions" ? schedulerSessions : [];
     return {
@@ -201,7 +209,16 @@ describe("SchedulerObservabilityView", () => {
     const accountJourney = wrapper.find('[aria-label$="轮账号轨迹"]');
     expect(accountJourney.classes()).toContain("flex-wrap");
     expect(accountJourney.classes()).toContain("w-[228px]");
-    expect(accountJourney.find("span").attributes("title")).toContain("codex-oauth-09");
+    const firstJourneyDot = accountJourney.find('[aria-label*="codex-oauth-09"]');
+    expect(firstJourneyDot.exists()).toBe(true);
+    await firstJourneyDot.trigger("mouseenter");
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain("codex-oauth-09");
+    await firstJourneyDot.trigger("mouseleave");
+
+    const accountId = wrapper.find('[aria-label="codex-oauth-09 (#9)"]');
+    expect(accountId.exists()).toBe(true);
+    await accountId.trigger("mouseenter");
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain("codex-oauth-09 (#9)");
 
     const sessionLink = wrapper
       .findAll("button")
@@ -218,6 +235,23 @@ describe("SchedulerObservabilityView", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("filters request traces by transport type and shows result badges", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+
+    const wsFilter = wrapper.findAll("button").find((button) => button.text().trim() === "WS");
+    expect(wsFilter).toBeDefined();
+    await wsFilter?.trigger("click");
+    await flushPromises();
+
+    expect(getSnapshotMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "requests", requestType: "ws_v2", page: 1 }),
+      expect.any(Object),
+    );
+    expect(wrapper.text()).toContain("WS");
+    expect(wrapper.text()).not.toContain("安全策略");
   });
 
   it("explains local admission rejection without presenting it as an upstream switch", async () => {

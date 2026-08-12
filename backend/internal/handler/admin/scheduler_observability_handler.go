@@ -35,6 +35,11 @@ func (h *SchedulerObservabilityHandler) GetSnapshot(c *gin.Context) {
 		PageSize:    pageSize,
 		Search:      strings.TrimSpace(c.Query("search")),
 		TraceFilter: strings.TrimSpace(c.Query("trace_filter")),
+		RequestType: strings.TrimSpace(c.Query("request_type")),
+	}
+	if query.RequestType != "" && query.RequestType != "sync" && query.RequestType != "stream" && query.RequestType != "ws_v2" {
+		response.BadRequest(c, "Invalid request_type")
+		return
 	}
 	var ok bool
 	if query.GroupID, ok = parseSchedulerObservabilityID(c, "group_id"); !ok {

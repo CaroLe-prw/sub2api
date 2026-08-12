@@ -63,6 +63,8 @@ type OpenAISchedulerObservabilityTrace struct {
 	GroupID              int64                                   `json:"groupId"`
 	GroupName            string                                  `json:"groupName"`
 	Model                string                                  `json:"model"`
+	RequestType          string                                  `json:"requestType"`
+	CyberBlocked         bool                                    `json:"cyberBlocked"`
 	SessionFingerprint   *string                                 `json:"sessionFingerprint"`
 	SessionSource        string                                  `json:"sessionSource"`
 	SessionTurn          *int                                    `json:"sessionTurn"`
@@ -181,6 +183,7 @@ type OpenAISchedulerObservabilityQuery struct {
 	PageSize    int
 	Search      string
 	TraceFilter string
+	RequestType string
 }
 
 type OpenAISchedulerObservabilityOutcome struct {
@@ -188,6 +191,7 @@ type OpenAISchedulerObservabilityOutcome struct {
 	AccountName         string
 	Success             bool
 	Canceled            bool
+	CyberBlocked        bool
 	UpstreamStatus      int
 	Reason              string
 	FirstTokenMs        *int
@@ -378,6 +382,7 @@ func (s *OpenAISchedulerObservabilityStore) RecordSelection(
 			GroupID:            groupID,
 			GroupName:          groupName,
 			Model:              req.RequestedModel,
+			RequestType:        schedulerObservabilityRequestType(ctx),
 			SessionFingerprint: fingerprint,
 			SessionSource:      sessionSource,
 			SessionTurn:        sessionTurn,
@@ -675,6 +680,7 @@ func (s *OpenAIGatewayService) StopOpenAISchedulerObservabilityPersistence() {
 
 func (s *OpenAISchedulerObservabilityStore) recordOutcomeLocked(trace *OpenAISchedulerObservabilityTrace, outcome OpenAISchedulerObservabilityOutcome, now time.Time) {
 	trace.updatedAt = now
+	trace.CyberBlocked = trace.CyberBlocked || outcome.CyberBlocked
 	// DurationMs is the whole scheduler chain, not only the final upstream attempt.
 	trace.DurationMs = now.Sub(parseSchedulerTraceTime(trace.CreatedAt)).Milliseconds()
 	if outcome.FirstTokenMs != nil {
@@ -755,6 +761,26 @@ func (s *OpenAIGatewayService) RecordOpenAISchedulerObservabilitySelection(
 func (s *OpenAIGatewayService) RecordOpenAISchedulerObservabilityOutcome(ctx context.Context, outcome OpenAISchedulerObservabilityOutcome) {
 	if store := s.schedulerObservabilityStoreForRequest(ctx); store != nil {
 		store.RecordOutcome(ctx, outcome)
+	}
+}
+
+func (s *OpenAIGatewayService) MarkOpenAISchedulerObservabilityCyberBlocked(ctx context.Context) {
+	if store := s.schedulerObservabilityStoreForRequest(ctx); store != nil {
+		store.MarkCyberBlocked(ctx)
+	}
+}
+
+func (s *OpenAISchedulerObservabilityStore) MarkCyberBlocked(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	requestID := schedulerObservabilityRequestID(ctx, &s.sequence)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if trace := s.traces[requestID]; trace != nil {
+		trace.CyberBlocked = true
+		trace.updatedAt = time.Now()
+		s.publishLocked(trace)
 	}
 }
 
@@ -931,7 +957,7 @@ func (s *OpenAISchedulerObservabilityStore) snapshot(query OpenAISchedulerObserv
 }
 
 func schedulerObservabilityHasDimensionFilter(query OpenAISchedulerObservabilityQuery) bool {
-	return strings.TrimSpace(query.Model) != "" || query.AccountID != nil || query.APIKeyID != nil
+	return strings.TrimSpace(query.Model) != "" || query.AccountID != nil || query.APIKeyID != nil || normalizeSchedulerObservabilityRequestType(query.RequestType) != ""
 }
 
 func filterSchedulerTracesByDimensions(traces []OpenAISchedulerObservabilityTrace, query OpenAISchedulerObservabilityQuery) []OpenAISchedulerObservabilityTrace {
@@ -939,6 +965,7 @@ func filterSchedulerTracesByDimensions(traces []OpenAISchedulerObservabilityTrac
 		return traces
 	}
 	model := strings.TrimSpace(query.Model)
+	requestType := normalizeSchedulerObservabilityRequestType(query.RequestType)
 	filtered := make([]OpenAISchedulerObservabilityTrace, 0, len(traces))
 	for _, trace := range traces {
 		if model != "" && !strings.EqualFold(strings.TrimSpace(trace.Model), model) {
@@ -950,9 +977,44 @@ func filterSchedulerTracesByDimensions(traces []OpenAISchedulerObservabilityTrac
 		if query.AccountID != nil && !schedulerTraceHasAccount(trace, *query.AccountID) {
 			continue
 		}
+		if requestType != "" && schedulerObservabilityTraceRequestType(trace.RequestType) != requestType {
+			continue
+		}
 		filtered = append(filtered, trace)
 	}
 	return filtered
+}
+
+func schedulerObservabilityRequestType(ctx context.Context) string {
+	requestType := RequestTypeFromContext(ctx)
+	switch requestType {
+	case RequestTypeWSV2, RequestTypeStream, RequestTypeSync:
+		return requestType.String()
+	default:
+		return "sync"
+	}
+}
+
+func normalizeSchedulerObservabilityRequestType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "ws_v2":
+		return "ws_v2"
+	case "stream":
+		return "stream"
+	case "sync":
+		return "sync"
+	default:
+		return ""
+	}
+}
+
+func schedulerObservabilityTraceRequestType(value string) string {
+	if normalized := normalizeSchedulerObservabilityRequestType(value); normalized != "" {
+		return normalized
+	}
+	// Traces persisted before requestType was added were HTTP requests. Treating
+	// the empty value as sync keeps them visible and filterable after upgrade.
+	return "sync"
 }
 
 func schedulerTraceHasAccount(trace OpenAISchedulerObservabilityTrace, accountID int64) bool {

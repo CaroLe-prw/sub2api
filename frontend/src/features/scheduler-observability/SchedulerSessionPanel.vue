@@ -2,6 +2,7 @@
 import { useI18n } from "vue-i18n";
 
 import Icon from "@/components/icons/Icon.vue";
+import ImmediateTooltip from "./ImmediateTooltip.vue";
 import type { SchedulerSessionSource, SchedulerSessionSummary } from "./types";
 
 defineProps<{
@@ -50,6 +51,10 @@ function accountTitle(session: SchedulerSessionSummary, accountId: number, turnI
     id: accountId,
   });
 }
+
+function accountName(session: SchedulerSessionSummary, accountId: number): string {
+  return session.accountNames?.[String(accountId)] || `#${accountId}`;
+}
 </script>
 
 <template>
@@ -95,16 +100,24 @@ function accountTitle(session: SchedulerSessionSummary, accountId: number, turnI
               </td>
               <td class="w-[260px] max-w-[260px] border-b border-gray-100 px-4 py-4 align-top dark:border-dark-800">
                 <div class="flex w-[228px] flex-wrap items-center gap-1.5" :aria-label="t('admin.schedulerObservability.sessions.turnJourneyLabel', { count: session.turns })">
-                  <span
+                  <ImmediateTooltip
                     v-for="(accountId, index) in session.turnAccounts"
                     :key="`${session.fingerprint}-${index}`"
-                    class="h-2.5 w-2.5 shrink-0 rounded-full ring-2"
-                    :class="accountColor(session, accountId)"
-                    :title="accountTitle(session, accountId, index)"
-                  ></span>
+                    :text="accountTitle(session, accountId, index)"
+                    :focusable="false"
+                  >
+                    <span class="block h-2.5 w-2.5 shrink-0 rounded-full ring-2" :class="accountColor(session, accountId)"></span>
+                  </ImmediateTooltip>
                 </div>
                 <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                  <span class="min-w-0 break-words text-gray-500 dark:text-dark-400">{{ session.accountIds.map((id) => `#${id}`).join(" → ") }}</span>
+                  <span class="flex min-w-0 flex-wrap items-center gap-1 text-gray-500 dark:text-dark-400">
+                    <template v-for="(accountId, index) in session.accountIds" :key="`${session.fingerprint}-account-${accountId}`">
+                      <span v-if="index > 0" aria-hidden="true">→</span>
+                      <ImmediateTooltip :text="`${accountName(session, accountId)} (#${accountId})`">
+                        <span class="cursor-help rounded px-0.5 font-mono underline decoration-dotted underline-offset-2">#{{ accountId }}</span>
+                      </ImmediateTooltip>
+                    </template>
+                  </span>
                   <span
                     class="rounded-full px-1.5 py-0.5 font-medium"
                     :class="session.switchCount > 0 ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'"

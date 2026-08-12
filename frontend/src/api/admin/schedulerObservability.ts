@@ -1,6 +1,6 @@
 import { apiClient } from "../client";
 
-import type { SchedulerObservabilitySnapshot } from "@/features/scheduler-observability/types";
+import type { SchedulerObservabilitySnapshot, SchedulerRequestType } from "@/features/scheduler-observability/types";
 
 export interface SchedulerObservabilityQuery {
   timeRange: "15m" | "1h" | "6h" | "24h" | "7d";
@@ -13,6 +13,7 @@ export interface SchedulerObservabilityQuery {
   pageSize: number;
   search?: string;
   traceFilter?: "all" | "sticky" | "switch" | "failed";
+  requestType?: "all" | SchedulerRequestType;
 }
 
 export function normalizeSchedulerObservabilitySnapshot(
@@ -33,6 +34,8 @@ export function normalizeSchedulerObservabilitySnapshot(
     traceCounts: snapshot.traceCounts ?? { all: 0, sticky: 0, switch: 0, failed: 0 },
     traces: (snapshot.traces ?? []).map((trace) => ({
       ...trace,
+      requestType: ["ws_v2", "stream", "sync"].includes(trace.requestType) ? trace.requestType : "sync",
+      cyberBlocked: trace.cyberBlocked === true,
       accountPath: trace.accountPath ?? [],
       attempts: trace.attempts ?? [],
       candidates: trace.candidates ?? [],
@@ -64,6 +67,7 @@ export async function getSchedulerObservabilitySnapshot(
         page_size: query.pageSize,
         search: query.search || undefined,
         trace_filter: query.view === "requests" ? query.traceFilter : undefined,
+        request_type: query.view === "requests" && query.requestType !== "all" ? query.requestType : undefined,
       },
       signal: options?.signal,
     },

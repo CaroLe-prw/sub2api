@@ -461,6 +461,10 @@ func setOpsEndpointContext(c *gin.Context, upstreamModel string, requestType int
 		c.Set(opsUpstreamModelKey, upstreamModel)
 	}
 	c.Set(opsRequestTypeKey, requestType)
+	if c.Request != nil {
+		ctx := service.WithRequestTypeContext(c.Request.Context(), service.RequestTypeFromInt16(requestType))
+		c.Request = c.Request.WithContext(ctx)
+	}
 }
 
 func setOpsSelectedAccount(c *gin.Context, accountID int64, platform ...string) {

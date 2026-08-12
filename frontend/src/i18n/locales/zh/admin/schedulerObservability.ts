@@ -63,6 +63,14 @@ export default {
         requests: '请求轨迹',
         sessions: '会话分析',
       },
+      requestTypeFilter: '请求类型',
+      requestTypes: {
+        all: '全部类型',
+        ws_v2: 'WS',
+        stream: '流式',
+        sync: '同步',
+        cyber: '安全策略',
+      },
       filters: {
         all: '全部',
         sticky: '粘性命中',
@@ -119,6 +127,8 @@ export default {
         retrySwitch: '重试 / 切号',
         cache: '缓存率 / Token',
         result: '结果 / 全链路首字',
+        firstToken: '首字',
+        duration: '总耗时',
       },
       empty: {
         title: '没有匹配的调度轨迹',

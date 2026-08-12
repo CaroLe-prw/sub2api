@@ -3,6 +3,16 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Icon from "@/components/icons/Icon.vue";
+import {
+  durationSeverity,
+  firstTokenSeverity,
+  LATENCY_BAR_CLASSES,
+  LATENCY_BAR_FROM_CLASSES,
+  LATENCY_BAR_TO_CLASSES,
+  LATENCY_TEXT_CLASSES,
+} from "@/utils/latencyHealth";
+import ImmediateTooltip from "./ImmediateTooltip.vue";
+import SchedulerRequestTypeBadge from "./SchedulerRequestTypeBadge.vue";
 import type {
   SchedulerDecisionLayer,
   SchedulerDecisionSummary,
@@ -60,6 +70,15 @@ function layerLabel(layer: SchedulerDecisionLayer): string {
 function statusLabel(status: SchedulerTraceStatus): string {
   return t(`admin.schedulerObservability.status.${status}`);
 }
+
+function formatDuration(value: number | null | undefined): string {
+  if (value == null) return "—";
+  if (value < 1_000) return `${value}ms`;
+  if (value < 60_000) return `${(value / 1_000).toFixed(2)}s`;
+  const totalSeconds = Math.round(value / 1_000);
+  if (totalSeconds < 3_600) return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
+  return `${Math.floor(totalSeconds / 3_600)}h ${Math.floor((totalSeconds % 3_600) / 60)}m`;
+}
 </script>
 
 <template>
@@ -97,6 +116,12 @@ function statusLabel(status: SchedulerTraceStatus): string {
               <p class="truncate font-mono text-xs font-medium text-gray-900 dark:text-white" :title="trace.requestId">
                 {{ trace.requestId }}
               </p>
+              <div class="mt-1.5 flex flex-wrap items-center gap-1">
+                <SchedulerRequestTypeBadge :request-type="trace.requestType" />
+                <span v-if="trace.cyberBlocked" class="inline-flex items-center rounded bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-800 dark:bg-red-900 dark:text-red-200">
+                  {{ t("admin.schedulerObservability.requestTypes.cyber") }}
+                </span>
+              </div>
               <p class="mt-1 truncate text-[11px] text-gray-500 dark:text-dark-400">
                 {{ trace.userEmail }} · {{ trace.apiKeyName || (trace.apiKeyId ? `#${trace.apiKeyId}` : "—") }}
               </p>
@@ -137,12 +162,11 @@ function statusLabel(status: SchedulerTraceStatus): string {
             <div v-if="trace.accountPath.length" class="flex max-w-[230px] items-center gap-1.5 overflow-hidden">
               <template v-for="(account, index) in trace.accountPath" :key="`${trace.id}-${account.id}`">
                 <Icon v-if="index > 0" name="arrowRight" size="xs" class="shrink-0 text-amber-500" />
-                <span
-                  class="max-w-[96px] truncate rounded-md bg-gray-100 px-1.5 py-1 font-mono text-[11px] text-gray-700 dark:bg-dark-700 dark:text-dark-200"
-                  :title="`${account.name} (#${account.id})`"
-                >
-                  #{{ account.id }} {{ account.name }}
-                </span>
+                <ImmediateTooltip :text="`${account.name} (#${account.id})`">
+                  <span class="block max-w-[96px] truncate rounded-md bg-gray-100 px-1.5 py-1 font-mono text-[11px] text-gray-700 dark:bg-dark-700 dark:text-dark-200">
+                    #{{ account.id }} {{ account.name }}
+                  </span>
+                </ImmediateTooltip>
               </template>
             </div>
             <span v-else class="text-xs text-gray-400 dark:text-dark-500">—</span>
@@ -158,12 +182,27 @@ function statusLabel(status: SchedulerTraceStatus): string {
             <p class="mt-1 text-[10px] tabular-nums text-gray-500 dark:text-dark-400">{{ trace.cacheReadTokens.toLocaleString() }}</p>
           </td>
           <td class="border-b border-gray-100 px-4 py-3.5 text-right align-top dark:border-dark-800">
-            <span class="inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ring-1 ring-inset" :class="statusClasses[trace.status]">
-              {{ statusLabel(trace.status) }}
-            </span>
-            <p class="mt-1.5 text-[10px] tabular-nums text-gray-500 dark:text-dark-400">
-              {{ trace.endToEndFirstTokenMs == null ? "—" : `${trace.endToEndFirstTokenMs}ms` }}
-            </p>
+            <div class="flex justify-end">
+              <span class="inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ring-1 ring-inset" :class="statusClasses[trace.status]">
+                {{ statusLabel(trace.status) }}
+              </span>
+            </div>
+            <div class="mt-2 flex items-stretch justify-end gap-2">
+              <span
+                class="w-1 shrink-0 rounded-full"
+                :class="trace.endToEndFirstTokenMs != null
+                  ? ['bg-gradient-to-b from-40% to-60%', LATENCY_BAR_FROM_CLASSES[firstTokenSeverity(trace.endToEndFirstTokenMs)], LATENCY_BAR_TO_CLASSES[durationSeverity(trace.durationMs)]]
+                  : LATENCY_BAR_CLASSES[durationSeverity(trace.durationMs)]"
+                aria-hidden="true"
+              ></span>
+              <div class="grid grid-cols-[max-content_max-content] items-baseline gap-x-2 gap-y-0.5 text-[10px]">
+                <span class="text-gray-400 dark:text-dark-500">{{ t("admin.schedulerObservability.table.firstToken") }}</span>
+                <span v-if="trace.endToEndFirstTokenMs != null" class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[firstTokenSeverity(trace.endToEndFirstTokenMs)]">{{ formatDuration(trace.endToEndFirstTokenMs) }}</span>
+                <span v-else class="text-gray-400 dark:text-dark-500">—</span>
+                <span class="text-gray-400 dark:text-dark-500">{{ t("admin.schedulerObservability.table.duration") }}</span>
+                <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(trace.durationMs)]">{{ formatDuration(trace.durationMs) }}</span>
+              </div>
+            </div>
           </td>
           <td class="border-b border-gray-100 px-4 py-3.5 align-top dark:border-dark-800">
             <button

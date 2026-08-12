@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
 
 import Icon from "@/components/icons/Icon.vue";
+import SchedulerRequestTypeBadge from "./SchedulerRequestTypeBadge.vue";
 import type {
   SchedulerAttempt,
   SchedulerCandidate,
@@ -145,6 +146,10 @@ function percent(value: number): string {
                 </h2>
                 <span class="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/20">
                   {{ t(`admin.schedulerObservability.status.${trace.status}`) }}
+                </span>
+                <SchedulerRequestTypeBadge :request-type="trace.requestType" />
+                <span v-if="trace.cyberBlocked" class="inline-flex items-center rounded bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-800 dark:bg-red-900 dark:text-red-200">
+                  {{ t("admin.schedulerObservability.requestTypes.cyber") }}
                 </span>
               </div>
               <p class="mt-1 truncate font-mono text-xs text-gray-500 dark:text-dark-400">{{ trace.requestId }}</p>

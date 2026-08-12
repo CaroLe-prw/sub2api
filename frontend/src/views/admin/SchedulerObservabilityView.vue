@@ -15,6 +15,7 @@ import {
   useSchedulerObservability,
   type SchedulerTimeRange,
   type SchedulerTraceFilter,
+  type SchedulerRequestTypeFilter,
 } from "@/features/scheduler-observability/useSchedulerObservability";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
 
@@ -23,6 +24,7 @@ const { t } = useI18n();
 
 const activeTab = shallowRef<DetailTab>("requests");
 const traceFilter = shallowRef<SchedulerTraceFilter>("all");
+const requestType = shallowRef<SchedulerRequestTypeFilter>("all");
 const timeRange = shallowRef<SchedulerTimeRange>("1h");
 const groupId = shallowRef<number | "all">("all");
 const model = shallowRef("");
@@ -70,6 +72,7 @@ const {
   pageSize,
   search: searchQuery,
   traceFilter,
+  requestType,
 });
 
 const traceFilters = computed<Array<{ key: SchedulerTraceFilter; count: number }>>(() => [
@@ -166,6 +169,11 @@ function searchSessionTraces(fingerprint: string) {
 
 function selectTraceFilter(value: SchedulerTraceFilter) {
   traceFilter.value = value;
+  requestPage.value = 1;
+}
+
+function selectRequestType(value: SchedulerRequestTypeFilter) {
+  requestType.value = value;
   requestPage.value = 1;
 }
 
@@ -327,6 +335,22 @@ function reasonLabel(reason: string): string {
           />
 
           <div v-if="activeTab === 'requests'" class="flex flex-wrap items-center gap-2 pb-3 pt-3">
+            <span class="mr-1 text-[11px] font-medium text-gray-500 dark:text-dark-400">{{ t("admin.schedulerObservability.requestTypeFilter") }}</span>
+            <div class="mr-3 inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-800" role="group" :aria-label="t('admin.schedulerObservability.requestTypeFilter')">
+              <button
+                v-for="type in (['all', 'ws_v2', 'stream', 'sync'] as const)"
+                :key="type"
+                type="button"
+                class="cursor-pointer rounded px-2.5 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                :class="requestType === type
+                  ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
+                  : 'text-gray-500 hover:text-gray-800 dark:text-dark-400 dark:hover:text-white'"
+                :aria-pressed="requestType === type"
+                @click="selectRequestType(type)"
+              >
+                {{ t(`admin.schedulerObservability.requestTypes.${type}`) }}
+              </button>
+            </div>
             <button
               v-for="filter in traceFilters"
               :key="filter.key"

@@ -1942,6 +1942,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	)
 	setOpsRequestContext(c, reqModel, true)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeWSV2))
+	ctx = c.Request.Context()
 
 	if decision := h.checkSecurityAuditStage(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, firstMessage, "first_turn"); decision != nil && !decision.AllowNextStage {
 		writeSecurityAuditWSError(ctx, wsConn, decision)
@@ -2401,7 +2402,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				turnOutcome := service.OpenAISchedulerObservabilityOutcome{
 					AccountID: account.ID, AccountName: account.Name, Success: turnErr == nil && openAIForwardSucceededForScheduling(result),
-					Reason: "upstream_error",
+					Reason: "upstream_error", CyberBlocked: service.GetOpsCyberPolicy(c) != nil,
 				}
 				if result != nil {
 					turnOutcome.Success = openAIForwardSucceededForScheduling(result)
@@ -3456,6 +3457,9 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 		return
 	}
 	c.Set(cyberPolicyRecordedKey, true)
+	if h.gatewayService != nil && c.Request != nil && service.RequestTypeFromContext(c.Request.Context()) != service.RequestTypeWSV2 {
+		h.gatewayService.MarkOpenAISchedulerObservabilityCyberBlocked(c.Request.Context())
+	}
 	model = clientRequestedModel(c, model)
 
 	requestID := c.Writer.Header().Get("X-Request-Id")
