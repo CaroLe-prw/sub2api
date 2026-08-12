@@ -76,7 +76,7 @@
             <AmountText :value="row.total_rebate" />
           </template>
           <template #cell-order_amount="{ row }">
-            <AmountText v-if="row.source_type === 'payment_order'" :value="row.order_amount" />
+            <AmountText v-if="row.order_amount != null" :value="row.order_amount" />
             <span v-else>-</span>
           </template>
           <template #cell-pay_amount="{ row }">

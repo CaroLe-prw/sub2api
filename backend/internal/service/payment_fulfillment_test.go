@@ -45,6 +45,7 @@ type paymentFulfillmentAffiliateAccrueCall struct {
 	inviterID     int64
 	inviteeUserID int64
 	amount        float64
+	sourceAmount  float64
 	freezeHours   int
 	sourceOrderID *int64
 }
@@ -76,7 +77,7 @@ func (r *paymentFulfillmentAffiliateRepoStub) BindInviter(context.Context, int64
 	panic("unexpected BindInviter call")
 }
 
-func (r *paymentFulfillmentAffiliateRepoStub) AccrueQuota(_ context.Context, inviterID, inviteeUserID int64, amount float64, freezeHours int, sourceOrderID *int64) (bool, error) {
+func (r *paymentFulfillmentAffiliateRepoStub) AccrueQuota(_ context.Context, inviterID, inviteeUserID int64, amount, sourceAmount float64, freezeHours int, sourceOrderID *int64) (bool, error) {
 	var sourceCopy *int64
 	if sourceOrderID != nil {
 		v := *sourceOrderID
@@ -86,6 +87,7 @@ func (r *paymentFulfillmentAffiliateRepoStub) AccrueQuota(_ context.Context, inv
 		inviterID:     inviterID,
 		inviteeUserID: inviteeUserID,
 		amount:        amount,
+		sourceAmount:  sourceAmount,
 		freezeHours:   freezeHours,
 		sourceOrderID: sourceCopy,
 	})
@@ -959,6 +961,7 @@ func TestExecuteSubscriptionFulfillmentAppliesAffiliateRebate(t *testing.T) {
 	require.Equal(t, inviterID, affiliateRepo.accrueCalls[0].inviterID)
 	require.Equal(t, user.ID, affiliateRepo.accrueCalls[0].inviteeUserID)
 	require.InDelta(t, 1.4985, affiliateRepo.accrueCalls[0].amount, 0.00000001)
+	require.InDelta(t, 9.99, affiliateRepo.accrueCalls[0].sourceAmount, 0.00000001)
 	require.NotNil(t, affiliateRepo.accrueCalls[0].sourceOrderID)
 	require.Equal(t, order.ID, *affiliateRepo.accrueCalls[0].sourceOrderID)
 	require.Equal(t, 1, subRepo.createCalls)

@@ -98,7 +98,7 @@ type AffiliateRepository interface {
 	EnsureUserAffiliate(ctx context.Context, userID int64) (*AffiliateSummary, error)
 	GetAffiliateByCode(ctx context.Context, code string) (*AffiliateSummary, error)
 	BindInviter(ctx context.Context, userID, inviterID int64) (bool, error)
-	AccrueQuota(ctx context.Context, inviterID, inviteeUserID int64, amount float64, freezeHours int, sourceOrderID *int64) (bool, error)
+	AccrueQuota(ctx context.Context, inviterID, inviteeUserID int64, amount, sourceAmount float64, freezeHours int, sourceOrderID *int64) (bool, error)
 	GetAccruedRebateFromInvitee(ctx context.Context, inviterID, inviteeUserID int64) (float64, error)
 	ThawFrozenQuota(ctx context.Context, userID int64) (float64, error)
 	TransferQuotaToBalance(ctx context.Context, userID int64) (float64, float64, error)
@@ -166,7 +166,7 @@ type AffiliateRebateRecord struct {
 	InviteeID       int64     `json:"invitee_id"`
 	InviteeEmail    string    `json:"invitee_email"`
 	InviteeUsername string    `json:"invitee_username"`
-	OrderAmount     float64   `json:"order_amount"`
+	OrderAmount     *float64  `json:"order_amount"`
 	PayAmount       float64   `json:"pay_amount"`
 	RebateAmount    float64   `json:"rebate_amount"`
 	PaymentType     string    `json:"payment_type"`
@@ -377,7 +377,7 @@ func (s *AffiliateService) AccrueInviteRebateForOrder(ctx context.Context, invit
 		freezeHours = s.settingService.GetAffiliateRebateFreezeHours(ctx)
 	}
 
-	applied, err := s.repo.AccrueQuota(ctx, *inviteeSummary.InviterID, inviteeUserID, rebate, freezeHours, sourceOrderID)
+	applied, err := s.repo.AccrueQuota(ctx, *inviteeSummary.InviterID, inviteeUserID, rebate, baseRechargeAmount, freezeHours, sourceOrderID)
 	if err != nil {
 		return 0, err
 	}

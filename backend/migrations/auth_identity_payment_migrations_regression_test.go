@@ -143,6 +143,18 @@ func TestMigration134AddsAffiliateLedgerAuditFieldsWithoutJSONCast(t *testing.T)
 	require.NotContains(t, sql, "detail::jsonb")
 }
 
+func TestMigration223PreservesAffiliateRechargeSourceAmount(t *testing.T) {
+	content, err := FS.ReadFile("223_affiliate_rebate_source_amount.sql")
+	require.NoError(t, err)
+
+	sql := string(content)
+	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS source_amount DECIMAL(20,8) NULL")
+	require.Contains(t, sql, "SET source_amount = po.amount")
+	require.Contains(t, sql, "rc.type IN ('balance', 'admin_balance')")
+	require.Contains(t, sql, "ledger_match_count = 1")
+	require.Contains(t, sql, "redeem_match_count = 1")
+}
+
 func TestMigration135AllowsGitHubAndGoogleAuthProviders(t *testing.T) {
 	content, err := FS.ReadFile("135_allow_email_oauth_provider_types.sql")
 	require.NoError(t, err)

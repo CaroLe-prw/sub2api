@@ -56,7 +56,7 @@ export interface AffiliateRebateRecord {
   invitee_id: number
   invitee_email: string
   invitee_username: string
-  order_amount: number
+  order_amount: number | null
   pay_amount: number
   rebate_amount: number
   payment_type: string
