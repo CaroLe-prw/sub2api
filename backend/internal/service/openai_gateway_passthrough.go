@@ -37,6 +37,52 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	reqStream bool,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
+	rejectedFieldRetryState := newOpenAIResponsesRejectedFieldRetryState(body)
+	for {
+		result, err := s.forwardOpenAIPassthroughAttempt(
+			ctx, c, account, body, canonicalImageIntentBody, reqModel,
+			attemptImageIntentInvalidated, reasoningEffort, reqStream, startTime,
+		)
+		var requestBodyRetryErr *openAIStreamRequestBodyRetryError
+		if !errors.As(err, &requestBodyRetryErr) {
+			return result, err
+		}
+
+		retryBody, reason, changed, retryErr := normalizeOpenAIResponsesRejectedFieldRetryBody(
+			http.StatusBadRequest, body, requestBodyRetryErr.responseBody,
+		)
+		if retryErr != nil {
+			return nil, fmt.Errorf("normalize streamed passthrough Responses field retry body: %w", retryErr)
+		}
+		if !changed || !rejectedFieldRetryState.Allow(retryBody) {
+			failoverErr := s.newOpenAIStreamFailoverError(
+				c, account, true, "", requestBodyRetryErr.responseBody,
+				extractOpenAISSEErrorMessage(requestBodyRetryErr.responseBody),
+			)
+			failoverErr.RetryableOnSameAccount = false
+			failoverErr.MinimumSameAccountRetries = 0
+			failoverErr.RetryableOnSameAccountIfNoOtherAccount = false
+			failoverErr.RequestScopedTransient = true
+			failoverErr.Reason = GatewayFailureReason("upstream_error")
+			return nil, failoverErr
+		}
+		body = retryBody
+		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying streamed passthrough request after %s (account: %s)", reason, account.Name)
+	}
+}
+
+func (s *OpenAIGatewayService) forwardOpenAIPassthroughAttempt(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	canonicalImageIntentBody []byte,
+	reqModel string,
+	attemptImageIntentInvalidated bool,
+	reasoningEffort *string,
+	reqStream bool,
+	startTime time.Time,
+) (*OpenAIForwardResult, error) {
 	upstreamPassthroughModel := ""
 	if isOpenAIResponsesCompactPath(c) {
 		compactMappedModel := resolveOpenAICompactForwardModel(account, reqModel)
@@ -1669,6 +1715,10 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithFirstOutput
 					})
 				}
 				if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+					if openAIStreamMissingEncryptedContentRejection(dataBytes) {
+						sawFailedEvent = true
+						return resultWithUsage(), &openAIStreamRequestBodyRetryError{responseBody: append([]byte(nil), dataBytes...)}
+					}
 					if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {
 						// 命中透传规则也要记录 ops 上游错误事件（对齐 CC/Messages 与
 						// antigravity 先例），否则透传命中的 failed 在监控中不可见。
