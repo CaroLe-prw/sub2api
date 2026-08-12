@@ -307,12 +307,20 @@ func newOpenAIUpstreamFailoverError(
 	retryableOnSameAccount bool,
 	retryableOnSameAccountIfNoOtherAccount bool,
 ) *UpstreamFailoverError {
+	requestScopedCapacity := isOpenAIRequestScopedCapacityError(statusCode, upstreamMsg, responseBody)
+	// API-key capacity responses and explicit provider shed signals are request
+	// scoped, so changing accounts first only churns the pool. OAuth model
+	// capacity is different: prefer another account and retry the same account
+	// only after candidate selection is exhausted.
+	if requestScopedCapacity && (accountIndependentCapacityCode(responseBody) || !retryableOnSameAccountIfNoOtherAccount) {
+		retryableOnSameAccount = true
+	}
 	failoverErr := &UpstreamFailoverError{
 		StatusCode:                             statusCode,
 		ResponseBody:                           responseBody,
 		ResponseHeaders:                        responseHeaders.Clone(),
 		RetryableOnSameAccount:                 retryableOnSameAccount,
-		RequestScopedTransient:                 isOpenAIRequestScopedCapacityError(statusCode, upstreamMsg, responseBody),
+		RequestScopedTransient:                 requestScopedCapacity,
 		RetryableOnSameAccountIfNoOtherAccount: retryableOnSameAccountIfNoOtherAccount,
 	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, responseBody) {
@@ -324,6 +332,16 @@ func newOpenAIUpstreamFailoverError(
 		failoverErr.ClientMessage = OpenAIRequestBodyTooLargeClientMessage
 	}
 	return failoverErr
+}
+
+func accountIndependentCapacityCode(payload []byte) bool {
+	for _, path := range []string{"error.code", "response.error.code", "code"} {
+		switch strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, path).String())) {
+		case "server_is_overloaded", "slow_down":
+			return true
+		}
+	}
+	return false
 }
 
 // IsOpenAIRequestBodyTooLarge reports whether another account may accept the
@@ -549,6 +567,24 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 	}
 
 	MarkResponseCommitted(c)
+
+	// 上游 400 是确定性的请求错误：同一份请求体换账号、重试多少次都会失败。归一成
+	// 502 upstream_error 会让下游网关把它当成可重试的上游故障反复重放（#5479 实测
+	// 30 个失败请求被放大成 60 次上游调用），同时抹掉客户端定位问题所需的 code/param。
+	//
+	// 走到这里说明 shouldFailoverOpenAIUpstreamResponse 已判定该 400 不可 failover，
+	// 即 server_is_overloaded / at capacity 这类可重试的 400 不会到达此处。
+	//
+	// 兄弟路径早已这么做：handleCompatErrorResponse（ChatCompletions / Anthropic）
+	// 回真实状态码 + invalid_request_error + 真实 message；/v1/images 还额外透传
+	// code/param。原生 Responses 是唯一漏掉的一条。
+	if isOpenAIDeterministicClientError(resp.StatusCode) {
+		writeOpenAIUpstreamClientError(c, resp.StatusCode, body, upstreamMsg)
+		if upstreamMsg == "" {
+			return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("upstream error: %d message=%s", resp.StatusCode, upstreamMsg)
+	}
 
 	// Return appropriate error response
 	var errType, errMsg string

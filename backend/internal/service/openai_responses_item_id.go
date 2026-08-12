@@ -25,6 +25,9 @@ func shouldStripOpenAIResponsesInputItemIDWithOptions(itemType, id string, strip
 	if itemType == "message" {
 		return !strings.HasPrefix(id, "msg") || len(id) > codexCallIDMaxLength
 	}
+	if itemType == "reasoning" {
+		return !strings.HasPrefix(id, "rs")
+	}
 	if isCodexToolCallInputType(itemType) {
 		return !strings.HasPrefix(id, "fc") || len(id) > codexCallIDMaxLength
 	}

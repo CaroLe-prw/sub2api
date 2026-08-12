@@ -794,7 +794,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if eventType == "response.failed" {
 			failedBody := openAIStreamFailedEventPassthroughBody(upstreamMessage, "")
 			failedMessage := extractUpstreamErrorMessage(failedBody)
-			if turn == 1 && !wroteDownstream && isOpenAIStreamRequestScopedCapacityError(upstreamMessage, failedMessage) {
+			if turn == 1 && !wroteDownstream && isOpenAIModelCapacityError(http.StatusBadRequest, failedMessage, upstreamMessage) {
 				return nil, s.newOpenAIStreamFailoverError(
 					c,
 					account,
