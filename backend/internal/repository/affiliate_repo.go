@@ -468,11 +468,10 @@ func (r *affiliateRepository) ListAffiliateRebateRecords(ctx context.Context, fi
 	})
 	baseJoin := `
 FROM user_affiliate_ledger ual
-JOIN payment_orders po ON po.id = ual.source_order_id
+LEFT JOIN payment_orders po ON po.id = ual.source_order_id
 JOIN users invitee ON invitee.id = ual.source_user_id
 JOIN users inviter ON inviter.id = ual.user_id
-WHERE ual.action = 'accrue'
-  AND ual.source_order_id IS NOT NULL`
+WHERE ual.action = 'accrue'`
 	if where != "" {
 		where = strings.Replace(where, "WHERE ", " AND ", 1)
 	}
@@ -495,19 +494,20 @@ WHERE ual.action = 'accrue'
 	}, "ual.created_at")
 	args = append(args, filter.PageSize, (filter.Page-1)*filter.PageSize)
 	rows, err := client.QueryContext(ctx, `
-SELECT po.id,
-       po.out_trade_no,
+SELECT CASE WHEN ual.source_order_id IS NULL THEN 'non_order_recharge' ELSE 'payment_order' END,
+       COALESCE(po.id, 0),
+       COALESCE(po.out_trade_no, ''),
        ual.user_id,
        COALESCE(inviter.email, ''),
        COALESCE(inviter.username, ''),
        ual.source_user_id,
        COALESCE(invitee.email, ''),
        COALESCE(invitee.username, ''),
-       po.amount::double precision,
-       po.pay_amount::double precision,
+       COALESCE(po.amount, 0)::double precision,
+       COALESCE(po.pay_amount, 0)::double precision,
        ual.amount::double precision,
-       po.payment_type,
-       po.status,
+       COALESCE(po.payment_type, ''),
+       COALESCE(po.status, ''),
        ual.created_at
 `+baseJoin+where+`
 `+orderBy+`
@@ -521,6 +521,7 @@ LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 	for rows.Next() {
 		var item service.AffiliateRebateRecord
 		if err := rows.Scan(
+			&item.SourceType,
 			&item.OrderID,
 			&item.OutTradeNo,
 			&item.InviterID,

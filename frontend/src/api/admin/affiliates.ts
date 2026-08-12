@@ -47,6 +47,7 @@ export interface AffiliateInviteRecord {
 }
 
 export interface AffiliateRebateRecord {
+  source_type: 'payment_order' | 'non_order_recharge'
   order_id: number
   out_trade_no: string
   inviter_id: number
