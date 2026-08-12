@@ -288,6 +288,50 @@ func TestOpenAIResponseFlush_PreambleWithoutTerminalRemainsBufferedForFailover(t
 	require.Empty(t, flushes)
 }
 
+func TestOpenAIResponseFlush_CodexMetadataThenFailureRemainsReplayable(t *testing.T) {
+	metadata := "data: {\"type\":\"codex.response.metadata\",\"response_id\":\"resp_metadata_failure\"}\n\n"
+	failed := "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_metadata_failure\",\"error\":{\"code\":\"server_error\",\"message\":\"upstream processing failed\"}}}\n\n"
+	recorder := newOpenAIResponseFlushRecorder()
+
+	result, err := runOpenAIResponseFlushTest(
+		recorder,
+		io.NopCloser(strings.NewReader(metadata+failed)),
+		config.GatewayConfig{StreamKeepaliveInterval: 1},
+	)
+
+	require.NotNil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Nil(t, result.firstTokenMs)
+	gotBody, flushes := recorder.snapshot()
+	require.Empty(t, gotBody)
+	require.Empty(t, flushes)
+}
+
+func TestOpenAIResponseFlush_CodexMetadataFlushesWithFirstSemanticDelta(t *testing.T) {
+	metadata := "data: {\"type\":\"codex.response.metadata\",\"response_id\":\"resp_metadata_success\"}\n\n"
+	firstDelta := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ready\"}\n\n"
+	completed := "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_metadata_success\",\"usage\":{\"input_tokens\":3,\"output_tokens\":1,\"total_tokens\":4}}}\n\n"
+	recorder := newOpenAIResponseFlushRecorder()
+
+	result, err := runOpenAIResponseFlushTest(
+		recorder,
+		io.NopCloser(strings.NewReader(metadata+firstDelta+completed)),
+		config.GatewayConfig{StreamKeepaliveInterval: 1},
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.firstTokenMs)
+	gotBody, flushes := recorder.snapshot()
+	require.True(t, strings.HasPrefix(gotBody, metadata+firstDelta))
+	require.Contains(t, gotBody, `"type":"response.completed"`)
+	require.Equal(t, []string{
+		metadata + firstDelta,
+		gotBody,
+	}, flushes)
+}
+
 func TestOpenAIResponseFlush_CanceledAfterOutputFlushesResidualWithoutErrorEvent(t *testing.T) {
 	body := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n"
 	recorder := newOpenAIResponseFlushRecorder()
