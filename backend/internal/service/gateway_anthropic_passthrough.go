@@ -410,6 +410,25 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	var firstTokenMs *int
 	clientDisconnected := false
 	sawTerminalEvent := false
+	semanticOutputStarted := false
+	streamFailover := func(reason, message string, retrySameAccount bool) (*streamingResult, error) {
+		body, _ := json.Marshal(map[string]any{
+			"type": "error",
+			"error": map[string]string{
+				"type":    reason,
+				"message": message,
+			},
+		})
+		return nil, &UpstreamFailoverError{
+			StatusCode:             http.StatusBadGateway,
+			ResponseBody:           body,
+			RetryableOnSameAccount: retrySameAccount,
+			Stage:                  GatewayFailureStageInference,
+			Scope:                  GatewayFailureScopeAccount,
+			Reason:                 GatewayFailureReason("upstream_stream_error"),
+			NextAccountAction:      NextAccountRetry,
+		}
+	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -507,6 +526,9 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 							return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, fmt.Errorf("stream usage incomplete after timeout")
 						}
 					}
+					if !semanticOutputStarted {
+						return streamFailover("upstream_disconnected", "upstream stream ended before the first semantic event", true)
+					}
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, fmt.Errorf("stream usage incomplete: missing terminal event")
 				}
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
@@ -519,16 +541,28 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, fmt.Errorf("stream usage incomplete after disconnect: %w", ev.err)
 				}
 				if errors.Is(ev.err, context.Canceled) || errors.Is(ev.err, context.DeadlineExceeded) {
+					if !semanticOutputStarted && ctx.Err() == nil {
+						return streamFailover("upstream_disconnected", "upstream stream canceled before the first semantic event", true)
+					}
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, fmt.Errorf("stream usage incomplete: %w", ev.err)
 				}
 				if errors.Is(ev.err, bufio.ErrTooLong) {
 					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, ev.err)
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, ev.err
 				}
+				if !semanticOutputStarted {
+					return streamFailover("upstream_disconnected", "upstream stream disconnected: "+sanitizeStreamError(ev.err), true)
+				}
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", ev.err)
 			}
 
 			line := ev.line
+			trimmedLine := strings.TrimSpace(line)
+			if trimmedLine != "" && !strings.HasPrefix(trimmedLine, ":") && !strings.EqualFold(trimmedLine, "event: ping") {
+				if data, ok := extractAnthropicSSEDataLine(line); !ok || gjson.Get(data, "type").String() != "ping" {
+					semanticOutputStarted = true
+				}
+			}
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
 				observer.ObserveAnthropic([]byte(trimmed))
@@ -578,6 +612,9 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			if s.rateLimitService != nil {
 				s.rateLimitService.HandleStreamTimeout(ctx, account, model)
 			}
+			if !semanticOutputStarted {
+				return streamFailover("stream_timeout", fmt.Sprintf("upstream stream idle for %s before the first semantic event", streamInterval), false)
+			}
 			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
 
 		case <-keepaliveCh:
@@ -592,10 +629,12 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				resetKeepaliveTimer()
 				continue
 			}
-			if _, err := fmt.Fprint(w, "event: ping\ndata: {\"type\": \"ping\"}\n\n"); err != nil {
+			if n, err := fmt.Fprint(w, "event: ping\ndata: {\"type\": \"ping\"}\n\n"); err != nil {
 				clientDisconnected = true
 				logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during keepalive ping, continue draining upstream for usage: account=%d", account.ID)
 				continue
+			} else {
+				recordGatewayStreamKeepaliveBytes(c, n)
 			}
 			flusher.Flush()
 			lastDataAt = time.Now()

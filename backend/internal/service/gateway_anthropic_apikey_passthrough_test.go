@@ -1209,8 +1209,8 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_UpstreamRequest
 	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, account, []byte(`{"model":"x"}`), "x", "x", false, time.Now())
 	require.Nil(t, result)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "upstream request failed")
-	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Contains(t, err.Error(), "upstream error: 502 (failover)")
+	require.Empty(t, rec.Body.String())
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_EmptyResponseBody(t *testing.T) {
@@ -1402,9 +1402,12 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingDataIntervalTimeout(
 	_ = pr.Close()
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "stream data interval timeout")
-	require.NotNil(t, result)
-	require.False(t, result.clientDisconnect)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.False(t, failoverErr.RetryableOnSameAccount, "首字前已等待完整流超时，应直接切换下一个账号")
+	require.Contains(t, ExtractUpstreamErrorMessage(failoverErr.ResponseBody), "before the first semantic event")
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingSendsKeepaliveDuringIdle(t *testing.T) {
@@ -1524,9 +1527,12 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingReadError(t *testing
 
 	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 6}, time.Now(), "claude-3-7-sonnet-20250219")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "stream read error")
-	require.NotNil(t, result)
-	require.False(t, result.clientDisconnect)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.Contains(t, ExtractUpstreamErrorMessage(failoverErr.ResponseBody), "upstream stream disconnected")
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingTimeoutAfterClientDisconnect(t *testing.T) {
@@ -1597,9 +1603,34 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingContextCanceled(t *t
 
 	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 3}, time.Now(), "claude-3-7-sonnet-20250219")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "stream usage incomplete")
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.RetryableOnSameAccount,
+		"upstream-only cancellation before output is retryable and must not be treated as a client disconnect")
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingInboundContextCanceled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	svc := &GatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       &streamReadCloser{err: context.Canceled},
+	}
+
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, &Account{ID: 3}, time.Now(), "claude-3-7-sonnet-20250219")
+	require.Error(t, err)
 	require.NotNil(t, result)
 	require.True(t, result.clientDisconnect)
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr), "real inbound cancellation must not start another upstream attempt")
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingUpstreamReadErrorAfterClientDisconnect(t *testing.T) {

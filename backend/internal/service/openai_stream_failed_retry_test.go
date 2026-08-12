@@ -206,3 +206,21 @@ func TestOpenAIResponseSemanticAdjustedWrittenSizeExcludesStreamKeepalive(t *tes
 	require.NoError(t, err)
 	require.Greater(t, OpenAIResponseSemanticAdjustedWrittenSize(c), 0)
 }
+
+func TestGatewayResponseSemanticAdjustedWrittenSizeExcludesAnthropicKeepalive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	before := GatewayResponseSemanticAdjustedWrittenSize(c)
+
+	n, err := c.Writer.Write([]byte("event: ping\ndata: {\"type\": \"ping\"}\n\n"))
+	require.NoError(t, err)
+	recordGatewayStreamKeepaliveBytes(c, n)
+	require.Equal(t, before, GatewayResponseSemanticAdjustedWrittenSize(c),
+		"transport-only Anthropic ping must not prevent pre-output account failover")
+
+	_, err = c.Writer.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\"}\n\n"))
+	require.NoError(t, err)
+	require.Greater(t, GatewayResponseSemanticAdjustedWrittenSize(c), before,
+		"semantic Anthropic output must still prevent account failover")
+}
