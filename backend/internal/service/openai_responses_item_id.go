@@ -20,7 +20,11 @@ func shouldStripOpenAIResponsesInputItemIDWithOptions(itemType, id string, strip
 	}
 	itemType = strings.ToLower(strings.TrimSpace(itemType))
 	if itemType == "reasoning" {
-		return stripReasoningIDs && strings.HasPrefix(strings.ToLower(strings.TrimSpace(id)), "rs_")
+		normalizedID := strings.ToLower(strings.TrimSpace(id))
+		if stripReasoningIDs && strings.HasPrefix(normalizedID, "rs_") {
+			return true
+		}
+		return !strings.HasPrefix(normalizedID, "rs")
 	}
 	if itemType == "message" {
 		return !strings.HasPrefix(id, "msg") || len(id) > codexCallIDMaxLength

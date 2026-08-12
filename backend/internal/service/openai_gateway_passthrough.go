@@ -583,6 +583,9 @@ func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, r
 	if isOpenAIRequestBodyTooLargeError(statusCode, "", responseBody) {
 		return true
 	}
+	if account != nil && account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode) {
+		return true
+	}
 	switch statusCode {
 	case http.StatusTooManyRequests, 529:
 		return true
@@ -894,6 +897,16 @@ func openAIStreamDataStartsClientOutput(data, eventType string, contexts ...*gin
 	return !openAIStreamEventIsPreamble(eventType)
 }
 
+// Structural Responses events prove that the upstream request is making
+// progress and therefore disarm the first-output timeout. Empty reasoning or
+// content containers are still kept attempt-local: they are not useful client
+// output and must not prevent a safe failover if the stream subsequently
+// fails.
+func openAIStreamDataStartsFirstOutputProgress(data, eventType string, contexts ...*gin.Context) bool {
+	return openAIStreamDataStartsClientOutput(data, eventType, contexts...) ||
+		openAIStreamEventIsEmptyStructure(data, eventType)
+}
+
 // openAIStreamEventIsEmptyStructure recognizes Responses events that only
 // announce an empty output container. OpenAI/NewAPI may emit these before any
 // text, reasoning summary, or tool action and later terminate with
@@ -954,6 +967,63 @@ func openAIJSONValueHasContent(value gjson.Result) bool {
 	default:
 		return strings.TrimSpace(value.Raw) != "" && value.Raw != "null"
 	}
+}
+
+func openAIStreamItemHasVisibleOutput(item gjson.Result) bool {
+	if item.Get("arguments").String() != "" || item.Get("input").String() != "" || item.Get("result").String() != "" {
+		return true
+	}
+	for _, path := range []string{"content", "summary"} {
+		for _, part := range item.Get(path).Array() {
+			if part.Get("text").String() != "" || part.Get("transcript").String() != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Structural progress can commit an attempt and disarm first-output failover,
+// but TTFT should start only when the stream carries content a client can use.
+func openAIStreamDataStartsVisibleOutput(data, eventType string) bool {
+	trimmed := strings.TrimSpace(data)
+	if trimmed == "" || trimmed == "[DONE]" || !gjson.Valid(trimmed) {
+		return false
+	}
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "" {
+		eventType = strings.TrimSpace(gjson.Get(trimmed, "type").String())
+	}
+	if strings.HasSuffix(eventType, ".delta") {
+		delta := gjson.Get(trimmed, "delta")
+		return delta.Exists() && delta.String() != ""
+	}
+	switch eventType {
+	case "response.output_text.done",
+		"response.reasoning_summary_text.done",
+		"response.reasoning_text.done",
+		"response.audio_transcript.done":
+		return gjson.Get(trimmed, "text").String() != ""
+	case "response.function_call_arguments.done":
+		return gjson.Get(trimmed, "arguments").String() != ""
+	case "response.custom_tool_call_input.done":
+		return gjson.Get(trimmed, "input").String() != ""
+	case "response.image_generation_call.partial_image":
+		return gjson.Get(trimmed, "partial_image_b64").String() != ""
+	case "response.content_part.added", "response.content_part.done",
+		"response.reasoning_summary_part.added", "response.reasoning_summary_part.done":
+		part := gjson.Get(trimmed, "part")
+		return part.Get("text").String() != "" || part.Get("transcript").String() != ""
+	case "response.output_item.added", "response.output_item.done":
+		return openAIStreamItemHasVisibleOutput(gjson.Get(trimmed, "item"))
+	case "response.completed", "response.done":
+		for _, item := range gjson.Get(trimmed, "response.output").Array() {
+			if openAIStreamItemHasVisibleOutput(item) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // openAIStreamFailedEventErrorCode 提取流内 failed 事件的错误码（小写），
@@ -1548,8 +1618,10 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithFirstOutput
 	sawDone := false
 	sawTerminalEvent := false
 	sawFailedEvent := false
+	semanticOutputSeen := false
 	failedMessage := ""
 	clientOutputStarted := false
+	firstOutputProgressObserved := false
 	firstClientOutputEventType := ""
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	// pendingLines 在首个可见输出前保留前导事件，确保无输出失败仍可安全 failover。
@@ -1629,6 +1701,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithFirstOutput
 	for documentScanner.Scan() {
 		line := documentScanner.Text()
 		lineStartsClientOutput := false
+		lineStartsFirstOutputProgress := false
 		forceFlushFailedEvent := false
 		if data, ok := extractOpenAISSEDataLine(line); ok {
 			dataBytes := []byte(data)
@@ -1731,10 +1804,29 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithFirstOutput
 				line = "data: " + string(sanitizedData)
 			}
 			lineStartsClientOutput = forceFlushFailedEvent || openAIStreamDataStartsClientOutput(trimmedData, eventType, c)
+			lineStartsFirstOutputProgress = forceFlushFailedEvent || openAIStreamDataStartsFirstOutputProgress(trimmedData, eventType, c)
+			if lineStartsFirstOutputProgress && !firstOutputProgressObserved {
+				firstOutputProgressObserved = true
+				if firstOutputTimer != nil {
+					firstOutputTimer.Stop()
+				}
+			}
 			if lineStartsClientOutput && firstClientOutputEventType == "" && eventType != "response.failed" {
 				firstClientOutputEventType = eventType
 			}
-			if firstTokenMs == nil && lineStartsClientOutput && trimmedData != "[DONE]" {
+			if lineStartsClientOutput && trimmedData != "[DONE]" && !openAIStreamEventTypeIsTerminal(eventType) {
+				semanticOutputSeen = true
+			}
+			// OpenAI Responses streams that terminate with an empty
+			// response.completed (no output, no usage, no error, nothing sent
+			// to the client) are silent upstream refusals: fail over instead of
+			// recording a successful 0/0 usage turn (issue #5009).
+			if (eventType == "response.completed" || eventType == "response.done") &&
+				!sawFailedEvent && !semanticOutputSeen && !clientOutputStarted &&
+				openAIResponsesCompletedEventIsEmpty(dataBytes, usage) {
+				return resultWithUsage(), newOpenAIResponsesEmptyCompletedFailoverError(c, account, upstreamRequestID)
+			}
+			if firstTokenMs == nil && openAIStreamDataStartsVisibleOutput(trimmedData, eventType) {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
 				if firstOutputTimer != nil {
@@ -1766,7 +1858,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithFirstOutput
 			}
 		}
 	}
-	if firstTokenMs == nil && firstOutputTimedOut() {
+	if !firstOutputProgressObserved && firstOutputTimedOut() {
 		return resultWithUsage(), firstOutputTimeoutError()
 	}
 	if err := documentScanner.Err(); err != nil {

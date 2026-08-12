@@ -250,6 +250,36 @@ type UpdateAPIKeyRequest struct {
 	MaxGroupRateMultiplier *float64 `json:"max_group_rate_multiplier"`
 }
 
+func validateAPIKeyLimit(v float64) error {
+	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+		return infraerrors.BadRequest("API_KEY_LIMIT_INVALID", "API key limits must be finite and non-negative")
+	}
+	return nil
+}
+
+func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
+	for _, v := range []float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d} {
+		if err := validateAPIKeyLimit(v); err != nil {
+			return err
+		}
+	}
+	if req.ExpiresInDays != nil && *req.ExpiresInDays <= 0 {
+		return infraerrors.BadRequest("API_KEY_EXPIRY_INVALID", "expires_in_days must be greater than zero")
+	}
+	return nil
+}
+
+func validateUpdateAPIKeyRequest(req UpdateAPIKeyRequest) error {
+	for _, v := range []*float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d} {
+		if v != nil {
+			if err := validateAPIKeyLimit(*v); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // APIKeyService API Key服务
 // RateLimitCacheInvalidator invalidates rate limit cache entries on manual reset.
 type RateLimitCacheInvalidator interface {
@@ -436,7 +466,9 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 	if req.MaxGroupRateMultiplier < 0 || math.IsNaN(req.MaxGroupRateMultiplier) || math.IsInf(req.MaxGroupRateMultiplier, 0) {
 		return nil, ErrInvalidMaxGroupRateMultiplier
 	}
-
+	if err := validateCreateAPIKeyRequest(req); err != nil {
+		return nil, err
+	}
 	// 验证用户存在
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
@@ -767,6 +799,9 @@ func (s *APIKeyService) GetByKey(ctx context.Context, key string) (*APIKey, erro
 
 // Update 更新API Key
 func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req UpdateAPIKeyRequest) (*APIKey, error) {
+	if err := validateUpdateAPIKeyRequest(req); err != nil {
+		return nil, err
+	}
 	apiKey, err := s.apiKeyRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("get api key: %w", err)
