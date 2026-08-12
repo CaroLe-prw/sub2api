@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -236,6 +237,115 @@ func TestForwardAsChatCompletions_APIKeyPropagatesPromptCacheKeyInResponsesBody(
 	require.Equal(t, "https://api.openai.com/v1/responses", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer sk-compatible", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, generateSessionUUID(isolateOpenAISessionID(99, "cache-key-123")), upstream.lastReq.Header.Get("session_id"))
+}
+
+func TestForwardAsChatCompletions_APIKeyPoolInjectsAutoContextCompaction(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"stop after request capture"}}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := newOpenAIAutoContextCompactionTestAccount(map[string]any{
+		"openai_responses_supported":             true,
+		openAIContextCompactionSupportedExtraKey: true,
+	})
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "gpt-5.6-sol")
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, "compaction", gjson.GetBytes(upstream.lastBody, "context_management.0.type").String())
+	require.Equal(t, defaultOpenAIContextCompactionThreshold, gjson.GetBytes(upstream.lastBody, "context_management.0.compact_threshold").Int())
+	require.True(t, openAIAutoContextCompactionInjected(c))
+	require.True(t, openAIAutoContextCompactionMayFailover(c))
+}
+
+func TestForwardAsChatCompletions_ContextWindowFailureAfterAutoCompactionCanFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream_%t", stream), func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := []byte(fmt.Sprintf(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"large prompt"}],"stream":%t}`, stream))
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			upstreamBody := strings.Join([]string{
+				`data: {"type":"response.created","response":{"id":"resp_failed","model":"gpt-5.6-sol","status":"in_progress","output":[]}}`,
+				"",
+				`event: response.failed`,
+				`data: {"type":"response.failed","response":{"id":"resp_failed","object":"response","model":"gpt-5.6-sol","status":"failed","output":[],"error":{"code":"context_length_exceeded","type":"invalid_request_error","message":"Your input exceeds the context window of this model."}}}`,
+				"",
+			}, "\n")
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_chat_compact_overflow"}},
+				Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+			}}
+			svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+			account := newOpenAIAutoContextCompactionTestAccount(map[string]any{
+				"openai_responses_supported":             true,
+				openAIContextCompactionSupportedExtraKey: true,
+			})
+
+			result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "gpt-5.6-sol")
+
+			require.Error(t, err)
+			require.Nil(t, result)
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.False(t, c.Writer.Written(), "context failure must remain replayable before account failover")
+			require.Equal(t, "compaction", gjson.GetBytes(upstream.lastBody, "context_management.0.type").String())
+		})
+	}
+}
+
+func TestForwardAsChatCompletions_AutoCompactionRejectionRetriesWithoutField(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"` + strings.Repeat("x", openAIAutoContextCompactionMinBodyBytes) + `"}],"stream":false}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	upstreamBody := strings.Join([]string{
+		`data: {"type":"response.completed","response":{"id":"resp_ok","object":"response","model":"gpt-5.6-sol","status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"unknown_parameter","param":"context_management","message":"Unknown parameter: context_management"}}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_chat_compact_retry"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+		},
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := newOpenAIAutoContextCompactionTestAccount(map[string]any{"openai_responses_supported": true})
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "gpt-5.6-sol")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.bodies, 2)
+	require.True(t, gjson.GetBytes(upstream.bodies[0], "context_management").Exists())
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "context_management").Exists())
+	require.False(t, openAIAutoContextCompactionInjected(c))
+	require.False(t, openAIAutoContextCompactionMayFailover(c))
 }
 
 func TestForwardAsChatCompletions_OAuthDoesNotInjectDefaultInstructions(t *testing.T) {

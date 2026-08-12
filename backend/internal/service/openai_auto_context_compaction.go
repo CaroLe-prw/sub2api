@@ -102,9 +102,11 @@ func (a *Account) GetOpenAIContextCompactionThreshold() int64 {
 	return threshold
 }
 
-// applyOpenAIAutoContextCompactionToBody injects server-side compaction only
-// into API-key POST /responses traffic. Client-provided context_management is
-// authoritative and standalone /responses/compact has separate semantics.
+// applyOpenAIAutoContextCompactionToBody injects server-side compaction into
+// Responses-shaped API-key pool traffic, including Chat Completions requests
+// after they have been converted to Responses. Client-provided
+// context_management is authoritative and standalone /responses/compact has
+// separate semantics.
 func applyOpenAIAutoContextCompactionToBody(c *gin.Context, account *Account, body []byte) ([]byte, bool, error) {
 	setOpenAIAutoContextCompactionState(c, false, false)
 	if len(body) == 0 || account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey || !account.IsPoolMode() || isOpenAIResponsesCompactPath(c) {
