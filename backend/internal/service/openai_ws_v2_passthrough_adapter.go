@@ -674,6 +674,14 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
 		return err
 	}
+	firstClientMessage, _, err := stripOpenAIResponsesLiteWSMetadataForCompaction(firstClientMessage)
+	if err != nil {
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket compaction payload", err)
+	}
+	firstClientMessage, _, err = stripOpenAIResponsesLiteInputForCompaction(firstClientMessage)
+	if err != nil {
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket compaction payload", err)
+	}
 	if account.IsOpenAIOAuth() && isOpenAIResponsesLiteWebSocketPayload(firstClientMessage) {
 		liteFirstMessage, _, liteErr := normalizeOpenAIResponsesLiteToolsPayload(firstClientMessage)
 		if liteErr != nil {
@@ -961,6 +969,14 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}()
 			}
 			if isResponseCreate {
+				payload, _, filterErr = stripOpenAIResponsesLiteWSMetadataForCompaction(payload)
+				if filterErr != nil {
+					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket compaction payload", filterErr)
+				}
+				payload, _, filterErr = stripOpenAIResponsesLiteInputForCompaction(payload)
+				if filterErr != nil {
+					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket compaction payload", filterErr)
+				}
 				if account.IsOpenAIOAuth() && isOpenAIResponsesLiteWebSocketPayload(payload) {
 					litePayload, _, liteErr := normalizeOpenAIResponsesLiteToolsPayload(payload)
 					if liteErr != nil {

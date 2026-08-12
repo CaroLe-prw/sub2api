@@ -501,6 +501,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 			}
 		}
 	}
+	if isOpenAIServerSideCompactionRequest(c, body) {
+		req.Header.Del(responsesLiteHeader)
+	}
 
 	// 覆盖入站鉴权残留，并注入上游认证
 	req.Header.Del("authorization")

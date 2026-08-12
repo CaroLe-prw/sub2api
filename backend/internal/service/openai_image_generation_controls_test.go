@@ -154,6 +154,24 @@ func TestOpenAIBuildUpstreamRequestOpenAIPassthroughForwardsResponsesLiteHeader(
 	require.Equal(t, "true", req.Header.Get(responsesLiteHeader))
 }
 
+func TestOpenAIBuildUpstreamRequestOpenAIPassthroughStripsResponsesLiteForCompaction(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.98.0")
+	c.Request.Header.Set(responsesLiteHeader, "true")
+
+	svc := newOpenAIImageGenerationControlTestService(&httpUpstreamRecorder{})
+	req, err := svc.buildUpstreamRequestOpenAIPassthrough(
+		c.Request.Context(),
+		c,
+		newOpenAIImageGenerationControlTestAccount(),
+		[]byte(`{"model":"gpt-5.6-sol","input":[{"type":"compaction_trigger"}]}`),
+		"test-token",
+	)
+
+	require.NoError(t, err)
+	require.Empty(t, req.Header.Get(responsesLiteHeader))
+}
+
 func TestOpenAIGatewayServiceForward_ExplicitImageToolWorksWithBridgeDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

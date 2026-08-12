@@ -29,16 +29,10 @@ const (
 	// The official compaction guide uses 200k as its reference threshold. It is
 	// deliberately conservative for long Codex sessions and can be overridden
 	// per account through accounts.extra.
-	defaultOpenAIContextCompactionThreshold int64 = 200_000
-	// Unknown third-party providers are probed lazily only once a stateless body
-	// is large enough to benefit. This keeps ordinary short passthrough requests
-	// byte-for-byte compatible while catching long contexts well before the
-	// multi-megabyte failure observed in production.
-	openAIAutoContextCompactionMinBodyBytes = 256 << 10
-
-	openAIAutoContextCompactionInjectedKey        = "openai_auto_context_compaction_injected"
-	openAIAutoContextCompactionFailoverAllowedKey = "openai_auto_context_compaction_failover_allowed"
-	openAIContextCompactionObservationTimeout     = 2 * time.Second
+	defaultOpenAIContextCompactionThreshold       int64 = 200_000
+	openAIAutoContextCompactionInjectedKey              = "openai_auto_context_compaction_injected"
+	openAIAutoContextCompactionFailoverAllowedKey       = "openai_auto_context_compaction_failover_allowed"
+	openAIContextCompactionObservationTimeout           = 2 * time.Second
 )
 
 func normalizeOpenAIContextCompactionMode(mode string) string {
@@ -109,7 +103,8 @@ func (a *Account) GetOpenAIContextCompactionThreshold() int64 {
 // separate semantics.
 func applyOpenAIAutoContextCompactionToBody(c *gin.Context, account *Account, body []byte) ([]byte, bool, error) {
 	setOpenAIAutoContextCompactionState(c, false, false)
-	if len(body) == 0 || account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey || !account.IsPoolMode() || isOpenAIResponsesCompactPath(c) {
+	responsesLite := c != nil && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader))
+	if len(body) == 0 || account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey || !account.IsPoolMode() || isOpenAIResponsesCompactPath(c) || responsesLite {
 		return body, false, nil
 	}
 	// A pool may contain providers with different effective context windows.
@@ -117,15 +112,15 @@ func applyOpenAIAutoContextCompactionToBody(c *gin.Context, account *Account, bo
 	// error even when this account has already rejected context_management.
 	failoverAllowed := !gjson.GetBytes(body, "previous_response_id").Exists()
 	setOpenAIAutoContextCompactionState(c, false, failoverAllowed)
-	previousResponsePresent := gjson.GetBytes(body, "previous_response_id").Exists()
 	if gjson.GetBytes(body, "context_management").Exists() {
 		return body, false, nil
 	}
 	supported, known := account.OpenAIContextCompactionSupportKnown()
-	if known && !supported {
-		return body, false, nil
-	}
-	if !known && !previousResponsePresent && len(body) < openAIAutoContextCompactionMinBodyBytes {
+	// Do not probe an unknown provider with production traffic. Responses Lite
+	// and many compatible gateways accept /responses but reject server-side
+	// compaction, and their rejection shape is not standardized enough for a
+	// reliable transparent retry.
+	if !known || !supported {
 		return body, false, nil
 	}
 

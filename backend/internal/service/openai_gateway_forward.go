@@ -57,7 +57,20 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if toolSchemaSanitized {
 		body = sanitizedToolBody
 	}
-	if account.IsOpenAIOAuth() && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) {
+	serverSideCompaction := isOpenAIServerSideCompactionRequest(c, body)
+	if serverSideCompaction && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) {
+		compactionBody, changed, compactErr := stripOpenAIResponsesLiteInput(body)
+		if compactErr != nil {
+			return nil, compactErr
+		}
+		if changed {
+			body = compactionBody
+		}
+	}
+	responsesLiteActive := account.IsOpenAIOAuth() &&
+		isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) &&
+		!serverSideCompaction
+	if responsesLiteActive {
 		liteBody, changed, liteErr := normalizeOpenAIResponsesLiteToolsPayload(body)
 		if liteErr != nil {
 			setOpsUpstreamError(c, http.StatusBadRequest, liteErr.Error(), "")
@@ -258,7 +271,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		imageGenerationAllowed = GroupAllowsImageGeneration(apiKey.Group)
 	}
 	codexImageGenerationBridgeEnabled := isCodexCLI &&
-		!isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) &&
+		!responsesLiteActive &&
+		!serverSideCompaction &&
 		imageGenerationAllowed &&
 		codexImageGenerationExplicitToolPolicy != codexImageGenerationExplicitToolPolicyStrip &&
 		s.isCodexImageGenerationBridgeEnabled(ctx, account, apiKey)
@@ -1153,6 +1167,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 				req.Header.Add(key, v)
 			}
 		}
+	}
+	if isOpenAIServerSideCompactionRequest(c, body) {
+		req.Header.Del(responsesLiteHeader)
 	}
 	if account.Type == AccountTypeOAuth {
 		compatMessagesBridge := isOpenAICompatMessagesBridgeContext(c) || isOpenAICompatMessagesBridgeBody(body)

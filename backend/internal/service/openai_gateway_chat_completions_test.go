@@ -315,7 +315,7 @@ func TestForwardAsChatCompletions_AutoCompactionRejectionRetriesWithoutField(t *
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"` + strings.Repeat("x", openAIAutoContextCompactionMinBodyBytes) + `"}],"stream":false}`)
+	body := []byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"` + strings.Repeat("x", 256<<10) + `"}],"stream":false}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	upstreamBody := strings.Join([]string{
@@ -335,7 +335,10 @@ func TestForwardAsChatCompletions_AutoCompactionRejectionRetriesWithoutField(t *
 		},
 	}}
 	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
-	account := newOpenAIAutoContextCompactionTestAccount(map[string]any{"openai_responses_supported": true})
+	account := newOpenAIAutoContextCompactionTestAccount(map[string]any{
+		"openai_responses_supported":             true,
+		openAIContextCompactionSupportedExtraKey: true,
+	})
 
 	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "gpt-5.6-sol")
 
