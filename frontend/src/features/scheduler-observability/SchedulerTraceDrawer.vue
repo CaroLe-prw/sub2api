@@ -138,7 +138,7 @@ function percent(value: number): string {
           @click="close"
         ></button>
         <aside class="absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-dark-700 dark:bg-dark-900">
-          <header class="flex shrink-0 items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 dark:border-dark-700 sm:px-6">
+          <header class="flex shrink-0 items-start justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-dark-700 sm:gap-4 sm:px-6 sm:py-4">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
                 <h2 :id="`scheduler-trace-title-${trace.id}`" class="text-base font-semibold text-gray-950 dark:text-white">
@@ -164,7 +164,7 @@ function percent(value: number): string {
             </button>
           </header>
 
-          <div class="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+          <div class="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 sm:px-6 sm:py-5">
             <section class="grid grid-cols-2 gap-3 sm:grid-cols-4" :aria-label="t('admin.schedulerObservability.drawer.requestContext')">
               <div class="rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-dark-700 dark:bg-dark-800/70">
                 <p class="text-[10px] font-medium uppercase tracking-wide text-gray-500 dark:text-dark-400">{{ t("admin.schedulerObservability.drawer.session") }}</p>
@@ -188,8 +188,8 @@ function percent(value: number): string {
               </div>
             </section>
 
-            <section class="mt-3 grid grid-cols-3 gap-3" :aria-label="t('admin.schedulerObservability.drawer.timing')">
-              <div class="rounded-xl border border-gray-200 px-3 py-2.5 dark:border-dark-700">
+            <section class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3" :aria-label="t('admin.schedulerObservability.drawer.timing')">
+              <div class="col-span-2 rounded-xl border border-gray-200 px-3 py-2.5 dark:border-dark-700 sm:col-span-1">
                 <p class="text-[10px] text-gray-500 dark:text-dark-400">{{ t("admin.schedulerObservability.drawer.attemptTtft") }}</p>
                 <p class="mt-1 font-mono text-xs font-semibold tabular-nums text-gray-800 dark:text-dark-100">
                   {{ trace.firstTokenMs == null ? "—" : `${trace.firstTokenMs}ms` }}
@@ -265,8 +265,8 @@ function percent(value: number): string {
               <p v-if="trace.candidateScope === 'sticky_short_circuit'" class="mt-2 text-[11px] leading-4 text-gray-500 dark:text-dark-400">
                 {{ t('admin.schedulerObservability.drawer.stickyShortCircuitHint') }}
               </p>
-              <div class="mt-3 overflow-hidden rounded-xl border border-gray-200 dark:border-dark-700">
-                <table class="w-full text-left">
+              <div class="mt-3 overflow-x-auto rounded-xl border border-gray-200 dark:border-dark-700">
+                <table class="min-w-[560px] w-full text-left">
                   <thead class="bg-gray-50 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:bg-dark-800 dark:text-dark-400">
                     <tr>
                       <th class="px-3 py-2.5">{{ t("admin.schedulerObservability.drawer.account") }}</th>
