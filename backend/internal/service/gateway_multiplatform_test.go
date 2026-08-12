@@ -2198,6 +2198,38 @@ func (m *mockConcurrencyCache) GetUsersLoadBatch(ctx context.Context, users []Us
 func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 	ctx := context.Background()
 
+	t.Run("传统策略观测保留全部可用候选", func(t *testing.T) {
+		repo := &mockAccountRepoForPlatform{
+			accounts: []Account{
+				{ID: 310, Name: "supeai-kiro", Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true, Concurrency: 5},
+				{ID: 311, Name: "kiro-backup-a", Platform: PlatformAnthropic, Priority: 2, Status: StatusActive, Schedulable: true, Concurrency: 5},
+				{ID: 312, Name: "kiro-backup-b", Platform: PlatformAnthropic, Priority: 3, Status: StatusActive, Schedulable: true, Concurrency: 5},
+			},
+			accountsByID: map[int64]*Account{},
+		}
+		for i := range repo.accounts {
+			repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+		}
+
+		cfg := testConfig()
+		cfg.Gateway.Scheduling.LoadBatchEnabled = true
+		svc := &GatewayService{
+			accountRepo:        repo,
+			cache:              &mockGatewayCacheForPlatform{},
+			cfg:                cfg,
+			concurrencyService: NewConcurrencyService(&mockConcurrencyCache{}),
+		}
+
+		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "", "claude-opus-4-6", nil, "", 0)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Equal(t, int64(310), result.Account.ID)
+		require.NotNil(t, result.SchedulerDecision)
+		require.Equal(t, 3, result.SchedulerDecision.CandidateCount)
+		require.Len(t, result.SchedulerDecision.Candidates, 3)
+		require.Equal(t, "selected", result.SchedulerDecision.Candidates[0].State)
+	})
+
 	t.Run("禁用负载批量查询-降级到传统选择", func(t *testing.T) {
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{

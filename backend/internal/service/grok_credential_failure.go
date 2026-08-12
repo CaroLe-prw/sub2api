@@ -21,7 +21,8 @@ const (
 	grokCredentialMutationConfirmWait = 250 * time.Millisecond
 	grokCredentialCacheCleanupTimeout = 500 * time.Millisecond
 
-	GrokCredentialUnavailableClientMessage = "No healthy Grok OAuth account is currently available"
+	GrokCredentialUnavailableClientMessage   = "No healthy Grok OAuth account is currently available"
+	OpenAICredentialUnavailableClientMessage = "No healthy OpenAI account is currently available"
 
 	GrokCredentialReasonRevoked          GatewayFailureReason = "grok_oauth_credential_revoked"
 	GrokCredentialReasonMissing          GatewayFailureReason = "grok_oauth_credentials_missing"
@@ -33,6 +34,7 @@ const (
 	GrokCredentialReasonAccountChanged   GatewayFailureReason = "grok_oauth_account_state_changed"
 	GrokCredentialReasonStateUpdate      GatewayFailureReason = "grok_oauth_account_state_update_failed"
 	GrokCredentialReasonFailoverTimeout  GatewayFailureReason = "grok_oauth_failover_timeout"
+	OpenAICredentialReasonUnavailable    GatewayFailureReason = "openai_credentials_unavailable"
 )
 
 var errGrokCredentialStateUpdateFailed = errors.New("grok oauth account state update failed")
@@ -104,7 +106,17 @@ func (s *OpenAIGatewayService) getRequestCredential(ctx context.Context, c *gin.
 		return "", "", errors.New("account is nil")
 	}
 	if !account.IsGrokOAuth() {
-		return s.GetAccessToken(ctx, account)
+		token, kind, err := s.GetAccessToken(ctx, account)
+		if err == nil {
+			return token, kind, nil
+		}
+		if ctx.Err() != nil {
+			return "", "", ctx.Err()
+		}
+		if account.Platform == PlatformOpenAI {
+			return "", "", s.newOpenAICredentialFailover(c, account)
+		}
+		return "", "", err
 	}
 	if err := ctx.Err(); err != nil {
 		return "", "", err
@@ -212,6 +224,26 @@ func (s *OpenAIGatewayService) getRequestCredential(ctx context.Context, c *gin.
 		}
 	}
 	return "", "", s.newGrokCredentialFailover(c, account, class)
+}
+
+func (s *OpenAIGatewayService) newOpenAICredentialFailover(c *gin.Context, account *Account) error {
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform:  PlatformOpenAI,
+		AccountID: account.ID,
+		Stage:     string(GatewayFailureStageAccountAuth),
+		Scope:     string(GatewayFailureScopeAccount),
+		Reason:    string(OpenAICredentialReasonUnavailable),
+		Kind:      "credential_failover",
+		Message:   "OpenAI account credentials are unavailable",
+	})
+	return &UpstreamFailoverError{
+		Stage:             GatewayFailureStageAccountAuth,
+		Scope:             GatewayFailureScopeAccount,
+		Reason:            OpenAICredentialReasonUnavailable,
+		NextAccountAction: NextAccountRetry,
+		ClientStatusCode:  http.StatusServiceUnavailable,
+		ClientMessage:     OpenAICredentialUnavailableClientMessage,
+	}
 }
 
 func grokCredentialAcquisitionContext(ctx context.Context, c *gin.Context) (context.Context, context.CancelFunc, bool) {

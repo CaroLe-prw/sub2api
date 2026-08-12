@@ -144,6 +144,68 @@ func gatewayGroupSchedulerUsesWeightedSticky(ctx context.Context) bool {
 	return ok && policy.config.StickyWeightedEnabled
 }
 
+func captureGatewayLegacyCandidates(ctx context.Context, candidates []accountWithLoad) {
+	observation := gatewayScheduleObservationFromContext(ctx)
+	if observation == nil || len(candidates) == 0 {
+		return
+	}
+
+	ranked := append([]accountWithLoad(nil), candidates...)
+	sort.SliceStable(ranked, func(i, j int) bool {
+		a, b := ranked[i], ranked[j]
+		if a.account == nil {
+			return false
+		}
+		if b.account == nil {
+			return true
+		}
+		if a.account.Priority != b.account.Priority {
+			return a.account.Priority < b.account.Priority
+		}
+		aLoad, bLoad := 0, 0
+		if a.loadInfo != nil {
+			aLoad = a.loadInfo.LoadRate
+		}
+		if b.loadInfo != nil {
+			bLoad = b.loadInfo.LoadRate
+		}
+		if aLoad != bLoad {
+			return aLoad < bLoad
+		}
+		switch {
+		case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
+			return true
+		case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
+			return false
+		case a.account.LastUsedAt != nil && b.account.LastUsedAt != nil:
+			return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
+		default:
+			return a.account.ID < b.account.ID
+		}
+	})
+	if len(ranked) > 12 {
+		ranked = ranked[:12]
+	}
+
+	observed := make([]OpenAISchedulerObservabilityCandidate, 0, len(ranked))
+	for _, candidate := range ranked {
+		if candidate.account == nil {
+			continue
+		}
+		observed = append(observed, OpenAISchedulerObservabilityCandidate{
+			AccountID:   candidate.account.ID,
+			AccountName: candidate.account.Name,
+			Rank:        len(observed) + 1,
+			State:       "eligible",
+		})
+	}
+	observation.decision = OpenAIAccountScheduleDecision{
+		Layer:          openAIAccountScheduleLayerLoadBalance,
+		CandidateCount: len(observed),
+		Candidates:     observed,
+	}
+}
+
 // gatewaySchedulingCostFactors normalizes the durable account billing
 // multiplier for every token platform. Lower upstream cost receives a higher
 // factor. Equal-cost pools remain neutral so cost weight becomes an exact no-op.
@@ -199,7 +261,11 @@ func buildGatewayGroupSelectionOrder(
 	requestedModel string,
 ) ([]accountWithLoad, bool) {
 	policy, ok := gatewayGroupSchedulerPolicyFromContext(ctx)
-	if !ok || len(candidates) == 0 {
+	if len(candidates) == 0 {
+		return nil, false
+	}
+	if !ok {
+		captureGatewayLegacyCandidates(ctx, candidates)
 		return nil, false
 	}
 

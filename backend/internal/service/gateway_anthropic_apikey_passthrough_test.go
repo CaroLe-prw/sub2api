@@ -1663,6 +1663,10 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_TransportErrorRecordsOllamaAc
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	_, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, ollama, []byte(`{"model":"x"}`), "x", "x", false, time.Now())
 	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr, "Anthropic API Key 透传的传输超时应切换候选账号")
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.Equal(t, 0, rec.Body.Len(), "切号前不应把兜底错误提前写给客户端")
 
 	rec2 := httptest.NewRecorder()
 	c2, _ := gin.CreateTestContext(rec2)

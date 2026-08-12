@@ -127,6 +127,34 @@ func TestBuildGatewayGroupSelectionOrderCapturesObservableScores(t *testing.T) {
 	require.Greater(t, observation.decision.Candidates[0].TotalScore, observation.decision.Candidates[1].TotalScore)
 }
 
+func TestBuildGatewayGroupSelectionOrderCapturesLegacyCandidates(t *testing.T) {
+	groupID := int64(15)
+	first := &Account{ID: 310, Name: "supeai-kiro", Platform: PlatformAnthropic, Priority: 1}
+	second := &Account{ID: 311, Name: "kiro-backup", Platform: PlatformAnthropic, Priority: 2}
+	ctx := withGatewayScheduleObservation(context.Background(), 0)
+
+	order, ok := buildGatewayGroupSelectionOrder(
+		ctx,
+		&groupID,
+		[]accountWithLoad{
+			{account: first, loadInfo: &AccountLoadInfo{AccountID: first.ID, LoadRate: 10}},
+			{account: second, loadInfo: &AccountLoadInfo{AccountID: second.ID, LoadRate: 20}},
+		},
+		0,
+		"session",
+		"claude-opus-4-6",
+	)
+
+	require.False(t, ok, "未启用高级评分时必须保持原调度顺序")
+	require.Nil(t, order)
+	observation := gatewayScheduleObservationFromContext(ctx)
+	require.NotNil(t, observation)
+	require.Equal(t, 2, observation.decision.CandidateCount)
+	require.Len(t, observation.decision.Candidates, 2, "传统调度也应展示全部可用候选，而不是只补最终账号")
+	require.Equal(t, first.ID, observation.decision.Candidates[0].AccountID)
+	require.Equal(t, second.ID, observation.decision.Candidates[1].AccountID)
+}
+
 func TestGatewayGroupSchedulerWeightedStickyIsAWeightNotHardHit(t *testing.T) {
 	groupID := int64(11)
 	sticky := &Account{ID: 1, Platform: PlatformGemini, Priority: 1}
