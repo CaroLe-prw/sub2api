@@ -69,6 +69,19 @@ func TestOpenAIStreamInvalidRequestClientFaultStillPassesThrough(t *testing.T) {
 	require.False(t, isOpenAIStreamRetryableUpstreamFailure(payload, "Invalid value for temperature"))
 }
 
+func TestOpenAIStreamFailedWithUsageMustNotReplay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	svc := &OpenAIGatewayService{}
+	payload := []byte(`{"type":"response.failed","response":{"error":{"type":"server_error","message":"Upstream failed"},"usage":{"input_tokens":11,"output_tokens":3}}}`)
+
+	err := svc.newOpenAIStreamFailoverError(c, &Account{ID: 9, Platform: PlatformOpenAI}, false, "req_billed", payload, "Upstream failed")
+
+	require.True(t, err.BillingExposurePossible)
+	require.False(t, err.ShouldRetryNextAccount())
+}
+
 func TestOpenAIStreamItemNotPersistedRequestsOneRepairRetry(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}

@@ -257,7 +257,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthroughAttempt(
 		var headerGuard *openAIFirstOutputHeaderGuard
 		if firstOutputTimeout > 0 {
 			upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
-				upstreamCtx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
+				upstreamCtx, ctx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
 			)
 		}
 		upstreamReq, buildErr := s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, body, token)
@@ -307,7 +307,8 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthroughAttempt(
 		probeBody := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(probeBody))
-		if !agentTaskRecoveryTried && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, probeBody) {
+		clientCanceled := ctx != nil && ctx.Err() != nil
+		if !clientCanceled && !agentTaskRecoveryTried && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, probeBody) {
 			agentTaskRecoveryTried = true
 			expectedTaskID := account.GetCredential("task_id")
 			if recoveryErr := s.recoverAgentIdentityTask(ctx, account, expectedTaskID); recoveryErr != nil {
@@ -319,7 +320,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthroughAttempt(
 		// 透传模式默认保持原样代理；容量错误以及 API-key 上游的瞬时
 		// 5xx 应先触发多账号 failover，且此时尚未写入下游响应。
 		// probeBody 已在上方任务探测时读取过一次，直接复用避免重复读取。
-		if autoContextCompactionInjected {
+		if !clientCanceled && autoContextCompactionInjected {
 			retryBody, rejected, retryErr := openAIContextCompactionRejectedRetryBody(resp.StatusCode, body, probeBody)
 			if retryErr != nil {
 				return nil, fmt.Errorf("normalize rejected passthrough context_management retry body: %w", retryErr)
@@ -360,7 +361,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthroughAttempt(
 			reasoningEffortValue, firstOutputTimeout,
 		)
 		if err != nil {
-			if result == nil || !result.clientDisconnect {
+			if result == nil || (!result.clientDisconnect && (result.usage == nil || !result.usage.HasBillableUnits())) {
 				return nil, err
 			}
 			forwardErr = err
@@ -410,7 +411,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthroughAttempt(
 		OpenAIWSMode:                  false,
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
-		ClientDisconnect:              clientDisconnect,
+		ClientDisconnect:              clientDisconnect || (c != nil && c.Request != nil && c.Request.Context().Err() != nil),
 	}
 	if imageCount > 0 {
 		forwardResult.ImageCount = imageCount
@@ -1595,6 +1596,9 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverError(
 		RequestScopedTransient:                 isOpenAIStreamRequestScopedCapacityError(payload, message),
 		RetryableOnSameAccountIfNoOtherAccount: retryableIfNoOtherAccount,
 	}
+	if usage, ok := extractOpenAIUsageFromJSONBytes(payload); ok && usage.HasBillableUnits() {
+		failoverErr.BillingExposurePossible = true
+	}
 	if isOpenAIResponsesItemNotPersistedError(payload, message) {
 		failoverErr.RetryableOnSameAccount = true
 		failoverErr.MinimumSameAccountRetries = 1
@@ -1709,6 +1713,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithFirstOutput
 			remaining = time.Nanosecond
 		}
 		firstOutputTimer = time.AfterFunc(remaining, func() {
+			if c != nil && c.Request != nil && c.Request.Context().Err() != nil {
+				return
+			}
 			close(firstOutputTimeoutFired)
 			_ = resp.Body.Close()
 		})
@@ -1735,7 +1742,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithFirstOutput
 			usage:            usage,
 			firstTokenMs:     firstTokenMs,
 			responseID:       responseID,
-			clientDisconnect: clientDisconnected,
+			clientDisconnect: clientDisconnected || (c != nil && c.Request != nil && c.Request.Context().Err() != nil),
 			imageCount:       imageCounter.Count(),
 			imageOutputSizes: imageCounter.Sizes(),
 		}

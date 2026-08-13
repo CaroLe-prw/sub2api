@@ -195,7 +195,7 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	var headerGuard *openAIFirstOutputHeaderGuard
 	if firstOutputTimeout > 0 {
 		upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
-			upstreamCtx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
+			upstreamCtx, ctx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
 		)
 	}
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))

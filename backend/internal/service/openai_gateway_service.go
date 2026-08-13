@@ -229,6 +229,11 @@ type OpenAIUsage struct {
 	ImageOutputTokens        int `json:"image_output_tokens,omitempty"`
 }
 
+func (u OpenAIUsage) HasBillableUnits() bool {
+	return u.InputTokens > 0 || u.ImageInputTokens > 0 || u.OutputTokens > 0 ||
+		u.CacheCreationInputTokens > 0 || u.CacheReadInputTokens > 0 || u.ImageOutputTokens > 0
+}
+
 // OpenAIForwardResult represents the result of forwarding
 type OpenAIForwardResult struct {
 	RequestID  string
@@ -286,6 +291,13 @@ type OpenAIForwardResult struct {
 
 	wsReplayInput       []json.RawMessage
 	wsReplayInputExists bool
+}
+
+// HasBillableUsage reports whether an attempt returned units that must be
+// settled even when its terminal outcome is an error.
+func (r *OpenAIForwardResult) HasBillableUsage() bool {
+	return r != nil && (r.Usage.HasBillableUnits() || r.ImageCount > 0 || r.VideoCount > 0 ||
+		r.SearchCount > 0 || r.WebSearchCalls > 0 || r.AudioUsage != nil)
 }
 
 // SucceededForScheduling reports whether this result is an upstream success

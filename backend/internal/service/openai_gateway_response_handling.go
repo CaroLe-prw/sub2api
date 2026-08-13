@@ -236,6 +236,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		firstOutputTimer = nil
 		firstOutputCh = nil
 	}
+	var clientDoneCh <-chan struct{}
+	if c != nil && c.Request != nil {
+		clientDoneCh = c.Request.Context().Done()
+	}
 	// Track downstream writes separately from upstream reads: pre-output failover
 	// can buffer response.created / response.in_progress, so keepalive must be
 	// based on downstream idle time.
@@ -347,7 +351,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			usage:            usage,
 			firstTokenMs:     firstTokenMs,
 			responseID:       responseID,
-			clientDisconnect: clientDisconnected,
+			clientDisconnect: clientDisconnected || (c != nil && c.Request != nil && c.Request.Context().Err() != nil),
 			imageCount:       imageCounter.Count(),
 			imageOutputSizes: imageCounter.Sizes(),
 			searchCount:      searchCounter,
@@ -766,6 +770,12 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 
 	for {
 		select {
+		case <-clientDoneCh:
+			clientDisconnected = true
+			clientDoneCh = nil
+			stopFirstOutputTimer()
+			continue
+
 		case ev, ok := <-events:
 			if !ok {
 				if guardFirstOutput && eventInProgress {

@@ -277,14 +277,15 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
-		if !agentIdentityTaskRecoveryWasTried(ctx) && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, respBody) {
+		clientCanceled := ctx != nil && ctx.Err() != nil
+		if !clientCanceled && !agentIdentityTaskRecoveryWasTried(ctx) && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, respBody) {
 			expectedTaskID := account.GetCredential("task_id")
 			if err := s.recoverAgentIdentityTask(ctx, account, expectedTaskID); err != nil {
 				return nil, fmt.Errorf("agent identity task recovery failed: %w", err)
 			}
 			return s.ForwardAsChatCompletions(markAgentIdentityTaskRecoveryTried(ctx), c, account, body, promptCacheKey, defaultMappedModel)
 		}
-		if account.Type == AccountTypeAPIKey &&
+		if !clientCanceled && account.Type == AccountTypeAPIKey &&
 			openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown &&
 			!isResponsesEndpointSupportedByStatus(resp.StatusCode) {
 			logger.L().Info("openai chat_completions: /responses unsupported, falling back to raw chat completions",
@@ -363,7 +364,7 @@ func (s *OpenAIGatewayService) sendOpenAIChatResponsesRequest(
 		var headerGuard *openAIFirstOutputHeaderGuard
 		if firstOutputTimeout > 0 {
 			upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
-				upstreamCtx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
+				upstreamCtx, ctx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
 			)
 		}
 		upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, body, token, true, promptCacheKey, false)
@@ -616,6 +617,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponseWithReasoning(
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		Stream:                        false,
 		Duration:                      time.Since(startTime),
+		ClientDisconnect:              c != nil && c.Request != nil && c.Request.Context().Err() != nil,
 	}
 	// Grok chat bridge: bill native search tools found in the terminal Responses body.
 	if account != nil && account.IsGrok() && finalResponse != nil {
@@ -715,6 +717,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponseWithReasoning(
 			Stream:                        true,
 			Duration:                      time.Since(startTime),
 			FirstTokenMs:                  firstTokenMs,
+			ClientDisconnect:              clientDisconnected || (c != nil && c.Request != nil && c.Request.Context().Err() != nil),
 		}
 		if searchCount > 0 {
 			out.SearchCount = searchCount
@@ -1075,13 +1078,22 @@ func (s *OpenAIGatewayService) handleChatStreamingResponseWithReasoning(
 		if firstOutputTimer == nil {
 			return
 		}
-		if firstOutputTimer.Stop() {
-			firstOutputCh = nil
-		}
+		firstOutputTimer.Stop()
+		firstOutputCh = nil
+	}
+	var clientDoneCh <-chan struct{}
+	if c != nil && c.Request != nil {
+		clientDoneCh = c.Request.Context().Done()
 	}
 
 	for {
 		select {
+		case <-clientDoneCh:
+			clientDisconnected = true
+			clientDoneCh = nil
+			stopFirstOutputTimer()
+			continue
+
 		case ev, ok := <-events:
 			if !ok {
 				if frame, ok := parser.Finish(); ok {
