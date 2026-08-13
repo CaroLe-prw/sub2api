@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { PoolMonitorAccount, PoolProbeResult } from '@/api/admin/channelMonitor'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { formatDateTime } from '@/utils/format'
+import MonitorHeartbeatTooltip from './MonitorHeartbeatTooltip.vue'
 import type { ProbeHistoryByPlan } from './monitorDataTypes'
 
 const props = defineProps<{
@@ -37,9 +37,6 @@ function history(planId: number): PoolProbeResult[] {
   return props.histories[planId] ?? []
 }
 
-function resultClass(status: PoolProbeResult['status']): string {
-  return status === 'success' ? 'bg-emerald-400' : 'bg-red-500'
-}
 </script>
 
 <template>
@@ -83,7 +80,7 @@ function resultClass(status: PoolProbeResult['status']): string {
               <div class="flex items-center gap-4"><span class="text-xs tabular-nums text-gray-500">{{ model.latency_ms == null ? '-' : `${model.latency_ms}ms` }}</span><span class="text-xs font-semibold tabular-nums text-emerald-500">{{ model.availability == null ? '-' : `${model.availability.toFixed(1)}%` }}</span><button type="button" class="btn btn-secondary btn-sm" :disabled="runningPlanId != null" @click="emit('run', model.plan_id)"><Icon name="refresh" size="xs" :class="runningPlanId === model.plan_id ? 'animate-spin' : ''" />{{ t('admin.channelMonitor.runNow') }}</button></div>
             </div>
             <div class="mt-3 flex h-5 items-end gap-1 overflow-hidden" :aria-label="t('admin.channelMonitor.dataPanel.recentTrend')">
-              <span v-for="sample in [...history(model.plan_id)].reverse().slice(-60)" :key="sample.id" class="h-3 min-w-2 flex-1 rounded-sm" :class="resultClass(sample.status)" :title="`${formatDateTime(sample.finished_at)} · ${sample.latency_ms}ms`" />
+              <MonitorHeartbeatTooltip v-for="sample in [...history(model.plan_id)].reverse().slice(-60)" :key="sample.id" :sample="sample" />
               <span v-if="history(model.plan_id).length === 0" class="text-xs text-gray-400">{{ t('admin.channelMonitor.dataPanel.noHistory') }}</span>
             </div>
           </article>

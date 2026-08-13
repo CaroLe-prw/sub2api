@@ -185,6 +185,7 @@ export interface PoolProbeResult {
   status: 'success' | 'failed'
   response_text: string
   error_message: string
+  ttft_ms: number | null
   latency_ms: number
   started_at: string
   finished_at: string
