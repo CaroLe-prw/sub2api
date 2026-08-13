@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PoolMonitorAccount, PoolProbeHeartbeat } from '@/api/admin/channelMonitor'
+import type { PoolMonitorAccount } from '@/api/admin/channelMonitor'
 import Pagination from '@/components/common/Pagination.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatRelativeTime } from '@/utils/format'
 import MonitorCompactHeartbeatStrip from './MonitorCompactHeartbeatStrip.vue'
+import type { HeartbeatSource } from './monitorHeartbeatAggregation'
 import type { MonitorModelRow } from './monitorDataTypes'
 
 interface MonitorModelGroup {
@@ -83,11 +84,11 @@ function setGroupPage(page: number) {
   expandedModel.value = null
 }
 
-function recentResults(group: MonitorModelGroup): PoolProbeHeartbeat[] {
-  return group.rows
-    .flatMap((row) => row.probe.recent_results ?? [])
-    .sort((left, right) => Date.parse(left.finished_at) - Date.parse(right.finished_at))
-    .slice(-18)
+function heartbeatSources(group: MonitorModelGroup): HeartbeatSource[] {
+  return group.rows.map((row) => ({
+    id: String(row.account.account_id),
+    samples: row.probe.recent_results ?? [],
+  }))
 }
 
 function channelPage(model: string): number {
@@ -136,7 +137,7 @@ function pagedRows(group: MonitorModelGroup): MonitorModelRow[] {
             {{ t('admin.channelMonitor.dataPanel.modelGroupHealthy', { healthy: healthyCount(group), total: group.rows.length }) }}
           </span>
         </div>
-        <div class="mt-2"><MonitorCompactHeartbeatStrip :samples="recentResults(group)" /></div>
+        <div class="mt-2"><MonitorCompactHeartbeatStrip :sources="heartbeatSources(group)" coverage-unit="channel" /></div>
       </article>
     </div>
 

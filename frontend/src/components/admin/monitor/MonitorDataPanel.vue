@@ -163,6 +163,7 @@ onMounted(load)
         </div>
         <input v-model="search" type="search" class="input sm:max-w-xs" :placeholder="t('admin.channelMonitor.dataPanel.searchPlaceholder')" />
       </div>
+      <p class="mt-2 text-[10px] text-gray-400">{{ t('admin.channelMonitor.dataPanel.heartbeatLegend') }}</p>
     </header>
 
     <div v-if="loading && accounts.length === 0" class="flex min-h-52 items-center justify-center text-gray-400"><Icon name="refresh" size="lg" class="animate-spin" /></div>
