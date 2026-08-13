@@ -2,6 +2,7 @@
 import { computed, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatDateTime } from '@/utils/format'
+import { firstTokenSeverity, LATENCY_TEXT_CLASSES } from '@/utils/latencyHealth'
 import type { AggregateHeartbeatBucket } from './monitorHeartbeatAggregation'
 
 const props = defineProps<{
@@ -18,6 +19,7 @@ const position = shallowRef({ top: '0px', left: '0px' })
 const statusLabel = computed(() => t(`admin.channelMonitor.dataPanel.aggregateStatus.${props.bucket.status}`))
 const resultBreakdownLabel = computed(() => t('admin.channelMonitor.dataPanel.aggregateBreakdown', {
   healthy: props.bucket.healthyCount,
+  slow: props.bucket.slowCount,
   failed: props.bucket.failedCount,
 }))
 const coverageLabel = computed(() => t(
@@ -27,6 +29,9 @@ const coverageLabel = computed(() => t(
 const slowestTtftLabel = computed(() => props.bucket.slowestTtftMs == null
   ? t('admin.channelMonitor.dataPanel.unavailable')
   : `${props.bucket.slowestTtftMs}ms`)
+const slowestTtftClass = computed(() => props.bucket.slowestTtftMs == null
+  ? ''
+  : LATENCY_TEXT_CLASSES[firstTokenSeverity(props.bucket.slowestTtftMs)])
 const slowestTotalLabel = computed(() => props.bucket.slowestTotalDurationMs == null
   ? t('admin.channelMonitor.dataPanel.unavailable')
   : `${props.bucket.slowestTotalDurationMs}ms`)
@@ -88,7 +93,7 @@ function openTooltip() {
       </div>
       <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 tabular-nums">
         <dt class="text-gray-400">{{ t('admin.channelMonitor.dataPanel.slowestFirstToken') }}</dt>
-        <dd class="text-right font-semibold">{{ slowestTtftLabel }}</dd>
+        <dd class="text-right font-semibold" :class="slowestTtftClass">{{ slowestTtftLabel }}</dd>
         <dt class="text-gray-400">{{ t('admin.channelMonitor.dataPanel.slowestTotalDuration') }}</dt>
         <dd class="text-right font-semibold">{{ slowestTotalLabel }}</dd>
       </dl>

@@ -3,6 +3,11 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PoolProbeHeartbeat } from '@/api/admin/channelMonitor'
 import { formatDateTime } from '@/utils/format'
+import {
+  firstTokenSeverity,
+  LATENCY_BAR_CLASSES,
+  LATENCY_TEXT_CLASSES,
+} from '@/utils/latencyHealth'
 
 const props = defineProps<{
   sample: PoolProbeHeartbeat
@@ -20,6 +25,18 @@ const ttftLabel = computed(() => props.sample.ttft_ms == null
   ? t('admin.channelMonitor.dataPanel.unavailable')
   : `${props.sample.ttft_ms}ms`)
 const totalDurationLabel = computed(() => `${props.sample.latency_ms}ms`)
+const ttftSeverity = computed(() => props.sample.ttft_ms == null
+  ? null
+  : firstTokenSeverity(props.sample.ttft_ms))
+const heartbeatClass = computed(() => {
+  if (props.sample.status === 'failed') return 'bg-red-500'
+  return ttftSeverity.value == null
+    ? 'bg-emerald-400'
+    : LATENCY_BAR_CLASSES[ttftSeverity.value]
+})
+const successStatusClass = computed(() => ttftSeverity.value == null
+  ? 'text-emerald-300'
+  : LATENCY_TEXT_CLASSES[ttftSeverity.value])
 const accessibleLabel = computed(() => [
   formatDateTime(props.sample.finished_at),
   statusLabel.value,
@@ -54,7 +71,7 @@ function closeTooltip() {
     type="button"
     class="flex-1 cursor-help appearance-none border-0 p-0 outline-none ring-offset-1 transition-[filter,transform] hover:brightness-90 focus-visible:ring-2 focus-visible:ring-primary-500"
     :class="[
-      sample.status === 'success' ? 'bg-emerald-400' : 'bg-red-500',
+      heartbeatClass,
       compact ? 'h-1.5 min-w-1 rounded-[2px]' : 'h-3 min-w-2 rounded-sm',
     ]"
     :aria-label="accessibleLabel"
@@ -74,11 +91,14 @@ function closeTooltip() {
     >
       <div class="mb-2 flex items-center justify-between gap-3 border-b border-white/10 pb-2">
         <span class="truncate text-gray-300">{{ formatDateTime(sample.finished_at) }}</span>
-        <span :class="sample.status === 'success' ? 'text-emerald-300' : 'text-red-300'">{{ statusLabel }}</span>
+        <span :class="sample.status === 'success' ? successStatusClass : 'text-red-300'">{{ statusLabel }}</span>
       </div>
       <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 tabular-nums">
         <dt class="text-gray-400">{{ t('admin.channelMonitor.dataPanel.firstToken') }}</dt>
-        <dd class="text-right font-semibold">{{ ttftLabel }}</dd>
+        <dd
+          class="text-right font-semibold"
+          :class="sample.status === 'success' && ttftSeverity != null ? LATENCY_TEXT_CLASSES[ttftSeverity] : ''"
+        >{{ ttftLabel }}</dd>
         <dt class="text-gray-400">{{ t('admin.channelMonitor.dataPanel.totalDuration') }}</dt>
         <dd class="text-right font-semibold">{{ totalDurationLabel }}</dd>
       </dl>

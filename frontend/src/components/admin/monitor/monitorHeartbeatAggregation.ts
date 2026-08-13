@@ -1,4 +1,5 @@
 import type { PoolProbeHeartbeat } from '@/api/admin/channelMonitor'
+import { firstTokenSeverity } from '@/utils/latencyHealth'
 
 export interface HeartbeatSource {
   id: string
@@ -12,6 +13,7 @@ export interface AggregateHeartbeatBucket {
   observedCount: number
   expectedCount: number
   healthyCount: number
+  slowCount: number
   failedCount: number
   slowestTtftMs: number | null
   slowestTotalDurationMs: number | null
@@ -35,6 +37,7 @@ export function aggregateHeartbeatBuckets(
   const buckets = new Map<number, {
     sourceIds: Set<string>
     failedSourceIds: Set<string>
+    slowSourceIds: Set<string>
     slowestTtftMs: number | null
     slowestTotalDurationMs: number | null
   }>()
@@ -48,6 +51,7 @@ export function aggregateHeartbeatBuckets(
       const bucket = buckets.get(bucketStart) ?? {
         sourceIds: new Set<string>(),
         failedSourceIds: new Set<string>(),
+        slowSourceIds: new Set<string>(),
         slowestTtftMs: null,
         slowestTotalDurationMs: null,
       }
@@ -55,6 +59,9 @@ export function aggregateHeartbeatBuckets(
       if (sample.status === 'failed') bucket.failedSourceIds.add(source.id)
       if (sample.ttft_ms != null) {
         bucket.slowestTtftMs = Math.max(bucket.slowestTtftMs ?? 0, sample.ttft_ms)
+        if (sample.status === 'success' && firstTokenSeverity(sample.ttft_ms) !== 'good') {
+          bucket.slowSourceIds.add(source.id)
+        }
       }
       bucket.slowestTotalDurationMs = Math.max(bucket.slowestTotalDurationMs ?? 0, sample.latency_ms)
       buckets.set(bucketStart, bucket)
@@ -72,11 +79,14 @@ export function aggregateHeartbeatBuckets(
     const failedCount = bucket
       ? [...bucket.failedSourceIds].filter((id) => expectedSourceIds.has(id)).length
       : 0
-    const healthyCount = observedCount - failedCount
+    const slowCount = bucket
+      ? [...bucket.slowSourceIds].filter((id) => expectedSourceIds.has(id) && !bucket.failedSourceIds.has(id)).length
+      : 0
+    const healthyCount = observedCount - failedCount - slowCount
     const hasCompleteCoverage = observedCount === expectedSourceIds.size && expectedSourceIds.size > 0
     const status = hasCompleteCoverage && failedCount === expectedSourceIds.size
       ? 'failed'
-      : failedCount > 0
+      : failedCount > 0 || slowCount > 0
         ? 'degraded'
         : hasCompleteCoverage
           ? 'success'
@@ -88,6 +98,7 @@ export function aggregateHeartbeatBuckets(
       observedCount,
       expectedCount: expectedSourceIds.size,
       healthyCount,
+      slowCount,
       failedCount,
       slowestTtftMs: bucket?.slowestTtftMs ?? null,
       slowestTotalDurationMs: bucket?.slowestTotalDurationMs ?? null,

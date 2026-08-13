@@ -121,4 +121,19 @@ describe('MonitorCompactHeartbeatStrip', () => {
     expect(firstBucket.slowestTtftMs).toBe(350)
     expect(firstBucket.slowestTotalDurationMs).toBe(800)
   })
+
+  it('degrades an otherwise successful cycle when a first token reaches the usage-record warning threshold', () => {
+    const buckets = aggregateHeartbeatBuckets([
+      { id: 'model-a', samples: [sample(40, 110, '2026-08-13T08:12:00Z', 'success', 9_999, 12_000)] },
+      { id: 'model-b', samples: [sample(41, 111, '2026-08-13T08:12:30Z', 'success', 10_000, 12_500)] },
+    ], {
+      limit: 1,
+      nowMs: Date.parse('2026-08-13T08:14:00Z'),
+    })
+
+    expect(buckets[0].status).toBe('degraded')
+    expect(buckets[0].healthyCount).toBe(1)
+    expect(buckets[0].slowCount).toBe(1)
+    expect(buckets[0].failedCount).toBe(0)
+  })
 })

@@ -79,4 +79,19 @@ describe('MonitorHeartbeatTooltip', () => {
     expect(wrapper.get('button').classes()).toContain('h-1.5')
     expect(wrapper.get('button').classes()).toContain('min-w-1')
   })
+
+  it('uses the usage-record latency colors when a successful first token is slow', async () => {
+    const wrapper = mount(MonitorHeartbeatTooltip, {
+      props: { sample: { ...sample, ttft_ms: 10_000 } },
+      attachTo: document.body,
+    })
+
+    expect(wrapper.get('button').classes()).toContain('bg-amber-400')
+
+    await wrapper.get('button').trigger('mouseenter')
+
+    const ttftValue = [...document.body.querySelectorAll('dd')]
+      .find((element) => element.textContent === '10000ms')
+    expect(ttftValue?.classList.contains('text-amber-600')).toBe(true)
+  })
 })
