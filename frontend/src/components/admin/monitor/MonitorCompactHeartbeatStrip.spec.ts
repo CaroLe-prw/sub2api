@@ -43,6 +43,13 @@ const sources: HeartbeatSource[] = [
       sample(5, 82, '2026-08-13T08:12:00Z', 'failed', 400, 900),
     ],
   },
+  {
+    id: 'model-c',
+    samples: [
+      sample(6, 83, '2026-08-13T08:02:30Z', 'success', 320, 700),
+      sample(7, 83, '2026-08-13T08:12:30Z', 'failed', 450, 950),
+    ],
+  },
 ]
 
 describe('MonitorCompactHeartbeatStrip', () => {
@@ -55,7 +62,7 @@ describe('MonitorCompactHeartbeatStrip', () => {
     vi.useRealTimers()
   })
 
-  it('renders cycle health only when every expected source succeeds', () => {
+  it('renders green, gray, and orange for healthy, incomplete, and partially degraded cycles', () => {
     const wrapper = mount(MonitorCompactHeartbeatStrip, {
       props: { sources, coverageUnit: 'model', limit: 3 },
       global: {
@@ -69,10 +76,26 @@ describe('MonitorCompactHeartbeatStrip', () => {
     })
 
     const heartbeats = wrapper.findAll('.heartbeat')
-    expect(heartbeats.map((heartbeat) => heartbeat.attributes('data-status'))).toEqual(['success', 'partial', 'failed'])
-    expect(heartbeats[0].attributes('data-observed')).toBe('2')
-    expect(heartbeats[0].attributes('data-expected')).toBe('2')
+    expect(heartbeats.map((heartbeat) => heartbeat.attributes('data-status'))).toEqual(['success', 'partial', 'degraded'])
+    expect(heartbeats[0].attributes('data-observed')).toBe('3')
+    expect(heartbeats[0].attributes('data-expected')).toBe('3')
     expect(heartbeats[1].attributes('data-observed')).toBe('1')
+  })
+
+  it('renders red only when every expected source failed', () => {
+    const failedSources = sources.map((source, sourceIndex) => ({
+      id: source.id,
+      samples: [sample(20 + sourceIndex, 90 + sourceIndex, '2026-08-13T08:12:00Z', 'failed', 500, 1000)],
+    }))
+
+    const buckets = aggregateHeartbeatBuckets(failedSources, {
+      limit: 1,
+      nowMs: Date.parse('2026-08-13T08:14:00Z'),
+    })
+
+    expect(buckets[0].status).toBe('failed')
+    expect(buckets[0].healthyCount).toBe(0)
+    expect(buckets[0].failedCount).toBe(3)
   })
 
   it('reports the slowest timing values inside each cycle', () => {

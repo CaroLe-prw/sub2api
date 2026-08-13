@@ -11,6 +11,8 @@ vi.mock('vue-i18n', async (importOriginal) => {
       t: (key: string, values?: Record<string, number>) => {
         const messages: Record<string, string> = {
           'admin.channelMonitor.dataPanel.aggregateStatus.success': '全部正常',
+          'admin.channelMonitor.dataPanel.aggregateStatus.degraded': '部分异常',
+          'admin.channelMonitor.dataPanel.aggregateBreakdown': '正常 {healthy} · 异常 {failed}',
           'admin.channelMonitor.dataPanel.modelCoverage': '覆盖 {observed}/{expected} 个模型',
           'admin.channelMonitor.dataPanel.slowestFirstToken': '最慢首 T',
           'admin.channelMonitor.dataPanel.slowestTotalDuration': '最慢总时长',
@@ -37,9 +39,11 @@ describe('MonitorAggregateHeartbeatTooltip', () => {
         bucket: {
           startedAt: '2026-08-13T08:00:00Z',
           finishedAt: '2026-08-13T08:05:00Z',
-          status: 'success',
+          status: 'degraded',
           observedCount: 3,
           expectedCount: 3,
+          healthyCount: 2,
+          failedCount: 1,
           slowestTtftMs: 420,
           slowestTotalDurationMs: 1380,
         },
@@ -49,8 +53,10 @@ describe('MonitorAggregateHeartbeatTooltip', () => {
 
     await wrapper.get('button').trigger('mouseenter')
 
-    expect(document.body.textContent).toContain('全部正常')
+    expect(wrapper.get('button').classes()).toContain('bg-amber-400')
+    expect(document.body.textContent).toContain('部分异常')
     expect(document.body.textContent).toContain('覆盖 3/3 个模型')
+    expect(document.body.textContent).toContain('正常 2 · 异常 1')
     expect(document.body.textContent).toContain('最慢首 T')
     expect(document.body.textContent).toContain('420ms')
     expect(document.body.textContent).toContain('最慢总时长')

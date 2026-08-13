@@ -8,9 +8,11 @@ export interface HeartbeatSource {
 export interface AggregateHeartbeatBucket {
   startedAt: string
   finishedAt: string
-  status: 'success' | 'failed' | 'partial'
+  status: 'success' | 'degraded' | 'failed' | 'partial'
   observedCount: number
   expectedCount: number
+  healthyCount: number
+  failedCount: number
   slowestTtftMs: number | null
   slowestTotalDurationMs: number | null
 }
@@ -32,7 +34,7 @@ export function aggregateHeartbeatBuckets(
   const expectedSourceIds = new Set(sources.map((source) => source.id))
   const buckets = new Map<number, {
     sourceIds: Set<string>
-    hasFailure: boolean
+    failedSourceIds: Set<string>
     slowestTtftMs: number | null
     slowestTotalDurationMs: number | null
   }>()
@@ -45,12 +47,12 @@ export function aggregateHeartbeatBuckets(
       const bucketStart = Math.floor(timestamp / bucketDurationMs) * bucketDurationMs
       const bucket = buckets.get(bucketStart) ?? {
         sourceIds: new Set<string>(),
-        hasFailure: false,
+        failedSourceIds: new Set<string>(),
         slowestTtftMs: null,
         slowestTotalDurationMs: null,
       }
       bucket.sourceIds.add(source.id)
-      bucket.hasFailure ||= sample.status === 'failed'
+      if (sample.status === 'failed') bucket.failedSourceIds.add(source.id)
       if (sample.ttft_ms != null) {
         bucket.slowestTtftMs = Math.max(bucket.slowestTtftMs ?? 0, sample.ttft_ms)
       }
@@ -67,17 +69,26 @@ export function aggregateHeartbeatBuckets(
     const observedCount = bucket
       ? [...bucket.sourceIds].filter((id) => expectedSourceIds.has(id)).length
       : 0
-    const status = bucket?.hasFailure
-      ? 'failed'
-      : observedCount === expectedSourceIds.size && expectedSourceIds.size > 0
+    const failedCount = bucket
+      ? [...bucket.failedSourceIds].filter((id) => expectedSourceIds.has(id)).length
+      : 0
+    const healthyCount = observedCount - failedCount
+    const hasCompleteCoverage = observedCount === expectedSourceIds.size && expectedSourceIds.size > 0
+    const status = !hasCompleteCoverage
+      ? 'partial'
+      : failedCount === 0
         ? 'success'
-        : 'partial'
+        : healthyCount === 0
+          ? 'failed'
+          : 'degraded'
     return {
       startedAt: new Date(bucketStart).toISOString(),
       finishedAt: new Date(bucketStart + bucketDurationMs).toISOString(),
       status,
       observedCount,
       expectedCount: expectedSourceIds.size,
+      healthyCount,
+      failedCount,
       slowestTtftMs: bucket?.slowestTtftMs ?? null,
       slowestTotalDurationMs: bucket?.slowestTotalDurationMs ?? null,
     }
