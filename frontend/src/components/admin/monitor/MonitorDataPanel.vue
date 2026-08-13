@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PoolAccountModelPolicy, PoolMonitorAccount, PoolProbeResult } from '@/api/admin/channelMonitor'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import Pagination from '@/components/common/Pagination.vue'
 import Icon from '@/components/icons/Icon.vue'
 import MonitorChannelGrid from './MonitorChannelGrid.vue'
 import MonitorAccountWhitelistDialog from './MonitorAccountWhitelistDialog.vue'
@@ -26,6 +27,8 @@ const policyAccount = ref<PoolMonitorAccount | null>(null)
 const accountPolicy = ref<PoolAccountModelPolicy | null>(null)
 const policyLoading = ref(false)
 const policySaving = ref(false)
+const channelPage = shallowRef(1)
+const channelPageSize = 12
 
 const filteredAccounts = computed(() => {
   const query = search.value.trim().toLowerCase()
@@ -37,9 +40,22 @@ const filteredAccounts = computed(() => {
 
 const modelCount = computed(() => new Set(accounts.value.flatMap((account) =>
   account.models.map((probe) => probe.model))).size)
+const pagedAccounts = computed(() => {
+  const start = (channelPage.value - 1) * channelPageSize
+  return filteredAccounts.value.slice(start, start + channelPageSize)
+})
 const healthyAccounts = computed(() => accounts.value.filter((account) =>
   account.models.some((model) => model.status === 'success') && !account.models.some((model) => model.status === 'failed')).length)
 const issueAccounts = computed(() => accounts.value.filter((account) => account.models.some((model) => model.status === 'failed')).length)
+
+watch([search, view], () => {
+  channelPage.value = 1
+})
+
+watch(() => filteredAccounts.value.length, (total) => {
+  const lastPage = Math.max(1, Math.ceil(total / channelPageSize))
+  if (channelPage.value > lastPage) channelPage.value = lastPage
+})
 
 async function load() {
   loading.value = true
@@ -151,7 +167,10 @@ onMounted(load)
 
     <div v-if="loading && accounts.length === 0" class="flex min-h-52 items-center justify-center text-gray-400"><Icon name="refresh" size="lg" class="animate-spin" /></div>
     <div v-else-if="filteredAccounts.length === 0" class="flex min-h-52 flex-col items-center justify-center px-6 text-center"><p class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.channelMonitor.dataPanel.empty') }}</p><p class="mt-1 max-w-lg text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channelMonitor.dataPanel.emptyHint') }}</p></div>
-    <MonitorChannelGrid v-else-if="view === 'channel'" :accounts="filteredAccounts" @detail="openAccount" @manage="openAccountPolicy" />
+    <template v-else-if="view === 'channel'">
+      <MonitorChannelGrid :accounts="pagedAccounts" @detail="openAccount" @manage="openAccountPolicy" />
+      <Pagination v-if="filteredAccounts.length > channelPageSize" :total="filteredAccounts.length" :page="channelPage" :page-size="channelPageSize" :show-page-size-selector="false" @update:page="channelPage = $event" />
+    </template>
     <MonitorModelGroupList v-else :accounts="filteredAccounts" @detail="openAccount" />
 
     <MonitorModelHistoryDialog :show="selectedAccount != null" :account="selectedAccount" :histories="histories" :loading="historyLoading" :running-plan-id="runningPlanId" @close="selectedAccount = null" @run="runProbe" />

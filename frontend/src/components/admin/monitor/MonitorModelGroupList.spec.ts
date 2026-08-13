@@ -53,12 +53,37 @@ describe('MonitorModelGroupList', () => {
     expect(groups).toHaveLength(2)
 
     const solGroup = wrapper.get('[data-model="gpt-5.6-sol"]')
+    expect(solGroup.find('table').exists()).toBe(false)
+    await solGroup.get('button[aria-expanded]').trigger('click')
     expect(solGroup.text()).toContain('sky-pro')
     expect(solGroup.text()).toContain('coder')
     expect(solGroup.findAll('tbody tr')).toHaveLength(2)
     expect(solGroup.text()).toContain('"healthy":1,"total":2')
 
-    await solGroup.findAll('button')[0].trigger('click')
+    await solGroup.get('tbody button').trigger('click')
     expect(wrapper.emitted('detail')?.[0]).toEqual([coder])
+  })
+
+  it('shows only ten channels per expanded model page', async () => {
+    const accounts = Array.from({ length: 23 }, (_, index) => account(
+      index + 1,
+      `channel-${index + 1}`,
+      [{ planId: index + 100, model: 'gpt-5.6-sol', status: 'success' }],
+    ))
+    const wrapper = mount(MonitorModelGroupList, {
+      props: { accounts },
+      global: { stubs: { Icon: true } },
+    })
+    const group = wrapper.get('[data-model="gpt-5.6-sol"]')
+    await group.get('button[aria-expanded]').trigger('click')
+
+    expect(group.findAll('tbody tr')).toHaveLength(10)
+    expect(group.text()).not.toContain('channel-23')
+
+    const next = group.findAll('button').find((button) => button.attributes('aria-label') === 'pagination.next')
+    expect(next).toBeDefined()
+    await next!.trigger('click')
+
+    expect(group.findAll('tbody tr')).toHaveLength(10)
   })
 })

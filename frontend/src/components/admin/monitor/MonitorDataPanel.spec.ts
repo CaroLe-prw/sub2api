@@ -95,10 +95,38 @@ describe('MonitorDataPanel', () => {
 
     const tabs = wrapper.findAll('button.tab')
     await tabs[1].trigger('click')
-    expect(wrapper.find('[data-testid="model-group"]').exists()).toBe(true)
+    const group = wrapper.get('[data-testid="model-group"]')
+    await group.get('button[aria-expanded]').trigger('click')
     expect(wrapper.find('table').exists()).toBe(true)
     expect(wrapper.text()).toContain('gpt-5.6-sol')
     expect(wrapper.text()).toContain('#35 · openai · apikey')
+  })
+
+  it('paginates the channel card view instead of rendering every channel', async () => {
+    const base = (await listPoolOverview()).items[0]
+    listPoolOverview.mockResolvedValue({
+      items: Array.from({ length: 13 }, (_, index) => ({
+        ...base,
+        account_id: index + 1,
+        name: `channel-${index + 1}`,
+        models: base.models.map((model: { plan_id: number }) => ({ ...model, plan_id: model.plan_id + index })),
+      })),
+    })
+    const wrapper = mount(MonitorDataPanel, {
+      global: { stubs: { Icon: true, MonitorModelHistoryDialog: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('article')).toHaveLength(12)
+    expect(wrapper.text()).toContain('channel-1')
+    expect(wrapper.text()).not.toContain('channel-13')
+
+    const next = wrapper.findAll('button').find((button) => button.attributes('aria-label') === 'pagination.next')
+    expect(next).toBeDefined()
+    await next!.trigger('click')
+
+    expect(wrapper.findAll('article')).toHaveLength(1)
+    expect(wrapper.text()).toContain('channel-13')
   })
 
   it('loads and saves a per-channel model allowlist', async () => {
