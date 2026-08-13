@@ -50,8 +50,6 @@
       <MonitorSettingsPanel v-if="adminMonitorTab === 'v2'" />
 
       <div v-else class="space-y-6">
-        <MonitorAutoModelsPanel />
-        <MonitorDataPanel />
         <TablePageLayout>
         <template #filters>
         <MonitorFiltersBar
@@ -223,8 +221,6 @@ import MonitorRunResultDialog from '@/components/admin/monitor/MonitorRunResultD
 import MonitorPublishDialog from '@/components/admin/monitor/MonitorPublishDialog.vue'
 import MonitorPrimaryModelCell from '@/components/admin/monitor/MonitorPrimaryModelCell.vue'
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
-import MonitorAutoModelsPanel from '@/components/admin/monitor/MonitorAutoModelsPanel.vue'
-import MonitorDataPanel from '@/components/admin/monitor/MonitorDataPanel.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import MonitorSettingsPanel from '@/features/channel-monitor-v2/MonitorSettingsPanel.vue'

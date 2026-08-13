@@ -1,7 +1,12 @@
 export default {
   schedulerObservability: {
       title: 'Scheduler Observability',
-      description: 'Connect account selection, sticky hits, same-account retries, failover reasons, and session cache performance into one explainable trace.',
+      description: 'Observe active upstream probes, account selection, sticky hits, same-account retries, failover reasons, and session cache performance in one place.',
+      pageTabs: {
+        label: 'Scheduler observability views',
+        traces: 'Scheduler traces',
+        probes: 'Channel probes',
+      },
       prototypeBadge: 'Interactive prototype',
       prototypeTitle: 'Showing design-preview data',
       prototypeDescription: 'The interactions and field structure are ready, but the scheduler trace API is not connected yet. All session fingerprints and account paths are demo data.',

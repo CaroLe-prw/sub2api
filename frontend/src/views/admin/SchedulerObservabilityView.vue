@@ -7,6 +7,7 @@ import AppLayout from "@/components/layout/AppLayout.vue";
 import Icon from "@/components/icons/Icon.vue";
 import SchedulerOverviewCards from "@/features/scheduler-observability/SchedulerOverviewCards.vue";
 import SchedulerObservabilityFilters from "@/features/scheduler-observability/SchedulerObservabilityFilters.vue";
+import SchedulerProbePanel from "@/features/scheduler-observability/SchedulerProbePanel.vue";
 import SchedulerSessionPanel from "@/features/scheduler-observability/SchedulerSessionPanel.vue";
 import SchedulerTraceDrawer from "@/features/scheduler-observability/SchedulerTraceDrawer.vue";
 import SchedulerTraceTable from "@/features/scheduler-observability/SchedulerTraceTable.vue";
@@ -20,8 +21,10 @@ import {
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
 
 type DetailTab = "requests" | "sessions";
+type PageTab = "traces" | "probes";
 const { t } = useI18n();
 
+const pageTab = shallowRef<PageTab>("traces");
 const activeTab = shallowRef<DetailTab>("requests");
 const traceFilter = shallowRef<SchedulerTraceFilter>("all");
 const requestType = shallowRef<SchedulerRequestTypeFilter>("all");
@@ -124,6 +127,11 @@ function closeTrace() {
   selectedTraceId.value = null;
 }
 
+function selectPageTab(value: PageTab) {
+  pageTab.value = value;
+  if (value === "probes") closeTrace();
+}
+
 function updateGroupId(value: string | number | boolean | null) {
   groupId.value = typeof value === "number" ? value : "all";
   requestPage.value = 1;
@@ -209,7 +217,7 @@ function reasonLabel(reason: string): string {
           </p>
         </div>
 
-        <div class="flex min-w-0 flex-wrap items-center gap-2">
+        <div v-if="pageTab === 'traces'" class="flex min-w-0 flex-wrap items-center gap-2">
           <div class="max-w-full overflow-x-auto rounded-xl border border-gray-200 bg-white p-1 shadow-sm dark:border-dark-700 dark:bg-dark-800">
             <div class="flex w-max">
             <button
@@ -234,6 +242,26 @@ function reasonLabel(reason: string): string {
         </div>
       </header>
 
+      <nav
+        class="tabs w-full sm:w-fit"
+        role="tablist"
+        :aria-label="t('admin.schedulerObservability.pageTabs.label')"
+      >
+        <button
+          v-for="tab in (['traces', 'probes'] as const)"
+          :key="tab"
+          type="button"
+          role="tab"
+          class="tab flex-1 sm:flex-none"
+          :class="pageTab === tab ? 'tab-active' : ''"
+          :aria-selected="pageTab === tab"
+          @click="selectPageTab(tab)"
+        >
+          {{ t(`admin.schedulerObservability.pageTabs.${tab}`) }}
+        </button>
+      </nav>
+
+      <template v-if="pageTab === 'traces'">
       <div class="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/5 dark:text-emerald-100 sm:rounded-2xl sm:p-4">
         <Icon name="infoCircle" size="sm" class="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-300" />
         <div class="min-w-0">
@@ -389,8 +417,11 @@ function reasonLabel(reason: string): string {
           @update:page-size="updatePageSize"
         />
       </section>
+      </template>
+
+      <SchedulerProbePanel v-else />
     </div>
 
-    <SchedulerTraceDrawer :trace="selectedTrace" @close="closeTrace" />
+    <SchedulerTraceDrawer v-if="pageTab === 'traces'" :trace="selectedTrace" @close="closeTrace" />
   </AppLayout>
 </template>

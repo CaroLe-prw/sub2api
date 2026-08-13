@@ -12,6 +12,9 @@ vi.mock("@/api/admin/schedulerObservability", () => ({
 
 const messages = vi.hoisted<Record<string, string>>(() => ({
   "admin.schedulerObservability.title": "调度观测",
+  "admin.schedulerObservability.pageTabs.label": "调度观测视图",
+  "admin.schedulerObservability.pageTabs.traces": "调度轨迹",
+  "admin.schedulerObservability.pageTabs.probes": "渠道探测",
   "admin.schedulerObservability.liveTitle": "已连接当前节点的实时调度轨迹",
   "admin.schedulerObservability.filters.switch": "发生切号",
   "admin.schedulerObservability.requestTypeFilter": "请求类型",
@@ -75,6 +78,9 @@ function mountView() {
       stubs: {
         AppLayout: {
           template: "<div><slot /></div>",
+        },
+        SchedulerProbePanel: {
+          template: '<section data-testid="scheduler-probe-panel">号池主动探测</section>',
         },
       },
     },
@@ -149,6 +155,21 @@ beforeEach(() => {
 });
 
 describe("SchedulerObservabilityView", () => {
+  it("hosts account-pool probes as a dedicated scheduler observability view", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+
+    const probeTab = wrapper.findAll('[role="tab"]')
+      .find((tab) => tab.text().trim() === "渠道探测");
+    expect(probeTab).toBeDefined();
+
+    await probeTab?.trigger("click");
+
+    expect(wrapper.find('[data-testid="scheduler-probe-panel"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain("号池主动探测");
+    expect(wrapper.find('[data-testid="scheduler-trace-desktop-table"]').exists()).toBe(false);
+  });
+
   it("uses the shared custom select for the group filter", async () => {
     const wrapper = mountView();
     await flushPromises();
