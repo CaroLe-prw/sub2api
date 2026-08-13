@@ -71,7 +71,9 @@
             <div class="flex items-center gap-1.5">
               <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
               <HelpTooltip v-if="row.api_key_decrypt_failed" :content="t('admin.channelMonitor.apiKeyDecryptFailed')">
-                <Icon name="exclamationTriangle" size="sm" class="text-red-500" />
+                <template #trigger>
+                  <Icon name="exclamationTriangle" size="sm" class="text-red-500" />
+                </template>
               </HelpTooltip>
             </div>
           </template>

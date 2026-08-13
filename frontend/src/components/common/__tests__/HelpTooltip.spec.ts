@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
@@ -13,6 +13,7 @@ function getTooltipElement(): HTMLDivElement {
 
 describe('HelpTooltip', () => {
   afterEach(() => {
+    vi.restoreAllMocks()
     document.body.innerHTML = ''
   })
 
@@ -37,6 +38,49 @@ describe('HelpTooltip', () => {
     await nextTick()
     expect(tooltip.style.display).toBe('none')
 
+    wrapper.unmount()
+  })
+
+  it('keeps fixed-position coordinates anchored to the viewport after scrolling', async () => {
+    const wrapper = mount(HelpTooltip, {
+      attachTo: document.body,
+      props: { content: 'anchored details' },
+    })
+    const trigger = wrapper.get('.group')
+    vi.spyOn(trigger.element, 'getBoundingClientRect').mockReturnValue({
+      top: 120,
+      left: 40,
+      width: 20,
+      height: 20,
+      right: 60,
+      bottom: 140,
+      x: 40,
+      y: 120,
+      toJSON: () => ({}),
+    })
+    vi.spyOn(window, 'scrollY', 'get').mockReturnValue(700)
+    vi.spyOn(window, 'scrollX', 'get').mockReturnValue(300)
+
+    await trigger.trigger('mouseenter')
+    await nextTick()
+
+    const tooltip = getTooltipElement()
+    expect(tooltip.style.top).toBe('calc(112px)')
+    expect(tooltip.style.left).toBe('50px')
+    wrapper.unmount()
+  })
+
+  it('renders a custom trigger without replacing content from the content prop', async () => {
+    const wrapper = mount(HelpTooltip, {
+      attachTo: document.body,
+      props: { content: 'API key decrypt failed' },
+      slots: { trigger: '<span data-testid="warning-trigger">!</span>' },
+    })
+
+    expect(wrapper.get('[data-testid="warning-trigger"]').text()).toBe('!')
+    await wrapper.get('.group').trigger('mouseenter')
+    await nextTick()
+    expect(getTooltipElement().textContent).toContain('API key decrypt failed')
     wrapper.unmount()
   })
 
