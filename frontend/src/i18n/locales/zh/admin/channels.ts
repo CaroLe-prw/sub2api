@@ -547,6 +547,8 @@ export default {
         retainedSamples: '保留最近 288 个样本',
         modelPerformance: '各模型表现',
         modelCount: '{n} 个模型',
+        modelGroupChannels: '{n} 个渠道提供此模型',
+        modelGroupHealthy: '{healthy}/{total} 健康',
         stats: { channels: '监测渠道', models: '探测模型', operational: '健康渠道', issues: '异常渠道' },
         probeStatus: { success: '在线', failed: '异常', pending: '待探测' },
         columns: { channel: '渠道', model: '模型', status: '状态', latency: '延迟', availability: '7 天可用率', checkedAt: '最近探测', action: '操作' },

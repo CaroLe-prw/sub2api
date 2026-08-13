@@ -79,7 +79,7 @@ describe('MonitorDataPanel', () => {
     })
   })
 
-  it('loads existing pool accounts and switches between channel and model views', async () => {
+  it('loads existing pool accounts and switches to model groups', async () => {
     const wrapper = mount(MonitorDataPanel, {
       global: {
         stubs: {
@@ -95,6 +95,7 @@ describe('MonitorDataPanel', () => {
 
     const tabs = wrapper.findAll('button.tab')
     await tabs[1].trigger('click')
+    expect(wrapper.find('[data-testid="model-group"]').exists()).toBe(true)
     expect(wrapper.find('table').exists()).toBe(true)
     expect(wrapper.text()).toContain('gpt-5.6-sol')
     expect(wrapper.text()).toContain('#35 · openai · apikey')

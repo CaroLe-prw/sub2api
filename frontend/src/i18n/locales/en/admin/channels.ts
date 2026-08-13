@@ -547,6 +547,8 @@ export default {
         retainedSamples: 'Keeps the latest 288 samples',
         modelPerformance: 'Model performance',
         modelCount: '{n} models',
+        modelGroupChannels: '{n} channels provide this model',
+        modelGroupHealthy: '{healthy}/{total} healthy',
         stats: { channels: 'Monitored channels', models: 'Probe models', operational: 'Healthy channels', issues: 'Channels with issues' },
         probeStatus: { success: 'Online', failed: 'Failed', pending: 'Pending' },
         columns: { channel: 'Channel', model: 'Model', status: 'Status', latency: 'Latency', availability: '7d availability', checkedAt: 'Last probe', action: 'Action' },
