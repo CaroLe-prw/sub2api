@@ -231,6 +231,22 @@ func TestOpenAIStreamingPassthroughNonRetryableFailedBeforeOutputFlushesAtBounda
 	require.Zero(t, result.usage.OutputTokens)
 }
 
+func TestOpenAIStreamingPassthroughMissingEncryptedContentRequestsBodyRepairBeforeOutput(t *testing.T) {
+	upstream := "event: response.created\n" +
+		`data: {"type":"response.created","response":{"id":"resp_missing_encrypted"}}` + "\n\n" +
+		"event: response.failed\n" +
+		`data: {"type":"response.failed","response":{"error":{"code":"missing_required_parameter","type":"invalid_request_error","message":"Missing required parameter: 'input[1].encrypted_content'."}}}` + "\n\n"
+
+	result, recorder, writer, err := runPassthroughFlushTest(t, io.NopCloser(strings.NewReader(upstream)), -1)
+
+	require.NotNil(t, result)
+	var requestBodyRetryErr *openAIStreamRequestBodyRetryError
+	require.ErrorAs(t, err, &requestBodyRetryErr)
+	require.True(t, openAIStreamMissingEncryptedContentRejection(requestBodyRetryErr.responseBody))
+	require.Empty(t, recorder.Body.String())
+	require.Empty(t, writer.flushBodyLengths)
+}
+
 func TestOpenAIStreamingPassthroughFailedAfterOutputFlushesAtBoundaryAndKeepsUsage(t *testing.T) {
 	firstOutput := `data: {"type":"response.output_text.delta","delta":"partial"}` + "\n\n"
 	failedEvent := "event: response.failed\n" +

@@ -145,7 +145,7 @@ func TestAffiliateRepository_AccrueQuota_ReusesOuterTransaction(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, bound, "invitee must bind to inviter")
 
-	applied, err := repo.AccrueQuota(txCtx, inviter.ID, invitee.ID, 3.5, 0, nil)
+	applied, err := repo.AccrueQuota(txCtx, inviter.ID, invitee.ID, 3.5, 17.5, 0, nil)
 	require.NoError(t, err)
 	require.True(t, applied, "AccrueQuota must report applied=true")
 
@@ -153,6 +153,9 @@ func TestAffiliateRepository_AccrueQuota_ReusesOuterTransaction(t *testing.T) {
 	innerQuota := querySingleFloat(t, txCtx, client,
 		"SELECT aff_quota::double precision FROM user_affiliates WHERE user_id = $1", inviter.ID)
 	require.InDelta(t, 3.5, innerQuota, 1e-9)
+	innerSourceAmount := querySingleFloat(t, txCtx, client,
+		"SELECT source_amount::double precision FROM user_affiliate_ledger WHERE user_id = $1 AND source_user_id = $2 AND action = 'accrue'", inviter.ID, invitee.ID)
+	require.InDelta(t, 17.5, innerSourceAmount, 1e-9)
 
 	// Roll back the outer tx; if AccrueQuota had opened its own inner tx and
 	// committed it, the rows would still be visible to the global client.

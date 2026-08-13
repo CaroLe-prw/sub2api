@@ -335,7 +335,7 @@ func TestOpenAISchedulerObservabilityRollsBackProvisionalSwitchWhenAdmissionReje
 func TestOpenAISchedulerObservabilityRecordsWebSocketTurnsAsSessionRequests(t *testing.T) {
 	store := NewOpenAISchedulerObservabilityStore()
 	groupID := int64(5)
-	ctx := schedulerObservabilityTestContext("ws-request", &Group{ID: groupID, Name: "OpenAI 主池"})
+	ctx := WithRequestTypeContext(schedulerObservabilityTestContext("ws-request", &Group{ID: groupID, Name: "OpenAI 主池"}), RequestTypeWSV2)
 	req := OpenAIAccountScheduleRequest{GroupID: &groupID, SessionHash: "ws-session", RequestedModel: "gpt-5.6"}
 	decision := OpenAIAccountScheduleDecision{Layer: openAIAccountScheduleLayerLoadBalance}
 	selection := &AccountSelectionResult{Account: &Account{ID: 18, Name: "account-18"}}
@@ -349,9 +349,45 @@ func TestOpenAISchedulerObservabilityRecordsWebSocketTurnsAsSessionRequests(t *t
 	sessionSnapshot := store.Snapshot(OpenAISchedulerObservabilityQuery{TimeRange: "1h", View: "sessions"})
 	require.Len(t, snapshot.Traces, 2)
 	require.Equal(t, "ws-request-turn-2", snapshot.Traces[0].RequestID)
+	require.Equal(t, "ws_v2", snapshot.Traces[0].RequestType)
+	require.Equal(t, "ws_v2", snapshot.Traces[1].RequestType)
 	require.Len(t, sessionSnapshot.Sessions, 1)
 	require.Equal(t, 2, sessionSnapshot.Sessions[0].Turns)
 	require.InDelta(t, 0.9, sessionSnapshot.Sessions[0].FollowUpCacheRate, 0.0001)
+}
+
+func TestOpenAISchedulerObservabilityFiltersRequestTypeAndMarksCyberResult(t *testing.T) {
+	store := NewOpenAISchedulerObservabilityStore()
+	streamCtx := WithRequestTypeContext(schedulerObservabilityTestContext("stream-request", nil), RequestTypeStream)
+	wsCtx := WithRequestTypeContext(schedulerObservabilityTestContext("ws-request-filter", nil), RequestTypeWSV2)
+
+	store.RecordSelection(streamCtx, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.6"}, OpenAIAccountScheduleDecision{}, nil, errors.New("no account"))
+	store.MarkCyberBlocked(streamCtx)
+	store.RecordSelection(wsCtx, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.6"}, OpenAIAccountScheduleDecision{}, nil, errors.New("no account"))
+
+	snapshot := store.Snapshot(OpenAISchedulerObservabilityQuery{TimeRange: "1h", View: "requests", RequestType: "stream"})
+	require.Len(t, snapshot.Traces, 1)
+	require.Equal(t, "stream", snapshot.Traces[0].RequestType)
+	require.True(t, snapshot.Traces[0].CyberBlocked)
+	require.Equal(t, 1, snapshot.Metrics.Requests)
+}
+
+func TestOpenAISchedulerObservabilityTreatsLegacyTraceAsSync(t *testing.T) {
+	legacy := OpenAISchedulerObservabilityTrace{RequestType: ""}
+	require.Equal(t, "sync", schedulerObservabilityTraceRequestType(legacy.RequestType))
+}
+
+func TestOpenAISchedulerObservabilityTurnCyberResultDoesNotMutateFirstTurn(t *testing.T) {
+	store := NewOpenAISchedulerObservabilityStore()
+	ctx := WithRequestTypeContext(schedulerObservabilityTestContext("ws-cyber-turn", nil), RequestTypeWSV2)
+	store.RecordSelection(ctx, OpenAIAccountScheduleRequest{SessionHash: "ws-cyber", RequestedModel: "gpt-5.6"}, OpenAIAccountScheduleDecision{}, &AccountSelectionResult{Account: &Account{ID: 18, Name: "account-18"}}, nil)
+	store.RecordTurnOutcome(ctx, 1, OpenAISchedulerObservabilityOutcome{AccountID: 18, AccountName: "account-18", Success: true})
+	store.RecordTurnOutcome(ctx, 2, OpenAISchedulerObservabilityOutcome{AccountID: 18, AccountName: "account-18", CyberBlocked: true})
+
+	snapshot := store.Snapshot(OpenAISchedulerObservabilityQuery{TimeRange: "1h", View: "requests"})
+	require.Len(t, snapshot.Traces, 2)
+	require.True(t, snapshot.Traces[0].CyberBlocked)
+	require.False(t, snapshot.Traces[1].CyberBlocked)
 }
 
 func TestOpenAISchedulerObservabilityPaginationDoesNotChangeAggregates(t *testing.T) {

@@ -390,7 +390,7 @@ export default {
 
     affiliates: {
       invitesDescription: '查看全站邀请关系和被邀请用户累计返利',
-      rebatesDescription: '查看每一笔产生返利的充值订单',
+      rebatesDescription: '查看每一笔由支付订单、兑换码或人工充值产生的返利',
       transfersDescription: '查看返利额度转入账户余额的提取流水',
       errors: {
         loadFailed: '加载邀请返利记录失败'
@@ -405,6 +405,7 @@ export default {
         user: '用户',
         affCode: '邀请码',
         order: '订单',
+        nonOrderRecharge: '兑换码/人工充值',
         totalRebate: '累计返利',
         orderAmount: '充值金额',
         payAmount: '支付金额',

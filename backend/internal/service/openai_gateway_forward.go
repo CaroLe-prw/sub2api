@@ -57,7 +57,20 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if toolSchemaSanitized {
 		body = sanitizedToolBody
 	}
-	if account.IsOpenAIOAuth() && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) {
+	serverSideCompaction := isOpenAIServerSideCompactionRequest(c, body)
+	if serverSideCompaction && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) {
+		compactionBody, changed, compactErr := stripOpenAIResponsesLiteInput(body)
+		if compactErr != nil {
+			return nil, compactErr
+		}
+		if changed {
+			body = compactionBody
+		}
+	}
+	responsesLiteActive := account.IsOpenAIOAuth() &&
+		isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) &&
+		!serverSideCompaction
+	if responsesLiteActive {
 		liteBody, changed, liteErr := normalizeOpenAIResponsesLiteToolsPayload(body)
 		if liteErr != nil {
 			setOpsUpstreamError(c, http.StatusBadRequest, liteErr.Error(), "")
@@ -258,7 +271,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		imageGenerationAllowed = GroupAllowsImageGeneration(apiKey.Group)
 	}
 	codexImageGenerationBridgeEnabled := isCodexCLI &&
-		!isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) &&
+		!responsesLiteActive &&
+		!serverSideCompaction &&
 		imageGenerationAllowed &&
 		codexImageGenerationExplicitToolPolicy != codexImageGenerationExplicitToolPolicyStrip &&
 		s.isCodexImageGenerationBridgeEnabled(ctx, account, apiKey)
@@ -833,7 +847,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		var headerGuard *openAIFirstOutputHeaderGuard
 		if firstOutputTimeout > 0 {
 			upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
-				upstreamCtx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
+				upstreamCtx, ctx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
 			)
 		}
 		upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, body, token, reqStream, promptCacheKey, isCodexCLI)
@@ -892,7 +906,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 			upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 			upstreamCode := extractUpstreamErrorCode(respBody)
-			if !agentTaskRecoveryTried && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, respBody) {
+			clientCanceled := ctx != nil && ctx.Err() != nil
+			if !clientCanceled && !agentTaskRecoveryTried && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, respBody) {
 				agentTaskRecoveryTried = true
 				expectedTaskID := account.GetCredential("task_id")
 				if err := s.recoverAgentIdentityTask(ctx, account, expectedTaskID); err != nil {
@@ -902,7 +917,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			respBody = s.redactAgentIdentitySensitiveBody(ctx, account, respBody)
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
-			if autoContextCompactionInjected {
+			if !clientCanceled && autoContextCompactionInjected {
 				retryBody, rejected, retryErr := openAIContextCompactionRejectedRetryBody(resp.StatusCode, body, respBody)
 				if retryErr != nil {
 					return nil, fmt.Errorf("normalize rejected context_management retry body: %w", retryErr)
@@ -918,7 +933,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					continue
 				}
 			}
-			if !httpInvalidEncryptedContentRetryTried && resp.StatusCode == http.StatusBadRequest && upstreamCode == "invalid_encrypted_content" {
+			if !clientCanceled && !httpInvalidEncryptedContentRetryTried && resp.StatusCode == http.StatusBadRequest && upstreamCode == "invalid_encrypted_content" {
 				decoded, decodeErr := ensureReqBody()
 				if decodeErr != nil {
 					return nil, decodeErr
@@ -937,7 +952,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			if retryBody, reason, changed, retryErr := normalizeOpenAIResponsesRejectedFieldRetryBody(resp.StatusCode, body, respBody); retryErr != nil {
 				return nil, fmt.Errorf("normalize rejected Responses field retry body: %w", retryErr)
-			} else if changed && rejectedFieldRetryState.Allow(retryBody) {
+			} else if !clientCanceled && changed && rejectedFieldRetryState.Allow(retryBody) {
 				body = retryBody
 				requestView = newOpenAIRequestView(body)
 				reqBody = nil
@@ -1000,7 +1015,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			streamResult, err := s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, upstreamModel, reasoningEffortValue)
 			if err != nil {
 				var requestBodyRetryErr *openAIStreamRequestBodyRetryError
-				if errors.As(err, &requestBodyRetryErr) {
+				if (ctx == nil || ctx.Err() == nil) && errors.As(err, &requestBodyRetryErr) {
 					retryBody, reason, changed, retryErr := normalizeOpenAIResponsesRejectedFieldRetryBody(
 						http.StatusBadRequest, body, requestBodyRetryErr.responseBody,
 					)
@@ -1016,7 +1031,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					}
 					return nil, fmt.Errorf("streamed Responses request-body recovery was not applicable: %w", err)
 				}
-				if streamResult == nil || !streamResult.clientDisconnect {
+				if streamResult == nil || (!streamResult.clientDisconnect && (streamResult.usage == nil || !streamResult.usage.HasBillableUnits())) {
 					return nil, err
 				}
 				forwardErr = err
@@ -1070,7 +1085,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			OpenAIWSMode:                  false,
 			Duration:                      time.Since(startTime),
 			FirstTokenMs:                  firstTokenMs,
-			ClientDisconnect:              clientDisconnect,
+			ClientDisconnect:              clientDisconnect || (c != nil && c.Request != nil && c.Request.Context().Err() != nil),
 		}
 		if imageCount > 0 {
 			forwardResult.ImageCount = imageCount
@@ -1154,6 +1169,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 				req.Header.Add(key, v)
 			}
 		}
+	}
+	if isOpenAIServerSideCompactionRequest(c, body) {
+		req.Header.Del(responsesLiteHeader)
 	}
 	if account.Type == AccountTypeOAuth {
 		compatMessagesBridge := isOpenAICompatMessagesBridgeContext(c) || isOpenAICompatMessagesBridgeBody(body)

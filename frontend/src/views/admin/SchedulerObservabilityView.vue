@@ -15,6 +15,7 @@ import {
   useSchedulerObservability,
   type SchedulerTimeRange,
   type SchedulerTraceFilter,
+  type SchedulerRequestTypeFilter,
 } from "@/features/scheduler-observability/useSchedulerObservability";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
 
@@ -23,6 +24,7 @@ const { t } = useI18n();
 
 const activeTab = shallowRef<DetailTab>("requests");
 const traceFilter = shallowRef<SchedulerTraceFilter>("all");
+const requestType = shallowRef<SchedulerRequestTypeFilter>("all");
 const timeRange = shallowRef<SchedulerTimeRange>("1h");
 const groupId = shallowRef<number | "all">("all");
 const model = shallowRef("");
@@ -70,6 +72,7 @@ const {
   pageSize,
   search: searchQuery,
   traceFilter,
+  requestType,
 });
 
 const traceFilters = computed<Array<{ key: SchedulerTraceFilter; count: number }>>(() => [
@@ -169,6 +172,11 @@ function selectTraceFilter(value: SchedulerTraceFilter) {
   requestPage.value = 1;
 }
 
+function selectRequestType(value: SchedulerRequestTypeFilter) {
+  requestType.value = value;
+  requestPage.value = 1;
+}
+
 function updatePageSize(value: number) {
   pageSize.value = value;
   requestPage.value = 1;
@@ -184,7 +192,7 @@ function reasonLabel(reason: string): string {
 
 <template>
   <AppLayout>
-    <div class="space-y-5 pb-10">
+    <div class="min-w-0 space-y-4 pb-8 sm:space-y-5 sm:pb-10">
       <header class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div class="flex flex-wrap items-center gap-2">
@@ -201,8 +209,9 @@ function reasonLabel(reason: string): string {
           </p>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2">
-          <div class="inline-flex rounded-xl border border-gray-200 bg-white p-1 shadow-sm dark:border-dark-700 dark:bg-dark-800">
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <div class="max-w-full overflow-x-auto rounded-xl border border-gray-200 bg-white p-1 shadow-sm dark:border-dark-700 dark:bg-dark-800">
+            <div class="flex w-max">
             <button
               v-for="range in timeRanges"
               :key="range"
@@ -216,6 +225,7 @@ function reasonLabel(reason: string): string {
             >
               {{ range }}
             </button>
+            </div>
           </div>
           <button type="button" class="btn btn-secondary gap-2" :title="t('admin.schedulerObservability.refreshHint')" :disabled="isLoading" @click="refresh">
             <Icon name="refresh" size="sm" :class="isLoading ? 'animate-spin' : ''" />
@@ -224,7 +234,7 @@ function reasonLabel(reason: string): string {
         </div>
       </header>
 
-      <div class="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/5 dark:text-emerald-100">
+      <div class="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/5 dark:text-emerald-100 sm:rounded-2xl sm:p-4">
         <Icon name="infoCircle" size="sm" class="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-300" />
         <div class="min-w-0">
           <p class="text-xs font-semibold">{{ t("admin.schedulerObservability.liveTitle") }}</p>
@@ -250,7 +260,7 @@ function reasonLabel(reason: string): string {
 
       <SchedulerOverviewCards :metrics="schedulerOverviewMetrics" />
 
-      <section class="card p-4" :aria-label="t('admin.schedulerObservability.sections.switchReasons')">
+      <section class="card p-3 sm:p-4" :aria-label="t('admin.schedulerObservability.sections.switchReasons')">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center">
           <div class="min-w-[190px]">
             <div class="flex items-center gap-2">
@@ -279,7 +289,7 @@ function reasonLabel(reason: string): string {
       </section>
 
       <section class="card overflow-hidden">
-        <div class="border-b border-gray-200 px-4 pt-4 dark:border-dark-700 sm:px-5">
+        <div class="border-b border-gray-200 px-3 pt-3 dark:border-dark-700 sm:px-5 sm:pt-4">
           <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <nav class="flex items-center gap-5" :aria-label="t('admin.schedulerObservability.sections.details')">
               <button
@@ -296,8 +306,8 @@ function reasonLabel(reason: string): string {
               </button>
             </nav>
 
-            <div class="pb-3">
-              <label class="relative block min-w-0 sm:w-72">
+            <div class="w-full pb-3 xl:w-auto">
+              <label class="relative block min-w-0 w-full sm:w-72">
                 <span class="sr-only">{{ t("admin.schedulerObservability.searchPlaceholder") }}</span>
                 <Icon name="search" size="sm" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
@@ -326,26 +336,48 @@ function reasonLabel(reason: string): string {
             @update:api-key-id="updateApiKeyId"
           />
 
-          <div v-if="activeTab === 'requests'" class="flex flex-wrap items-center gap-2 pb-3 pt-3">
-            <button
-              v-for="filter in traceFilters"
-              :key="filter.key"
-              type="button"
-              class="cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
-              :class="traceFilter === filter.key
-                ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-950'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-dark-300 dark:hover:bg-dark-600'"
-              :aria-pressed="traceFilter === filter.key"
-              @click="selectTraceFilter(filter.key)"
-            >
-              {{ t(`admin.schedulerObservability.filters.${filter.key}`) }}
-              <span class="ml-1 opacity-70">{{ filter.count }}</span>
-            </button>
+          <div v-if="activeTab === 'requests'" class="space-y-2.5 pb-3 pt-3">
+            <div class="min-w-0 overflow-x-auto pb-0.5">
+              <div class="flex w-max items-center gap-2">
+                <span class="mr-1 text-[11px] font-medium text-gray-500 dark:text-dark-400">{{ t("admin.schedulerObservability.requestTypeFilter") }}</span>
+                <div class="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-800" role="group" :aria-label="t('admin.schedulerObservability.requestTypeFilter')">
+              <button
+                v-for="type in (['all', 'ws_v2', 'stream', 'sync'] as const)"
+                :key="type"
+                type="button"
+                class="cursor-pointer rounded px-2.5 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                :class="requestType === type
+                  ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
+                  : 'text-gray-500 hover:text-gray-800 dark:text-dark-400 dark:hover:text-white'"
+                :aria-pressed="requestType === type"
+                @click="selectRequestType(type)"
+              >
+                {{ t(`admin.schedulerObservability.requestTypes.${type}`) }}
+              </button>
+                </div>
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                v-for="filter in traceFilters"
+                :key="filter.key"
+                type="button"
+                class="cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                :class="traceFilter === filter.key
+                  ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-950'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-dark-300 dark:hover:bg-dark-600'"
+                :aria-pressed="traceFilter === filter.key"
+                @click="selectTraceFilter(filter.key)"
+              >
+                {{ t(`admin.schedulerObservability.filters.${filter.key}`) }}
+                <span class="ml-1 opacity-70">{{ filter.count }}</span>
+              </button>
+            </div>
           </div>
         </div>
 
         <SchedulerTraceTable v-if="activeTab === 'requests'" :traces="schedulerTraces" @select="selectTrace" />
-        <div v-else class="bg-gray-50/60 p-4 dark:bg-dark-950/20 sm:p-5">
+        <div v-else class="bg-gray-50/60 p-2 dark:bg-dark-950/20 sm:p-5">
           <SchedulerSessionPanel :sessions="schedulerSessions" @search-traces="searchSessionTraces" />
         </div>
         <Pagination

@@ -46,3 +46,15 @@ func TestSchedulerObservabilityHandlerRejectsInvalidDimensionIDs(t *testing.T) {
 		})
 	}
 }
+
+func TestSchedulerObservabilityHandlerRejectsInvalidRequestType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := NewSchedulerObservabilityHandler(&service.OpenAIGatewayService{})
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/scheduler-observability/snapshot?request_type=live", nil)
+
+	handler.GetSnapshot(ctx)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+}

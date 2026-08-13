@@ -312,23 +312,27 @@ func (s *OpenAIGatewayService) newOpenAIFirstOutputTimeoutError(
 		s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 	}
 	return &UpstreamFailoverError{
-		StatusCode:      http.StatusGatewayTimeout,
-		ResponseBody:    []byte(`{"error":{"type":"first_output_timeout","message":"Upstream produced no output before the deadline"}}`),
-		ResponseHeaders: responseHeaders.Clone(), SafeToFailoverAfterWrite: true,
-		Reason: GatewayFailureReason("first_output_timeout"),
+		StatusCode:               http.StatusGatewayTimeout,
+		ResponseBody:             []byte(`{"error":{"type":"first_output_timeout","message":"Upstream produced no output before the deadline"}}`),
+		ResponseHeaders:          responseHeaders.Clone(),
+		SafeToFailoverAfterWrite: true,
+		BillingExposurePossible:  true,
+		Reason:                   GatewayFailureReason("first_output_timeout"),
 	}
 }
 
 type openAIFirstOutputHeaderGuard struct {
-	cancel  context.CancelFunc
-	release context.CancelFunc
-	timer   *time.Timer
-	fired   chan struct{}
-	once    sync.Once
+	cancel   context.CancelFunc
+	release  context.CancelFunc
+	timer    *time.Timer
+	fired    chan struct{}
+	timedOut atomic.Bool
+	once     sync.Once
 }
 
 func newOpenAIFirstOutputHeaderGuard(
 	ctx context.Context,
+	clientCtx context.Context,
 	release context.CancelFunc,
 	deadline time.Time,
 ) (context.Context, *openAIFirstOutputHeaderGuard) {
@@ -339,6 +343,11 @@ func newOpenAIFirstOutputHeaderGuard(
 		remaining = time.Nanosecond
 	}
 	guard.timer = time.AfterFunc(remaining, func() {
+		if clientCtx != nil && clientCtx.Err() != nil {
+			close(guard.fired)
+			return
+		}
+		guard.timedOut.Store(true)
 		close(guard.fired)
 		cancel()
 	})
@@ -350,7 +359,7 @@ func (g *openAIFirstOutputHeaderGuard) stopHeaderWait() bool {
 		return false
 	}
 	<-g.fired
-	return true
+	return g.timedOut.Load()
 }
 
 func (g *openAIFirstOutputHeaderGuard) close() {

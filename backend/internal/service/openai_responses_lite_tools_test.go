@@ -309,3 +309,68 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 		})
 	}
 }
+
+func TestOpenAIGatewayServiceForward_DisablesResponsesLiteForServerSideCompaction(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		path string
+		body []byte
+	}{
+		{
+			name: "body signal",
+			path: "/v1/responses",
+			body: []byte(`{
+				"model":"gpt-5.6-sol","stream":true,
+				"tools":[{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"send_message"}]}],
+				"input":[
+					{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"image_gen"}]},
+					{"type":"message","role":"user","content":"hello"},
+					{"type":"compaction_trigger"}
+				]
+			}`),
+		},
+		{
+			name: "compact path",
+			path: "/v1/responses/compact",
+			body: []byte(`{
+				"model":"gpt-5.6-sol","stream":true,
+				"input":[
+					{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"image_gen"}]},
+					{"type":"message","role":"user","content":"hello"}
+				]
+			}`),
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, tt.path, bytes.NewReader(nil))
+			c.Request.Header.Set("User-Agent", "codex_cli_rs/0.146.0")
+			c.Request.Header.Set(responsesLiteHeader, "true")
+
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader(
+					"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_compact\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n" +
+						"data: [DONE]\n\n",
+				)),
+			}}
+			svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+			account := &Account{
+				ID: 502, Name: "responses-lite-compaction", Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+				Concurrency: 1, Status: StatusActive, Schedulable: true, RateMultiplier: f64p(1),
+				Credentials: map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "chatgpt-account"},
+			}
+
+			result, err := svc.Forward(context.Background(), c, account, tt.body)
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Empty(t, upstream.lastReq.Header.Get(responsesLiteHeader))
+			require.False(t, gjson.GetBytes(upstream.lastBody, `input.#(type=="additional_tools")`).Exists())
+			require.True(t, gjson.GetBytes(upstream.lastBody, `input.#(type=="message")`).Exists())
+		})
+	}
+}

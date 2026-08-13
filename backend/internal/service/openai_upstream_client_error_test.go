@@ -129,6 +129,65 @@ func TestHandleErrorResponse_Deterministic400WithoutUpstreamMetadata(t *testing.
 	require.False(t, gjson.Get(body, "error.param").Exists(), "上游没给 param 就不要编一个")
 }
 
+func TestShouldFailoverOpenAIUpstreamResponse_GenericUpstreamFailure400(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	body := []byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"}}`)
+
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusBadRequest,
+		"Upstream request failed",
+		body,
+	), "generic provider failure must switch accounts instead of being treated as a client error")
+}
+
+func TestForward_GenericUpstreamFailure400ReturnsFailoverError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.6-sol","input":"hello"}`))
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"Upstream request failed","type":"upstream_error"}}`)),
+	}}
+	account := &Account{
+		ID:       19,
+		Name:     "ai-maok",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url":  "https://provider.example/v1",
+			"api_key":   "test-key",
+			"pool_mode": true,
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+
+	_, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.6-sol","input":"hello"}`))
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.False(t, failoverErr.RetryableOnSameAccount, "400 is not in the default pool-mode same-account retry set")
+	require.False(t, c.Writer.Written(), "failover must not commit the first account's 400")
+}
+
+func TestShouldFailoverOpenAIUpstreamResponse_Deterministic400StillStops(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusBadRequest,
+		"Invalid schema for function 'automation_update'",
+		[]byte(openAIInvalidFunctionParametersBody),
+	))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusBadRequest,
+		"Upstream request failed",
+		[]byte(`{"error":{"message":"Upstream request failed","type":"invalid_request_error"}}`),
+	), "the generic message alone must not override explicit client-error semantics")
+}
+
 // 上游回非 JSON（反代的 HTML 错误页等）时不得 panic，也不得回空 message。
 func TestHandleErrorResponse_Deterministic400WithNonJSONBody(t *testing.T) {
 	c, rec := newOpenAIUpstreamErrorTestContext(t)

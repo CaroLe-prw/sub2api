@@ -263,11 +263,11 @@ func TestLogOpenAIInstructionsRequiredDebug_NonTargetErrorSkipped(t *testing.T) 
 }
 
 func TestIsOpenAITransientProcessingError(t *testing.T) {
-	require.True(t, isOpenAITransientProcessingError(
+	require.False(t, isOpenAITransientProcessingError(
 		http.StatusBadRequest,
 		"Upstream request failed",
 		[]byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"}}`),
-	))
+	), "a code-less generic upstream failure should switch accounts instead of retrying the same account")
 
 	require.True(t, isOpenAITransientProcessingError(
 		http.StatusBadRequest,

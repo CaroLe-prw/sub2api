@@ -288,6 +288,50 @@ func TestOpenAIResponseFlush_PreambleWithoutTerminalRemainsBufferedForFailover(t
 	require.Empty(t, flushes)
 }
 
+func TestOpenAIResponseFlush_CodexMetadataThenFailureRemainsReplayable(t *testing.T) {
+	metadata := "data: {\"type\":\"codex.response.metadata\",\"response_id\":\"resp_metadata_failure\"}\n\n"
+	failed := "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_metadata_failure\",\"error\":{\"code\":\"server_error\",\"message\":\"upstream processing failed\"}}}\n\n"
+	recorder := newOpenAIResponseFlushRecorder()
+
+	result, err := runOpenAIResponseFlushTest(
+		recorder,
+		io.NopCloser(strings.NewReader(metadata+failed)),
+		config.GatewayConfig{StreamKeepaliveInterval: 1},
+	)
+
+	require.NotNil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Nil(t, result.firstTokenMs)
+	gotBody, flushes := recorder.snapshot()
+	require.Empty(t, gotBody)
+	require.Empty(t, flushes)
+}
+
+func TestOpenAIResponseFlush_CodexMetadataFlushesWithFirstSemanticDelta(t *testing.T) {
+	metadata := "data: {\"type\":\"codex.response.metadata\",\"response_id\":\"resp_metadata_success\"}\n\n"
+	firstDelta := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ready\"}\n\n"
+	completed := "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_metadata_success\",\"usage\":{\"input_tokens\":3,\"output_tokens\":1,\"total_tokens\":4}}}\n\n"
+	recorder := newOpenAIResponseFlushRecorder()
+
+	result, err := runOpenAIResponseFlushTest(
+		recorder,
+		io.NopCloser(strings.NewReader(metadata+firstDelta+completed)),
+		config.GatewayConfig{StreamKeepaliveInterval: 1},
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.firstTokenMs)
+	gotBody, flushes := recorder.snapshot()
+	require.True(t, strings.HasPrefix(gotBody, metadata+firstDelta))
+	require.Contains(t, gotBody, `"type":"response.completed"`)
+	require.Equal(t, []string{
+		metadata + firstDelta,
+		gotBody,
+	}, flushes)
+}
+
 func TestOpenAIResponseFlush_CanceledAfterOutputFlushesResidualWithoutErrorEvent(t *testing.T) {
 	body := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n"
 	recorder := newOpenAIResponseFlushRecorder()
@@ -468,6 +512,46 @@ func TestOpenAIResponseFlush_ClientDisconnectStillDrainsUsage(t *testing.T) {
 	gotBody, flushes := recorder.snapshot()
 	require.Equal(t, first, gotBody)
 	require.Len(t, flushes, 1)
+}
+
+func TestOpenAIResponseFlush_RequestCancelBeforeFirstOutputDisarmsTimeoutAndDrainsUsage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := newOpenAIResponseFlushRecorder()
+	requestCtx, cancel := context.WithCancel(context.Background())
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(requestCtx)
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds: 1,
+		MaxLineSize:                     defaultMaxLineSize,
+	}}}
+	reader, writer := io.Pipe()
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: reader}
+	type streamOutcome struct {
+		result *openaiStreamingResult
+		err    error
+	}
+	outcomes := make(chan streamOutcome, 1)
+	go func() {
+		result, err := svc.handleStreamingResponse(context.Background(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI}, time.Now(), "gpt-5", "gpt-5")
+		outcomes <- streamOutcome{result: result, err: err}
+	}()
+
+	cancel()
+	time.Sleep(1100 * time.Millisecond)
+	_, err := writer.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_canceled\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":13,\"output_tokens\":4}}}\n\n"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	select {
+	case outcome := <-outcomes:
+		require.NoError(t, outcome.err)
+		require.NotNil(t, outcome.result)
+		require.True(t, outcome.result.clientDisconnect)
+		require.Equal(t, 13, outcome.result.usage.InputTokens)
+		require.Equal(t, 4, outcome.result.usage.OutputTokens)
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream did not drain terminal usage after request cancellation")
+	}
 }
 
 func runOpenAIResponseFlushTest(recorder *openAIResponseFlushRecorder, body io.ReadCloser, gatewayCfg config.GatewayConfig) (*openaiStreamingResult, error) {

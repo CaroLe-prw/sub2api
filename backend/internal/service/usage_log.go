@@ -1,10 +1,13 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 )
+
+type requestTypeContextKey struct{}
 
 const (
 	BillingTypeBalance      int8 = 0 // 钱包余额
@@ -86,6 +89,21 @@ func RequestTypeFromLegacy(stream bool, openAIWSMode bool) RequestType {
 		return RequestTypeStream
 	}
 	return RequestTypeSync
+}
+
+func WithRequestTypeContext(ctx context.Context, requestType RequestType) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, requestTypeContextKey{}, requestType.Normalize())
+}
+
+func RequestTypeFromContext(ctx context.Context) RequestType {
+	if ctx == nil {
+		return RequestTypeUnknown
+	}
+	requestType, _ := ctx.Value(requestTypeContextKey{}).(RequestType)
+	return requestType.Normalize()
 }
 
 func ApplyLegacyRequestFields(requestType RequestType, fallbackStream bool, fallbackOpenAIWSMode bool) (stream bool, openAIWSMode bool) {

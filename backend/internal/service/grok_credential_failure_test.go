@@ -243,6 +243,7 @@ func TestUpstreamFailoverErrorNextAccountActionPreservesLegacyRetry(t *testing.T
 	require.True(t, (&UpstreamFailoverError{}).ShouldRetryNextAccount())
 	require.True(t, (&UpstreamFailoverError{NextAccountAction: NextAccountRetry}).ShouldRetryNextAccount())
 	require.False(t, (&UpstreamFailoverError{NextAccountAction: NextAccountStop}).ShouldRetryNextAccount())
+	require.False(t, (&UpstreamFailoverError{BillingExposurePossible: true}).ShouldRetryNextAccount())
 }
 
 func TestGetRequestCredentialMapsPermanentGrokOAuthFailureAndRedactsSecrets(t *testing.T) {

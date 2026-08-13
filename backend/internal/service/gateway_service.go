@@ -682,8 +682,12 @@ type UpstreamFailoverError struct {
 	Scope                                  GatewayFailureScope
 	Reason                                 GatewayFailureReason
 	NextAccountAction                      NextAccountAction
-	ClientStatusCode                       int
-	ClientMessage                          string
+	// BillingExposurePossible means the upstream may already charge this attempt.
+	// Replaying such an attempt can double-charge the gateway, so it must never
+	// trigger either a same-account retry or an account switch.
+	BillingExposurePossible bool
+	ClientStatusCode        int
+	ClientMessage           string
 }
 
 func (e *UpstreamFailoverError) Error() string {
@@ -694,7 +698,7 @@ func (e *UpstreamFailoverError) Error() string {
 }
 
 func (e *UpstreamFailoverError) ShouldRetryNextAccount() bool {
-	return e != nil && e.NextAccountAction != NextAccountStop
+	return e != nil && !e.BillingExposurePossible && e.NextAccountAction != NextAccountStop
 }
 
 func (e *UpstreamFailoverError) SameAccountRetryLimit(configured int) int {

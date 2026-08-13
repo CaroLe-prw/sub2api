@@ -147,8 +147,8 @@ func TestGatewayRoutesKeyBillingInfoEndToEnd(t *testing.T) {
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 		require.Equal(t, "sub2api.key_billing", body["object"])
 		require.Equal(t, 0.75, body["effective_rate_multiplier"])
-		// Authentication resolves the effective group rate for API-key protection,
-		// then the billing endpoint resolves it for the response payload.
+		// Authentication resolves the effective user/group rate, and the billing
+		// response resolves it again for the value returned to the client.
 		require.Equal(t, 2, rateRepo.lookupCalls)
 	})
 

@@ -14,6 +14,13 @@ const messages = vi.hoisted<Record<string, string>>(() => ({
   "admin.schedulerObservability.title": "调度观测",
   "admin.schedulerObservability.liveTitle": "已连接当前节点的实时调度轨迹",
   "admin.schedulerObservability.filters.switch": "发生切号",
+  "admin.schedulerObservability.requestTypeFilter": "请求类型",
+  "admin.schedulerObservability.requestTypes.all": "全部类型",
+  "admin.schedulerObservability.requestTypes.ws_v2": "WS",
+  "admin.schedulerObservability.requestTypes.stream": "流式",
+  "admin.schedulerObservability.requestTypes.sync": "同步",
+  "admin.schedulerObservability.requestTypes.cyber": "安全策略",
+  "admin.schedulerObservability.status.pending": "请求中",
   "admin.schedulerObservability.groupFilter": "筛选分组",
   "admin.schedulerObservability.filterOptions.model": "模型",
   "admin.schedulerObservability.filterOptions.account": "账号",
@@ -83,9 +90,11 @@ afterEach(() => {
 
 beforeEach(() => {
   getSnapshotMock.mockReset();
-  getSnapshotMock.mockImplementation(async (query: { view: "requests" | "sessions"; page: number; pageSize: number; traceFilter?: string; search?: string }) => {
+  getSnapshotMock.mockImplementation(async (query: { view: "requests" | "sessions"; page: number; pageSize: number; traceFilter?: string; requestType?: string; search?: string }) => {
     const traces = query.view === "requests"
-      ? schedulerTraces.filter((trace) => query.traceFilter !== "switch" || trace.switchCount > 0)
+      ? schedulerTraces.filter((trace) =>
+        (query.traceFilter !== "switch" || trace.switchCount > 0)
+        && (query.requestType === "all" || trace.requestType === query.requestType))
       : [];
     const sessions = query.view === "sessions" ? schedulerSessions : [];
     return {
@@ -179,6 +188,68 @@ describe("SchedulerObservabilityView", () => {
     expect(dialog?.textContent).toContain("候选评分");
   });
 
+  it("provides mobile lists while keeping wide tables desktop-only", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+
+    const mobileTraces = wrapper.get('[data-testid="scheduler-trace-mobile-list"]');
+    const desktopTraces = wrapper.get('[data-testid="scheduler-trace-desktop-table"]');
+    expect(mobileTraces.classes()).toContain("md:hidden");
+    expect(desktopTraces.classes()).toContain("hidden");
+    expect(desktopTraces.classes()).toContain("md:block");
+    expect(mobileTraces.findAll(":scope > button")).toHaveLength(schedulerTraces.length);
+
+    await mobileTraces.find("button").trigger("click");
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+
+  it("uses outcome colors before latency colors and does not present pending zero as duration", async () => {
+    const failedTrace = schedulerTraces.find((trace) => trace.status === "failed");
+    expect(failedTrace).toBeDefined();
+    const pendingTrace = {
+      ...schedulerTraces[0],
+      id: "trace-pending",
+      requestId: "req-pending",
+      status: "pending" as const,
+      durationMs: 0,
+      endToEndFirstTokenMs: null,
+    };
+    getSnapshotMock.mockResolvedValueOnce({
+      enabled: true,
+      generatedAt: "2026-08-10T17:00:00+08:00",
+      timeRange: "1h",
+      view: "requests",
+      retentionMode: "memory",
+      retentionMax: 1_000,
+      pagination: { page: 1, pageSize: 20, total: 2, pages: 1 },
+      traceCounts: { all: 2, sticky: 0, switch: 0, failed: 1 },
+      metrics: {
+        requests: 2, stickyRequests: 0, stickyHitRate: 0, switchedRequests: 0, switches: 0,
+        switchRate: 0, stableSessions: 0, sessions: 0, sessionStability: 0,
+        cacheReadTokens: 0, cacheEligibleTokens: 0, followUpCacheRate: 0,
+      },
+      switchReasons: [],
+      groups: [],
+      traces: [failedTrace!, pendingTrace],
+      sessions: [],
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    const mobileRows = wrapper.get('[data-testid="scheduler-trace-mobile-list"]').findAll(":scope > button");
+    expect(mobileRows[0].find(".bg-rose-500").exists()).toBe(true);
+    expect(mobileRows[0].find(".text-rose-600").exists()).toBe(true);
+    expect(mobileRows[1].text()).toContain("请求中");
+    expect(mobileRows[1].text()).not.toContain("0ms");
+    expect(mobileRows[1].find(".bg-sky-500").exists()).toBe(true);
+
+    const desktopAccountPath = wrapper
+      .get('[data-testid="scheduler-trace-desktop-table"]')
+      .find("tbody tr td:nth-child(6) > div");
+    expect(desktopAccountPath.classes()).toContain("flex-wrap");
+    expect(desktopAccountPath.classes()).not.toContain("overflow-hidden");
+  });
+
   it("switches to the session analysis view", async () => {
     const wrapper = mountView();
     await flushPromises();
@@ -198,10 +269,26 @@ describe("SchedulerObservabilityView", () => {
     expect(wrapper.text()).toContain("账号轨迹");
     expect(wrapper.text()).toContain("每个圆点是一轮请求");
     expect(wrapper.findAll("tbody tr")).toHaveLength(4);
-    const accountJourney = wrapper.find('[aria-label$="轮账号轨迹"]');
+    const mobileSessions = wrapper.get('[data-testid="scheduler-session-mobile-list"]');
+    const desktopSessions = wrapper.get('[data-testid="scheduler-session-desktop-table"]');
+    expect(mobileSessions.classes()).toContain("md:hidden");
+    expect(desktopSessions.classes()).toContain("hidden");
+    expect(desktopSessions.classes()).toContain("md:block");
+    expect(mobileSessions.findAll(":scope > article")).toHaveLength(schedulerSessions.length);
+
+    const accountJourney = desktopSessions.find('[aria-label$="轮账号轨迹"]');
     expect(accountJourney.classes()).toContain("flex-wrap");
     expect(accountJourney.classes()).toContain("w-[228px]");
-    expect(accountJourney.find("span").attributes("title")).toContain("codex-oauth-09");
+    const firstJourneyDot = accountJourney.find('[aria-label*="codex-oauth-09"]');
+    expect(firstJourneyDot.exists()).toBe(true);
+    await firstJourneyDot.trigger("mouseenter");
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain("codex-oauth-09");
+    await firstJourneyDot.trigger("mouseleave");
+
+    const accountId = wrapper.find('[aria-label="codex-oauth-09 (#9)"]');
+    expect(accountId.exists()).toBe(true);
+    await accountId.trigger("mouseenter");
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain("codex-oauth-09 (#9)");
 
     const sessionLink = wrapper
       .findAll("button")
@@ -218,6 +305,23 @@ describe("SchedulerObservabilityView", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("filters request traces by transport type and shows result badges", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+
+    const wsFilter = wrapper.findAll("button").find((button) => button.text().trim() === "WS");
+    expect(wsFilter).toBeDefined();
+    await wsFilter?.trigger("click");
+    await flushPromises();
+
+    expect(getSnapshotMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "requests", requestType: "ws_v2", page: 1 }),
+      expect.any(Object),
+    );
+    expect(wrapper.text()).toContain("WS");
+    expect(wrapper.text()).not.toContain("安全策略");
   });
 
   it("explains local admission rejection without presenting it as an upstream switch", async () => {

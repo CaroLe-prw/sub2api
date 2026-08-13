@@ -63,6 +63,14 @@ export default {
         requests: 'Request traces',
         sessions: 'Session analysis',
       },
+      requestTypeFilter: 'Request type',
+      requestTypes: {
+        all: 'All types',
+        ws_v2: 'WS',
+        stream: 'Streaming',
+        sync: 'Synchronous',
+        cyber: 'Security policy',
+      },
       filters: {
         all: 'All',
         sticky: 'Sticky hit',
@@ -119,6 +127,8 @@ export default {
         retrySwitch: 'Retry / switch',
         cache: 'Cache rate / tokens',
         result: 'Result / end-to-end TTFT',
+        firstToken: 'TTFT',
+        duration: 'Duration',
       },
       empty: {
         title: 'No matching scheduler traces',

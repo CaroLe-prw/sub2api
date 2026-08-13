@@ -512,6 +512,14 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	}
 	responseModelObserver := &upstreamResponseModelObserver{}
 
+	payload, _, err := stripOpenAIResponsesLiteWSMetadataForCompaction(payload)
+	if err != nil {
+		return nil, err
+	}
+	payload, _, err = stripOpenAIResponsesLiteInputForCompaction(payload)
+	if err != nil {
+		return nil, err
+	}
 	body, err := prepareOpenAIWSHTTPBridgeBody(payload)
 	if err != nil {
 		return nil, fmt.Errorf("prepare http bridge body: %w", err)

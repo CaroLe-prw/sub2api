@@ -88,12 +88,13 @@ func TestOpenAIGatewayServiceForward_CodexImageInjectionRespectsGroupCapability(
 		allowImages   bool
 		bridgeEnabled bool
 		responsesLite bool
+		oauthAccount  bool
 		wantInjected  bool
 	}{
 		{name: "disabled group skips injection", allowImages: false, bridgeEnabled: true, wantInjected: false},
 		{name: "enabled group skips injection by default", allowImages: true, bridgeEnabled: false, wantInjected: false},
 		{name: "enabled group injects image tool when bridge enabled", allowImages: true, bridgeEnabled: true, wantInjected: true},
-		{name: "responses lite skips hosted image bridge", allowImages: true, bridgeEnabled: true, responsesLite: true, wantInjected: false},
+		{name: "responses lite skips hosted image bridge", allowImages: true, bridgeEnabled: true, responsesLite: true, oauthAccount: true, wantInjected: false},
 	}
 
 	for _, tt := range tests {
@@ -112,6 +113,14 @@ func TestOpenAIGatewayServiceForward_CodexImageInjectionRespectsGroupCapability(
 				c.Request.Header.Set(responsesLiteHeader, "true")
 			}
 			account := newOpenAIImageGenerationControlTestAccount()
+			if tt.oauthAccount {
+				account.Type = AccountTypeOAuth
+				account.Credentials = map[string]any{
+					"access_token":       "oauth-token",
+					"chatgpt_account_id": "chatgpt-account",
+				}
+				require.True(t, account.IsOpenAIOAuth())
+			}
 
 			result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.4","input":"write code","stream":false}`))
 
@@ -152,6 +161,24 @@ func TestOpenAIBuildUpstreamRequestOpenAIPassthroughForwardsResponsesLiteHeader(
 
 	require.NoError(t, err)
 	require.Equal(t, "true", req.Header.Get(responsesLiteHeader))
+}
+
+func TestOpenAIBuildUpstreamRequestOpenAIPassthroughStripsResponsesLiteForCompaction(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.98.0")
+	c.Request.Header.Set(responsesLiteHeader, "true")
+
+	svc := newOpenAIImageGenerationControlTestService(&httpUpstreamRecorder{})
+	req, err := svc.buildUpstreamRequestOpenAIPassthrough(
+		c.Request.Context(),
+		c,
+		newOpenAIImageGenerationControlTestAccount(),
+		[]byte(`{"model":"gpt-5.6-sol","input":[{"type":"compaction_trigger"}]}`),
+		"test-token",
+	)
+
+	require.NoError(t, err)
+	require.Empty(t, req.Header.Get(responsesLiteHeader))
 }
 
 func TestOpenAIGatewayServiceForward_ExplicitImageToolWorksWithBridgeDisabled(t *testing.T) {

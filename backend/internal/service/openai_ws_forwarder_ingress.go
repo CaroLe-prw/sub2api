@@ -257,6 +257,24 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			normalized = next
 		}
+		compactionPayload, _, compactErr := stripOpenAIResponsesLiteWSMetadataForCompaction(normalized)
+		if compactErr != nil {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(
+				coderws.StatusPolicyViolation,
+				"invalid websocket compaction payload",
+				compactErr,
+			)
+		}
+		normalized = compactionPayload
+		compactionPayload, _, compactErr = stripOpenAIResponsesLiteInputForCompaction(normalized)
+		if compactErr != nil {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(
+				coderws.StatusPolicyViolation,
+				"invalid websocket compaction payload",
+				compactErr,
+			)
+		}
+		normalized = compactionPayload
 		if account.IsOpenAIOAuth() && isOpenAIResponsesLiteWebSocketPayload(normalized) {
 			litePayload, _, liteErr := normalizeOpenAIResponsesLiteToolsPayload(normalized)
 			if liteErr != nil {

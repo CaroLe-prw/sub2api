@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -57,6 +58,12 @@ func TestRequestTypeFromLegacy(t *testing.T) {
 	require.Equal(t, RequestTypeWSV2, RequestTypeFromLegacy(false, true))
 	require.Equal(t, RequestTypeStream, RequestTypeFromLegacy(true, false))
 	require.Equal(t, RequestTypeSync, RequestTypeFromLegacy(false, false))
+}
+
+func TestRequestTypeContext(t *testing.T) {
+	ctx := WithRequestTypeContext(context.Background(), RequestTypeWSV2)
+	require.Equal(t, RequestTypeWSV2, RequestTypeFromContext(ctx))
+	require.Equal(t, RequestTypeUnknown, RequestTypeFromContext(nil))
 }
 
 func TestApplyLegacyRequestFields(t *testing.T) {

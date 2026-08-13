@@ -2644,7 +2644,7 @@ func TestOpenAIResponsesWebSocket_CapacityFailureRetriesSamePoolAccount(t *testi
 	}
 }
 
-func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClientForOneFailover(t *testing.T) {
+func TestOpenAIResponsesWebSocket_FirstOutputTimeoutDoesNotReplayPotentiallyBillableRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	firstHitCh := make(chan []byte, 1)
@@ -2814,21 +2814,11 @@ func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClien
 	cancelWrite()
 	require.NoError(t, err)
 
-	var eventTypes []string
-	readCtx, cancelRead := context.WithTimeout(context.Background(), 6*time.Second)
-	for {
-		_, event, readErr := clientConn.Read(readCtx)
-		require.NoError(t, readErr)
-		eventType := gjson.GetBytes(event, "type").String()
-		eventTypes = append(eventTypes, eventType)
-		if eventType == "response.completed" {
-			require.Equal(t, "resp_ws_timeout_b", gjson.GetBytes(event, "response.id").String())
-			break
-		}
-	}
+	readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
+	_, _, readErr := clientConn.Read(readCtx)
 	cancelRead()
-	require.Contains(t, eventTypes, "response.output_text.delta")
-	require.NoError(t, clientConn.Close(coderws.StatusNormalClosure, "done"))
+	require.Error(t, readErr)
+	require.Contains(t, readErr.Error(), "upstream service temporarily unavailable")
 
 	select {
 	case <-handlerDone:
@@ -2842,11 +2832,11 @@ func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClien
 	}
 	select {
 	case <-secondHitCh:
-	case <-time.After(3 * time.Second):
-		t.Fatal("second upstream did not receive replayed request")
+		t.Fatal("potentially billable request was replayed to the second upstream")
+	case <-time.After(100 * time.Millisecond):
 	}
 	require.Equal(t, int32(1), firstConnections.Load())
-	require.Equal(t, int32(1), secondConnections.Load())
+	require.Equal(t, int32(0), secondConnections.Load())
 	require.NotContains(t, accountRepo.rateLimitedIDs, int64(9913), "healthy failover account must not be penalized")
 }
 

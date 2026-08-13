@@ -328,6 +328,84 @@ func TestOpenAIGatewayService_ComposesProactiveNamespaceStripWithRejectedFieldRe
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "max_output_tokens").Exists())
 }
 
+func TestOpenAIGatewayService_APIKeyPassthroughRetriesStreamMissingEncryptedContentOnSameAccount(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-terra","stream":true,"input":[{"type":"message","role":"user","content":"keep"},{"type":"reasoning","id":"rs_missing","summary":[]},{"type":"function_call_output","call_id":"call_1","output":"keep too"}]}`)
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"event: response.created\n" +
+					`data: {"type":"response.created","response":{"id":"resp_rejected"}}` + "\n\n" +
+					"event: response.failed\n" +
+					`data: {"type":"response.failed","response":{"error":{"code":"missing_required_parameter","type":"invalid_request_error","message":"Missing required parameter: 'input[1].encrypted_content'."}}}` + "\n\n",
+			)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"event: response.completed\n" +
+					`data: {"type":"response.completed","response":{"id":"resp_recovered","usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}` + "\n\n",
+			)),
+		},
+	}}
+	account := newOpenAIRejectedFieldTestAccount()
+	account.Extra["openai_passthrough"] = true
+
+	result, err := newOpenAIRejectedFieldTestService(upstream).Forward(
+		context.Background(),
+		newOpenAIRejectedFieldTestContext(body),
+		account,
+		body,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, 3, int(gjson.GetBytes(upstream.bodies[0], "input.#").Int()))
+	require.Equal(t, 2, int(gjson.GetBytes(upstream.bodies[1], "input.#").Int()))
+	require.Equal(t, "message", gjson.GetBytes(upstream.bodies[1], "input.0.type").String())
+	require.Equal(t, "function_call_output", gjson.GetBytes(upstream.bodies[1], "input.1.type").String())
+}
+
+func TestOpenAIGatewayService_APIKeyPassthroughFailsOverAfterStreamBodyRepairFails(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-terra","stream":true,"input":[{"type":"message","role":"user","content":"keep"},{"type":"reasoning","id":"rs_missing","summary":[]},{"type":"function_call_output","call_id":"call_1","output":"keep too"}]}`)
+	failedStream := func(responseID string) *http.Response {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"event: response.failed\n" +
+					`data: {"type":"response.failed","response":{"id":"` + responseID + `","error":{"code":"missing_required_parameter","type":"invalid_request_error","message":"Missing required parameter: 'input[1].encrypted_content'."}}}` + "\n\n",
+			)),
+		}
+	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		failedStream("resp_rejected_first"),
+		failedStream("resp_rejected_after_repair"),
+	}}
+	account := newOpenAIRejectedFieldTestAccount()
+	account.Extra["openai_passthrough"] = true
+
+	result, err := newOpenAIRejectedFieldTestService(upstream).Forward(
+		context.Background(),
+		newOpenAIRejectedFieldTestContext(body),
+		account,
+		body,
+	)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.False(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.RequestScopedTransient)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.False(t, failoverErr.ShouldReportAccountScheduleFailure())
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, 2, int(gjson.GetBytes(upstream.bodies[1], "input.#").Int()))
+}
+
 func newOpenAIRejectedFieldTestService(upstream *httpUpstreamRecorder) *OpenAIGatewayService {
 	return &OpenAIGatewayService{
 		cfg: &config.Config{Security: config.SecurityConfig{

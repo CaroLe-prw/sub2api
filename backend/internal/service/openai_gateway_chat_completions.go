@@ -247,6 +247,11 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		return nil, policyErr
 	}
 	responsesBody = updatedBody
+	autoContextCompactionInjected := false
+	responsesBody, autoContextCompactionInjected, err = applyOpenAIAutoContextCompactionToBody(c, account, responsesBody)
+	if err != nil {
+		return nil, err
+	}
 
 	// 5. Get access token
 	token, _, err := s.getRequestCredential(ctx, c, account)
@@ -260,67 +265,27 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	if account.Platform == PlatformOpenAI {
 		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffort)
 	}
-	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
-	var headerGuard *openAIFirstOutputHeaderGuard
-	if firstOutputTimeout > 0 {
-		upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
-			upstreamCtx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
-		)
-	}
-	upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, true, promptCacheKey, false)
-	if headerGuard == nil {
-		releaseUpstreamCtx()
-	}
+	resp, err := s.sendOpenAIChatResponsesRequest(
+		ctx, c, account, responsesBody, token, promptCacheKey, originalModel, reasoningEffort,
+		startTime, firstOutputTimeout, autoContextCompactionInjected,
+	)
 	if err != nil {
-		if headerGuard != nil {
-			headerGuard.close()
-		}
-		return nil, fmt.Errorf("build upstream request: %w", err)
-	}
-
-	if promptCacheKey != "" {
-		apiKeyID := getAPIKeyIDFromContext(c)
-		upstreamReq.Header.Set("session_id", generateSessionUUID(isolateOpenAISessionID(apiKeyID, promptCacheKey)))
-	}
-
-	// 7. Send request
-	proxyURL := ""
-	if account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
-	if headerGuard != nil && headerGuard.stopHeaderWait() {
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-		headerGuard.close()
-		return nil, s.newOpenAIFirstOutputTimeoutError(
-			ctx, c, account, startTime, originalModel, reasoningEffort,
-			firstOutputTimeout, "response_headers", nil,
-		)
-	}
-	if err != nil {
-		if headerGuard != nil {
-			headerGuard.close()
-		}
-		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
-	}
-	if headerGuard != nil {
-		resp.Body = &openAIRequestContextReadCloser{ReadCloser: resp.Body, cleanup: headerGuard.close}
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
-		if !agentIdentityTaskRecoveryWasTried(ctx) && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, respBody) {
+		clientCanceled := ctx != nil && ctx.Err() != nil
+		if !clientCanceled && !agentIdentityTaskRecoveryWasTried(ctx) && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, respBody) {
 			expectedTaskID := account.GetCredential("task_id")
 			if err := s.recoverAgentIdentityTask(ctx, account, expectedTaskID); err != nil {
 				return nil, fmt.Errorf("agent identity task recovery failed: %w", err)
 			}
 			return s.ForwardAsChatCompletions(markAgentIdentityTaskRecoveryTried(ctx), c, account, body, promptCacheKey, defaultMappedModel)
 		}
-		if account.Type == AccountTypeAPIKey &&
+		if !clientCanceled && account.Type == AccountTypeAPIKey &&
 			openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown &&
 			!isResponsesEndpointSupportedByStatus(resp.StatusCode) {
 			logger.L().Info("openai chat_completions: /responses unsupported, falling back to raw chat completions",
@@ -375,6 +340,96 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 
 	return result, handleErr
+}
+
+// sendOpenAIChatResponsesRequest sends the Responses-shaped request produced
+// by the Chat Completions bridge. Unknown API-key providers are allowed one
+// compatibility retry without context_management when their first response
+// proves that server-side compaction is unsupported.
+func (s *OpenAIGatewayService) sendOpenAIChatResponsesRequest(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	token string,
+	promptCacheKey string,
+	originalModel string,
+	reasoningEffort string,
+	startTime time.Time,
+	firstOutputTimeout time.Duration,
+	autoContextCompactionInjected bool,
+) (*http.Response, error) {
+	for {
+		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+		var headerGuard *openAIFirstOutputHeaderGuard
+		if firstOutputTimeout > 0 {
+			upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
+				upstreamCtx, ctx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
+			)
+		}
+		upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, body, token, true, promptCacheKey, false)
+		if headerGuard == nil {
+			releaseUpstreamCtx()
+		}
+		if err != nil {
+			if headerGuard != nil {
+				headerGuard.close()
+			}
+			return nil, fmt.Errorf("build upstream request: %w", err)
+		}
+
+		if promptCacheKey != "" {
+			apiKeyID := getAPIKeyIDFromContext(c)
+			upstreamReq.Header.Set("session_id", generateSessionUUID(isolateOpenAISessionID(apiKeyID, promptCacheKey)))
+		}
+
+		proxyURL := ""
+		if account.Proxy != nil {
+			proxyURL = account.Proxy.URL()
+		}
+		resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		if headerGuard != nil && headerGuard.stopHeaderWait() {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			headerGuard.close()
+			return nil, s.newOpenAIFirstOutputTimeoutError(
+				ctx, c, account, startTime, originalModel, reasoningEffort,
+				firstOutputTimeout, "response_headers", nil,
+			)
+		}
+		if err != nil {
+			if headerGuard != nil {
+				headerGuard.close()
+			}
+			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+		}
+		if headerGuard != nil {
+			resp.Body = &openAIRequestContextReadCloser{ReadCloser: resp.Body, cleanup: headerGuard.close}
+		}
+
+		if resp.StatusCode >= http.StatusBadRequest && autoContextCompactionInjected {
+			respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+			retryBody, rejected, retryErr := openAIContextCompactionRejectedRetryBody(resp.StatusCode, body, respBody)
+			if retryErr != nil {
+				_ = resp.Body.Close()
+				return nil, fmt.Errorf("normalize rejected context_management retry body: %w", retryErr)
+			}
+			if rejected {
+				_ = resp.Body.Close()
+				s.recordOpenAIContextCompactionObservation(ctx, account, false, resp.StatusCode, upstreamMsg)
+				body = retryBody
+				autoContextCompactionInjected = false
+				setOpenAIAutoContextCompactionState(c, false, false)
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying Chat Completions bridge without unsupported context_management (account: %s)", account.Name)
+				continue
+			}
+		}
+		if autoContextCompactionInjected && resp.StatusCode < http.StatusBadRequest {
+			s.recordOpenAIContextCompactionObservation(ctx, account, true, resp.StatusCode, "")
+		}
+		return resp, nil
+	}
 }
 
 func normalizeResponsesRequestServiceTier(req *apicompat.ResponsesRequest) {
@@ -511,7 +566,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponseWithReasoning(
 			return nil, fmt.Errorf("openai cyber_policy: %s", msg)
 		}
 		message := openAICompatFailedResponseMessage(finalResponse)
-		if openAIStreamFailedEventShouldFailover(payload, message) {
+		if openAIStreamFailedEventShouldFailover(payload, message, c) {
 			return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, payload, message, resp.Header)
 		}
 		message = s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "http_error", payload, message)
@@ -562,6 +617,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponseWithReasoning(
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		Stream:                        false,
 		Duration:                      time.Since(startTime),
+		ClientDisconnect:              c != nil && c.Request != nil && c.Request.Context().Err() != nil,
 	}
 	// Grok chat bridge: bill native search tools found in the terminal Responses body.
 	if account != nil && account.IsGrok() && finalResponse != nil {
@@ -661,6 +717,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponseWithReasoning(
 			Stream:                        true,
 			Duration:                      time.Since(startTime),
 			FirstTokenMs:                  firstTokenMs,
+			ClientDisconnect:              clientDisconnected || (c != nil && c.Request != nil && c.Request.Context().Err() != nil),
 		}
 		if searchCount > 0 {
 			out.SearchCount = searchCount
@@ -732,7 +789,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponseWithReasoning(
 				}
 				return true
 			}
-			if openAIStreamFailedEventShouldFailover(payloadBytes, message) {
+			if openAIStreamFailedEventShouldFailover(payloadBytes, message, c) {
 				streamFailoverErr = s.newOpenAIStreamFailoverError(c, account, false, requestID, payloadBytes, message, resp.Header)
 				return true
 			}
@@ -774,6 +831,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponseWithReasoning(
 		}
 
 		chunks := apicompat.ResponsesEventToChatChunks(&event, state)
+		holdPreambleForCompactionFailover := openAIAutoContextCompactionMayFailover(c) && !startsClientOutput
 		if !clientDisconnected {
 			for _, chunk := range chunks {
 				refusalDetector.ObserveChatChunk(chunk)
@@ -785,7 +843,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponseWithReasoning(
 					)
 					continue
 				}
-				if !clientOutputStarted && ((guardFirstOutput && firstTokenMs == nil) || !refusalDetector.ShouldReleaseClientOutput()) {
+				if !clientOutputStarted && (holdPreambleForCompactionFailover || (guardFirstOutput && firstTokenMs == nil) || !refusalDetector.ShouldReleaseClientOutput()) {
 					pendingSSE = append(pendingSSE, sse)
 					continue
 				}
@@ -1020,13 +1078,22 @@ func (s *OpenAIGatewayService) handleChatStreamingResponseWithReasoning(
 		if firstOutputTimer == nil {
 			return
 		}
-		if firstOutputTimer.Stop() {
-			firstOutputCh = nil
-		}
+		firstOutputTimer.Stop()
+		firstOutputCh = nil
+	}
+	var clientDoneCh <-chan struct{}
+	if c != nil && c.Request != nil {
+		clientDoneCh = c.Request.Context().Done()
 	}
 
 	for {
 		select {
+		case <-clientDoneCh:
+			clientDisconnected = true
+			clientDoneCh = nil
+			stopFirstOutputTimer()
+			continue
+
 		case ev, ok := <-events:
 			if !ok {
 				if frame, ok := parser.Finish(); ok {

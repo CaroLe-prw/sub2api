@@ -1,5 +1,7 @@
 export type SchedulerTraceStatus = "pending" | "success" | "switched" | "failed" | "canceled";
 
+export type SchedulerRequestType = "sync" | "stream" | "ws_v2";
+
 export type SchedulerCandidateScope = "scored" | "sticky_short_circuit";
 
 export type SchedulerDecisionLayer =
@@ -81,6 +83,8 @@ export interface SchedulerTrace {
   groupName: string;
   platform?: string;
   model: string;
+  requestType: SchedulerRequestType;
+  cyberBlocked: boolean;
   sessionFingerprint: string | null;
   sessionSource: SchedulerSessionSource;
   sessionTurn: number | null;

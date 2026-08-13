@@ -311,7 +311,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	var headerGuard *openAIFirstOutputHeaderGuard
 	if firstOutputTimeout > 0 {
 		upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
-			upstreamCtx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
+			upstreamCtx, ctx, releaseUpstreamCtx, startTime.Add(firstOutputTimeout),
 		)
 	}
 	var upstreamReq *http.Request
@@ -436,14 +436,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
-		if !agentIdentityTaskRecoveryWasTried(ctx) && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, respBody) {
+		clientCanceled := ctx != nil && ctx.Err() != nil
+		if !clientCanceled && !agentIdentityTaskRecoveryWasTried(ctx) && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, respBody) {
 			expectedTaskID := account.GetCredential("task_id")
 			if err := s.recoverAgentIdentityTask(ctx, account, expectedTaskID); err != nil {
 				return nil, fmt.Errorf("agent identity task recovery failed: %w", err)
 			}
 			return s.ForwardAsAnthropic(markAgentIdentityTaskRecoveryTried(ctx), c, account, body, promptCacheKey, defaultMappedModel)
 		}
-		if previousResponseID != "" && (isOpenAICompatPreviousResponseNotFound(resp.StatusCode, upstreamMsg, respBody) || isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody)) {
+		if !clientCanceled && previousResponseID != "" && (isOpenAICompatPreviousResponseNotFound(resp.StatusCode, upstreamMsg, respBody) || isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody)) {
 			if isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody) {
 				s.disableOpenAICompatSessionContinuation(ctx, c, account, promptCacheKey)
 			} else {
@@ -459,7 +460,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		// Grok account-switched history often fails decrypt; strip encrypted
 		// reasoning once at the client-body level so failover accounts can accept
 		// the multi-turn tool continuation instead of cascading 400s.
-		if account.Platform == PlatformGrok &&
+		if !clientCanceled && account.Platform == PlatformGrok &&
 			isGrokInvalidEncryptedContentResponse(resp.StatusCode, respBody) &&
 			!grokEncryptedContentStripRetried(ctx) {
 			if strippedBody, ok := stripAnthropicThinkingSignatures(body); ok {
@@ -684,6 +685,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponseWithReaso
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		Stream:                        false,
 		Duration:                      time.Since(startTime),
+		ClientDisconnect:              c != nil && c.Request != nil && c.Request.Context().Err() != nil,
 	}
 	// Grok /v1/messages uses Responses upstream; count native search for surcharge.
 	if account != nil && account.IsGrok() && finalResponse != nil {
@@ -1003,7 +1005,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 			Stream:                        true,
 			Duration:                      time.Since(startTime),
 			FirstTokenMs:                  firstTokenMs,
-			ClientDisconnect:              clientDisconnected,
+			ClientDisconnect:              clientDisconnected || (c != nil && c.Request != nil && c.Request.Context().Err() != nil),
 		}
 		if searchCount > 0 {
 			out.SearchCount = searchCount
@@ -1312,9 +1314,22 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 		firstOutputCh = firstOutputTimer.C
 		defer firstOutputTimer.Stop()
 	}
+	var clientDoneCh <-chan struct{}
+	if c != nil && c.Request != nil {
+		clientDoneCh = c.Request.Context().Done()
+	}
 
 	for {
 		select {
+		case <-clientDoneCh:
+			clientDisconnected = true
+			clientDoneCh = nil
+			if firstOutputTimer != nil {
+				firstOutputTimer.Stop()
+				firstOutputCh = nil
+			}
+			continue
+
 		case ev, ok := <-events:
 			if !ok {
 				// Upstream closed

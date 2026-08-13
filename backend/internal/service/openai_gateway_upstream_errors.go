@@ -121,10 +121,9 @@ func isOpenAIServerOverloadedMessage(text string) bool {
 	return strings.Contains(lower, "server") && strings.Contains(lower, "overloaded")
 }
 
-// isOpenAITransientUpstreamErrorEnvelope identifies generic infrastructure
-// failures that some OpenAI-compatible upstream layers return with HTTP 400.
-// Keep this intentionally narrow: a normal invalid_request_error must not be
-// replayed across the account pool.
+// Some compatible gateways provide a dedicated code for a transient upstream
+// failure. Unlike the code-less generic upstream_error handled below, this
+// explicit signal remains eligible for the bounded same-account retry policy.
 func isOpenAITransientUpstreamErrorEnvelope(payload []byte) bool {
 	if len(payload) == 0 {
 		return false
@@ -136,13 +135,7 @@ func isOpenAITransientUpstreamErrorEnvelope(payload []byte) bool {
 		}
 		return strings.ToLower(value)
 	}
-	if readErrorField("type") != "upstream_error" {
-		return false
-	}
-	if readErrorField("code") == "gg_upstream_failed" {
-		return true
-	}
-	return readErrorField("message") == "upstream request failed"
+	return readErrorField("type") == "upstream_error" && readErrorField("code") == "gg_upstream_failed"
 }
 
 func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
@@ -197,6 +190,36 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 		return true
 	}
 	return match(string(upstreamBody))
+}
+
+// isOpenAIGenericUpstreamFailure400 identifies providers that incorrectly wrap
+// an account-side gateway failure in HTTP 400. A real client request error
+// carries request-specific evidence such as invalid_request_error, code, or
+// param; the generic upstream_error payload does not, so another account may
+// succeed with the same request.
+func isOpenAIGenericUpstreamFailure400(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if upstreamStatusCode != http.StatusBadRequest || len(upstreamBody) == 0 {
+		return false
+	}
+
+	errorType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.type").String()))
+	if errorType == "" {
+		errorType = strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "response.error.type").String()))
+	}
+	errorCode := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.code").String()))
+	if errorCode == "" {
+		errorCode = strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "response.error.code").String()))
+	}
+	errorParam := strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.param").String())
+	if errorParam == "" {
+		errorParam = strings.TrimSpace(gjson.GetBytes(upstreamBody, "response.error.param").String())
+	}
+
+	if errorType != "upstream_error" || errorCode != "" || errorParam != "" {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(upstreamMsg))
+	return message == "upstream request failed"
 }
 
 // isOpenAIRequestScopedCapacityError identifies overload signals that are not
@@ -330,7 +353,8 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
-	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) ||
+		isOpenAIGenericUpstreamFailure400(statusCode, upstreamMsg, upstreamBody)
 }
 
 // OpenAIRequestBodyTooLargeClientMessage is the fixed downstream message used
@@ -351,12 +375,20 @@ func newOpenAIUpstreamFailoverError(
 	retryableOnSameAccount bool,
 	retryableOnSameAccountIfNoOtherAccount bool,
 ) *UpstreamFailoverError {
+	requestScopedCapacity := isOpenAIRequestScopedCapacityError(statusCode, upstreamMsg, responseBody)
+	// API-key capacity responses and explicit provider shed signals are request
+	// scoped, so changing accounts first only churns the pool. OAuth model
+	// capacity is different: prefer another account and retry the same account
+	// only after candidate selection is exhausted.
+	if requestScopedCapacity && (accountIndependentCapacityCode(responseBody) || !retryableOnSameAccountIfNoOtherAccount) {
+		retryableOnSameAccount = true
+	}
 	failoverErr := &UpstreamFailoverError{
 		StatusCode:                             statusCode,
 		ResponseBody:                           responseBody,
 		ResponseHeaders:                        responseHeaders.Clone(),
 		RetryableOnSameAccount:                 retryableOnSameAccount,
-		RequestScopedTransient:                 isOpenAIRequestScopedCapacityError(statusCode, upstreamMsg, responseBody),
+		RequestScopedTransient:                 requestScopedCapacity,
 		RetryableOnSameAccountIfNoOtherAccount: retryableOnSameAccountIfNoOtherAccount,
 	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, responseBody) {
@@ -368,6 +400,16 @@ func newOpenAIUpstreamFailoverError(
 		failoverErr.ClientMessage = OpenAIRequestBodyTooLargeClientMessage
 	}
 	return failoverErr
+}
+
+func accountIndependentCapacityCode(payload []byte) bool {
+	for _, path := range []string{"error.code", "response.error.code", "code"} {
+		switch strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, path).String())) {
+		case "server_is_overloaded", "slow_down":
+			return true
+		}
+	}
+	return false
 }
 
 // IsOpenAIRequestBodyTooLarge reports whether another account may accept the

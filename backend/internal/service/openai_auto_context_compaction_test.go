@@ -36,11 +36,12 @@ func newOpenAIAutoContextCompactionTestContext(path string, body []byte) *gin.Co
 	return c
 }
 
-func TestApplyOpenAIAutoContextCompactionToBodyInjectsForUnknownPoolAccount(t *testing.T) {
-	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"role":"user","content":"` + strings.Repeat("x", openAIAutoContextCompactionMinBodyBytes) + `"}]}`)
+func TestApplyOpenAIAutoContextCompactionToBodyInjectsForSupportedPoolAccount(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"role":"user","content":"` + strings.Repeat("x", 256<<10) + `"}]}`)
 	c := newOpenAIAutoContextCompactionTestContext("/v1/responses", body)
 
-	updated, injected, err := applyOpenAIAutoContextCompactionToBody(c, newOpenAIAutoContextCompactionTestAccount(nil), body)
+	account := newOpenAIAutoContextCompactionTestAccount(map[string]any{openAIContextCompactionSupportedExtraKey: true})
+	updated, injected, err := applyOpenAIAutoContextCompactionToBody(c, account, body)
 
 	require.NoError(t, err)
 	require.True(t, injected)
@@ -54,6 +55,7 @@ func TestApplyOpenAIAutoContextCompactionToBodyUsesAccountThresholdAndPinsPrevio
 	body := []byte(`{"model":"gpt-5.6-sol","previous_response_id":"resp_1","input":"next"}`)
 	c := newOpenAIAutoContextCompactionTestContext("/v1/responses", body)
 	account := newOpenAIAutoContextCompactionTestAccount(map[string]any{
+		openAIContextCompactionSupportedExtraKey: true,
 		openAIContextCompactionThresholdExtraKey: float64(150_000),
 	})
 
@@ -66,11 +68,12 @@ func TestApplyOpenAIAutoContextCompactionToBodyUsesAccountThresholdAndPinsPrevio
 }
 
 func TestApplyOpenAIAutoContextCompactionToBodySkipsResponsesLite(t *testing.T) {
-	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"role":"user","content":"` + strings.Repeat("x", openAIAutoContextCompactionMinBodyBytes) + `"}]}`)
+	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":"hello"}`)
 	c := newOpenAIAutoContextCompactionTestContext("/v1/responses", body)
 	c.Request.Header.Set(responsesLiteHeader, "true")
+	account := newOpenAIAutoContextCompactionTestAccount(map[string]any{openAIContextCompactionSupportedExtraKey: true})
 
-	updated, injected, err := applyOpenAIAutoContextCompactionToBody(c, newOpenAIAutoContextCompactionTestAccount(nil), body)
+	updated, injected, err := applyOpenAIAutoContextCompactionToBody(c, account, body)
 
 	require.NoError(t, err)
 	require.False(t, injected)
@@ -94,6 +97,12 @@ func TestApplyOpenAIAutoContextCompactionToBodyRespectsCompatibilityGuards(t *te
 			account: newOpenAIAutoContextCompactionTestAccount(nil),
 		},
 		{
+			name:    "large unknown request",
+			path:    "/v1/responses",
+			body:    []byte(`{"model":"gpt-5.6-sol","input":"` + strings.Repeat("x", 256<<10) + `"}`),
+			account: newOpenAIAutoContextCompactionTestAccount(nil),
+		},
+		{
 			name: "known unsupported",
 			path: "/v1/responses",
 			body: []byte(`{"model":"gpt-5.6-sol","input":"hello"}`),
@@ -114,6 +123,12 @@ func TestApplyOpenAIAutoContextCompactionToBodyRespectsCompatibilityGuards(t *te
 			account: newOpenAIAutoContextCompactionTestAccount(nil),
 		},
 		{
+			name:    "responses lite account pool",
+			path:    "/v1/responses",
+			body:    []byte(`{"model":"gpt-5.6-sol","input":"hello"}`),
+			account: newOpenAIAutoContextCompactionTestAccount(map[string]any{openAIContextCompactionSupportedExtraKey: true}),
+		},
+		{
 			name: "non pool account",
 			path: "/v1/responses",
 			body: []byte(`{"model":"gpt-5.6-sol","input":"hello"}`),
@@ -130,12 +145,15 @@ func TestApplyOpenAIAutoContextCompactionToBodyRespectsCompatibilityGuards(t *te
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newOpenAIAutoContextCompactionTestContext(tt.path, tt.body)
+			if tt.name == "responses lite account pool" {
+				c.Request.Header.Set(responsesLiteHeader, "true")
+			}
 			updated, injected, err := applyOpenAIAutoContextCompactionToBody(c, tt.account, tt.body)
 			require.NoError(t, err)
 			require.False(t, injected)
 			require.JSONEq(t, string(tt.body), string(updated))
 			require.False(t, openAIAutoContextCompactionInjected(c))
-			if tt.name == "short unknown request" || tt.name == "known unsupported" || tt.name == "client value" {
+			if tt.name == "short unknown request" || tt.name == "large unknown request" || tt.name == "known unsupported" || tt.name == "client value" {
 				require.True(t, openAIAutoContextCompactionMayFailover(c))
 			} else {
 				require.False(t, openAIAutoContextCompactionMayFailover(c))

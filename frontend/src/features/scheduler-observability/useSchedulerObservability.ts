@@ -5,6 +5,7 @@ import { getSchedulerObservabilitySnapshot } from "@/api/admin/schedulerObservab
 import type {
   SchedulerObservabilitySnapshot,
   SchedulerOverviewMetric,
+  SchedulerRequestType,
 } from "./types";
 
 export type SchedulerTimeRange = "15m" | "1h" | "6h" | "24h" | "7d";
@@ -12,6 +13,7 @@ export type SchedulerGroupFilter = number | "all";
 export type SchedulerEntityFilter = number | "all";
 export type SchedulerObservabilityView = "requests" | "sessions";
 export type SchedulerTraceFilter = "all" | "sticky" | "switch" | "failed";
+export type SchedulerRequestTypeFilter = "all" | SchedulerRequestType;
 
 interface SchedulerObservabilityOptions {
   timeRange: Ref<SchedulerTimeRange>;
@@ -24,6 +26,7 @@ interface SchedulerObservabilityOptions {
   pageSize: Ref<number>;
   search: Ref<string>;
   traceFilter: Ref<SchedulerTraceFilter>;
+  requestType: Ref<SchedulerRequestTypeFilter>;
 }
 
 function isAbortError(error: unknown): boolean {
@@ -113,6 +116,7 @@ export function useSchedulerObservability(options: SchedulerObservabilityOptions
           pageSize: options.pageSize.value,
           search: options.search.value.trim() || undefined,
           traceFilter: options.traceFilter.value,
+          requestType: options.requestType.value,
         },
         { signal: current.signal },
       );
@@ -130,7 +134,7 @@ export function useSchedulerObservability(options: SchedulerObservabilityOptions
   }
 
   watch(
-    [options.timeRange, options.groupId, options.model, options.accountId, options.apiKeyId, options.view, options.page, options.pageSize, options.search, options.traceFilter],
+    [options.timeRange, options.groupId, options.model, options.accountId, options.apiKeyId, options.view, options.page, options.pageSize, options.search, options.traceFilter, options.requestType],
     load,
     { immediate: true },
   );

@@ -2,6 +2,7 @@
 import { useI18n } from "vue-i18n";
 
 import Icon from "@/components/icons/Icon.vue";
+import ImmediateTooltip from "./ImmediateTooltip.vue";
 import type { SchedulerSessionSource, SchedulerSessionSummary } from "./types";
 
 defineProps<{
@@ -50,12 +51,90 @@ function accountTitle(session: SchedulerSessionSummary, accountId: number, turnI
     id: accountId,
   });
 }
+
+function accountName(session: SchedulerSessionSummary, accountId: number): string {
+  return session.accountNames?.[String(accountId)] || `#${accountId}`;
+}
 </script>
 
 <template>
   <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
     <div class="card overflow-hidden">
-      <div class="overflow-x-auto">
+      <div class="divide-y divide-gray-100 md:hidden dark:divide-dark-800" data-testid="scheduler-session-mobile-list">
+        <article v-for="session in sessions" :key="`mobile-${session.fingerprint}`" class="px-3 py-4">
+          <div class="flex min-w-0 items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  class="max-w-full cursor-pointer truncate rounded bg-gray-100 px-1.5 py-1 font-mono text-xs font-medium text-primary-700 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:bg-dark-700 dark:text-primary-300"
+                  :title="t('admin.schedulerObservability.sessions.searchTraces', { session: session.fingerprint })"
+                  @click="emit('search-traces', session.fingerprint)"
+                >
+                  {{ session.fingerprint }}
+                </button>
+                <span class="shrink-0 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
+                  {{ sourceLabel(session.source) }}
+                </span>
+              </div>
+              <p class="mt-1.5 truncate text-[11px] text-gray-500 dark:text-dark-400">{{ session.groupName }} · {{ session.model }}</p>
+            </div>
+            <div class="shrink-0 text-right">
+              <p class="text-sm font-semibold tabular-nums text-gray-800 dark:text-dark-100">{{ session.turns }}</p>
+              <p class="text-[10px] text-gray-400 dark:text-dark-500">{{ t("admin.schedulerObservability.sessions.turns") }}</p>
+            </div>
+          </div>
+
+          <div class="mt-3 min-w-0">
+            <p class="truncate text-xs font-medium text-gray-800 dark:text-dark-100">{{ session.userEmail }}</p>
+            <p class="mt-0.5 truncate text-[10px] text-gray-500 dark:text-dark-400">#{{ session.userId }} · {{ session.apiKeyName }}</p>
+          </div>
+
+          <div class="mt-3" :aria-label="t('admin.schedulerObservability.sessions.turnJourneyLabel', { count: session.turns })">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <ImmediateTooltip
+                v-for="(accountId, index) in session.turnAccounts"
+                :key="`${session.fingerprint}-mobile-${index}`"
+                :text="accountTitle(session, accountId, index)"
+                :focusable="false"
+              >
+                <span class="block h-2.5 w-2.5 shrink-0 rounded-full ring-2" :class="accountColor(session, accountId)"></span>
+              </ImmediateTooltip>
+            </div>
+            <div class="mt-2 flex min-w-0 flex-wrap items-center gap-1 text-[11px] text-gray-500 dark:text-dark-400">
+              <template v-for="(accountId, index) in session.accountIds" :key="`${session.fingerprint}-mobile-account-${accountId}`">
+                <span v-if="index > 0" aria-hidden="true">→</span>
+                <ImmediateTooltip :text="`${accountName(session, accountId)} (#${accountId})`">
+                  <span class="cursor-help rounded px-0.5 font-mono underline decoration-dotted underline-offset-2">#{{ accountId }}</span>
+                </ImmediateTooltip>
+              </template>
+              <span
+                class="ml-1 rounded-full px-1.5 py-0.5 font-medium"
+                :class="session.switchCount > 0 ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'"
+              >
+                {{ t("admin.schedulerObservability.sessions.switchCount", { count: session.switchCount }) }}
+              </span>
+            </div>
+          </div>
+
+          <dl class="mt-3 grid grid-cols-3 gap-2 border-t border-gray-100 pt-3 text-[10px] dark:border-dark-800">
+            <div>
+              <dt class="text-gray-400 dark:text-dark-500">{{ t("admin.schedulerObservability.sessions.stickyRate") }}</dt>
+              <dd class="mt-0.5 text-xs font-semibold tabular-nums text-gray-800 dark:text-dark-100">{{ percent(session.stickyHitRate) }}</dd>
+            </div>
+            <div class="text-center">
+              <dt class="text-gray-400 dark:text-dark-500">{{ t("admin.schedulerObservability.sessions.cacheRate") }}</dt>
+              <dd class="mt-0.5 text-xs font-semibold tabular-nums text-sky-700 dark:text-sky-300">{{ percent(session.followUpCacheRate) }}</dd>
+            </div>
+            <div class="text-right">
+              <dt class="text-gray-400 dark:text-dark-500">{{ t("admin.schedulerObservability.sessions.lastActive") }}</dt>
+              <dd class="mt-0.5 text-xs tabular-nums text-gray-600 dark:text-dark-300">{{ formatTime(session.lastActiveAt) }}</dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+
+      <div class="hidden overflow-x-auto md:block" data-testid="scheduler-session-desktop-table">
         <table class="min-w-[960px] w-full border-separate border-spacing-0">
           <thead>
             <tr class="text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-dark-300">
@@ -95,16 +174,24 @@ function accountTitle(session: SchedulerSessionSummary, accountId: number, turnI
               </td>
               <td class="w-[260px] max-w-[260px] border-b border-gray-100 px-4 py-4 align-top dark:border-dark-800">
                 <div class="flex w-[228px] flex-wrap items-center gap-1.5" :aria-label="t('admin.schedulerObservability.sessions.turnJourneyLabel', { count: session.turns })">
-                  <span
+                  <ImmediateTooltip
                     v-for="(accountId, index) in session.turnAccounts"
                     :key="`${session.fingerprint}-${index}`"
-                    class="h-2.5 w-2.5 shrink-0 rounded-full ring-2"
-                    :class="accountColor(session, accountId)"
-                    :title="accountTitle(session, accountId, index)"
-                  ></span>
+                    :text="accountTitle(session, accountId, index)"
+                    :focusable="false"
+                  >
+                    <span class="block h-2.5 w-2.5 shrink-0 rounded-full ring-2" :class="accountColor(session, accountId)"></span>
+                  </ImmediateTooltip>
                 </div>
                 <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                  <span class="min-w-0 break-words text-gray-500 dark:text-dark-400">{{ session.accountIds.map((id) => `#${id}`).join(" → ") }}</span>
+                  <span class="flex min-w-0 flex-wrap items-center gap-1 text-gray-500 dark:text-dark-400">
+                    <template v-for="(accountId, index) in session.accountIds" :key="`${session.fingerprint}-account-${accountId}`">
+                      <span v-if="index > 0" aria-hidden="true">→</span>
+                      <ImmediateTooltip :text="`${accountName(session, accountId)} (#${accountId})`">
+                        <span class="cursor-help rounded px-0.5 font-mono underline decoration-dotted underline-offset-2">#{{ accountId }}</span>
+                      </ImmediateTooltip>
+                    </template>
+                  </span>
                   <span
                     class="rounded-full px-1.5 py-0.5 font-medium"
                     :class="session.switchCount > 0 ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'"
@@ -133,7 +220,7 @@ function accountTitle(session: SchedulerSessionSummary, accountId: number, turnI
       </div>
     </div>
 
-    <aside class="card h-fit p-5">
+    <aside class="card h-fit p-4 sm:p-5">
       <div class="flex items-start gap-3">
         <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600 dark:bg-violet-500/10 dark:text-violet-300">
           <Icon name="lightbulb" size="sm" />
