@@ -74,13 +74,13 @@ export function aggregateHeartbeatBuckets(
       : 0
     const healthyCount = observedCount - failedCount
     const hasCompleteCoverage = observedCount === expectedSourceIds.size && expectedSourceIds.size > 0
-    const status = !hasCompleteCoverage
-      ? 'partial'
-      : failedCount === 0
-        ? 'success'
-        : healthyCount === 0
-          ? 'failed'
-          : 'degraded'
+    const status = hasCompleteCoverage && failedCount === expectedSourceIds.size
+      ? 'failed'
+      : failedCount > 0
+        ? 'degraded'
+        : hasCompleteCoverage
+          ? 'success'
+          : 'partial'
     return {
       startedAt: new Date(bucketStart).toISOString(),
       finishedAt: new Date(bucketStart + bucketDurationMs).toISOString(),

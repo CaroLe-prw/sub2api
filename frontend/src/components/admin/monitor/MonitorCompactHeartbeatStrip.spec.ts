@@ -98,6 +98,20 @@ describe('MonitorCompactHeartbeatStrip', () => {
     expect(buckets[0].failedCount).toBe(3)
   })
 
+  it('keeps a confirmed failure orange when other expected samples are missing', () => {
+    const buckets = aggregateHeartbeatBuckets([
+      { id: 'model-a', samples: [sample(30, 100, '2026-08-13T08:12:00Z', 'failed', 500, 1000)] },
+      { id: 'model-b', samples: [] },
+    ], {
+      limit: 1,
+      nowMs: Date.parse('2026-08-13T08:14:00Z'),
+    })
+
+    expect(buckets[0].status).toBe('degraded')
+    expect(buckets[0].observedCount).toBe(1)
+    expect(buckets[0].failedCount).toBe(1)
+  })
+
   it('reports the slowest timing values inside each cycle', () => {
     const [firstBucket] = aggregateHeartbeatBuckets(sources, {
       limit: 3,

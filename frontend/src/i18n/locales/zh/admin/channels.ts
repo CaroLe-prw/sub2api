@@ -527,7 +527,7 @@ export default {
         historyError: '加载探测历史失败',
         noHistory: '等待首次探测',
         recentTrend: '近期探测趋势',
-        heartbeatLegend: '卡片心跳按 5 分钟周期聚合：绿＝全部正常，橙＝部分异常，红＝全部异常，灰＝样本未收齐。',
+        heartbeatLegend: '卡片心跳按 5 分钟周期聚合：绿＝全部正常，橙＝已发现部分异常，红＝全部异常，灰＝样本未收齐且未发现异常。',
         aggregateStatus: { success: '全部正常', degraded: '部分异常', failed: '全部异常', partial: '样本未收齐' },
         aggregateBreakdown: '正常 {healthy} · 异常 {failed}',
         modelCoverage: '覆盖 {observed}/{expected} 个模型',

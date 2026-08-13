@@ -527,7 +527,7 @@ export default {
         historyError: 'Failed to load probe history',
         noHistory: 'Waiting for the first probe',
         recentTrend: 'Recent probe trend',
-        heartbeatLegend: 'Card heartbeats use 5-minute buckets: green = all healthy, orange = partially degraded, red = all failed, gray = incomplete samples.',
+        heartbeatLegend: 'Card heartbeats use 5-minute buckets: green = all healthy, orange = confirmed partial degradation, red = all failed, gray = incomplete with no known failure.',
         aggregateStatus: { success: 'All healthy', degraded: 'Partially degraded', failed: 'All failed', partial: 'Incomplete samples' },
         aggregateBreakdown: '{healthy} healthy · {failed} failed',
         modelCoverage: '{observed}/{expected} models covered',
