@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -509,9 +510,9 @@ func TestContentModerationCheck_PreBlockKeywordHitSkipsUpstreamCall(t *testing.T
 }
 
 func TestContentModerationCheck_KeywordsIgnoredInObserveMode(t *testing.T) {
-	upstreamHits := 0
+	var upstreamHits atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upstreamHits++
+		upstreamHits.Add(1)
 		_ = json.NewEncoder(w).Encode(moderationAPIResponse{Results: []moderationAPIResult{{CategoryScores: map[string]float64{"sexual": 0.1}}}})
 	}))
 	defer server.Close()
@@ -551,12 +552,15 @@ func TestContentModerationCheck_KeywordsIgnoredInObserveMode(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, decision.Allowed, "observe mode must let the request through even on keyword hit")
 	require.Equal(t, ContentModerationActionAllow, decision.Action)
+	require.Eventually(t, func() bool {
+		return upstreamHits.Load() == 1
+	}, time.Second, 10*time.Millisecond, "observe mode audit must finish before the test server is closed")
 }
 
 func TestContentModerationCheck_KeywordOnlyStrategySkipsAPIOnMiss(t *testing.T) {
-	upstreamCalled := false
+	var upstreamCalled atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upstreamCalled = true
+		upstreamCalled.Store(true)
 		_ = json.NewEncoder(w).Encode(moderationAPIResponse{Results: []moderationAPIResult{{CategoryScores: map[string]float64{"sexual": 0.99}}}})
 	}))
 	defer server.Close()
@@ -596,7 +600,7 @@ func TestContentModerationCheck_KeywordOnlyStrategySkipsAPIOnMiss(t *testing.T) 
 
 	require.NoError(t, err)
 	require.True(t, decision.Allowed, "keyword-only must allow misses without calling the API")
-	require.False(t, upstreamCalled, "keyword-only must not call the upstream moderation API")
+	require.False(t, upstreamCalled.Load(), "keyword-only must not call the upstream moderation API")
 	require.Len(t, repo.snapshotLogs(), 0)
 }
 
