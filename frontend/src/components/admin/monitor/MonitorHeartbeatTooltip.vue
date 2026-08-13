@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PoolProbeHeartbeat } from '@/api/admin/channelMonitor'
+import type { PoolProbeHeartbeat } from '@/api/admin/schedulerProbes'
 import { formatDateTime } from '@/utils/format'
 import {
   firstTokenSeverity,

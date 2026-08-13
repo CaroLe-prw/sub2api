@@ -29,6 +29,7 @@ import backupAPI from './backup'
 import tlsFingerprintProfileAPI from './tlsFingerprintProfile'
 import channelsAPI from './channels'
 import channelMonitorAPI from './channelMonitor'
+import schedulerProbesAPI from './schedulerProbes'
 import channelMonitorTemplateAPI from './channelMonitorTemplate'
 import adminPaymentAPI from './payment'
 import affiliatesAPI from './affiliates'
@@ -66,6 +67,7 @@ export const adminAPI = {
   tlsFingerprintProfiles: tlsFingerprintProfileAPI,
   channels: channelsAPI,
   channelMonitor: channelMonitorAPI,
+  schedulerProbes: schedulerProbesAPI,
   channelMonitorTemplate: channelMonitorTemplateAPI,
   payment: adminPaymentAPI,
   affiliates: affiliatesAPI,
@@ -101,6 +103,7 @@ export {
   tlsFingerprintProfileAPI,
   channelsAPI,
   channelMonitorAPI,
+  schedulerProbesAPI,
   channelMonitorTemplateAPI,
   adminPaymentAPI,
   affiliatesAPI,

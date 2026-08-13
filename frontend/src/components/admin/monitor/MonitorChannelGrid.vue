@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PoolMonitorAccount } from '@/api/admin/channelMonitor'
+import type { PoolMonitorAccount } from '@/api/admin/schedulerProbes'
 import Icon from '@/components/icons/Icon.vue'
 import { formatRelativeTime } from '@/utils/format'
 import MonitorCompactHeartbeatStrip from './MonitorCompactHeartbeatStrip.vue'

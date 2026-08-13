@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PoolAccountModelPolicy, PoolMonitorAccount } from '@/api/admin/channelMonitor'
+import type { PoolAccountModelPolicy, PoolMonitorAccount } from '@/api/admin/schedulerProbes'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ModelTagInput from '@/components/admin/channel/ModelTagInput.vue'

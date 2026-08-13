@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
-import type { PoolMonitorAccount } from '@/api/admin/channelMonitor'
+import type { PoolMonitorAccount } from '@/api/admin/schedulerProbes'
 
 import MonitorModelGroupList from './MonitorModelGroupList.vue'
 

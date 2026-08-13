@@ -14,12 +14,12 @@ const { listPoolOverview, getPoolAccountModelPolicy, updatePoolAccountModelPolic
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
-    channelMonitor: {
-      listPoolOverview,
-      listPoolProbeResults: vi.fn(),
-      runPoolProbe: vi.fn(),
-      getPoolAccountModelPolicy,
-      updatePoolAccountModelPolicy,
+    schedulerProbes: {
+      listOverview: listPoolOverview,
+      listResults: vi.fn(),
+      runNow: vi.fn(),
+      getAccountModelPolicy: getPoolAccountModelPolicy,
+      updateAccountModelPolicy: updatePoolAccountModelPolicy,
     },
   },
 }))

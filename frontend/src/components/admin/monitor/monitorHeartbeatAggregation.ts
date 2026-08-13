@@ -1,4 +1,4 @@
-import type { PoolProbeHeartbeat } from '@/api/admin/channelMonitor'
+import type { PoolProbeHeartbeat } from '@/api/admin/schedulerProbes'
 import { firstTokenSeverity } from '@/utils/latencyHealth'
 
 export interface HeartbeatSource {

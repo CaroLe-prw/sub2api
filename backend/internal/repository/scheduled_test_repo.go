@@ -110,7 +110,7 @@ func (r *scheduledTestPlanRepository) ReconcileChannelMonitorPlans(ctx context.C
 			DO UPDATE SET enabled = true, cron_expression = EXCLUDED.cron_expression,
 				max_results = EXCLUDED.max_results, auto_recover = EXCLUDED.auto_recover, updated_at = NOW()
 		`, plan.AccountID, plan.ModelID, plan.CronExpression, plan.MaxResults,
-			plan.AutoRecover, service.ScheduledTestManagedByChannelMonitor, plan.NextRunAt); err != nil {
+			plan.AutoRecover, service.ScheduledTestManagedBySchedulerProbe, plan.NextRunAt); err != nil {
 			return fmt.Errorf("upsert channel monitor plan: %w", err)
 		}
 	}
@@ -119,7 +119,7 @@ func (r *scheduledTestPlanRepository) ReconcileChannelMonitorPlans(ctx context.C
 		_, err = tx.ExecContext(ctx, `
 			UPDATE scheduled_test_plans SET enabled = false, updated_at = NOW()
 			WHERE managed_by = $1 AND enabled = true
-		`, service.ScheduledTestManagedByChannelMonitor)
+		`, service.ScheduledTestManagedBySchedulerProbe)
 	} else {
 		_, err = tx.ExecContext(ctx, `
 			UPDATE scheduled_test_plans p SET enabled = false, updated_at = NOW()
@@ -128,7 +128,7 @@ func (r *scheduledTestPlanRepository) ReconcileChannelMonitorPlans(ctx context.C
 				SELECT 1 FROM unnest($2::bigint[], $3::text[]) AS desired(account_id, model_id)
 				WHERE desired.account_id = p.account_id AND desired.model_id = p.model_id
 			  )
-		`, service.ScheduledTestManagedByChannelMonitor, pq.Array(accountIDs), pq.Array(models))
+		`, service.ScheduledTestManagedBySchedulerProbe, pq.Array(accountIDs), pq.Array(models))
 	}
 	if err != nil {
 		return fmt.Errorf("disable stale channel monitor plans: %w", err)
@@ -180,7 +180,7 @@ func (r *scheduledTestPlanRepository) ListChannelMonitorPoolOverview(ctx context
 		) heartbeat ON true
 		WHERE p.managed_by = $1 AND p.enabled = true
 		ORDER BY a.priority ASC, a.id ASC, p.model_id ASC
-	`, service.ScheduledTestManagedByChannelMonitor, since)
+	`, service.ScheduledTestManagedBySchedulerProbe, since)
 	if err != nil {
 		return nil, err
 	}

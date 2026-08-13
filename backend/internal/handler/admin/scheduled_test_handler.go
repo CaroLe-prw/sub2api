@@ -58,8 +58,9 @@ func (h *ScheduledTestHandler) ListByAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, plans)
 }
 
-// ListChannelMonitorPool GET /admin/channel-monitors/pool-overview
-// This endpoint is admin-only and never participates in the public status API.
+// ListChannelMonitorPool returns the admin-only scheduler-probe pool snapshot.
+// It never participates in the public status API. The legacy method name is
+// retained while old channel-monitor API aliases remain compatible.
 func (h *ScheduledTestHandler) ListChannelMonitorPool(c *gin.Context) {
 	items, err := h.scheduledTestSvc.ListChannelMonitorPoolOverview(c.Request.Context())
 	if err != nil {
@@ -81,8 +82,8 @@ func (h *ScheduledTestHandler) RunNow(c *gin.Context) {
 		response.NotFound(c, "plan not found")
 		return
 	}
-	if plan.ManagedBy != service.ScheduledTestManagedByChannelMonitor {
-		response.NotFound(c, "channel monitor plan not found")
+	if plan.ManagedBy != service.ScheduledTestManagedBySchedulerProbe {
+		response.NotFound(c, "scheduler probe plan not found")
 		return
 	}
 	result, err := h.accountTestSvc.RunTestBackground(c.Request.Context(), plan.AccountID, plan.ModelID)
@@ -94,10 +95,37 @@ func (h *ScheduledTestHandler) RunNow(c *gin.Context) {
 		response.InternalError(c, err.Error())
 		return
 	}
-	if plan.ManagedBy == service.ScheduledTestManagedByChannelMonitor && h.probeReporter != nil {
+	if plan.ManagedBy == service.ScheduledTestManagedBySchedulerProbe && h.probeReporter != nil {
 		h.probeReporter.ReportChannelMonitorProbe(plan.AccountID, plan.ModelID, result.Status == "success")
 	}
 	response.Success(c, result)
+}
+
+// ListProbeResults GET /admin/scheduler-observability/probes/plans/:id/results
+// Only automatically managed scheduler probes are addressable through this
+// API, keeping it semantically separate from general scheduled tests.
+func (h *ScheduledTestHandler) ListProbeResults(c *gin.Context) {
+	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid plan id")
+		return
+	}
+	plan, err := h.scheduledTestSvc.GetPlan(c.Request.Context(), planID)
+	if err != nil || plan.ManagedBy != service.ScheduledTestManagedBySchedulerProbe {
+		response.NotFound(c, "scheduler probe plan not found")
+		return
+	}
+
+	limit := 50
+	if value, parseErr := strconv.Atoi(c.Query("limit")); parseErr == nil && value > 0 {
+		limit = value
+	}
+	results, err := h.scheduledTestSvc.ListResults(c.Request.Context(), planID, limit)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, results)
 }
 
 // Create POST /admin/scheduled-test-plans

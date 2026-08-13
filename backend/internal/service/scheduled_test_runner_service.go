@@ -181,7 +181,7 @@ func (s *ScheduledTestRunnerService) reconcileChannelMonitorPlans(ctx context.Co
 			nextRun := now.Add(stagger)
 			desired = append(desired, &ScheduledTestPlan{
 				AccountID: accounts[i].ID, ModelID: model, CronExpression: "*/5 * * * *",
-				Enabled: true, MaxResults: 288, AutoRecover: true, ManagedBy: ScheduledTestManagedByChannelMonitor,
+				Enabled: true, MaxResults: 288, AutoRecover: true, ManagedBy: ScheduledTestManagedBySchedulerProbe,
 				NextRunAt: &nextRun,
 			})
 		}
@@ -232,7 +232,7 @@ func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *Sched
 	if err := s.scheduledSvc.SaveResult(ctx, plan.ID, plan.MaxResults, result); err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d SaveResult error: %v", plan.ID, err)
 	}
-	if plan.ManagedBy == ScheduledTestManagedByChannelMonitor && s.probeReporter != nil {
+	if plan.ManagedBy == ScheduledTestManagedBySchedulerProbe && s.probeReporter != nil {
 		s.probeReporter.ReportChannelMonitorProbe(plan.AccountID, plan.ModelID, result.Status == "success")
 	}
 

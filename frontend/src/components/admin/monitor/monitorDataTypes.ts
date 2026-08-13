@@ -1,4 +1,4 @@
-import type { PoolMonitorAccount, PoolMonitorModel, PoolProbeResult } from '@/api/admin/channelMonitor'
+import type { PoolMonitorAccount, PoolMonitorModel, PoolProbeResult } from '@/api/admin/schedulerProbes'
 
 export interface MonitorModelRow {
   account: PoolMonitorAccount

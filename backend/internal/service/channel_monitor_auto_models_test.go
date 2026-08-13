@@ -58,7 +58,7 @@ func (s *autoMonitorSettingStoreStub) SetMultiple(_ context.Context, values map[
 	return nil
 }
 
-func TestResolveMonitorModelsAddsWhitelistedPoolModelsWithoutDroppingManualModels(t *testing.T) {
+func TestResolveMonitorModelsIgnoresSchedulerProbeDiscovery(t *testing.T) {
 	svc := NewChannelMonitorService(nil, nil)
 	svc.SetAutoModelDependencies(autoMonitorAccountReaderStub{accounts: []Account{
 		{
@@ -77,7 +77,7 @@ func TestResolveMonitorModelsAddsWhitelistedPoolModelsWithoutDroppingManualModel
 		ID: 1, Provider: MonitorProviderOpenAI, PrimaryModel: "manual-primary", ExtraModels: []string{"manual-extra"},
 	})
 
-	require.Equal(t, []string{"manual-primary", "manual-extra", "gpt-5.6"}, models)
+	require.Equal(t, []string{"manual-primary", "manual-extra"}, models)
 }
 
 func TestAutoMonitorPolicyDefaultsToEnabledAndEmptyWhitelist(t *testing.T) {

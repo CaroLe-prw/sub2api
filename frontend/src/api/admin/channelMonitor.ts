@@ -145,64 +145,6 @@ export interface HistoryResponse {
   items: HistoryItem[]
 }
 
-export interface PoolMonitorModel {
-  plan_id: number
-  model: string
-  enabled: boolean
-  status: '' | 'success' | 'failed'
-  latency_ms: number | null
-  availability: number | null
-  sample_count: number
-  failure_count: number
-  last_checked_at: string | null
-  recent_results?: PoolProbeHeartbeat[]
-}
-
-export interface PoolMonitorAccount {
-  account_id: number
-  name: string
-  platform: string
-  type: string
-  status: string
-  schedulable: boolean
-  concurrency: number
-  models: PoolMonitorModel[]
-}
-
-export interface PoolMonitorOverviewResponse {
-  items: PoolMonitorAccount[]
-}
-
-export interface PoolAccountModelPolicy {
-  account_id: number
-  whitelist: string[]
-  discovered_models: string[]
-  effective_models: string[]
-}
-
-export interface PoolProbeHeartbeat {
-  id: number
-  plan_id: number
-  status: 'success' | 'failed'
-  ttft_ms: number | null
-  latency_ms: number
-  started_at: string
-  finished_at: string
-  created_at: string
-}
-
-export interface PoolProbeResult extends PoolProbeHeartbeat {
-  response_text: string
-  error_message: string
-}
-
-export interface AutoModelPolicy {
-  enabled: boolean
-  whitelist: string[]
-  discovered_by_provider: Partial<Record<Provider, string[]>>
-  eligible_by_provider: Partial<Record<Provider, string[]>>
-}
-
 /**
  * List channel monitors with pagination and filters
  */
@@ -366,41 +308,6 @@ export async function listHistory(
   return data
 }
 
-export async function getAutoModelPolicy(): Promise<AutoModelPolicy> {
-  const { data } = await apiClient.get<AutoModelPolicy>('/admin/channel-monitors/auto-model-policy')
-  return data
-}
-
-export async function updateAutoModelPolicy(input: Pick<AutoModelPolicy, 'enabled' | 'whitelist'>): Promise<AutoModelPolicy> {
-  const { data } = await apiClient.put<AutoModelPolicy>('/admin/channel-monitors/auto-model-policy', input)
-  return data
-}
-
-export async function listPoolOverview(): Promise<PoolMonitorOverviewResponse> {
-  const { data } = await apiClient.get<PoolMonitorOverviewResponse>('/admin/channel-monitors/pool-overview')
-  return data
-}
-
-export async function getPoolAccountModelPolicy(accountId: number): Promise<PoolAccountModelPolicy> {
-  const { data } = await apiClient.get<PoolAccountModelPolicy>(`/admin/channel-monitors/pool-accounts/${accountId}/model-policy`)
-  return data
-}
-
-export async function updatePoolAccountModelPolicy(accountId: number, whitelist: string[]): Promise<PoolAccountModelPolicy> {
-  const { data } = await apiClient.put<PoolAccountModelPolicy>(`/admin/channel-monitors/pool-accounts/${accountId}/model-policy`, { whitelist })
-  return data
-}
-
-export async function listPoolProbeResults(planId: number, limit = 100): Promise<PoolProbeResult[]> {
-  const { data } = await apiClient.get<PoolProbeResult[]>(`/admin/scheduled-test-plans/${planId}/results`, { params: { limit } })
-  return data
-}
-
-export async function runPoolProbe(planId: number): Promise<PoolProbeResult> {
-  const { data } = await apiClient.post<PoolProbeResult>(`/admin/scheduled-test-plans/${planId}/run`)
-  return data
-}
-
 export const channelMonitorAPI = {
   list,
   get,
@@ -412,13 +319,6 @@ export const channelMonitorAPI = {
   del,
   runNow,
   listHistory,
-  getAutoModelPolicy,
-  updateAutoModelPolicy,
-  listPoolOverview,
-  getPoolAccountModelPolicy,
-  updatePoolAccountModelPolicy,
-  listPoolProbeResults,
-  runPoolProbe,
 }
 
 export default channelMonitorAPI

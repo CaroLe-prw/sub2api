@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PoolMonitorAccount, PoolProbeResult } from '@/api/admin/channelMonitor'
+import type { PoolMonitorAccount, PoolProbeResult } from '@/api/admin/schedulerProbes'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import MonitorHeartbeatTimeline from './MonitorHeartbeatTimeline.vue'

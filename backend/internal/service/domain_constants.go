@@ -428,13 +428,18 @@ const (
 	// Default false (show rates). Admin endpoints always keep full metrics.
 	SettingKeyChannelMonitorHideThroughput = "channel_monitor_hide_throughput"
 
-	// SettingKeyChannelMonitorAutoModelsEnabled enables V1 runtime model discovery
-	// from schedulable account-pool model mappings. It does not mutate monitor rows.
-	SettingKeyChannelMonitorAutoModelsEnabled = "channel_monitor_auto_models_enabled"
+	// SettingKeySchedulerProbesEnabled controls the independent scheduler
+	// account-pool probes. The legacy persisted key is retained to preserve
+	// existing installations during the channel-monitor decoupling.
+	SettingKeySchedulerProbesEnabled = "channel_monitor_auto_models_enabled"
 
-	// SettingKeyChannelMonitorAutoModelsWhitelist stores a JSON array of exact
-	// model IDs or suffix-wildcard patterns. Empty means all discovered models.
-	SettingKeyChannelMonitorAutoModelsWhitelist = "channel_monitor_auto_models_whitelist"
+	// SettingKeySchedulerProbesWhitelist stores a JSON array of exact model IDs
+	// or suffix-wildcard patterns. Empty means all discovered models.
+	SettingKeySchedulerProbesWhitelist = "channel_monitor_auto_models_whitelist"
+
+	// Compatibility aliases for callers compiled against the former naming.
+	SettingKeyChannelMonitorAutoModelsEnabled   = SettingKeySchedulerProbesEnabled
+	SettingKeyChannelMonitorAutoModelsWhitelist = SettingKeySchedulerProbesWhitelist
 
 	// SettingKeyGrokDefaultTextModel is the fallback Grok text model for empty
 	// request models and built-in Grok aliases (e.g. "grok" → this id). Default grok-4.5.

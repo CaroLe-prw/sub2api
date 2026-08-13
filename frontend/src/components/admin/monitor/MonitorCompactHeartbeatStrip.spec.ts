@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PoolProbeHeartbeat } from '@/api/admin/channelMonitor'
+import type { PoolProbeHeartbeat } from '@/api/admin/schedulerProbes'
 
 import MonitorCompactHeartbeatStrip from './MonitorCompactHeartbeatStrip.vue'
 import { aggregateHeartbeatBuckets } from './monitorHeartbeatAggregation'

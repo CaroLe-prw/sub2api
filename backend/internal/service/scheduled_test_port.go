@@ -21,7 +21,14 @@ type ScheduledTestPlan struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
-const ScheduledTestManagedByChannelMonitor = "channel_monitor"
+// ScheduledTestManagedBySchedulerProbe identifies automatically reconciled
+// account/model probes used by scheduler health scoring. The stored value is
+// intentionally unchanged so existing plans continue without a migration.
+const ScheduledTestManagedBySchedulerProbe = "channel_monitor"
+
+// ScheduledTestManagedByChannelMonitor is kept as a compatibility alias for
+// older repositories and callers.
+const ScheduledTestManagedByChannelMonitor = ScheduledTestManagedBySchedulerProbe
 
 // ChannelMonitorPoolModel is the admin-only active-probe snapshot for one
 // account/model pair. Scheduled account tests are streaming by design.

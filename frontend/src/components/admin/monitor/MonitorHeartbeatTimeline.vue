@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PoolProbeHeartbeat } from '@/api/admin/channelMonitor'
+import type { PoolProbeHeartbeat } from '@/api/admin/schedulerProbes'
 import MonitorHeartbeatTooltip from './MonitorHeartbeatTooltip.vue'
 
 const VISIBLE_SAMPLE_LIMIT = 60

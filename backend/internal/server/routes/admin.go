@@ -131,6 +131,20 @@ func registerSchedulerObservabilityRoutes(admin *gin.RouterGroup, h *handler.Han
 	scheduler := admin.Group("/scheduler-observability")
 	{
 		scheduler.GET("/snapshot", h.Admin.SchedulerObservability.GetSnapshot)
+
+		// Scheduler probes are an internal scheduling signal. They deliberately
+		// live outside channelMonitorAdminFeatureGuard: disabling the public/manual
+		// channel-monitor feature must not blind the scheduler.
+		probes := scheduler.Group("/probes")
+		{
+			probes.GET("/policy", h.Admin.ChannelMonitor.GetAutoModelPolicy)
+			probes.PUT("/policy", h.Admin.ChannelMonitor.UpdateAutoModelPolicy)
+			probes.GET("/overview", h.Admin.ScheduledTest.ListChannelMonitorPool)
+			probes.GET("/accounts/:account_id/model-policy", h.Admin.ChannelMonitor.GetAccountModelPolicy)
+			probes.PUT("/accounts/:account_id/model-policy", h.Admin.ChannelMonitor.UpdateAccountModelPolicy)
+			probes.GET("/plans/:id/results", h.Admin.ScheduledTest.ListProbeResults)
+			probes.POST("/plans/:id/run", h.Admin.ScheduledTest.RunNow)
+		}
 	}
 }
 

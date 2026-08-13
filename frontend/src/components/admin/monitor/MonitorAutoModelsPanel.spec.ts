@@ -12,9 +12,9 @@ const { getPolicy, updatePolicy, showSuccess, showError } = vi.hoisted(() => ({
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
-    channelMonitor: {
-      getAutoModelPolicy: getPolicy,
-      updateAutoModelPolicy: updatePolicy,
+    schedulerProbes: {
+      getPolicy,
+      updatePolicy,
     },
   },
 }))

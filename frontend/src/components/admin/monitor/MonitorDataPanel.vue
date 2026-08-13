@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PoolAccountModelPolicy, PoolMonitorAccount, PoolProbeResult } from '@/api/admin/channelMonitor'
+import type { PoolAccountModelPolicy, PoolMonitorAccount, PoolProbeResult } from '@/api/admin/schedulerProbes'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -60,7 +60,7 @@ watch(() => filteredAccounts.value.length, (total) => {
 async function load() {
   loading.value = true
   try {
-    const result = await adminAPI.channelMonitor.listPoolOverview()
+    const result = await adminAPI.schedulerProbes.listOverview()
     accounts.value = result.items ?? []
   } catch (error: unknown) {
     appStore.showError(extractApiErrorMessage(error, t('admin.channelMonitor.dataPanel.loadError')))
@@ -76,7 +76,7 @@ async function openAccount(account: PoolMonitorAccount) {
   try {
     const entries = await Promise.all(account.models.map(async (model) => [
       model.plan_id,
-      await adminAPI.channelMonitor.listPoolProbeResults(model.plan_id, 100),
+      await adminAPI.schedulerProbes.listResults(model.plan_id, 100),
     ] as const))
     if (selectedAccount.value?.account_id === account.account_id) {
       histories.value = Object.fromEntries(entries)
@@ -92,7 +92,7 @@ async function runProbe(planId: number) {
   if (runningPlanId.value != null) return
   runningPlanId.value = planId
   try {
-    const result = await adminAPI.channelMonitor.runPoolProbe(planId)
+    const result = await adminAPI.schedulerProbes.runNow(planId)
     const current = histories.value[planId] ?? []
     histories.value = { ...histories.value, [planId]: [result as PoolProbeResult, ...current] }
     await load()
@@ -112,7 +112,7 @@ async function openAccountPolicy(account: PoolMonitorAccount) {
   accountPolicy.value = null
   policyLoading.value = true
   try {
-    accountPolicy.value = await adminAPI.channelMonitor.getPoolAccountModelPolicy(account.account_id)
+    accountPolicy.value = await adminAPI.schedulerProbes.getAccountModelPolicy(account.account_id)
   } catch (error: unknown) {
     policyAccount.value = null
     appStore.showError(extractApiErrorMessage(error, t('admin.channelMonitor.dataPanel.accountWhitelist.loadError')))
@@ -125,7 +125,7 @@ async function saveAccountPolicy(whitelist: string[]) {
   if (!policyAccount.value || policySaving.value) return
   policySaving.value = true
   try {
-    accountPolicy.value = await adminAPI.channelMonitor.updatePoolAccountModelPolicy(policyAccount.value.account_id, whitelist)
+    accountPolicy.value = await adminAPI.schedulerProbes.updateAccountModelPolicy(policyAccount.value.account_id, whitelist)
     appStore.showSuccess(t('admin.channelMonitor.dataPanel.accountWhitelist.saveSuccess'))
     policyAccount.value = null
   } catch (error: unknown) {

@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PoolProbeResult } from '@/api/admin/channelMonitor'
+import type { PoolProbeResult } from '@/api/admin/schedulerProbes'
 
 import MonitorHeartbeatTimeline from './MonitorHeartbeatTimeline.vue'
 

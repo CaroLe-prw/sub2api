@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
-import type { AutoModelPolicy, Provider } from '@/api/admin/channelMonitor'
+import type { SchedulerProbePolicy, SchedulerProbeProvider } from '@/api/admin/schedulerProbes'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import Toggle from '@/components/common/Toggle.vue'
@@ -13,21 +13,21 @@ const loading = shallowRef(true)
 const saving = shallowRef(false)
 // The toggle mutates policy.enabled in place, so this object needs deep
 // reactivity. The loading/saving flags remain shallow scalar refs.
-const policy = ref<AutoModelPolicy | null>(null)
+const policy = ref<SchedulerProbePolicy | null>(null)
 const whitelistText = shallowRef('')
 
-const providers: Provider[] = ['openai', 'anthropic', 'gemini', 'grok']
+const providers: SchedulerProbeProvider[] = ['openai', 'anthropic', 'gemini', 'grok']
 const whitelist = computed(() => whitelistText.value
   .split(/[\n,]/)
   .map((item) => item.trim())
   .filter(Boolean))
 
-function hydrate(next: AutoModelPolicy) {
+function hydrate(next: SchedulerProbePolicy) {
   policy.value = next
   whitelistText.value = (next.whitelist || []).join('\n')
 }
 
-function providerModels(provider: Provider, eligible: boolean): string[] {
+function providerModels(provider: SchedulerProbeProvider, eligible: boolean): string[] {
   const source = eligible ? policy.value?.eligible_by_provider : policy.value?.discovered_by_provider
   return source?.[provider] || []
 }
@@ -35,7 +35,7 @@ function providerModels(provider: Provider, eligible: boolean): string[] {
 async function load() {
   loading.value = true
   try {
-    hydrate(await adminAPI.channelMonitor.getAutoModelPolicy())
+    hydrate(await adminAPI.schedulerProbes.getPolicy())
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.autoModels.loadError')))
   } finally {
@@ -47,7 +47,7 @@ async function save() {
   if (!policy.value || saving.value) return
   saving.value = true
   try {
-    hydrate(await adminAPI.channelMonitor.updateAutoModelPolicy({
+    hydrate(await adminAPI.schedulerProbes.updatePolicy({
       enabled: policy.value.enabled,
       whitelist: whitelist.value,
     }))
