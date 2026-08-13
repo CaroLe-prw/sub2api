@@ -164,6 +164,36 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 	return match(string(upstreamBody))
 }
 
+// isOpenAIGenericUpstreamFailure400 identifies providers that incorrectly wrap
+// an account-side gateway failure in HTTP 400. A real client request error
+// carries request-specific evidence such as invalid_request_error, code, or
+// param; the generic upstream_error payload does not, so another account may
+// succeed with the same request.
+func isOpenAIGenericUpstreamFailure400(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if upstreamStatusCode != http.StatusBadRequest || len(upstreamBody) == 0 {
+		return false
+	}
+
+	errorType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.type").String()))
+	if errorType == "" {
+		errorType = strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "response.error.type").String()))
+	}
+	errorCode := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.code").String()))
+	if errorCode == "" {
+		errorCode = strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "response.error.code").String()))
+	}
+	errorParam := strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.param").String())
+	if errorParam == "" {
+		errorParam = strings.TrimSpace(gjson.GetBytes(upstreamBody, "response.error.param").String())
+	}
+
+	if errorType != "upstream_error" || errorCode != "" || errorParam != "" {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(upstreamMsg))
+	return message == "upstream request failed"
+}
+
 // isOpenAIRequestScopedCapacityError identifies overload signals that are not
 // attributable to a particular account. Retrying another account does not
 // change the upstream model/client capacity decision, so bounded retries stay
@@ -286,7 +316,8 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
-	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) ||
+		isOpenAIGenericUpstreamFailure400(statusCode, upstreamMsg, upstreamBody)
 }
 
 // OpenAIRequestBodyTooLargeClientMessage is the fixed downstream message used
