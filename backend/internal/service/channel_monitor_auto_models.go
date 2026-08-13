@@ -9,7 +9,8 @@ import (
 	"strings"
 )
 
-const channelMonitorModelProbeConcurrency = 8
+// Never let one v1 monitor occupy more than two upstream slots at once.
+const channelMonitorModelProbeConcurrency = channelMonitorMaxConcurrentModelsPerChannel
 
 const ChannelMonitorAccountModelWhitelistExtraKey = "channel_monitor_model_whitelist"
 

@@ -188,6 +188,11 @@ type AccountTestService struct {
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
 	// WS dialer when nil (supports proxy + coder/websocket handshake).
 	grokWSDialer openAIWSClientDialer
+	// backgroundProbeLimiter caps automatic and manual channel-monitor probes
+	// together. A single upstream account must never be occupied by more than
+	// two model probes at once.
+	backgroundProbeLimiterOnce sync.Once
+	backgroundProbeLimiter     *accountProbeConcurrencyLimiter
 }
 
 func (s *AccountTestService) SetSettingService(settingService *SettingService) {
@@ -216,6 +221,7 @@ func NewAccountTestService(
 		httpUpstream:              httpUpstream,
 		cfg:                       cfg,
 		tlsFPProfileService:       tlsFPProfileService,
+		backgroundProbeLimiter:    newAccountProbeConcurrencyLimiter(channelMonitorMaxConcurrentModelsPerChannel),
 	}
 }
 
@@ -3073,6 +3079,19 @@ func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) er
 // RunTestBackground executes an account test in-memory (no real HTTP client),
 // capturing SSE output via httptest.NewRecorder, then parses the result.
 func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error) {
+	// Acquire before starting the timing tracker: time spent waiting behind the
+	// per-account probe cap is scheduler delay, not upstream TTFT/latency.
+	s.backgroundProbeLimiterOnce.Do(func() {
+		if s.backgroundProbeLimiter == nil {
+			s.backgroundProbeLimiter = newAccountProbeConcurrencyLimiter(channelMonitorMaxConcurrentModelsPerChannel)
+		}
+	})
+	release, err := s.backgroundProbeLimiter.acquire(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	startedAt := time.Now()
 	timingTracker := &accountTestTimingTracker{startedAt: startedAt}
 

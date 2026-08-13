@@ -28,6 +28,9 @@ const (
 	monitorMaintenanceMaxDaysPerRun = 35
 	// monitorWorkerConcurrency 调度器并发执行的监控数（pond 池容量）。
 	monitorWorkerConcurrency = 5
+	// channelMonitorMaxConcurrentModelsPerChannel 限制单个上游渠道同时
+	// 占用的模型探针数；v1 监控和自动号池探针共用该上限。
+	channelMonitorMaxConcurrentModelsPerChannel = 2
 	// monitorStartupLoadTimeout Start 时一次性加载所有 enabled monitor 的总超时。
 	monitorStartupLoadTimeout = 10 * time.Second
 	// monitorMinIntervalSeconds / monitorMaxIntervalSeconds 用户配置的检测间隔上下限。

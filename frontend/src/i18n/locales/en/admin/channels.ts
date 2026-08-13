@@ -507,7 +507,7 @@ export default {
         whitelistPlaceholder: 'gpt-5.*\nclaude-sonnet-4-*\ngemini-3-*',
         whitelistHint: 'Separate by line or comma. Exact IDs and a trailing * are supported. Empty allows every discovered model. This does not restrict manual models.',
         noModels: 'No eligible models discovered',
-        billingHint: 'Active probes send real upstream requests. More models increase probe volume and potential upstream cost; each monitor probes at most 8 models concurrently.',
+        billingHint: 'Active probes send real upstream requests. More models increase probe volume and potential upstream cost; each channel probes at most 2 models concurrently.',
         saved: 'Automatic pool model policy saved',
         loadError: 'Failed to load automatic pool model policy',
         saveError: 'Failed to save automatic pool model policy'

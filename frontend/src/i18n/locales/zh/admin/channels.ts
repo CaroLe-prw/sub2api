@@ -507,7 +507,7 @@ export default {
         whitelistPlaceholder: 'gpt-5.*\nclaude-sonnet-4-*\ngemini-3-*',
         whitelistHint: '每行或逗号分隔；支持精确模型和结尾 * 通配符。留空允许全部发现模型。白名单只限制自动加入，不影响手工模型。',
         noModels: '暂无符合条件的模型',
-        billingHint: '主动探测会产生真实上游请求。模型越多，检测频率和可能产生的上游费用越高；单个监控最多并发 8 个模型。',
+        billingHint: '主动探测会产生真实上游请求。模型越多，检测频率和可能产生的上游费用越高；每个渠道同时最多探测 2 个模型。',
         saved: '号池自动模型策略已保存',
         loadError: '加载号池自动模型策略失败',
         saveError: '保存号池自动模型策略失败'

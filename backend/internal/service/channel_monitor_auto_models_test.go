@@ -9,6 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestChannelMonitorModelProbeConcurrencyIsTwoPerChannel(t *testing.T) {
+	require.Equal(t, 2, channelMonitorModelProbeConcurrency)
+}
+
 type autoMonitorAccountReaderStub struct {
 	accounts []Account
 }
