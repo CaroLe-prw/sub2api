@@ -2,18 +2,23 @@
 
 package service
 
-import "testing"
+import (
+	"testing"
 
-func TestChannelMonitorPoolAccountEligibleKeepsUnhealthyInventory(t *testing.T) {
+	"github.com/stretchr/testify/require"
+)
+
+func TestChannelMonitorPoolAccountEligibleRequiresEnabledNonOAuthAccount(t *testing.T) {
 	platforms := []string{PlatformOpenAI, PlatformAnthropic}
 	tests := []struct {
 		name    string
 		account *Account
 		want    bool
 	}{
-		{name: "active schedulable", account: &Account{Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true}, want: true},
-		{name: "active manually unschedulable", account: &Account{Platform: PlatformOpenAI, Status: StatusActive, Schedulable: false}, want: true},
-		{name: "error remains monitored", account: &Account{Platform: PlatformOpenAI, Status: StatusError, Schedulable: false}, want: true},
+		{name: "active api key", account: &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}, want: true},
+		{name: "oauth excluded", account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true}, want: false},
+		{name: "unschedulable excluded", account: &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: false}, want: false},
+		{name: "error excluded", account: &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusError, Schedulable: true}, want: false},
 		{name: "disabled is excluded", account: &Account{Platform: PlatformOpenAI, Status: StatusDisabled}, want: false},
 		{name: "expired is excluded", account: &Account{Platform: PlatformOpenAI, Status: StatusExpired}, want: false},
 		{name: "unsupported platform", account: &Account{Platform: "custom", Status: StatusActive}, want: false},
@@ -27,4 +32,17 @@ func TestChannelMonitorPoolAccountEligibleKeepsUnhealthyInventory(t *testing.T) 
 			}
 		})
 	}
+}
+
+func TestChannelMonitorAccountWhitelistNarrowsGlobalPolicy(t *testing.T) {
+	account := &Account{Extra: map[string]any{
+		ChannelMonitorAccountModelWhitelistExtraKey: []any{"gpt-5.6-sol", "gpt-5.6-sol"},
+	}}
+
+	channelWhitelist := channelMonitorAccountModelWhitelist(account)
+	models := filterAutoMonitorModels([]string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-4.1"}, []string{"gpt-5.*"})
+	models = filterAutoMonitorModels(models, channelWhitelist)
+
+	require.Equal(t, []string{"gpt-5.6-sol"}, channelWhitelist)
+	require.Equal(t, []string{"gpt-5.6-sol"}, models)
 }

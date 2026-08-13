@@ -500,9 +500,9 @@ export default {
       primaryModelRequired: '请输入主模型',
       autoModels: {
         title: '号池模型自动监测',
-        description: '自动汇总每个可调度上游账号的模型映射，为已有和新增号池分别建立流式主动探针；不会改写手工监控。',
+        description: '自动汇总已启用、可调度的非 OAuth 上游账号模型映射，为已有和新增号池建立流式主动探针；不会改写手工监控。',
         enabled: '自动监测号池模型',
-        enabledHint: '默认开启。服务启动时会纳入已有号池，新增账号或模型映射会在一分钟内同步。',
+        enabledHint: '默认开启。仅纳入 active、可调度、非 OAuth 账号；新增账号、状态或模型策略会在一分钟内同步。',
         whitelist: '全局自动模型白名单',
         whitelistPlaceholder: 'gpt-5.*\nclaude-sonnet-4-*\ngemini-3-*',
         whitelistHint: '每行或逗号分隔；支持精确模型和结尾 * 通配符。留空允许全部发现模型。白名单只限制自动加入，不影响手工模型。',
@@ -514,7 +514,7 @@ export default {
       },
       dataPanel: {
         title: '号池主动探测数据',
-        description: '管理员专属视图；已有和新增的可调度上游会自动纳入流式探针，为调度器提供渠道与模型维度的数据。',
+        description: '管理员专属视图；仅已启用、可调度的非 OAuth 上游会自动纳入流式探针，为调度器提供渠道与模型维度的数据。',
         viewByChannel: '按渠道',
         viewByModel: '按模型',
         searchPlaceholder: '搜索渠道、账号 ID 或模型...',
@@ -522,6 +522,7 @@ export default {
         empty: '暂无号池探测数据',
         emptyHint: '自动同步会在服务启动和每分钟调度前执行；首次探测完成后会出现状态、延迟和可用率。',
         detail: '详情',
+        manageModels: '管理模型',
         channelDetailTitle: '渠道监控详情 · {name}',
         historyError: '加载探测历史失败',
         noHistory: '等待首次探测',
@@ -545,7 +546,25 @@ export default {
         modelCount: '{n} 个模型',
         stats: { channels: '监测渠道', models: '探测模型', operational: '健康渠道', issues: '异常渠道' },
         probeStatus: { success: '在线', failed: '异常', pending: '待探测' },
-        columns: { channel: '渠道', model: '模型', status: '状态', latency: '延迟', availability: '7 天可用率', checkedAt: '最近探测', action: '操作' }
+        columns: { channel: '渠道', model: '模型', status: '状态', latency: '延迟', availability: '7 天可用率', checkedAt: '最近探测', action: '操作' },
+        accountWhitelist: {
+          title: '渠道模型白名单',
+          titleWithName: '渠道模型白名单 · {name}',
+          description: '渠道白名单与全局白名单取交集，只会进一步缩小该渠道的自动探测模型；不会扩大全局范围，也不会影响手工监控。保存后一分钟内同步。',
+          whitelist: '此渠道允许自动探测的模型',
+          placeholder: '输入模型 ID，按回车添加',
+          inheritGlobal: '清空并继承全局',
+          emptyMeansGlobal: '当前未设置渠道限制，将使用全局白名单范围。',
+          restrictedCount: '当前渠道限制为 {n} 条规则。',
+          discovered: '该渠道发现的模型',
+          selectAll: '全部加入',
+          noModels: '未发现模型',
+          currentEffective: '当前实际生效模型',
+          noEffectiveModels: '当前没有符合全局与渠道白名单交集的模型',
+          loadError: '加载渠道模型白名单失败',
+          saveSuccess: '渠道模型白名单已保存，将在一分钟内同步探针',
+          saveError: '保存渠道模型白名单失败'
+        }
       },
       publish: {
         title: '发布对外状态',

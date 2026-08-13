@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PoolMonitorAccount, PoolProbeResult } from '@/api/admin/channelMonitor'
+import type { PoolAccountModelPolicy, PoolMonitorAccount, PoolProbeResult } from '@/api/admin/channelMonitor'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import Icon from '@/components/icons/Icon.vue'
 import MonitorChannelGrid from './MonitorChannelGrid.vue'
+import MonitorAccountWhitelistDialog from './MonitorAccountWhitelistDialog.vue'
 import MonitorModelHistoryDialog from './MonitorModelHistoryDialog.vue'
 import MonitorModelTable from './MonitorModelTable.vue'
 import type { MonitorModelRow, ProbeHistoryByPlan } from './monitorDataTypes'
@@ -21,6 +22,10 @@ const selectedAccount = ref<PoolMonitorAccount | null>(null)
 const histories = ref<ProbeHistoryByPlan>({})
 const historyLoading = ref(false)
 const runningPlanId = ref<number | null>(null)
+const policyAccount = ref<PoolMonitorAccount | null>(null)
+const accountPolicy = ref<PoolAccountModelPolicy | null>(null)
+const policyLoading = ref(false)
+const policySaving = ref(false)
 
 const filteredAccounts = computed(() => {
   const query = search.value.trim().toLowerCase()
@@ -90,6 +95,34 @@ async function runProbe(planId: number) {
   }
 }
 
+async function openAccountPolicy(account: PoolMonitorAccount) {
+  policyAccount.value = account
+  accountPolicy.value = null
+  policyLoading.value = true
+  try {
+    accountPolicy.value = await adminAPI.channelMonitor.getPoolAccountModelPolicy(account.account_id)
+  } catch (error: unknown) {
+    policyAccount.value = null
+    appStore.showError(extractApiErrorMessage(error, t('admin.channelMonitor.dataPanel.accountWhitelist.loadError')))
+  } finally {
+    policyLoading.value = false
+  }
+}
+
+async function saveAccountPolicy(whitelist: string[]) {
+  if (!policyAccount.value || policySaving.value) return
+  policySaving.value = true
+  try {
+    accountPolicy.value = await adminAPI.channelMonitor.updatePoolAccountModelPolicy(policyAccount.value.account_id, whitelist)
+    appStore.showSuccess(t('admin.channelMonitor.dataPanel.accountWhitelist.saveSuccess'))
+    policyAccount.value = null
+  } catch (error: unknown) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.channelMonitor.dataPanel.accountWhitelist.saveError')))
+  } finally {
+    policySaving.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -122,9 +155,10 @@ onMounted(load)
 
     <div v-if="loading && accounts.length === 0" class="flex min-h-52 items-center justify-center text-gray-400"><Icon name="refresh" size="lg" class="animate-spin" /></div>
     <div v-else-if="filteredAccounts.length === 0" class="flex min-h-52 flex-col items-center justify-center px-6 text-center"><p class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.channelMonitor.dataPanel.empty') }}</p><p class="mt-1 max-w-lg text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channelMonitor.dataPanel.emptyHint') }}</p></div>
-    <MonitorChannelGrid v-else-if="view === 'channel'" :accounts="filteredAccounts" @detail="openAccount" />
+    <MonitorChannelGrid v-else-if="view === 'channel'" :accounts="filteredAccounts" @detail="openAccount" @manage="openAccountPolicy" />
     <MonitorModelTable v-else :rows="modelRows" @detail="openModel" />
 
     <MonitorModelHistoryDialog :show="selectedAccount != null" :account="selectedAccount" :histories="histories" :loading="historyLoading" :running-plan-id="runningPlanId" @close="selectedAccount = null" @run="runProbe" />
+    <MonitorAccountWhitelistDialog :show="policyAccount != null" :account="policyAccount" :policy="accountPolicy" :loading="policyLoading" :saving="policySaving" @close="policyAccount = null" @save="saveAccountPolicy" />
   </section>
 </template>

@@ -71,16 +71,24 @@ type channelMonitorRuntimeReader interface {
 
 // ChannelMonitorService 渠道监控管理服务。
 type ChannelMonitorService struct {
-	repo      ChannelMonitorRepository
-	encryptor SecretEncryptor
-	accounts  channelMonitorAccountModelReader
-	settings  channelMonitorAutoModelSettingStore
+	repo         ChannelMonitorRepository
+	encryptor    SecretEncryptor
+	accounts     channelMonitorAccountModelReader
+	poolAccounts AccountRepository
+	settings     channelMonitorAutoModelSettingStore
 	// runtime is optional; when nil, RunCheck fails closed for active probes
 	// (mode defaults to v2 / retired) so tests without settings never hit upstream.
 	runtime channelMonitorRuntimeReader
 	// scheduler 由 wire 通过 SetScheduler 注入；CRUD 后调用对应钩子即时同步任务。
 	// 测试或未注入场景下保持 nil，所有钩子调用变为 no-op。
 	scheduler MonitorScheduler
+}
+
+// SetChannelMonitorPoolAccountRepository enables per-account probe policies.
+func (s *ChannelMonitorService) SetChannelMonitorPoolAccountRepository(accounts AccountRepository) {
+	if s != nil {
+		s.poolAccounts = accounts
+	}
 }
 
 const maxChannelMonitorNameRunes = 100

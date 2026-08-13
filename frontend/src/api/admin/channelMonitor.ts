@@ -172,6 +172,13 @@ export interface PoolMonitorOverviewResponse {
   items: PoolMonitorAccount[]
 }
 
+export interface PoolAccountModelPolicy {
+  account_id: number
+  whitelist: string[]
+  discovered_models: string[]
+  effective_models: string[]
+}
+
 export interface PoolProbeResult {
   id: number
   plan_id: number
@@ -369,6 +376,16 @@ export async function listPoolOverview(): Promise<PoolMonitorOverviewResponse> {
   return data
 }
 
+export async function getPoolAccountModelPolicy(accountId: number): Promise<PoolAccountModelPolicy> {
+  const { data } = await apiClient.get<PoolAccountModelPolicy>(`/admin/channel-monitors/pool-accounts/${accountId}/model-policy`)
+  return data
+}
+
+export async function updatePoolAccountModelPolicy(accountId: number, whitelist: string[]): Promise<PoolAccountModelPolicy> {
+  const { data } = await apiClient.put<PoolAccountModelPolicy>(`/admin/channel-monitors/pool-accounts/${accountId}/model-policy`, { whitelist })
+  return data
+}
+
 export async function listPoolProbeResults(planId: number, limit = 100): Promise<PoolProbeResult[]> {
   const { data } = await apiClient.get<PoolProbeResult[]>(`/admin/scheduled-test-plans/${planId}/results`, { params: { limit } })
   return data
@@ -393,6 +410,8 @@ export const channelMonitorAPI = {
   getAutoModelPolicy,
   updateAutoModelPolicy,
   listPoolOverview,
+  getPoolAccountModelPolicy,
+  updatePoolAccountModelPolicy,
   listPoolProbeResults,
   runPoolProbe,
 }

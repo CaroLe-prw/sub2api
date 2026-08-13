@@ -2,10 +2,14 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import MonitorDataPanel from './MonitorDataPanel.vue'
+import MonitorAccountWhitelistDialog from './MonitorAccountWhitelistDialog.vue'
 
-const { listPoolOverview, showError } = vi.hoisted(() => ({
+const { listPoolOverview, getPoolAccountModelPolicy, updatePoolAccountModelPolicy, showError, showSuccess } = vi.hoisted(() => ({
   listPoolOverview: vi.fn(),
+  getPoolAccountModelPolicy: vi.fn(),
+  updatePoolAccountModelPolicy: vi.fn(),
   showError: vi.fn(),
+  showSuccess: vi.fn(),
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -14,12 +18,14 @@ vi.mock('@/api/admin', () => ({
       listPoolOverview,
       listPoolProbeResults: vi.fn(),
       runPoolProbe: vi.fn(),
+      getPoolAccountModelPolicy,
+      updatePoolAccountModelPolicy,
     },
   },
 }))
 
 vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({ showError, showSuccess: vi.fn() }),
+  useAppStore: () => ({ showError, showSuccess }),
 }))
 
 vi.mock('vue-i18n', async (importOriginal) => {
@@ -34,6 +40,9 @@ describe('MonitorDataPanel', () => {
   beforeEach(() => {
     listPoolOverview.mockReset()
     showError.mockReset()
+    showSuccess.mockReset()
+    getPoolAccountModelPolicy.mockReset()
+    updatePoolAccountModelPolicy.mockReset()
     listPoolOverview.mockResolvedValue({
       items: [{
         account_id: 35,
@@ -56,6 +65,18 @@ describe('MonitorDataPanel', () => {
         }],
       }],
     })
+    getPoolAccountModelPolicy.mockResolvedValue({
+      account_id: 35,
+      whitelist: ['gpt-5.6-sol'],
+      discovered_models: ['gpt-5.6-sol'],
+      effective_models: ['gpt-5.6-sol'],
+    })
+    updatePoolAccountModelPolicy.mockResolvedValue({
+      account_id: 35,
+      whitelist: ['gpt-5.6-sol'],
+      discovered_models: ['gpt-5.6-sol'],
+      effective_models: ['gpt-5.6-sol'],
+    })
   })
 
   it('loads existing pool accounts and switches between channel and model views', async () => {
@@ -77,5 +98,25 @@ describe('MonitorDataPanel', () => {
     expect(wrapper.find('table').exists()).toBe(true)
     expect(wrapper.text()).toContain('gpt-5.6-sol')
     expect(wrapper.text()).toContain('#35 · openai · apikey')
+  })
+
+  it('loads and saves a per-channel model allowlist', async () => {
+    const wrapper = mount(MonitorDataPanel, {
+      global: { stubs: { Icon: true, MonitorModelHistoryDialog: true } },
+    })
+    await flushPromises()
+
+    const manageButton = wrapper.findAll('button').find((button) => button.text().includes('manageModels'))
+    expect(manageButton).toBeDefined()
+    await manageButton!.trigger('click')
+    await flushPromises()
+
+    expect(getPoolAccountModelPolicy).toHaveBeenCalledWith(35)
+    const dialog = wrapper.findComponent(MonitorAccountWhitelistDialog)
+    dialog.vm.$emit('save', ['gpt-5.6-sol'])
+    await flushPromises()
+
+    expect(updatePoolAccountModelPolicy).toHaveBeenCalledWith(35, ['gpt-5.6-sol'])
+    expect(showSuccess).toHaveBeenCalled()
   })
 })

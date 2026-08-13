@@ -968,6 +968,7 @@ func ProvideChannelMonitorService(
 	svc := NewChannelMonitorService(repo, encryptor)
 	svc.SetRuntimeReader(settingService)
 	svc.SetAutoModelDependencies(accountRepo, settingRepo)
+	svc.SetChannelMonitorPoolAccountRepository(accountRepo)
 	return svc
 }
 

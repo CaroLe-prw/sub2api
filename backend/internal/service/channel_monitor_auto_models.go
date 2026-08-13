@@ -11,6 +11,8 @@ import (
 
 const channelMonitorModelProbeConcurrency = 8
 
+const ChannelMonitorAccountModelWhitelistExtraKey = "channel_monitor_model_whitelist"
+
 type channelMonitorAccountModelReader interface {
 	// This persistent candidate view intentionally keeps temporarily unhealthy,
 	// rate-limited, or overloaded accounts in the inventory. Otherwise a model
@@ -31,6 +33,13 @@ type ChannelMonitorAutoModelPolicy struct {
 	Whitelist            []string            `json:"whitelist"`
 	DiscoveredByProvider map[string][]string `json:"discovered_by_provider,omitempty"`
 	EligibleByProvider   map[string][]string `json:"eligible_by_provider,omitempty"`
+}
+
+type ChannelMonitorAccountModelPolicy struct {
+	AccountID        int64    `json:"account_id"`
+	Whitelist        []string `json:"whitelist"`
+	DiscoveredModels []string `json:"discovered_models"`
+	EffectiveModels  []string `json:"effective_models"`
 }
 
 func defaultChannelMonitorAutoModelPolicy() ChannelMonitorAutoModelPolicy {
@@ -77,6 +86,72 @@ func (s *ChannelMonitorService) UpdateAutoModelPolicy(ctx context.Context, input
 		return nil, fmt.Errorf("save channel monitor auto-model policy: %w", err)
 	}
 	return s.GetAutoModelPolicy(ctx, true)
+}
+
+func (s *ChannelMonitorService) GetAccountModelPolicy(ctx context.Context, accountID int64) (*ChannelMonitorAccountModelPolicy, error) {
+	if s == nil || s.poolAccounts == nil {
+		return nil, fmt.Errorf("channel monitor account policies are unavailable")
+	}
+	account, err := s.poolAccounts.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	global, err := s.loadAutoModelPolicy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	discovered := channelMonitorModelsForAccount(account)
+	whitelist := channelMonitorAccountModelWhitelist(account)
+	effective := filterAutoMonitorModels(discovered, global.Whitelist)
+	effective = filterAutoMonitorModels(effective, whitelist)
+	return &ChannelMonitorAccountModelPolicy{
+		AccountID: account.ID, Whitelist: whitelist, DiscoveredModels: discovered, EffectiveModels: effective,
+	}, nil
+}
+
+func (s *ChannelMonitorService) UpdateAccountModelPolicy(ctx context.Context, accountID int64, whitelist []string) (*ChannelMonitorAccountModelPolicy, error) {
+	if s == nil || s.poolAccounts == nil {
+		return nil, fmt.Errorf("channel monitor account policies are unavailable")
+	}
+	normalized, err := normalizeAutoMonitorWhitelist(whitelist)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.poolAccounts.GetByID(ctx, accountID); err != nil {
+		return nil, err
+	}
+	if err := s.poolAccounts.UpdateExtra(ctx, accountID, map[string]any{
+		ChannelMonitorAccountModelWhitelistExtraKey: normalized,
+	}); err != nil {
+		return nil, err
+	}
+	return s.GetAccountModelPolicy(ctx, accountID)
+}
+
+func channelMonitorAccountModelWhitelist(account *Account) []string {
+	if account == nil || account.Extra == nil {
+		return []string{}
+	}
+	raw, ok := account.Extra[ChannelMonitorAccountModelWhitelistExtraKey]
+	if !ok || raw == nil {
+		return []string{}
+	}
+	values := make([]string, 0)
+	switch typed := raw.(type) {
+	case []string:
+		values = append(values, typed...)
+	case []any:
+		for _, item := range typed {
+			if value, ok := item.(string); ok {
+				values = append(values, value)
+			}
+		}
+	}
+	normalized, err := normalizeAutoMonitorWhitelist(values)
+	if err != nil {
+		return []string{}
+	}
+	return normalized
 }
 
 func (s *ChannelMonitorService) loadAutoModelPolicy(ctx context.Context) (ChannelMonitorAutoModelPolicy, error) {

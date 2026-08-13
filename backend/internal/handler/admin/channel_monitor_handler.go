@@ -144,6 +144,10 @@ type channelMonitorAutoModelPolicyRequest struct {
 	Whitelist []string `json:"whitelist"`
 }
 
+type channelMonitorAccountModelPolicyRequest struct {
+	Whitelist []string `json:"whitelist"`
+}
+
 type channelMonitorPublishRequest struct {
 	ConfirmName string `json:"confirm_name" binding:"required"`
 }
@@ -372,6 +376,41 @@ func (h *ChannelMonitorHandler) UpdateAutoModelPolicy(c *gin.Context) {
 		Enabled:   req.Enabled,
 		Whitelist: req.Whitelist,
 	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
+}
+
+// GetAccountModelPolicy GET /api/v1/admin/channel-monitors/pool-accounts/:account_id/model-policy
+func (h *ChannelMonitorHandler) GetAccountModelPolicy(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("account_id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", "invalid account id"))
+		return
+	}
+	policy, err := h.monitorService.GetAccountModelPolicy(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
+}
+
+// UpdateAccountModelPolicy PUT /api/v1/admin/channel-monitors/pool-accounts/:account_id/model-policy
+func (h *ChannelMonitorHandler) UpdateAccountModelPolicy(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("account_id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", "invalid account id"))
+		return
+	}
+	var req channelMonitorAccountModelPolicyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
+		return
+	}
+	policy, err := h.monitorService.UpdateAccountModelPolicy(c.Request.Context(), accountID, req.Whitelist)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

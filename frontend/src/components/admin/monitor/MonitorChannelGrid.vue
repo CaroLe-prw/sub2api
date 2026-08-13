@@ -6,7 +6,10 @@ import Icon from '@/components/icons/Icon.vue'
 import { formatRelativeTime } from '@/utils/format'
 
 const props = defineProps<{ accounts: PoolMonitorAccount[] }>()
-const emit = defineEmits<{ detail: [account: PoolMonitorAccount] }>()
+const emit = defineEmits<{
+  detail: [account: PoolMonitorAccount]
+  manage: [account: PoolMonitorAccount]
+}>()
 const { t } = useI18n()
 
 function state(account: PoolMonitorAccount): 'healthy' | 'issue' | 'pending' {
@@ -40,12 +43,10 @@ const sorted = computed(() => [...props.accounts].sort((a, b) => {
 
 <template>
   <div class="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
-    <button
+    <article
       v-for="account in sorted"
       :key="account.account_id"
-      type="button"
-      class="group rounded-2xl border border-gray-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-md dark:border-dark-700 dark:bg-dark-800 dark:hover:border-primary-700"
-      @click="emit('detail', account)"
+      class="rounded-2xl border border-gray-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-md dark:border-dark-700 dark:bg-dark-800 dark:hover:border-primary-700"
     >
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
@@ -55,17 +56,24 @@ const sorted = computed(() => [...props.accounts].sort((a, b) => {
           </div>
           <div class="mt-1 text-[11px] text-gray-400">#{{ account.account_id }} · {{ account.platform }} · {{ account.type }}</div>
         </div>
-        <Icon name="chevronRight" size="sm" class="text-gray-300 transition group-hover:translate-x-0.5 group-hover:text-primary-500" />
+        <span class="badge badge-primary">{{ t('admin.channelMonitor.dataPanel.streaming') }}</span>
       </div>
       <div class="mt-4 grid grid-cols-3 gap-2 border-t border-gray-100 pt-3 dark:border-dark-700">
         <div><div class="text-sm font-bold text-gray-800 dark:text-gray-100">{{ account.models.length }}</div><div class="text-[10px] text-gray-400">{{ t('admin.channelMonitor.dataPanel.stats.models') }}</div></div>
         <div><div class="text-sm font-bold text-gray-800 dark:text-gray-100">{{ avgLatency(account) == null ? '-' : `${avgLatency(account)}ms` }}</div><div class="text-[10px] text-gray-400">{{ t('admin.channelMonitor.dataPanel.avgLatency') }}</div></div>
         <div><div class="text-sm font-bold" :class="availability(account) != null && availability(account)! >= 99 ? 'text-emerald-600' : 'text-gray-800 dark:text-gray-100'">{{ availability(account) == null ? '-' : `${availability(account)!.toFixed(1)}%` }}</div><div class="text-[10px] text-gray-400">{{ t('admin.channelMonitor.dataPanel.availability') }}</div></div>
       </div>
-      <div class="mt-3 flex items-center justify-between text-[10px] text-gray-400">
-        <span>{{ t('admin.channelMonitor.dataPanel.streaming') }}</span>
+      <div class="mt-3 flex items-center justify-between gap-2 border-t border-gray-100 pt-3 dark:border-dark-700">
         <span>{{ formatRelativeTime(lastChecked(account)) }}</span>
+        <div class="flex items-center gap-2">
+          <button type="button" class="btn btn-secondary btn-sm" @click="emit('manage', account)">
+            <Icon name="cog" size="xs" />{{ t('admin.channelMonitor.dataPanel.manageModels') }}
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="emit('detail', account)">
+            {{ t('admin.channelMonitor.dataPanel.detail') }}<Icon name="chevronRight" size="xs" />
+          </button>
+        </div>
       </div>
-    </button>
+    </article>
   </div>
 </template>

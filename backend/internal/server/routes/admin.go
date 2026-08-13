@@ -777,6 +777,8 @@ func registerChannelMonitorRoutes(admin *gin.RouterGroup, h *handler.Handlers, s
 		monitors.GET("/auto-model-policy", h.Admin.ChannelMonitor.GetAutoModelPolicy)
 		monitors.PUT("/auto-model-policy", h.Admin.ChannelMonitor.UpdateAutoModelPolicy)
 		monitors.GET("/pool-overview", h.Admin.ScheduledTest.ListChannelMonitorPool)
+		monitors.GET("/pool-accounts/:account_id/model-policy", h.Admin.ChannelMonitor.GetAccountModelPolicy)
+		monitors.PUT("/pool-accounts/:account_id/model-policy", h.Admin.ChannelMonitor.UpdateAccountModelPolicy)
 		monitors.GET("/:id", h.Admin.ChannelMonitor.Get)
 		monitors.POST("/:id/duplicate", h.Admin.ChannelMonitor.Duplicate)
 		monitors.POST("/:id/publish", h.Admin.ChannelMonitor.Publish)

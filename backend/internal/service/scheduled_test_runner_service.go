@@ -170,14 +170,12 @@ func (s *ScheduledTestRunnerService) reconcileChannelMonitorPlans(ctx context.Co
 	desired := make([]*ScheduledTestPlan, 0)
 	now := time.Now()
 	for i := range accounts {
-		// Monitoring must retain unhealthy and manually unschedulable accounts;
-		// otherwise the probe that detects a failure would remove its own plan.
-		// Explicitly disabled/expired accounts remain outside the active probes.
 		if !channelMonitorPoolAccountEligible(&accounts[i], platforms) {
 			continue
 		}
 		models := channelMonitorModelsForAccount(&accounts[i])
 		models = filterAutoMonitorModels(models, policy.Whitelist)
+		models = filterAutoMonitorModels(models, channelMonitorAccountModelWhitelist(&accounts[i]))
 		for _, model := range models {
 			stagger := time.Duration((accounts[i].ID+int64(len(desired))*17)%240) * time.Second
 			nextRun := now.Add(stagger)
@@ -192,7 +190,7 @@ func (s *ScheduledTestRunnerService) reconcileChannelMonitorPlans(ctx context.Co
 }
 
 func channelMonitorPoolAccountEligible(account *Account, platforms []string) bool {
-	if account == nil || (account.Status != StatusActive && account.Status != StatusError) {
+	if account == nil || account.Status != StatusActive || !account.Schedulable || account.Type == AccountTypeOAuth {
 		return false
 	}
 	for _, platform := range platforms {

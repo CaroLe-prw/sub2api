@@ -500,9 +500,9 @@ export default {
       primaryModelRequired: 'Please enter a primary model',
       autoModels: {
         title: 'Automatic pool model probes',
-        description: 'Collect model mappings per schedulable upstream account and create streaming active probes for existing and new pool accounts without changing manual monitors.',
+        description: 'Collect model mappings from enabled, schedulable, non-OAuth upstream accounts and create streaming probes without changing manual monitors.',
         enabled: 'Probe account-pool models automatically',
-        enabledHint: 'Enabled by default. Existing accounts are enrolled at startup; new accounts or mappings sync within one minute.',
+        enabledHint: 'Enabled by default. Only active, schedulable, non-OAuth accounts are enrolled; account, status, and model policy changes sync within one minute.',
         whitelist: 'Global automatic-model allowlist',
         whitelistPlaceholder: 'gpt-5.*\nclaude-sonnet-4-*\ngemini-3-*',
         whitelistHint: 'Separate by line or comma. Exact IDs and a trailing * are supported. Empty allows every discovered model. This does not restrict manual models.',
@@ -514,7 +514,7 @@ export default {
       },
       dataPanel: {
         title: 'Account-pool active probes',
-        description: 'Admin-only view. Existing and new schedulable upstreams are enrolled in streaming probes to supply channel and model signals to the scheduler.',
+        description: 'Admin-only view. Only enabled, schedulable, non-OAuth upstreams are enrolled in streaming probes for scheduler channel and model signals.',
         viewByChannel: 'By channel',
         viewByModel: 'By model',
         searchPlaceholder: 'Search channel, account ID, or model...',
@@ -522,6 +522,7 @@ export default {
         empty: 'No account-pool probe data yet',
         emptyHint: 'Automatic reconciliation runs at startup and before each minute tick. Status, latency, and availability appear after the first probe.',
         detail: 'Details',
+        manageModels: 'Manage models',
         channelDetailTitle: 'Channel monitor details · {name}',
         historyError: 'Failed to load probe history',
         noHistory: 'Waiting for the first probe',
@@ -545,7 +546,25 @@ export default {
         modelCount: '{n} models',
         stats: { channels: 'Monitored channels', models: 'Probe models', operational: 'Healthy channels', issues: 'Channels with issues' },
         probeStatus: { success: 'Online', failed: 'Failed', pending: 'Pending' },
-        columns: { channel: 'Channel', model: 'Model', status: 'Status', latency: 'Latency', availability: '7d availability', checkedAt: 'Last probe', action: 'Action' }
+        columns: { channel: 'Channel', model: 'Model', status: 'Status', latency: 'Latency', availability: '7d availability', checkedAt: 'Last probe', action: 'Action' },
+        accountWhitelist: {
+          title: 'Channel model allowlist',
+          titleWithName: 'Channel model allowlist · {name}',
+          description: 'The channel allowlist intersects with the global allowlist. It can only narrow automatic probes for this channel and does not affect manual monitors. Changes sync within one minute.',
+          whitelist: 'Models allowed for this channel',
+          placeholder: 'Enter a model ID and press Enter',
+          inheritGlobal: 'Clear and inherit global',
+          emptyMeansGlobal: 'No channel restriction is set; the global allowlist applies.',
+          restrictedCount: 'This channel currently has {n} allowlist rules.',
+          discovered: 'Models discovered on this channel',
+          selectAll: 'Add all',
+          noModels: 'No models discovered',
+          currentEffective: 'Currently effective models',
+          noEffectiveModels: 'No models match both global and channel allowlists',
+          loadError: 'Failed to load channel model allowlist',
+          saveSuccess: 'Channel model allowlist saved; probes will sync within one minute',
+          saveError: 'Failed to save channel model allowlist'
+        }
       },
       publish: {
         title: 'Publish user-facing status',
