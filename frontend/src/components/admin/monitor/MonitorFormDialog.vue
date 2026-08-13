@@ -122,6 +122,17 @@
         <Toggle v-model="form.enabled" />
       </div>
 
+      <div
+        v-if="form.provider !== PROVIDER_GEMINI"
+        class="flex items-start justify-between gap-4 rounded-lg border border-gray-200 p-3 dark:border-dark-700"
+      >
+        <div>
+          <label class="input-label mb-0">{{ t('admin.channelMonitor.form.streaming') }}</label>
+          <p class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.streamingHint') }}</p>
+        </div>
+        <Toggle v-model="form.streaming" />
+      </div>
+
       <!-- 高级设置区：请求模板 + 自定义 headers/body -->
       <details class="rounded-lg border border-gray-200 bg-gray-50/50 p-3 dark:border-dark-700 dark:bg-dark-900/30">
         <summary class="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -267,6 +278,7 @@ interface MonitorForm {
   interval_seconds: number
   jitter_seconds: number
   enabled: boolean
+  streaming: boolean
   // 高级设置快照
   template_id: number | null
   extra_headers: Record<string, string>
@@ -286,6 +298,7 @@ const form = reactive<MonitorForm>({
   interval_seconds: systemDefaultInterval.value,
   jitter_seconds: 0,
   enabled: true,
+  streaming: false,
   template_id: null,
   extra_headers: {},
   body_override_mode: 'off',
@@ -429,6 +442,9 @@ function selectProvider(provider: Provider) {
 watch(() => form.provider, () => {
   if (suppressFormWatchers) return
   form.api_key = ''
+  if (form.provider === PROVIDER_GEMINI) {
+    form.streaming = false
+  }
   if (form.provider !== PROVIDER_OPENAI) {
     form.api_mode = API_MODE_CHAT_COMPLETIONS
   }
@@ -455,6 +471,7 @@ function resetForm() {
   form.interval_seconds = systemDefaultInterval.value
   form.jitter_seconds = 0
   form.enabled = true
+  form.streaming = false
   form.template_id = null
   form.extra_headers = {}
   form.body_override_mode = 'off'
@@ -475,6 +492,7 @@ function loadFromMonitor(m: ChannelMonitor) {
   form.interval_seconds = m.interval_seconds || systemDefaultInterval.value
   form.jitter_seconds = m.jitter_seconds || 0
   form.enabled = m.enabled
+  form.streaming = m.streaming ?? false
   form.template_id = m.template_id ?? null
   form.extra_headers = { ...(m.extra_headers || {}) }
   form.body_override_mode = m.body_override_mode || 'off'
@@ -539,6 +557,7 @@ function buildPayload(): CreateParams {
     extra_models: form.extra_models,
     group_name: form.group_name.trim(),
     enabled: form.enabled,
+    streaming: form.provider !== PROVIDER_GEMINI && form.streaming,
     interval_seconds: form.interval_seconds,
     jitter_seconds: form.jitter_seconds || 0,
     template_id: form.template_id,

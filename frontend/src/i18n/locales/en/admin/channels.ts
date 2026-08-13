@@ -498,6 +498,33 @@ export default {
       deleteConfirm: 'Are you sure you want to delete monitor "{name}"? This action cannot be undone.',
       nameRequired: 'Please enter a monitor name',
       primaryModelRequired: 'Please enter a primary model',
+      autoModels: {
+        title: 'Automatic pool model probes',
+        description: 'At runtime, collect model mappings from schedulable upstream accounts and add them to matching V1 active probes without overwriting manually configured models.',
+        enabled: 'Probe account-pool models automatically',
+        enabledHint: 'Enabled by default. Newly configured accounts and model mappings enter subsequent probes automatically.',
+        whitelist: 'Global automatic-model allowlist',
+        whitelistPlaceholder: 'gpt-5.*\nclaude-sonnet-4-*\ngemini-3-*',
+        whitelistHint: 'Separate by line or comma. Exact IDs and a trailing * are supported. Empty allows every discovered model. This does not restrict manual models.',
+        noModels: 'No eligible models discovered',
+        billingHint: 'Active probes send real upstream requests. More models increase probe volume and potential upstream cost; each monitor probes at most 8 models concurrently.',
+        saved: 'Automatic pool model policy saved',
+        loadError: 'Failed to load automatic pool model policy',
+        saveError: 'Failed to save automatic pool model policy'
+      },
+      publish: {
+        title: 'Publish user-facing status',
+        public: 'Public',
+        private: 'Admin only',
+        open: 'Publish',
+        unpublish: 'Unpublish',
+        warning: 'Publishing exposes this monitor name, provider, models, and status on the user status page. The upstream endpoint, API key, and internal error details remain private.',
+        typeName: 'Type the monitor name "{name}" to confirm publication:',
+        confirm: 'Publish',
+        published: 'Monitor is now visible to users',
+        unpublished: 'Monitor is now admin-only',
+        failed: 'Failed to update publication status'
+      },
       columns: {
         name: 'Name',
         provider: 'Provider',
@@ -505,6 +532,7 @@ export default {
         availability7d: '7d Availability',
         latency: 'Latency (ms)',
         enabled: 'Enabled',
+        publicVisible: 'Public',
         actions: 'Actions'
       },
       form: {
@@ -536,6 +564,8 @@ export default {
         intervalSecondsHint: 'Range: 15 - 3600 seconds',
         jitterSeconds: 'Random Jitter (± seconds)',
         jitterSecondsHint: 'Each check fires at interval ± a random offset within this value; 0 means fixed interval. Interval minus jitter must be ≥ 15s',
+        streaming: 'Streaming probe',
+        streamingHint: 'Request and validate an SSE stream; latency is captured when the complete arithmetic answer first arrives.',
         enabled: 'Enable monitor',
         kindRequired: 'Please select a provider'
       },

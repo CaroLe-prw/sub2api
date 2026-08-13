@@ -47,6 +47,7 @@ type channelMonitorCreateRequest struct {
 	ExtraModels      []string          `json:"extra_models"`
 	GroupName        string            `json:"group_name" binding:"max=100"`
 	Enabled          *bool             `json:"enabled"`
+	Streaming        bool              `json:"streaming"`
 	IntervalSeconds  int               `json:"interval_seconds" binding:"required,min=15,max=3600"`
 	JitterSeconds    int               `json:"jitter_seconds" binding:"omitempty,min=0,max=3585"`
 	TemplateID       *int64            `json:"template_id"`
@@ -65,6 +66,7 @@ type channelMonitorUpdateRequest struct {
 	ExtraModels      *[]string          `json:"extra_models"`
 	GroupName        *string            `json:"group_name" binding:"omitempty,max=100"`
 	Enabled          *bool              `json:"enabled"`
+	Streaming        *bool              `json:"streaming"`
 	IntervalSeconds  *int               `json:"interval_seconds" binding:"omitempty,min=15,max=3600"`
 	JitterSeconds    *int               `json:"jitter_seconds" binding:"omitempty,min=0,max=3585"`
 	TemplateID       *int64             `json:"template_id"`
@@ -86,6 +88,8 @@ type channelMonitorResponse struct {
 	ExtraModels         []string                             `json:"extra_models"`
 	GroupName           string                               `json:"group_name"`
 	Enabled             bool                                 `json:"enabled"`
+	PublicVisible       bool                                 `json:"public_visible"`
+	Streaming           bool                                 `json:"streaming"`
 	IntervalSeconds     int                                  `json:"interval_seconds"`
 	JitterSeconds       int                                  `json:"jitter_seconds"`
 	LastCheckedAt       *string                              `json:"last_checked_at"`
@@ -122,6 +126,15 @@ type channelMonitorHistoryItemResponse struct {
 	CheckedAt     string `json:"checked_at"`
 }
 
+type channelMonitorAutoModelPolicyRequest struct {
+	Enabled   bool     `json:"enabled"`
+	Whitelist []string `json:"whitelist"`
+}
+
+type channelMonitorPublishRequest struct {
+	ConfirmName string `json:"confirm_name" binding:"required"`
+}
+
 // maskAPIKey 对 API Key 明文做脱敏：前 4 字符 + "***"，长度 ≤ 4 时只显示 "***"。
 func maskAPIKey(plain string) string {
 	if len(plain) <= monitorAPIKeyMaskPrefix {
@@ -154,6 +167,8 @@ func channelMonitorToResponse(m *service.ChannelMonitor) *channelMonitorResponse
 		ExtraModels:         extras,
 		GroupName:           m.GroupName,
 		Enabled:             m.Enabled,
+		PublicVisible:       m.PublicVisible,
+		Streaming:           m.Streaming,
 		IntervalSeconds:     m.IntervalSeconds,
 		JitterSeconds:       m.JitterSeconds,
 		CreatedBy:           m.CreatedBy,
@@ -295,6 +310,67 @@ func (h *ChannelMonitorHandler) Get(c *gin.Context) {
 	response.Success(c, channelMonitorToResponse(m))
 }
 
+// GetAutoModelPolicy GET /api/v1/admin/channel-monitors/auto-model-policy
+func (h *ChannelMonitorHandler) GetAutoModelPolicy(c *gin.Context) {
+	policy, err := h.monitorService.GetAutoModelPolicy(c.Request.Context(), true)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
+}
+
+// UpdateAutoModelPolicy PUT /api/v1/admin/channel-monitors/auto-model-policy
+func (h *ChannelMonitorHandler) UpdateAutoModelPolicy(c *gin.Context) {
+	var req channelMonitorAutoModelPolicyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
+		return
+	}
+	policy, err := h.monitorService.UpdateAutoModelPolicy(c.Request.Context(), service.ChannelMonitorAutoModelPolicy{
+		Enabled:   req.Enabled,
+		Whitelist: req.Whitelist,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
+}
+
+// Publish POST /api/v1/admin/channel-monitors/:id/publish
+func (h *ChannelMonitorHandler) Publish(c *gin.Context) {
+	id, ok := ParseChannelMonitorID(c)
+	if !ok {
+		return
+	}
+	var req channelMonitorPublishRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
+		return
+	}
+	m, err := h.monitorService.SetPublicVisibility(c.Request.Context(), id, true, req.ConfirmName)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, channelMonitorToResponse(m))
+}
+
+// Unpublish POST /api/v1/admin/channel-monitors/:id/unpublish
+func (h *ChannelMonitorHandler) Unpublish(c *gin.Context) {
+	id, ok := ParseChannelMonitorID(c)
+	if !ok {
+		return
+	}
+	m, err := h.monitorService.SetPublicVisibility(c.Request.Context(), id, false, "")
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, channelMonitorToResponse(m))
+}
+
 // Create POST /api/v1/admin/channel-monitors
 func (h *ChannelMonitorHandler) Create(c *gin.Context) {
 	var req channelMonitorCreateRequest
@@ -320,6 +396,7 @@ func (h *ChannelMonitorHandler) Create(c *gin.Context) {
 		ExtraModels:      req.ExtraModels,
 		GroupName:        req.GroupName,
 		Enabled:          enabled,
+		Streaming:        req.Streaming,
 		IntervalSeconds:  req.IntervalSeconds,
 		JitterSeconds:    req.JitterSeconds,
 		CreatedBy:        subject.UserID,
@@ -414,6 +491,7 @@ func (h *ChannelMonitorHandler) Update(c *gin.Context) {
 		ExtraModels:      req.ExtraModels,
 		GroupName:        req.GroupName,
 		Enabled:          req.Enabled,
+		Streaming:        req.Streaming,
 		IntervalSeconds:  req.IntervalSeconds,
 		JitterSeconds:    req.JitterSeconds,
 		TemplateID:       req.TemplateID,

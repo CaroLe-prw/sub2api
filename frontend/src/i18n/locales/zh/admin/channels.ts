@@ -498,6 +498,33 @@ export default {
       deleteConfirm: '确定要删除监控「{name}」吗？此操作不可撤销。',
       nameRequired: '请输入监控名称',
       primaryModelRequired: '请输入主模型',
+      autoModels: {
+        title: '号池模型自动监测',
+        description: '运行时自动汇总可调度上游账号的模型映射，并加入对应平台的 V1 主动探测；不会改写监控中的手工模型。',
+        enabled: '自动监测号池模型',
+        enabledHint: '默认开启。新增账号或模型映射后会自动进入后续探测。',
+        whitelist: '全局自动模型白名单',
+        whitelistPlaceholder: 'gpt-5.*\nclaude-sonnet-4-*\ngemini-3-*',
+        whitelistHint: '每行或逗号分隔；支持精确模型和结尾 * 通配符。留空允许全部发现模型。白名单只限制自动加入，不影响手工模型。',
+        noModels: '暂无符合条件的模型',
+        billingHint: '主动探测会产生真实上游请求。模型越多，检测频率和可能产生的上游费用越高；单个监控最多并发 8 个模型。',
+        saved: '号池自动模型策略已保存',
+        loadError: '加载号池自动模型策略失败',
+        saveError: '保存号池自动模型策略失败'
+      },
+      publish: {
+        title: '发布对外状态',
+        public: '已公开',
+        private: '仅管理员',
+        open: '发布',
+        unpublish: '取消公开',
+        warning: '发布后，用户端状态页会看到此监控的名称、平台、模型与状态。上游地址、API Key 和内部错误信息仍不会公开。',
+        typeName: '请输入监控名称「{name}」以确认发布：',
+        confirm: '确认发布',
+        published: '监控已对用户公开',
+        unpublished: '监控已恢复为仅管理员可见',
+        failed: '更新公开状态失败'
+      },
       columns: {
         name: '名称',
         provider: '供应商',
@@ -505,6 +532,7 @@ export default {
         availability7d: '7 天可用率',
         latency: '延迟 (ms)',
         enabled: '启用',
+        publicVisible: '对外展示',
         actions: '操作'
       },
       form: {
@@ -536,6 +564,8 @@ export default {
         intervalSecondsHint: '范围：15 - 3600 秒',
         jitterSeconds: '随机抖动 (± 秒)',
         jitterSecondsHint: '每次检测在间隔基础上正负随机偏移该秒数，0 表示固定间隔；需满足 间隔 - 抖动 ≥ 15 秒',
+        streaming: '流式探测',
+        streamingHint: '请求并校验 SSE 流；延迟记录为完整算术答案首次到达的时间。',
         enabled: '启用监控',
         kindRequired: '请选择供应商'
       },

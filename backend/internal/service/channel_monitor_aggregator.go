@@ -48,7 +48,7 @@ func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 	return out
 }
 
-// ListUserView 用户只读视图：列出所有 enabled 监控的概览。
+// ListUserView 用户只读视图：仅列出 enabled 且由管理员明确公开的监控概览。
 // 使用批量聚合接口避免 N+1：
 //
 //	1 次查 monitors；
@@ -56,9 +56,9 @@ func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 //	1 次批量 7d availability；
 //	1 次批量 timeline（主模型最近 N 条）。
 func (s *ChannelMonitorService) ListUserView(ctx context.Context) ([]*UserMonitorView, error) {
-	monitors, err := s.repo.ListEnabled(ctx)
+	monitors, err := s.repo.ListPublicEnabled(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list enabled monitors: %w", err)
+		return nil, fmt.Errorf("list public enabled monitors: %w", err)
 	}
 	if len(monitors) == 0 {
 		return []*UserMonitorView{}, nil
@@ -134,7 +134,7 @@ func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64) (*U
 	if err != nil {
 		return nil, err
 	}
-	if !m.Enabled {
+	if !m.Enabled || !m.PublicVisible {
 		return nil, ErrChannelMonitorNotFound
 	}
 

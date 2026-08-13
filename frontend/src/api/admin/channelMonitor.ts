@@ -27,6 +27,8 @@ export interface ChannelMonitor {
   extra_models: string[]
   group_name: string
   enabled: boolean
+  public_visible: boolean
+  streaming: boolean
   interval_seconds: number
   /** 每次调度在 interval 基础上 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔 */
   jitter_seconds: number
@@ -81,6 +83,7 @@ export interface CreateParams {
   extra_models?: string[]
   group_name?: string
   enabled?: boolean
+  streaming?: boolean
   interval_seconds: number
   jitter_seconds?: number
   template_id?: number | null
@@ -124,6 +127,13 @@ export interface HistoryParams {
 
 export interface HistoryResponse {
   items: HistoryItem[]
+}
+
+export interface AutoModelPolicy {
+  enabled: boolean
+  whitelist: string[]
+  discovered_by_provider: Partial<Record<Provider, string[]>>
+  eligible_by_provider: Partial<Record<Provider, string[]>>
 }
 
 /**
@@ -247,6 +257,18 @@ export async function update(id: number, params: UpdateParams): Promise<ChannelM
   return data
 }
 
+export async function publish(id: number, confirmName: string): Promise<ChannelMonitor> {
+  const { data } = await apiClient.post<ChannelMonitor>(`/admin/channel-monitors/${id}/publish`, {
+    confirm_name: confirmName,
+  })
+  return data
+}
+
+export async function unpublish(id: number): Promise<ChannelMonitor> {
+  const { data } = await apiClient.post<ChannelMonitor>(`/admin/channel-monitors/${id}/unpublish`)
+  return data
+}
+
 /**
  * Delete a channel monitor
  */
@@ -277,15 +299,29 @@ export async function listHistory(
   return data
 }
 
+export async function getAutoModelPolicy(): Promise<AutoModelPolicy> {
+  const { data } = await apiClient.get<AutoModelPolicy>('/admin/channel-monitors/auto-model-policy')
+  return data
+}
+
+export async function updateAutoModelPolicy(input: Pick<AutoModelPolicy, 'enabled' | 'whitelist'>): Promise<AutoModelPolicy> {
+  const { data } = await apiClient.put<AutoModelPolicy>('/admin/channel-monitors/auto-model-policy', input)
+  return data
+}
+
 export const channelMonitorAPI = {
   list,
   get,
   create,
   duplicate,
   update,
+  publish,
+  unpublish,
   del,
   runNow,
   listHistory,
+  getAutoModelPolicy,
+  updateAutoModelPolicy,
 }
 
 export default channelMonitorAPI

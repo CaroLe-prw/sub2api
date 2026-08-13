@@ -168,6 +168,34 @@ func (_u *ChannelMonitorUpdate) SetNillableEnabled(v *bool) *ChannelMonitorUpdat
 	return _u
 }
 
+// SetPublicVisible sets the "public_visible" field.
+func (_u *ChannelMonitorUpdate) SetPublicVisible(v bool) *ChannelMonitorUpdate {
+	_u.mutation.SetPublicVisible(v)
+	return _u
+}
+
+// SetNillablePublicVisible sets the "public_visible" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillablePublicVisible(v *bool) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetPublicVisible(*v)
+	}
+	return _u
+}
+
+// SetStreaming sets the "streaming" field.
+func (_u *ChannelMonitorUpdate) SetStreaming(v bool) *ChannelMonitorUpdate {
+	_u.mutation.SetStreaming(v)
+	return _u
+}
+
+// SetNillableStreaming sets the "streaming" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableStreaming(v *bool) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetStreaming(*v)
+	}
+	return _u
+}
+
 // SetIntervalSeconds sets the "interval_seconds" field.
 func (_u *ChannelMonitorUpdate) SetIntervalSeconds(v int) *ChannelMonitorUpdate {
 	_u.mutation.ResetIntervalSeconds()
@@ -546,6 +574,12 @@ func (_u *ChannelMonitorUpdate) sqlSave(ctx context.Context) (_node int, err err
 	if value, ok := _u.mutation.Enabled(); ok {
 		_spec.SetField(channelmonitor.FieldEnabled, field.TypeBool, value)
 	}
+	if value, ok := _u.mutation.PublicVisible(); ok {
+		_spec.SetField(channelmonitor.FieldPublicVisible, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.Streaming(); ok {
+		_spec.SetField(channelmonitor.FieldStreaming, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.IntervalSeconds(); ok {
 		_spec.SetField(channelmonitor.FieldIntervalSeconds, field.TypeInt, value)
 	}
@@ -853,6 +887,34 @@ func (_u *ChannelMonitorUpdateOne) SetEnabled(v bool) *ChannelMonitorUpdateOne {
 func (_u *ChannelMonitorUpdateOne) SetNillableEnabled(v *bool) *ChannelMonitorUpdateOne {
 	if v != nil {
 		_u.SetEnabled(*v)
+	}
+	return _u
+}
+
+// SetPublicVisible sets the "public_visible" field.
+func (_u *ChannelMonitorUpdateOne) SetPublicVisible(v bool) *ChannelMonitorUpdateOne {
+	_u.mutation.SetPublicVisible(v)
+	return _u
+}
+
+// SetNillablePublicVisible sets the "public_visible" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillablePublicVisible(v *bool) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetPublicVisible(*v)
+	}
+	return _u
+}
+
+// SetStreaming sets the "streaming" field.
+func (_u *ChannelMonitorUpdateOne) SetStreaming(v bool) *ChannelMonitorUpdateOne {
+	_u.mutation.SetStreaming(v)
+	return _u
+}
+
+// SetNillableStreaming sets the "streaming" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableStreaming(v *bool) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetStreaming(*v)
 	}
 	return _u
 }
@@ -1264,6 +1326,12 @@ func (_u *ChannelMonitorUpdateOne) sqlSave(ctx context.Context) (_node *ChannelM
 	}
 	if value, ok := _u.mutation.Enabled(); ok {
 		_spec.SetField(channelmonitor.FieldEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.PublicVisible(); ok {
+		_spec.SetField(channelmonitor.FieldPublicVisible, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.Streaming(); ok {
+		_spec.SetField(channelmonitor.FieldStreaming, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.IntervalSeconds(); ok {
 		_spec.SetField(channelmonitor.FieldIntervalSeconds, field.TypeInt, value)

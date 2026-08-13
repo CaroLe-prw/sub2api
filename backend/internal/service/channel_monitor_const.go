@@ -123,6 +123,15 @@ var (
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions or responses; responses is only supported for openai",
 	)
+	ErrChannelMonitorStreamingUnsupported = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_STREAMING_UNSUPPORTED", "streaming probes are supported only for openai, grok, and anthropic",
+	)
+	ErrChannelMonitorInvalidAutoModelWhitelist = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_INVALID_AUTO_MODEL_WHITELIST", "auto model whitelist only supports exact model IDs or a single trailing wildcard",
+	)
+	ErrChannelMonitorPublishNameMismatch = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_PUBLISH_NAME_MISMATCH", "type the exact monitor name to publish it",
+	)
 	ErrChannelMonitorInvalidRequestBody = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "openai-compatible replace-mode body_override must include non-empty messages for chat_completions or non-empty instructions and input for responses",
 	)

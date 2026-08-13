@@ -131,6 +131,34 @@ func (_c *ChannelMonitorCreate) SetNillableEnabled(v *bool) *ChannelMonitorCreat
 	return _c
 }
 
+// SetPublicVisible sets the "public_visible" field.
+func (_c *ChannelMonitorCreate) SetPublicVisible(v bool) *ChannelMonitorCreate {
+	_c.mutation.SetPublicVisible(v)
+	return _c
+}
+
+// SetNillablePublicVisible sets the "public_visible" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillablePublicVisible(v *bool) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetPublicVisible(*v)
+	}
+	return _c
+}
+
+// SetStreaming sets the "streaming" field.
+func (_c *ChannelMonitorCreate) SetStreaming(v bool) *ChannelMonitorCreate {
+	_c.mutation.SetStreaming(v)
+	return _c
+}
+
+// SetNillableStreaming sets the "streaming" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableStreaming(v *bool) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetStreaming(*v)
+	}
+	return _c
+}
+
 // SetIntervalSeconds sets the "interval_seconds" field.
 func (_c *ChannelMonitorCreate) SetIntervalSeconds(v int) *ChannelMonitorCreate {
 	_c.mutation.SetIntervalSeconds(v)
@@ -319,6 +347,14 @@ func (_c *ChannelMonitorCreate) defaults() {
 		v := channelmonitor.DefaultEnabled
 		_c.mutation.SetEnabled(v)
 	}
+	if _, ok := _c.mutation.PublicVisible(); !ok {
+		v := channelmonitor.DefaultPublicVisible
+		_c.mutation.SetPublicVisible(v)
+	}
+	if _, ok := _c.mutation.Streaming(); !ok {
+		v := channelmonitor.DefaultStreaming
+		_c.mutation.SetStreaming(v)
+	}
 	if _, ok := _c.mutation.JitterSeconds(); !ok {
 		v := channelmonitor.DefaultJitterSeconds
 		_c.mutation.SetJitterSeconds(v)
@@ -399,6 +435,12 @@ func (_c *ChannelMonitorCreate) check() error {
 	}
 	if _, ok := _c.mutation.Enabled(); !ok {
 		return &ValidationError{Name: "enabled", err: errors.New(`ent: missing required field "ChannelMonitor.enabled"`)}
+	}
+	if _, ok := _c.mutation.PublicVisible(); !ok {
+		return &ValidationError{Name: "public_visible", err: errors.New(`ent: missing required field "ChannelMonitor.public_visible"`)}
+	}
+	if _, ok := _c.mutation.Streaming(); !ok {
+		return &ValidationError{Name: "streaming", err: errors.New(`ent: missing required field "ChannelMonitor.streaming"`)}
 	}
 	if _, ok := _c.mutation.IntervalSeconds(); !ok {
 		return &ValidationError{Name: "interval_seconds", err: errors.New(`ent: missing required field "ChannelMonitor.interval_seconds"`)}
@@ -500,6 +542,14 @@ func (_c *ChannelMonitorCreate) createSpec() (*ChannelMonitor, *sqlgraph.CreateS
 	if value, ok := _c.mutation.Enabled(); ok {
 		_spec.SetField(channelmonitor.FieldEnabled, field.TypeBool, value)
 		_node.Enabled = value
+	}
+	if value, ok := _c.mutation.PublicVisible(); ok {
+		_spec.SetField(channelmonitor.FieldPublicVisible, field.TypeBool, value)
+		_node.PublicVisible = value
+	}
+	if value, ok := _c.mutation.Streaming(); ok {
+		_spec.SetField(channelmonitor.FieldStreaming, field.TypeBool, value)
+		_node.Streaming = value
 	}
 	if value, ok := _c.mutation.IntervalSeconds(); ok {
 		_spec.SetField(channelmonitor.FieldIntervalSeconds, field.TypeInt, value)
@@ -753,6 +803,30 @@ func (u *ChannelMonitorUpsert) SetEnabled(v bool) *ChannelMonitorUpsert {
 // UpdateEnabled sets the "enabled" field to the value that was provided on create.
 func (u *ChannelMonitorUpsert) UpdateEnabled() *ChannelMonitorUpsert {
 	u.SetExcluded(channelmonitor.FieldEnabled)
+	return u
+}
+
+// SetPublicVisible sets the "public_visible" field.
+func (u *ChannelMonitorUpsert) SetPublicVisible(v bool) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldPublicVisible, v)
+	return u
+}
+
+// UpdatePublicVisible sets the "public_visible" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdatePublicVisible() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldPublicVisible)
+	return u
+}
+
+// SetStreaming sets the "streaming" field.
+func (u *ChannelMonitorUpsert) SetStreaming(v bool) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldStreaming, v)
+	return u
+}
+
+// UpdateStreaming sets the "streaming" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateStreaming() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldStreaming)
 	return u
 }
 
@@ -1077,6 +1151,34 @@ func (u *ChannelMonitorUpsertOne) SetEnabled(v bool) *ChannelMonitorUpsertOne {
 func (u *ChannelMonitorUpsertOne) UpdateEnabled() *ChannelMonitorUpsertOne {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.UpdateEnabled()
+	})
+}
+
+// SetPublicVisible sets the "public_visible" field.
+func (u *ChannelMonitorUpsertOne) SetPublicVisible(v bool) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetPublicVisible(v)
+	})
+}
+
+// UpdatePublicVisible sets the "public_visible" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdatePublicVisible() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdatePublicVisible()
+	})
+}
+
+// SetStreaming sets the "streaming" field.
+func (u *ChannelMonitorUpsertOne) SetStreaming(v bool) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetStreaming(v)
+	})
+}
+
+// UpdateStreaming sets the "streaming" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateStreaming() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateStreaming()
 	})
 }
 
@@ -1589,6 +1691,34 @@ func (u *ChannelMonitorUpsertBulk) SetEnabled(v bool) *ChannelMonitorUpsertBulk 
 func (u *ChannelMonitorUpsertBulk) UpdateEnabled() *ChannelMonitorUpsertBulk {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.UpdateEnabled()
+	})
+}
+
+// SetPublicVisible sets the "public_visible" field.
+func (u *ChannelMonitorUpsertBulk) SetPublicVisible(v bool) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetPublicVisible(v)
+	})
+}
+
+// UpdatePublicVisible sets the "public_visible" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdatePublicVisible() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdatePublicVisible()
+	})
+}
+
+// SetStreaming sets the "streaming" field.
+func (u *ChannelMonitorUpsertBulk) SetStreaming(v bool) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetStreaming(v)
+	})
+}
+
+// UpdateStreaming sets the "streaming" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateStreaming() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateStreaming()
 	})
 }
 

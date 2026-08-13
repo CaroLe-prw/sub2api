@@ -28,6 +28,8 @@ type ChannelMonitorRepository interface {
 
 	// 调度器辅助
 	ListEnabled(ctx context.Context) ([]*ChannelMonitor, error)
+	// 用户视图仅允许读取管理员明确公开且仍启用的监控。
+	ListPublicEnabled(ctx context.Context) ([]*ChannelMonitor, error)
 	MarkChecked(ctx context.Context, id int64, checkedAt time.Time) error
 	InsertHistoryBatch(ctx context.Context, rows []*ChannelMonitorHistoryRow) error
 	DeleteHistoryBefore(ctx context.Context, before time.Time) (int64, error)
@@ -71,9 +73,11 @@ type channelMonitorRuntimeReader interface {
 type ChannelMonitorService struct {
 	repo      ChannelMonitorRepository
 	encryptor SecretEncryptor
-	// settings is optional; when nil, RunCheck fails closed for active probes
+	accounts  channelMonitorAccountModelReader
+	settings  channelMonitorAutoModelSettingStore
+	// runtime is optional; when nil, RunCheck fails closed for active probes
 	// (mode defaults to v2 / retired) so tests without settings never hit upstream.
-	settings channelMonitorRuntimeReader
+	runtime channelMonitorRuntimeReader
 	// scheduler 由 wire 通过 SetScheduler 注入；CRUD 后调用对应钩子即时同步任务。
 	// 测试或未注入场景下保持 nil，所有钩子调用变为 no-op。
 	scheduler MonitorScheduler
@@ -98,14 +102,27 @@ func (s *ChannelMonitorService) SetRuntimeReader(r channelMonitorRuntimeReader) 
 	if s == nil {
 		return
 	}
-	s.settings = r
+	s.runtime = r
 }
 
 func (s *ChannelMonitorService) probeRuntime(ctx context.Context) ChannelMonitorRuntime {
-	if s == nil || s.settings == nil {
+	if s == nil || s.runtime == nil {
 		return ChannelMonitorRuntime{Enabled: true, Mode: ChannelMonitorModeV2}
 	}
-	return s.settings.GetChannelMonitorRuntime(ctx)
+	return s.runtime.GetChannelMonitorRuntime(ctx)
+}
+
+// SetAutoModelDependencies enables production account-pool model discovery.
+// Constructor-only tests intentionally leave these nil and keep manual models.
+func (s *ChannelMonitorService) SetAutoModelDependencies(
+	accounts channelMonitorAccountModelReader,
+	settings channelMonitorAutoModelSettingStore,
+) {
+	if s == nil {
+		return
+	}
+	s.accounts = accounts
+	s.settings = settings
 }
 
 // ---------- CRUD ----------
@@ -139,6 +156,30 @@ func (s *ChannelMonitorService) Get(ctx context.Context, id int64) (*ChannelMoni
 	return m, nil
 }
 
+// SetPublicVisibility is deliberately separate from the generic update path.
+// Publishing requires the administrator to type the exact monitor name, while
+// unpublishing remains a one-way safe operation that can be performed directly.
+func (s *ChannelMonitorService) SetPublicVisibility(
+	ctx context.Context,
+	id int64,
+	visible bool,
+	confirmName string,
+) (*ChannelMonitor, error) {
+	m, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if visible && strings.TrimSpace(confirmName) != m.Name {
+		return nil, ErrChannelMonitorPublishNameMismatch
+	}
+	m.PublicVisible = visible
+	if err := s.repo.Update(ctx, m); err != nil {
+		return nil, fmt.Errorf("update channel monitor public visibility: %w", err)
+	}
+	s.decryptInPlace(m)
+	return m, nil
+}
+
 // Create 创建监控（内部加密 api_key）。
 func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCreateParams) (*ChannelMonitor, error) {
 	if err := validateCreateParams(p); err != nil {
@@ -155,15 +196,19 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		return nil, fmt.Errorf("encrypt api key: %w", err)
 	}
 	m := &ChannelMonitor{
-		Name:             strings.TrimSpace(p.Name),
-		Provider:         p.Provider,
-		APIMode:          defaultAPIMode(p.APIMode),
-		Endpoint:         normalizeEndpoint(p.Endpoint),
-		APIKey:           encrypted, // 注意：传入 repository 时该字段为密文
-		PrimaryModel:     normalizeMonitorPrimaryModel(p.Provider, p.PrimaryModel),
-		ExtraModels:      normalizeModels(p.ExtraModels),
-		GroupName:        strings.TrimSpace(p.GroupName),
-		Enabled:          p.Enabled,
+		Name:         strings.TrimSpace(p.Name),
+		Provider:     p.Provider,
+		APIMode:      defaultAPIMode(p.APIMode),
+		Endpoint:     normalizeEndpoint(p.Endpoint),
+		APIKey:       encrypted, // 注意：传入 repository 时该字段为密文
+		PrimaryModel: normalizeMonitorPrimaryModel(p.Provider, p.PrimaryModel),
+		ExtraModels:  normalizeModels(p.ExtraModels),
+		GroupName:    strings.TrimSpace(p.GroupName),
+		Enabled:      p.Enabled,
+		// New monitors are always private. Publishing is a separate confirmed
+		// operation so a copied form payload cannot expose an upstream.
+		PublicVisible:    false,
+		Streaming:        p.Streaming,
 		IntervalSeconds:  p.IntervalSeconds,
 		JitterSeconds:    p.JitterSeconds,
 		CreatedBy:        p.CreatedBy,
@@ -229,6 +274,8 @@ func (s *ChannelMonitorService) Duplicate(
 		ExtraModels:          append([]string{}, source.ExtraModels...),
 		GroupName:            source.GroupName,
 		Enabled:              false,
+		PublicVisible:        false,
+		Streaming:            source.Streaming,
 		IntervalSeconds:      source.IntervalSeconds,
 		JitterSeconds:        source.JitterSeconds,
 		CreatedBy:            createdBy,
@@ -348,6 +395,9 @@ func validateCreateParams(p ChannelMonitorCreateParams) error {
 		return err
 	}
 	if err := validateAPIMode(p.Provider, p.APIMode); err != nil {
+		return err
+	}
+	if err := validateMonitorStreaming(p.Provider, p.Streaming); err != nil {
 		return err
 	}
 	if err := validateInterval(p.IntervalSeconds); err != nil {
@@ -502,7 +552,7 @@ func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *Chan
 // runChecksConcurrent 对 primary + extra 模型并发执行检测。
 // errgroup 仅用于等待，不传播错误（每个 model 失败都已打包进 CheckResult）。
 func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *ChannelMonitor) []*CheckResult {
-	models := append([]string{m.PrimaryModel}, m.ExtraModels...)
+	models := s.resolveMonitorModels(ctx, m)
 	results := make([]*CheckResult, len(models))
 
 	// ping 共享一次，所有模型记录同一个 ping 延迟。
@@ -514,9 +564,11 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 		ExtraHeaders:     m.ExtraHeaders,
 		BodyOverrideMode: m.BodyOverrideMode,
 		BodyOverride:     m.BodyOverride,
+		Streaming:        m.Streaming,
 	}
 
 	var eg errgroup.Group
+	eg.SetLimit(channelMonitorModelProbeConcurrency)
 	var mu sync.Mutex
 	for i, model := range models {
 		i, model := i, model
@@ -716,6 +768,15 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 	}
 	if p.Enabled != nil {
 		existing.Enabled = *p.Enabled
+	}
+	if p.PublicVisible != nil {
+		existing.PublicVisible = *p.PublicVisible
+	}
+	if p.Streaming != nil {
+		existing.Streaming = *p.Streaming
+	}
+	if err := validateMonitorStreaming(existing.Provider, existing.Streaming); err != nil {
+		return err
 	}
 	if p.IntervalSeconds != nil {
 		if err := validateInterval(*p.IntervalSeconds); err != nil {

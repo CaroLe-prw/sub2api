@@ -47,6 +47,8 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 		SetExtraModels(emptySliceIfNil(m.ExtraModels)).
 		SetGroupName(m.GroupName).
 		SetEnabled(m.Enabled).
+		SetPublicVisible(m.PublicVisible).
+		SetStreaming(m.Streaming).
 		SetIntervalSeconds(m.IntervalSeconds).
 		SetJitterSeconds(m.JitterSeconds).
 		SetCreatedBy(m.CreatedBy).
@@ -115,6 +117,8 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 		SetExtraModels(emptySliceIfNil(m.ExtraModels)).
 		SetGroupName(m.GroupName).
 		SetEnabled(m.Enabled).
+		SetPublicVisible(m.PublicVisible).
+		SetStreaming(m.Streaming).
 		SetIntervalSeconds(m.IntervalSeconds).
 		SetJitterSeconds(m.JitterSeconds).
 		SetExtraHeaders(channelMonitorHeadersForPersistence(m)).
@@ -200,6 +204,23 @@ func (r *channelMonitorRepository) ListEnabled(ctx context.Context) ([]*service.
 		All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled monitors: %w", err)
+	}
+	out := make([]*service.ChannelMonitor, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, entToServiceMonitor(row))
+	}
+	return out, nil
+}
+
+func (r *channelMonitorRepository) ListPublicEnabled(ctx context.Context) ([]*service.ChannelMonitor, error) {
+	rows, err := r.client.ChannelMonitor.Query().
+		Where(
+			channelmonitor.EnabledEQ(true),
+			channelmonitor.PublicVisibleEQ(true),
+		).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list public enabled monitors: %w", err)
 	}
 	out := make([]*service.ChannelMonitor, 0, len(rows))
 	for _, row := range rows {
@@ -748,6 +769,8 @@ func entToServiceMonitor(row *dbent.ChannelMonitor) *service.ChannelMonitor {
 		ExtraModels:          extras,
 		GroupName:            row.GroupName,
 		Enabled:              row.Enabled,
+		PublicVisible:        row.PublicVisible,
+		Streaming:            row.Streaming,
 		IntervalSeconds:      row.IntervalSeconds,
 		JitterSeconds:        row.JitterSeconds,
 		LastCheckedAt:        row.LastCheckedAt,

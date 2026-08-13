@@ -122,6 +122,8 @@ func TestDuplicateChannelMonitorCopiesConfigurationAndResetsRuntimeState(t *test
 		ExtraModels:      []string{"gpt-5.4", "gpt-5.3"},
 		GroupName:        "production",
 		Enabled:          true,
+		PublicVisible:    true,
+		Streaming:        true,
 		IntervalSeconds:  90,
 		JitterSeconds:    15,
 		LastCheckedAt:    &lastCheckedAt,
@@ -153,6 +155,7 @@ func TestDuplicateChannelMonitorCopiesConfigurationAndResetsRuntimeState(t *test
 	require.Equal(t, source.PrimaryModel, duplicate.PrimaryModel)
 	require.Equal(t, source.ExtraModels, duplicate.ExtraModels)
 	require.Equal(t, source.GroupName, duplicate.GroupName)
+	require.True(t, duplicate.Streaming)
 	require.Equal(t, source.IntervalSeconds, duplicate.IntervalSeconds)
 	require.Equal(t, source.JitterSeconds, duplicate.JitterSeconds)
 	require.Equal(t, source.TemplateID, duplicate.TemplateID)
@@ -160,6 +163,7 @@ func TestDuplicateChannelMonitorCopiesConfigurationAndResetsRuntimeState(t *test
 	require.Equal(t, source.BodyOverrideMode, duplicate.BodyOverrideMode)
 	require.Equal(t, source.BodyOverride, duplicate.BodyOverride)
 	require.False(t, duplicate.Enabled)
+	require.False(t, duplicate.PublicVisible)
 	require.Nil(t, duplicate.LastCheckedAt)
 	require.Equal(t, int64(77), duplicate.CreatedBy)
 	require.False(t, duplicate.APIKeyDecryptFailed)

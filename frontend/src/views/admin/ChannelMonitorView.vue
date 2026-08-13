@@ -49,8 +49,10 @@
 
       <MonitorSettingsPanel v-if="adminMonitorTab === 'v2'" />
 
-      <TablePageLayout v-else>
-      <template #filters>
+      <div v-else class="space-y-6">
+        <MonitorAutoModelsPanel />
+        <TablePageLayout>
+        <template #filters>
         <MonitorFiltersBar
           v-model:search="searchQuery"
           v-model:provider="providerFilter"
@@ -61,9 +63,9 @@
           @manage-templates="showTemplateManager = true"
           @search-input="handleSearch"
         />
-      </template>
+        </template>
 
-      <template #table>
+        <template #table>
         <DataTable :columns="columns" :data="monitors" :loading="loading">
           <template #cell-name="{ row, value }">
             <div class="flex items-center gap-1.5">
@@ -96,6 +98,22 @@
             <Toggle :modelValue="row.enabled" @update:modelValue="toggleEnabled(row)" />
           </template>
 
+          <template #cell-public_visible="{ row }">
+            <div class="flex flex-col items-start gap-1">
+              <span :class="row.public_visible ? 'badge badge-success' : 'badge badge-gray'">
+                {{ row.public_visible ? t('admin.channelMonitor.publish.public') : t('admin.channelMonitor.publish.private') }}
+              </span>
+              <button
+                type="button"
+                class="text-xs font-medium text-primary-600 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-primary-400"
+                :disabled="publishingId === row.id"
+                @click="row.public_visible ? handleUnpublish(row) : openPublishDialog(row)"
+              >
+                {{ row.public_visible ? t('admin.channelMonitor.publish.unpublish') : t('admin.channelMonitor.publish.open') }}
+              </button>
+            </div>
+          </template>
+
           <template #cell-actions="{ row }">
             <MonitorActionsCell
               :row="row"
@@ -117,9 +135,9 @@
             />
           </template>
         </DataTable>
-      </template>
+        </template>
 
-      <template #pagination>
+        <template #pagination>
         <Pagination
           v-if="pagination.total > 0"
           :page="pagination.page"
@@ -128,8 +146,9 @@
           @update:page="onPageChange"
           @update:pageSize="onPageSizeChange"
         />
-      </template>
-      </TablePageLayout>
+        </template>
+        </TablePageLayout>
+      </div>
     </div>
 
     <MonitorFormDialog
@@ -149,6 +168,14 @@
       :show="showRunResult"
       :results="runResults"
       @close="showRunResult = false"
+    />
+
+    <MonitorPublishDialog
+      :show="showPublishDialog"
+      :monitor="publishingMonitor"
+      :publishing="publishingId != null"
+      @close="closePublishDialog"
+      @confirm="confirmPublish"
     />
 
     <ConfirmDialog
@@ -190,8 +217,10 @@ import MonitorFiltersBar from '@/components/admin/monitor/MonitorFiltersBar.vue'
 import MonitorFormDialog from '@/components/admin/monitor/MonitorFormDialog.vue'
 import MonitorTemplateManagerDialog from '@/components/admin/monitor/MonitorTemplateManagerDialog.vue'
 import MonitorRunResultDialog from '@/components/admin/monitor/MonitorRunResultDialog.vue'
+import MonitorPublishDialog from '@/components/admin/monitor/MonitorPublishDialog.vue'
 import MonitorPrimaryModelCell from '@/components/admin/monitor/MonitorPrimaryModelCell.vue'
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
+import MonitorAutoModelsPanel from '@/components/admin/monitor/MonitorAutoModelsPanel.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import MonitorSettingsPanel from '@/features/channel-monitor-v2/MonitorSettingsPanel.vue'
@@ -224,6 +253,9 @@ const deleting = ref<ChannelMonitor | null>(null)
 const showRunResult = ref(false)
 const runResults = ref<CheckResult[]>([])
 const duplicatingIds = reactive(new Set<number>())
+const showPublishDialog = ref(false)
+const publishingMonitor = ref<ChannelMonitor | null>(null)
+const publishingId = ref<number | null>(null)
 
 let abortController: AbortController | null = null
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
@@ -235,6 +267,7 @@ const columns = computed<Column[]>(() => [
   { key: 'availability_7d', label: t('admin.channelMonitor.columns.availability7d'), sortable: false },
   { key: 'latency', label: t('admin.channelMonitor.columns.latency'), sortable: false },
   { key: 'enabled', label: t('admin.channelMonitor.columns.enabled'), sortable: false },
+  { key: 'public_visible', label: t('admin.channelMonitor.columns.publicVisible'), sortable: false },
   { key: 'actions', label: t('admin.channelMonitor.columns.actions'), sortable: false },
 ])
 
@@ -315,6 +348,48 @@ async function toggleEnabled(row: ChannelMonitor) {
     row.enabled = next
   } catch (err: unknown) {
     appStore.showError(extractApiErrorMessage(err, t('common.error')))
+  }
+}
+
+function openPublishDialog(row: ChannelMonitor) {
+  publishingMonitor.value = row
+  showPublishDialog.value = true
+}
+
+function closePublishDialog() {
+  if (publishingId.value != null) return
+  showPublishDialog.value = false
+  publishingMonitor.value = null
+}
+
+async function confirmPublish(confirmName: string) {
+  const row = publishingMonitor.value
+  if (!row || publishingId.value != null) return
+  publishingId.value = row.id
+  try {
+    const updated = await adminAPI.channelMonitor.publish(row.id, confirmName)
+    row.public_visible = updated.public_visible
+    showPublishDialog.value = false
+    publishingMonitor.value = null
+    appStore.showSuccess(t('admin.channelMonitor.publish.published'))
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.publish.failed')))
+  } finally {
+    publishingId.value = null
+  }
+}
+
+async function handleUnpublish(row: ChannelMonitor) {
+  if (publishingId.value != null) return
+  publishingId.value = row.id
+  try {
+    const updated = await adminAPI.channelMonitor.unpublish(row.id)
+    row.public_visible = updated.public_visible
+    appStore.showSuccess(t('admin.channelMonitor.publish.unpublished'))
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.publish.failed')))
+  } finally {
+    publishingId.value = null
   }
 }
 

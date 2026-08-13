@@ -38,6 +38,8 @@ type ChannelMonitor struct {
 	ExtraModels     []string
 	GroupName       string
 	Enabled         bool
+	PublicVisible   bool // 是否允许用户端 V1 API 查看；默认 false，管理员视图不受影响
+	Streaming       bool // 请求并校验 SSE 流；OpenAI-compatible / Anthropic 支持
 	IntervalSeconds int
 	JitterSeconds   int // 每次调度 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔
 	LastCheckedAt   *time.Time
@@ -82,6 +84,8 @@ type ChannelMonitorCreateParams struct {
 	ExtraModels      []string
 	GroupName        string
 	Enabled          bool
+	PublicVisible    bool
+	Streaming        bool
 	IntervalSeconds  int
 	JitterSeconds    int
 	CreatedBy        int64
@@ -102,6 +106,8 @@ type ChannelMonitorUpdateParams struct {
 	ExtraModels     *[]string
 	GroupName       *string
 	Enabled         *bool
+	PublicVisible   *bool
+	Streaming       *bool
 	IntervalSeconds *int
 	JitterSeconds   *int
 	// 自定义快照字段：指针为 nil 表示不更新，非 nil 覆盖

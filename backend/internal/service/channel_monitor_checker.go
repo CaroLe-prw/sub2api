@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -50,6 +51,8 @@ type CheckOptions struct {
 	// BodyOverride 在 merge 模式下做浅合并（key 命中黑名单时静默丢弃），
 	// 在 replace 模式下直接当作完整 body。
 	BodyOverride map[string]any
+	// Streaming 请求并校验 provider SSE 输出。当前支持 OpenAI-compatible 与 Anthropic。
+	Streaming bool
 }
 
 // runCheckForModel 对单个 (provider, model) 做一次完整检测。
@@ -67,8 +70,13 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	mode := bodyOverrideMode(opts)
 
 	start := time.Now()
-	respText, rawBody, statusCode, err := callProvider(ctx, provider, endpoint, apiKey, model, challenge.Prompt, opts)
+	respText, rawBody, statusCode, answerLatency, err := callProvider(
+		ctx, provider, endpoint, apiKey, model, challenge.Prompt, challenge.Expected, opts,
+	)
 	latency := time.Since(start)
+	if answerLatency != nil {
+		latency = *answerLatency
+	}
 	latencyMs := int(latency / time.Millisecond)
 	res.LatencyMs = &latencyMs
 
@@ -281,29 +289,219 @@ func isSupportedProvider(p string) bool {
 //   - rawBody: 完整响应体的字符串形式（已被 monitorResponseMaxBytes 截断），用于错误路径保留上游真实回包
 //   - status: HTTP 状态码
 //   - err: 网络 / 序列化错误
-func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt string, opts *CheckOptions) (extractedText, rawBody string, status int, err error) {
+func callProvider(
+	ctx context.Context,
+	provider, endpoint, apiKey, model, prompt, expected string,
+	opts *CheckOptions,
+) (extractedText, rawBody string, status int, answerLatency *time.Duration, err error) {
 	requestedAPIMode := checkAPIMode(opts)
 	if err := validateAPIMode(provider, requestedAPIMode); err != nil {
-		return "", "", 0, err
+		return "", "", 0, nil, err
+	}
+	if err := validateMonitorStreaming(provider, opts != nil && opts.Streaming); err != nil {
+		return "", "", 0, nil, err
 	}
 	adapter, apiMode, ok := providerAdapterFor(provider, requestedAPIMode)
 	if !ok {
-		return "", "", 0, fmt.Errorf("unsupported provider %q", provider)
+		return "", "", 0, nil, fmt.Errorf("unsupported provider %q", provider)
 	}
 	body, err := buildRequestBody(adapter, provider, apiMode, model, prompt, opts)
 	if err != nil {
-		return "", "", 0, err
+		return "", "", 0, nil, err
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
 	full := joinURL(endpoint, adapter.buildPath(model))
+	if opts != nil && opts.Streaming {
+		return postStreamingJSON(ctx, full, body, headers, provider, apiMode, expected)
+	}
 	respBytes, status, err := postRawJSON(ctx, full, body, headers)
 	if err != nil {
-		return "", "", status, err
+		return "", "", status, nil, err
 	}
 	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
-		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
+		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil, nil
 	}
-	return extractMonitorResponseText(adapter, respBytes), string(respBytes), status, nil
+	return extractMonitorResponseText(adapter, respBytes), string(respBytes), status, nil, nil
+}
+
+func postStreamingJSON(
+	ctx context.Context,
+	fullURL string,
+	payload []byte,
+	headers map[string]string,
+	provider, apiMode, expected string,
+) (string, string, int, *time.Duration, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(payload))
+	if err != nil {
+		return "", "", 0, nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+
+	startedAt := time.Now()
+	resp, err := monitorHTTPClient.Do(req)
+	if err != nil {
+		return "", "", 0, nil, fmt.Errorf("do request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, monitorResponseMaxBytes))
+		if readErr != nil {
+			return "", "", resp.StatusCode, nil, fmt.Errorf("read body: %w", readErr)
+		}
+		return "", string(respBody), resp.StatusCode, nil, nil
+	}
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0]))
+	if contentType != "text/event-stream" {
+		return "", "", resp.StatusCode, nil, errors.New("upstream did not return a text/event-stream response")
+	}
+
+	text, rawBody, latency, err := readMonitorStreamingResponse(
+		resp.Body, provider, apiMode, expected, startedAt,
+	)
+	if err != nil {
+		return "", rawBody, resp.StatusCode, nil, err
+	}
+	return text, rawBody, resp.StatusCode, &latency, nil
+}
+
+func readMonitorStreamingResponse(
+	body io.Reader,
+	provider, apiMode, expected string,
+	startedAt time.Time,
+) (string, string, time.Duration, error) {
+	reader := bufio.NewReader(io.LimitReader(body, monitorResponseMaxBytes+1))
+	var rawBody strings.Builder
+	var text strings.Builder
+	var dataLines []string
+	var answerLatency time.Duration
+	receivedBytes := 0
+	sawDataEvent := false
+
+	processEvent := func() error {
+		if len(dataLines) == 0 {
+			return nil
+		}
+		sawDataEvent = true
+		eventData := strings.TrimSpace(strings.Join(dataLines, "\n"))
+		dataLines = dataLines[:0]
+		if eventData == "" || eventData == "[DONE]" {
+			return nil
+		}
+		if !gjson.Valid(eventData) {
+			return errors.New("upstream returned invalid event-stream JSON")
+		}
+		if message := monitorStreamingErrorMessage([]byte(eventData)); message != "" {
+			return fmt.Errorf("upstream event stream failed: %s", sanitizeErrorMessage(message))
+		}
+		text.WriteString(extractMonitorStreamingText(provider, apiMode, []byte(eventData)))
+		if answerLatency == 0 && validateChallenge(text.String(), expected) {
+			answerLatency = time.Since(startedAt)
+		}
+		return nil
+	}
+
+	for {
+		line, readErr := reader.ReadString('\n')
+		receivedBytes += len(line)
+		if receivedBytes > monitorResponseMaxBytes {
+			return "", rawBody.String(), 0, errors.New("upstream event stream response is too large")
+		}
+		rawBody.WriteString(line)
+		trimmed := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		switch {
+		case trimmed == "":
+			if err := processEvent(); err != nil {
+				return "", rawBody.String(), 0, err
+			}
+		case trimmed == "data":
+			dataLines = append(dataLines, "")
+		case strings.HasPrefix(trimmed, "data:"):
+			dataLines = append(dataLines, strings.TrimPrefix(strings.TrimPrefix(trimmed, "data:"), " "))
+		}
+
+		if readErr == nil {
+			continue
+		}
+		if !errors.Is(readErr, io.EOF) {
+			return "", rawBody.String(), 0, fmt.Errorf("read event stream: %w", readErr)
+		}
+		if err := processEvent(); err != nil {
+			return "", rawBody.String(), 0, err
+		}
+		break
+	}
+
+	if !sawDataEvent {
+		return "", rawBody.String(), 0, errors.New("upstream returned no server-sent events")
+	}
+	if answerLatency == 0 {
+		answerLatency = time.Since(startedAt)
+	}
+	return text.String(), rawBody.String(), answerLatency, nil
+}
+
+func monitorStreamingErrorMessage(payload []byte) string {
+	if message := gjson.GetBytes(payload, "error.message").String(); message != "" {
+		return message
+	}
+	if gjson.GetBytes(payload, "type").String() == "error" {
+		return gjson.GetBytes(payload, "message").String()
+	}
+	return ""
+}
+
+func extractMonitorStreamingText(provider, apiMode string, payload []byte) string {
+	if provider == MonitorProviderAnthropic {
+		switch gjson.GetBytes(payload, "type").String() {
+		case "content_block_delta":
+			return gjson.GetBytes(payload, "delta.text").String()
+		case "content_block_start":
+			return gjson.GetBytes(payload, "content_block.text").String()
+		default:
+			return ""
+		}
+	}
+	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
+		switch gjson.GetBytes(payload, "type").String() {
+		case "response.output_text.delta":
+			return gjson.GetBytes(payload, "delta").String()
+		case "response.content_part.added":
+			return gjson.GetBytes(payload, "part.text").String()
+		default:
+			return ""
+		}
+	}
+
+	for _, path := range []string{"choices.0.delta.content", "choices.0.message.content", "choices.0.text"} {
+		if text := monitorTextFromJSONValue(gjson.GetBytes(payload, path)); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func monitorTextFromJSONValue(value gjson.Result) string {
+	if value.Type == gjson.String {
+		return value.String()
+	}
+	if value.IsArray() {
+		parts := make([]string, 0, 1)
+		value.ForEach(func(_, item gjson.Result) bool {
+			if item.Type == gjson.String {
+				parts = append(parts, item.String())
+			} else if text := item.Get("text").String(); text != "" {
+				parts = append(parts, text)
+			}
+			return true
+		})
+		return strings.Join(parts, "")
+	}
+	return value.Get("text").String()
 }
 
 func extractMonitorResponseText(adapter providerAdapter, respBytes []byte) string {
@@ -416,7 +614,7 @@ func buildRequestBody(adapter providerAdapter, provider, apiMode, model, prompt 
 		if err != nil {
 			return nil, fmt.Errorf("marshal body_override (replace): %w", err)
 		}
-		return body, nil
+		return forceMonitorStreamingFlag(body, provider, opts)
 	}
 
 	defaultBody, err := adapter.buildBody(model, prompt)
@@ -424,7 +622,7 @@ func buildRequestBody(adapter providerAdapter, provider, apiMode, model, prompt 
 		return nil, fmt.Errorf("marshal default body: %w", err)
 	}
 	if mode != MonitorBodyOverrideModeMerge || opts == nil || len(opts.BodyOverride) == 0 {
-		return defaultBody, nil
+		return forceMonitorStreamingFlag(defaultBody, provider, opts)
 	}
 
 	var defaultMap map[string]any
@@ -442,7 +640,42 @@ func buildRequestBody(adapter providerAdapter, provider, apiMode, model, prompt 
 	if err != nil {
 		return nil, fmt.Errorf("marshal merged body: %w", err)
 	}
-	return merged, nil
+	return forceMonitorStreamingFlag(merged, provider, opts)
+}
+
+// forceMonitorStreamingFlag makes the persisted monitor switch authoritative.
+// Replace-mode templates cannot silently override it with a stale stream value.
+func forceMonitorStreamingFlag(body []byte, provider string, opts *CheckOptions) ([]byte, error) {
+	if !monitorStreamingSupported(provider) {
+		return body, nil
+	}
+	streaming := opts != nil && opts.Streaming
+	var request map[string]any
+	if err := json.Unmarshal(body, &request); err != nil {
+		return nil, fmt.Errorf("unmarshal request body for streaming flag: %w", err)
+	}
+	request["stream"] = streaming
+	updated, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request body with streaming flag: %w", err)
+	}
+	return updated, nil
+}
+
+func monitorStreamingSupported(provider string) bool {
+	switch provider {
+	case MonitorProviderOpenAI, MonitorProviderGrok, MonitorProviderAnthropic:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateMonitorStreaming(provider string, streaming bool) error {
+	if streaming && !monitorStreamingSupported(provider) {
+		return ErrChannelMonitorStreamingUnsupported
+	}
+	return nil
 }
 
 // bodyMergeKeyDenyList 在 merge 模式下，禁止用户覆盖这些 provider-specific 的关键字段。
@@ -454,7 +687,7 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderOpenAI + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
 	MonitorProviderOpenAI + ":" + MonitorAPIModeResponses:       {"model": true, "instructions": true, "input": true, "stream": true},
 	MonitorProviderGrok:      {"model": true, "messages": true, "stream": true},
-	MonitorProviderAnthropic: {"model": true, "messages": true},
+	MonitorProviderAnthropic: {"model": true, "messages": true, "stream": true},
 	MonitorProviderGemini:    {"contents": true},
 }
 

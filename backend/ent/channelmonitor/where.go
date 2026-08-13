@@ -100,6 +100,16 @@ func Enabled(v bool) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldEnabled, v))
 }
 
+// PublicVisible applies equality check predicate on the "public_visible" field. It's identical to PublicVisibleEQ.
+func PublicVisible(v bool) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldPublicVisible, v))
+}
+
+// Streaming applies equality check predicate on the "streaming" field. It's identical to StreamingEQ.
+func Streaming(v bool) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldStreaming, v))
+}
+
 // IntervalSeconds applies equality check predicate on the "interval_seconds" field. It's identical to IntervalSecondsEQ.
 func IntervalSeconds(v int) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldIntervalSeconds, v))
@@ -638,6 +648,26 @@ func EnabledEQ(v bool) predicate.ChannelMonitor {
 // EnabledNEQ applies the NEQ predicate on the "enabled" field.
 func EnabledNEQ(v bool) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldNEQ(FieldEnabled, v))
+}
+
+// PublicVisibleEQ applies the EQ predicate on the "public_visible" field.
+func PublicVisibleEQ(v bool) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldPublicVisible, v))
+}
+
+// PublicVisibleNEQ applies the NEQ predicate on the "public_visible" field.
+func PublicVisibleNEQ(v bool) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldPublicVisible, v))
+}
+
+// StreamingEQ applies the EQ predicate on the "streaming" field.
+func StreamingEQ(v bool) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldStreaming, v))
+}
+
+// StreamingNEQ applies the NEQ predicate on the "streaming" field.
+func StreamingNEQ(v bool) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldStreaming, v))
 }
 
 // IntervalSecondsEQ applies the EQ predicate on the "interval_seconds" field.
