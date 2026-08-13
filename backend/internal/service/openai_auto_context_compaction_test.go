@@ -65,6 +65,21 @@ func TestApplyOpenAIAutoContextCompactionToBodyUsesAccountThresholdAndPinsPrevio
 	require.False(t, openAIAutoContextCompactionMayFailover(c))
 }
 
+func TestApplyOpenAIAutoContextCompactionToBodySkipsResponsesLite(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"role":"user","content":"` + strings.Repeat("x", openAIAutoContextCompactionMinBodyBytes) + `"}]}`)
+	c := newOpenAIAutoContextCompactionTestContext("/v1/responses", body)
+	c.Request.Header.Set(responsesLiteHeader, "true")
+
+	updated, injected, err := applyOpenAIAutoContextCompactionToBody(c, newOpenAIAutoContextCompactionTestAccount(nil), body)
+
+	require.NoError(t, err)
+	require.False(t, injected)
+	require.JSONEq(t, string(body), string(updated))
+	require.False(t, gjson.GetBytes(updated, "context_management").Exists())
+	require.False(t, openAIAutoContextCompactionInjected(c))
+	require.False(t, openAIAutoContextCompactionMayFailover(c))
+}
+
 func TestApplyOpenAIAutoContextCompactionToBodyRespectsCompatibilityGuards(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -134,6 +149,7 @@ func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyRemovesContextManagement(
 	responses := [][]byte{
 		[]byte(`{"error":{"code":"unknown_parameter","param":"context_management","message":"Unknown parameter: context_management"}}`),
 		[]byte(`{"error":{"code":"unsupported_parameter","message":"Unsupported parameter: 'context_management[0].type'."}}`),
+		[]byte(`{"error":{"code":"unsupported_value","message":"X-OpenAI-Internal-Codex-Responses-Lite does not support server-side compaction.","param":"compact_threshold","type":"invalid_request_error"}}`),
 	}
 	for _, responseBody := range responses {
 		retryBody, reason, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
@@ -188,7 +204,7 @@ func TestOpenAIGatewayServicePassthroughRetriesWithoutRejectedAutoContextCompact
 		{
 			StatusCode: http.StatusBadRequest,
 			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(bytes.NewBufferString(`{"error":{"code":"unknown_parameter","param":"context_management","message":"Unknown parameter: context_management"}}`)),
+			Body:       io.NopCloser(bytes.NewBufferString(`{"error":{"code":"unsupported_value","message":"X-OpenAI-Internal-Codex-Responses-Lite does not support server-side compaction.","param":"compact_threshold","type":"invalid_request_error"}}`)),
 		},
 		{
 			StatusCode: http.StatusOK,

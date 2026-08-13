@@ -110,6 +110,13 @@ func applyOpenAIAutoContextCompactionToBody(c *gin.Context, account *Account, bo
 	if len(body) == 0 || account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey || !account.IsPoolMode() || isOpenAIResponsesCompactPath(c) {
 		return body, false, nil
 	}
+	// Responses Lite explicitly rejects server-side context compaction. Do not
+	// inject context_management when the client selected that transport mode.
+	// Client-provided values remain authoritative and are handled by the bounded
+	// rejected-field retry if the upstream reports the same incompatibility.
+	if c != nil && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) {
+		return body, false, nil
+	}
 	// A pool may contain providers with different effective context windows.
 	// Stateless requests can safely try another account on a pre-output context
 	// error even when this account has already rejected context_management.
