@@ -63,6 +63,8 @@ func TestRequestTypeFromLegacy(t *testing.T) {
 func TestRequestTypeContext(t *testing.T) {
 	ctx := WithRequestTypeContext(context.Background(), RequestTypeWSV2)
 	require.Equal(t, RequestTypeWSV2, RequestTypeFromContext(ctx))
+	// RequestTypeFromContext deliberately accepts nil for legacy callers.
+	//nolint:staticcheck // SA1012: exercise the documented nil-context fallback.
 	require.Equal(t, RequestTypeUnknown, RequestTypeFromContext(nil))
 }
 

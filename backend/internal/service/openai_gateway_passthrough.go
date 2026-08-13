@@ -1816,7 +1816,6 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithFirstOutput
 				}
 				if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
 					if openAIStreamMissingEncryptedContentRejection(dataBytes) {
-						sawFailedEvent = true
 						return resultWithUsage(), &openAIStreamRequestBodyRetryError{responseBody: append([]byte(nil), dataBytes...)}
 					}
 					if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, dataBytes, failedMessage); matched {
