@@ -82,6 +82,74 @@ func TestOpenAIStreamFailedWithUsageMustNotReplay(t *testing.T) {
 	require.False(t, err.ShouldRetryNextAccount())
 }
 
+func TestOpenAIStreamWithoutExplicitErrorMustNotReplay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	svc := &OpenAIGatewayService{}
+
+	err := svc.newOpenAIStreamFailoverError(
+		c,
+		&Account{ID: 9, Platform: PlatformOpenAI},
+		false,
+		"req_ambiguous",
+		nil,
+		"OpenAI stream ended before a terminal event",
+	)
+
+	require.True(t, err.BillingExposurePossible)
+	require.False(t, err.RetryableOnSameAccount)
+	require.False(t, err.ShouldRetryNextAccount())
+	require.Equal(t, GatewayFailureReason("stream_outcome_unknown"), err.Reason)
+}
+
+func TestOpenAIStreamExplicit429AllowsOneSameAccountRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	payload := []byte(`{"type":"response.failed","response":{"status":"failed","error":{"code":"rate_limit_exceeded","message":"busy"}}}`)
+	err := (&OpenAIGatewayService{}).newOpenAIStreamFailoverError(
+		c,
+		&Account{ID: 7},
+		false,
+		"req-rate-limit",
+		payload,
+		"busy",
+	)
+
+	require.True(t, err.ShouldRetryNextAccount())
+	require.True(t, err.AllowsOneSameAccountRetryBeforeSwitch())
+	require.False(t, err.RetryableOnSameAccount)
+}
+
+func TestOpenAIStreamExplicit429WithUsageMustNotReplay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	payload := []byte(`{"type":"response.failed","response":{"status":"failed","error":{"code":"rate_limit_exceeded","message":"busy"},"usage":{"input_tokens":12,"output_tokens":1}}}`)
+	err := (&OpenAIGatewayService{}).newOpenAIStreamFailoverError(
+		c,
+		&Account{ID: 7},
+		false,
+		"req-billed-rate-limit",
+		payload,
+		"busy",
+	)
+
+	require.True(t, err.BillingExposurePossible)
+	require.False(t, err.RetryableOnSameAccount)
+	require.False(t, err.ShouldRetryNextAccount())
+}
+
+func TestLocallySynthesized502DoesNotAllowSemanticRetry(t *testing.T) {
+	err := &UpstreamFailoverError{
+		StatusCode:   http.StatusBadGateway,
+		ResponseBody: []byte(`{"error":{"message":"local gateway failure"}}`),
+	}
+
+	require.False(t, err.AllowsOneSameAccountRetryBeforeSwitch())
+}
+
 func TestOpenAIStreamItemNotPersistedRequestsOneRepairRetry(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}

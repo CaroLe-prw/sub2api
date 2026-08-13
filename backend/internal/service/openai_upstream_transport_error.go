@@ -97,9 +97,11 @@ func classifyOpenAITransportError(err error) openAITransportErrorClass {
 //  2. for durable faults (expired/rejected proxy creds, dead proxy, DNS/routing)
 //     temporarily unschedules the account (DB + in-memory) and logs a stable
 //     warn event that alert rules can key on;
-//  3. returns an error that is *UpstreamFailoverError (so the handler fails over
-//     to a healthy account) for all non-canceled errors, or a plain error for
-//     context.Canceled (client gone — no failover, no eviction).
+//  3. returns an error that is *UpstreamFailoverError for protocol-correct
+//     downstream handling, but marks the attempt as potentially billable so it
+//     cannot be replayed on either the same account or another account. Without
+//     an HTTP response there is no reliable proof that the provider rejected the
+//     request before accepting work.
 //
 // It deliberately does NOT write to the response: the handler owns the response
 // (failover, or a protocol-correct error once failover is exhausted).
@@ -134,8 +136,11 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 	}
 
 	return &UpstreamFailoverError{
-		StatusCode:   http.StatusBadGateway,
-		ResponseBody: openAITransportFailoverBody,
+		StatusCode:              http.StatusBadGateway,
+		ResponseBody:            openAITransportFailoverBody,
+		BillingExposurePossible: true,
+		NextAccountAction:       NextAccountStop,
+		Reason:                  GatewayFailureReason("transport_outcome_unknown"),
 	}
 }
 

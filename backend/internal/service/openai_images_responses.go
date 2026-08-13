@@ -1763,6 +1763,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 			return nil, &UpstreamFailoverError{
 				StatusCode:                             resp.StatusCode,
 				ResponseBody:                           respBody,
+				ExplicitUpstreamResponse:               true,
 				RetryableOnSameAccount:                 !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 				RetryableOnSameAccountIfNoOtherAccount: !shouldDisable && shouldRetryOpenAIOAuthCapacityOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody),
 			}
@@ -1881,7 +1882,8 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthResponseError(
 		responseBody := []byte(fmt.Sprintf(`{"error":{"type":"upstream_error","code":%q,"message":%q}}`, code, message))
 		shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, statusCode, headers, responseBody, requestedModel)
 		return &UpstreamFailoverError{StatusCode: statusCode, ResponseBody: responseBody, ResponseHeaders: headers,
-			RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)}
+			ExplicitUpstreamResponse: true,
+			RetryableOnSameAccount:   !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)}
 	}
 	var upstreamErr *OpenAIImagesUpstreamError
 	if !errors.As(err, &upstreamErr) {
@@ -1926,6 +1928,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthResponseError(
 		StatusCode:                             upstreamErr.StatusCode,
 		ResponseBody:                           responseBody,
 		ResponseHeaders:                        headers,
+		ExplicitUpstreamResponse:               true,
 		RetryableOnSameAccount:                 !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstreamErr.StatusCode),
 		RetryableOnSameAccountIfNoOtherAccount: !shouldDisable && shouldRetryOpenAIOAuthCapacityOnSameAccount(account, upstreamErr.StatusCode, upstreamErr.clientMessage(), responseBody),
 	}

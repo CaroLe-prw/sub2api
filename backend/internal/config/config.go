@@ -890,6 +890,7 @@ type GatewayConfig struct {
 	// OpenAI/Codex 请求可能在上游排队较久；默认不使用通用响应头超时截断。
 	OpenAIResponseHeaderTimeout int `mapstructure:"openai_response_header_timeout"`
 	// OpenAIFirstOutputTimeoutSeconds: native HTTP Responses 首个语义输出超时（秒），0表示禁用。
+	// 这是可能截断已被上游接受并计费请求的兼容开关，默认必须为 0。
 	OpenAIFirstOutputTimeoutSeconds int `mapstructure:"openai_first_output_timeout_seconds"`
 	// OpenAIHighEffortFirstOutputTimeoutSeconds: high/xhigh/max 推理的首个语义输出超时（秒）。
 	// 0 表示回退到 OpenAIFirstOutputTimeoutSeconds。
@@ -1242,7 +1243,8 @@ type GatewayOpenAIWSConfig struct {
 	DialTimeoutSeconds   int     `mapstructure:"dial_timeout_seconds"`
 	ReadTimeoutSeconds   int     `mapstructure:"read_timeout_seconds"`
 	// FirstOutputTimeoutSeconds limits the absolute wait for the first semantic
-	// output event. ReadTimeoutSeconds remains the per-frame timeout afterwards.
+	// output event. 0 disables the deadline. ReadTimeoutSeconds remains the
+	// per-frame timeout afterwards and also accepts 0 to disable it.
 	FirstOutputTimeoutSeconds int     `mapstructure:"first_output_timeout_seconds"`
 	WriteTimeoutSeconds       int     `mapstructure:"write_timeout_seconds"`
 	PoolTargetUtilization     float64 `mapstructure:"pool_target_utilization"`
@@ -2310,11 +2312,11 @@ func setDefaults() {
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
-	// Bound the full HTTP/SSE wait from request start through the first semantic
-	// output. High-effort reasoning gets a little more headroom without allowing
-	// a single dead attempt to hold the whole failover chain for minutes.
-	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 15)
-	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 30)
+	// An OpenAI request can already be billable while waiting for its first
+	// semantic output. Do not abort it locally by default; operators may opt in
+	// only when they explicitly accept that billing ambiguity.
+	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 0)
+	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 0)
 	viper.SetDefault("gateway.openai_failover.soft_budget_seconds", 45)
 	viper.SetDefault("gateway.openai_failover.hard_budget_seconds", 75)
 	viper.SetDefault("gateway.openai_failover.high_effort_soft_budget_seconds", 60)
@@ -2362,8 +2364,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.oauth_max_conns_factor", 1.0)
 	viper.SetDefault("gateway.openai_ws.apikey_max_conns_factor", 1.0)
 	viper.SetDefault("gateway.openai_ws.dial_timeout_seconds", 10)
-	viper.SetDefault("gateway.openai_ws.read_timeout_seconds", 900)
-	viper.SetDefault("gateway.openai_ws.first_output_timeout_seconds", 45)
+	viper.SetDefault("gateway.openai_ws.read_timeout_seconds", 0)
+	viper.SetDefault("gateway.openai_ws.first_output_timeout_seconds", 0)
 	viper.SetDefault("gateway.openai_ws.write_timeout_seconds", 120)
 	viper.SetDefault("gateway.openai_ws.pool_target_utilization", 0.7)
 	viper.SetDefault("gateway.openai_ws.queue_limit_per_conn", 64)
@@ -2435,7 +2437,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.concurrency_slot_ttl_minutes", 30) // 并发槽位过期时间（支持超长请求）
 	viper.SetDefault("gateway.stream_data_interval_timeout", 180)
 	viper.SetDefault("gateway.stream_keepalive_interval", 10)
-	viper.SetDefault("gateway.image_stream_data_interval_timeout", 900)
+	// Image generation can also become billable before the next stream event.
+	// Keep the upstream read unbounded by default for the same reason as text
+	// streams; operators may opt in only when they accept billing ambiguity.
+	viper.SetDefault("gateway.image_stream_data_interval_timeout", 0)
 	viper.SetDefault("gateway.image_stream_keepalive_interval", 10)
 	viper.SetDefault("gateway.image_nonstream_keepalive_interval", 0)
 	viper.SetDefault("gateway.max_line_size", 500*1024*1024)
@@ -3359,8 +3364,8 @@ func (c *Config) Validate() error {
 	if c.Gateway.OpenAIWS.DialTimeoutSeconds <= 0 {
 		return fmt.Errorf("gateway.openai_ws.dial_timeout_seconds must be positive")
 	}
-	if c.Gateway.OpenAIWS.ReadTimeoutSeconds <= 0 {
-		return fmt.Errorf("gateway.openai_ws.read_timeout_seconds must be positive")
+	if c.Gateway.OpenAIWS.ReadTimeoutSeconds < 0 {
+		return fmt.Errorf("gateway.openai_ws.read_timeout_seconds must be non-negative")
 	}
 	if c.Gateway.OpenAIWS.FirstOutputTimeoutSeconds < 0 || c.Gateway.OpenAIWS.FirstOutputTimeoutSeconds > 600 ||
 		(c.Gateway.OpenAIWS.FirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIWS.FirstOutputTimeoutSeconds < 5) {

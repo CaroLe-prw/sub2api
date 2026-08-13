@@ -507,9 +507,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 				truncateOpenAIWSLogValue(firstEventType, openAIWSLogValueMaxLen),
 				truncateOpenAIWSLogValue(lastEventType, openAIWSLogValueMaxLen),
 			)
-			if firstTokenMs == nil && ctx.Err() == nil && time.Until(startTime.Add(s.openAIWSFirstOutputTimeout())) <= 5*time.Millisecond {
+			firstOutputTimeout := s.openAIWSFirstOutputTimeout()
+			if firstOutputTimeout > 0 && firstTokenMs == nil && ctx.Err() == nil && time.Until(startTime.Add(firstOutputTimeout)) <= 5*time.Millisecond {
 				return nil, s.newOpenAIFirstOutputTimeoutError(
-					ctx, c, account, startTime, originalModel, "", s.openAIWSFirstOutputTimeout(),
+					ctx, c, account, startTime, originalModel, "", firstOutputTimeout,
 					"websocket_first_semantic_output", lease.HandshakeHeaders(),
 				)
 			}

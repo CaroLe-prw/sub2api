@@ -304,8 +304,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		})
 		defer firstOutputTimer.Stop()
 	}
-	var firstOutputStageErr error
-
 	writeLine := func(line string) {
 		if clientDisconnected {
 			return
@@ -313,10 +311,29 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		if !clientOutputStarted && ((guardFirstOutput && firstTokenMs == nil) || !refusalDetector.ShouldReleaseClientOutput()) {
 			pendingBytes += len(line) + 1
 			if pendingBytes > openAIFirstOutputStageMaxBytes {
-				failoverErr := s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, "OpenAI raw Chat Completions first-output staging limit exceeded")
-				failoverErr.SafeToFailoverAfterWrite = true
-				firstOutputStageErr = failoverErr
-				_ = resp.Body.Close()
+				// Do not abort a possibly billable request just because the local
+				// refusal-detection buffer reached its cap. Commit the attempt and
+				// continue as pass-through; failover is no longer safe after this.
+				logger.L().Warn("openai chat_completions raw: staging limit reached; continuing in pass-through mode",
+					zap.String("request_id", requestID),
+					zap.Int("buffered_bytes", pendingBytes),
+				)
+				if firstOutputTimer != nil {
+					firstOutputTimer.Stop()
+				}
+				writeStreamHeaders()
+				for _, pending := range pendingLines {
+					if _, werr := c.Writer.WriteString(pending + "\n"); werr != nil {
+						clientDisconnected = true
+						return
+					}
+				}
+				pendingLines = pendingLines[:0]
+				pendingBytes = 0
+				clientOutputStarted = true
+				if _, werr := c.Writer.WriteString(line + "\n"); werr != nil {
+					clientDisconnected = true
+				}
 				return
 			}
 			pendingLines = append(pendingLines, line)
@@ -376,9 +393,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		}
 
 		writeLine(line)
-		if firstOutputStageErr != nil {
-			break
-		}
 		if line == "" {
 			if !clientDisconnected && clientOutputStarted {
 				c.Writer.Flush()
@@ -391,9 +405,6 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 	if firstOutputTimer != nil && !firstOutputTimedOut.Load() {
 		firstOutputTimer.Stop()
-	}
-	if firstOutputStageErr != nil {
-		return nil, firstOutputStageErr
 	}
 	if firstOutputTimedOut.Load() && firstTokenMs == nil {
 		return nil, s.newOpenAIFirstOutputTimeoutError(

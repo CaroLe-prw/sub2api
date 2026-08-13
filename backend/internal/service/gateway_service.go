@@ -682,8 +682,11 @@ type UpstreamFailoverError struct {
 	// Replaying such an attempt can double-charge the gateway, so it must never
 	// trigger either a same-account retry or an account switch.
 	BillingExposurePossible bool
-	ClientStatusCode        int
-	ClientMessage           string
+	// ExplicitUpstreamResponse distinguishes provider responses from locally
+	// synthesized 502s. Only the former may opt into semantic replay.
+	ExplicitUpstreamResponse bool
+	ClientStatusCode         int
+	ClientMessage            string
 }
 
 func (e *UpstreamFailoverError) Error() string {
@@ -702,6 +705,24 @@ func (e *UpstreamFailoverError) SameAccountRetryLimit(configured int) int {
 		return e.MinimumSameAccountRetries
 	}
 	return configured
+}
+
+// AllowsOneSameAccountRetryBeforeSwitch keeps the conservative retry policy
+// narrow: only an explicit, structured 429/502/503 response may be replayed on
+// the same account once before normal account failover continues.
+func (e *UpstreamFailoverError) AllowsOneSameAccountRetryBeforeSwitch() bool {
+	if e == nil || !e.ExplicitUpstreamResponse || !e.ShouldRetryNextAccount() {
+		return false
+	}
+	if e.IsCredentialFailure() || e.ForceCacheBilling {
+		return false
+	}
+	switch e.StatusCode {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable:
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *UpstreamFailoverError) IsCredentialFailure() bool {

@@ -350,6 +350,7 @@ func newOpenAIUpstreamFailoverError(
 		StatusCode:                             statusCode,
 		ResponseBody:                           responseBody,
 		ResponseHeaders:                        responseHeaders.Clone(),
+		ExplicitUpstreamResponse:               true,
 		RetryableOnSameAccount:                 retryableOnSameAccount,
 		RequestScopedTransient:                 requestScopedCapacity,
 		RetryableOnSameAccountIfNoOtherAccount: retryableOnSameAccountIfNoOtherAccount,

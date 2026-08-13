@@ -70,6 +70,22 @@ func sameAccountRetryDelayFor(failoverErr *service.UpstreamFailoverError, retryC
 	return delay
 }
 
+// openAISameAccountRetryLimit applies the mandatory one-shot retry only to an
+// explicit OpenAI 429/502/503. Other platforms and existing pool-mode retries
+// keep their configured limits.
+func openAISameAccountRetryLimit(account *service.Account, failoverErr *service.UpstreamFailoverError) (int, bool) {
+	if account == nil || failoverErr == nil {
+		return 0, false
+	}
+	if account.Platform == service.PlatformOpenAI && failoverErr.AllowsOneSameAccountRetryBeforeSwitch() {
+		return 1, true
+	}
+	if failoverErr.RetryableOnSameAccount {
+		return failoverErr.SameAccountRetryLimit(account.GetPoolModeRetryCount()), true
+	}
+	return 0, false
+}
+
 // FailoverState 跨循环迭代共享的 failover 状态
 type FailoverState struct {
 	SwitchCount           int

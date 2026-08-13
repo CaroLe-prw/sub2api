@@ -365,13 +365,13 @@ func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	}
 }
 
-func TestLoadDefaultOpenAIFirstOutputTimeoutsEnabled(t *testing.T) {
+func TestLoadDefaultOpenAIFirstOutputTimeoutsDisabled(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
-	require.Equal(t, 15, cfg.Gateway.OpenAIFirstOutputTimeoutSeconds)
-	require.Equal(t, 30, cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds)
+	require.Equal(t, 0, cfg.Gateway.OpenAIFirstOutputTimeoutSeconds)
+	require.Equal(t, 0, cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds)
 }
 
 func TestLoadOpenAIFirstOutputTimeoutsFromEnv(t *testing.T) {
@@ -2199,8 +2199,8 @@ func TestValidateConfig_OpenAIWSRules(t *testing.T) {
 			wantErr: "gateway.openai_ws.dial_timeout_seconds",
 		},
 		{
-			name:    "read_timeout_seconds 必须为正数",
-			mutate:  func(c *Config) { c.Gateway.OpenAIWS.ReadTimeoutSeconds = 0 },
+			name:    "read_timeout_seconds 不能为负数",
+			mutate:  func(c *Config) { c.Gateway.OpenAIWS.ReadTimeoutSeconds = -1 },
 			wantErr: "gateway.openai_ws.read_timeout_seconds",
 		},
 		{
@@ -2544,8 +2544,8 @@ func TestLoad_DefaultGatewayImageStreamConfig(t *testing.T) {
 	if cfg.Gateway.StreamKeepaliveInterval != 10 {
 		t.Fatalf("stream_keepalive_interval = %d, want 10", cfg.Gateway.StreamKeepaliveInterval)
 	}
-	if cfg.Gateway.ImageStreamDataIntervalTimeout != 900 {
-		t.Fatalf("image_stream_data_interval_timeout = %d, want 900", cfg.Gateway.ImageStreamDataIntervalTimeout)
+	if cfg.Gateway.ImageStreamDataIntervalTimeout != 0 {
+		t.Fatalf("image_stream_data_interval_timeout = %d, want 0", cfg.Gateway.ImageStreamDataIntervalTimeout)
 	}
 	if cfg.Gateway.ImageStreamKeepaliveInterval != 10 {
 		t.Fatalf("image_stream_keepalive_interval = %d, want 10", cfg.Gateway.ImageStreamKeepaliveInterval)
@@ -2567,8 +2567,5 @@ func TestLoad_DefaultGatewayImageStreamConfig(t *testing.T) {
 	}
 	if cfg.Gateway.ImageConcurrency.MaxWaitingRequests != 100 {
 		t.Fatalf("image_concurrency.max_waiting_requests = %d, want 100", cfg.Gateway.ImageConcurrency.MaxWaitingRequests)
-	}
-	if cfg.Gateway.ImageStreamDataIntervalTimeout <= cfg.Gateway.StreamDataIntervalTimeout {
-		t.Fatalf("image stream timeout = %d, want greater than ordinary stream timeout %d", cfg.Gateway.ImageStreamDataIntervalTimeout, cfg.Gateway.StreamDataIntervalTimeout)
 	}
 }

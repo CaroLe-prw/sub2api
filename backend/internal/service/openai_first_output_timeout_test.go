@@ -163,7 +163,7 @@ func TestOpenAIPassthroughFirstOutputTimeoutKeepsPreamblePrivate(t *testing.T) {
 	require.Empty(t, rec.Body.String())
 }
 
-func TestOpenAIPassthroughPreOutputDeadlineErrorFailsOver(t *testing.T) {
+func TestOpenAIPassthroughPreOutputDeadlineErrorStopsWithoutReplay(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
 		OpenAIFirstOutputTimeoutSeconds: 0,
 		MaxLineSize:                     defaultMaxLineSize,
@@ -188,11 +188,12 @@ func TestOpenAIPassthroughPreOutputDeadlineErrorFailsOver(t *testing.T) {
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
-	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.True(t, failoverErr.BillingExposurePossible)
+	require.False(t, failoverErr.ShouldRetryNextAccount())
 	require.Empty(t, rec.Body.String())
 }
 
-func TestOpenAINativePreOutputDeadlineErrorFailsOver(t *testing.T) {
+func TestOpenAINativePreOutputDeadlineErrorStopsWithoutReplay(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
 		OpenAIFirstOutputTimeoutSeconds: 0,
 		MaxLineSize:                     defaultMaxLineSize,
@@ -217,7 +218,8 @@ func TestOpenAINativePreOutputDeadlineErrorFailsOver(t *testing.T) {
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
-	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.True(t, failoverErr.BillingExposurePossible)
+	require.False(t, failoverErr.ShouldRetryNextAccount())
 	require.Empty(t, rec.Body.String())
 }
 
@@ -353,10 +355,31 @@ func TestOpenAICompatBufferedFirstOutputTimeoutIgnoresResponsesPreamble(t *testi
 	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: body}
 
 	_, _, _, err := svc.readOpenAICompatBufferedTerminalWithFirstOutput(
-		resp, "compat buffered test", "request-id", time.Now().Add(-time.Second), func() error { return wantErr },
+		resp, "compat buffered test", "request-id", &Account{Platform: PlatformOpenAI}, time.Now().Add(-time.Second), func() error { return wantErr },
 	)
 
 	require.ErrorIs(t, err, wantErr)
+}
+
+func TestOpenAIStreamDataIntervalDisabledForOpenAI(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		StreamDataIntervalTimeout: 180,
+	}}}
+
+	require.Zero(t, svc.openAIStreamDataInterval(&Account{Platform: PlatformOpenAI}))
+	require.Equal(t, 180*time.Second, svc.openAIStreamDataInterval(&Account{Platform: PlatformGrok}))
+	require.Equal(t, 180*time.Second, svc.openAIStreamDataInterval(nil))
+}
+
+func TestOpenAIWebSocketTimeoutsCanBeDisabled(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIWS: config.GatewayOpenAIWSConfig{},
+	}}}
+
+	require.Zero(t, svc.openAIWSFirstOutputTimeout())
+	require.Zero(t, svc.openAIWSReadTimeout())
+	require.Zero(t, svc.openAIWSActiveReadTimeout(time.Now(), nil))
+	require.Zero(t, svc.openAIWSPassthroughIdleTimeout())
 }
 
 func TestOpenAIRawChatFirstOutputTimeoutIgnoresRoleOnlyChunk(t *testing.T) {
@@ -702,7 +725,7 @@ func TestOpenAINativeFirstOutputEOFDispatchesTerminalEventWithoutBlankLine(t *te
 	require.Equal(t, "17", rec.Result().Header.Get("X-Ratelimit-Remaining-Requests"))
 }
 
-func TestOpenAINativeFirstOutputStageOverflowFailsOverWithoutAttemptBytes(t *testing.T) {
+func TestOpenAINativeFirstOutputStageOverflowFallsBackToPassThrough(t *testing.T) {
 	cfg := &config.Config{Gateway: config.GatewayConfig{
 		OpenAIFirstOutputTimeoutSeconds: 30,
 		MaxLineSize:                     2 * 1024 * 1024,
@@ -727,14 +750,12 @@ func TestOpenAINativeFirstOutputStageOverflowFailsOverWithoutAttemptBytes(t *tes
 
 	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI}, time.Now(), "model", "model")
 
+	require.ErrorContains(t, err, "missing terminal event")
 	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
-	require.True(t, failoverErr.SafeToFailoverAfterWrite)
-	require.Contains(t, string(failoverErr.ResponseBody), "staging limit exceeded")
-	require.Empty(t, rec.Body.String())
-	require.Empty(t, rec.Header().Values("X-Request-Id"))
-	require.Empty(t, rec.Header().Values("X-Ratelimit-Remaining-Requests"))
+	require.False(t, errors.As(err, &failoverErr), "local staging pressure must not trigger replay")
+	require.Contains(t, rec.Body.String(), `"type":"response.output_text.delta"`)
+	require.Equal(t, "request-overflow", rec.Header().Get("X-Request-Id"))
+	require.Equal(t, "1", rec.Header().Get("X-Ratelimit-Remaining-Requests"))
 }
 
 func TestOpenAINativeFirstOutputScannerRejectsOversizedLineWithoutLeak(t *testing.T) {

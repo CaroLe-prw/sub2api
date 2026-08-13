@@ -123,6 +123,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	var firstTokenMs *int
 	firstOutputProgressObserved := false
 	firstOutputCommitted := false
+	var firstOutputScanGuard atomic.Bool
+	firstOutputScanGuard.Store(guardFirstOutput && firstOutputTimeout > 0)
+	stopFirstOutputTimer := func() {}
 	bufferedWriter := bufio.NewWriterSize(w, 4*1024)
 	var firstOutputStage *openAIFirstOutputStage
 	if guardFirstOutput {
@@ -135,7 +138,23 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	}
 	writePendingString := func(value string) (int, error) {
 		if firstOutputStage != nil && !firstOutputCommitted && !firstOutputStage.closed {
-			return firstOutputStage.WriteString(value)
+			n, err := firstOutputStage.WriteString(value)
+			if !errors.Is(err, errOpenAIFirstOutputStageLimit) {
+				return n, err
+			}
+			// The staging cap is a memory/disk guard, not a reason to terminate a
+			// potentially billable upstream request. Once it is reached, expose the
+			// attempt and continue as a normal pass-through stream. This forfeits
+			// failover for this attempt, but avoids losing paid upstream work.
+			logger.LegacyPrintf("service.openai_gateway", "OpenAI first-output staging limit reached; continuing in pass-through mode: account=%d model=%s buffered=%d", account.ID, originalModel, firstOutputStage.Buffered())
+			applyAttemptResponseHeaders()
+			if commitErr := firstOutputStage.CommitTo(w); commitErr != nil {
+				return 0, commitErr
+			}
+			firstOutputCommitted = true
+			firstOutputScanGuard.Store(false)
+			stopFirstOutputTimer()
+			return bufferedWriter.WriteString(value)
 		}
 		return bufferedWriter.WriteString(value)
 	}
@@ -162,8 +181,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	usage := &OpenAIUsage{}
 	imageCounter := newOpenAIImageOutputCounter()
 	responseID := ""
-	var firstOutputScanGuard atomic.Bool
-	firstOutputScanGuard.Store(guardFirstOutput)
 	scanner := bufio.NewScanner(resp.Body)
 	scanBuf := getSSEScannerBuf64K()
 	scanner.Buffer(scanBuf[:0], maxLineSize)
@@ -172,10 +189,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	}
 	documentScanner := newOpenAISSEJSONDocumentScanner(scanner)
 
-	streamInterval := time.Duration(0)
-	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
+	streamInterval := s.openAIStreamDataInterval(account)
 	// Grok: always enforce an upstream-read idle so hung SSE bodies fail over
 	// instead of holding the OAuth slot until the client cancels. Prefer the
 	// global gateway setting when set; otherwise apply a Grok-only default.
@@ -223,7 +237,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		firstOutputCh = firstOutputTimer.C
 		defer firstOutputTimer.Stop()
 	}
-	stopFirstOutputTimer := func() {
+	stopFirstOutputTimer = func() {
 		if firstOutputTimer == nil {
 			return
 		}

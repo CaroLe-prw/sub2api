@@ -110,6 +110,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
+	var pinnedRetryAccountID int64
 	var lastFailoverErr *service.UpstreamFailoverError
 	var lastFailoverAccountID int64
 	switchCount := 0
@@ -124,7 +125,15 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 	c.Request = c.Request.WithContext(embPricingCtx)
 
 	for {
-		selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
+		selectAccount := h.gatewayService.SelectAccountWithSchedulerForCapability
+		if pinnedRetryAccountID > 0 {
+			pinnedID := pinnedRetryAccountID
+			pinnedRetryAccountID = 0
+			selectAccount = func(ctx context.Context, groupID *int64, previousResponseID, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, requiredTransport service.OpenAIUpstreamTransport, requiredCapability service.OpenAIEndpointCapability, requireCompact, previousResponseCanMove, useUpstreamTokenCost bool, platformOverride ...string) (*service.AccountSelectionResult, service.OpenAIAccountScheduleDecision, error) {
+				return h.gatewayService.SelectPinnedAccountWithSchedulerForCapability(ctx, pinnedID, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requireCompact, previousResponseCanMove, useUpstreamTokenCost, platformOverride...)
+			}
+		}
+		selection, _, err := selectAccount(
 			c.Request.Context(),
 			apiKey.GroupID,
 			"",
@@ -232,6 +241,20 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 						zap.Int("upstream_status", failoverErr.StatusCode),
 					)
 					return
+				}
+				if !failoverErr.ShouldRetryNextAccount() {
+					h.handleFailoverExhausted(c, failoverErr, false)
+					return
+				}
+				if retryLimit, retrySameAccount := openAISameAccountRetryLimit(account, failoverErr); retrySameAccount {
+					if sameAccountRetryCount[account.ID] < retryLimit {
+						sameAccountRetryCount[account.ID]++
+						pinnedRetryAccountID = account.ID
+						if !sleepWithContext(c.Request.Context(), sameAccountRetryDelayFor(failoverErr, sameAccountRetryCount[account.ID])) {
+							return
+						}
+						continue
+					}
 				}
 				h.gatewayService.RecordOpenAIAccountSwitch()
 				failedAccountIDs[account.ID] = struct{}{}

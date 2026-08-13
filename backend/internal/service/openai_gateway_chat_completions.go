@@ -530,7 +530,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponseWithReasoning(
 		}
 	}
 	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminalWithFirstOutput(
-		resp, "openai chat_completions buffered", requestID, deadline, onTimeout,
+		resp, "openai chat_completions buffered", requestID, account, deadline, onTimeout,
 	)
 	if err != nil {
 		return nil, err
@@ -691,10 +691,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponseWithReasoning(
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 
-	streamInterval := time.Duration(0)
-	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
+	streamInterval := s.openAIStreamDataInterval(account)
 	var intervalTicker *time.Ticker
 	if streamInterval > 0 {
 		intervalTicker = time.NewTicker(streamInterval)

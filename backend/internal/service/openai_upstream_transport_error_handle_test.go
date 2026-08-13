@@ -54,10 +54,9 @@ func (u *failingOpenAIHTTPUpstream) DoWithTLS(_ *http.Request, _ string, _ int64
 	return nil, u.err
 }
 
-// A durable proxy/credential failure must (a) temporarily unschedule the account
-// so it stops being hammered, and (b) return a failover error so the handler
-// switches to a healthy account instead of writing a hard 502 itself.
-func TestHandleOpenAIUpstreamTransportError_PersistentEvictsAndFailsOver(t *testing.T) {
+// A durable proxy/credential failure must temporarily unschedule the account,
+// but the ambiguous request attempt must not be replayed.
+func TestHandleOpenAIUpstreamTransportError_PersistentEvictsWithoutReplay(t *testing.T) {
 	repo := &openaiTransportAccountRepoStub{}
 	svc := &OpenAIGatewayService{accountRepo: repo}
 	account := &Account{ID: 4627, Name: "proxy-expired", Platform: PlatformOpenAI}
@@ -72,6 +71,8 @@ func TestHandleOpenAIUpstreamTransportError_PersistentEvictsAndFailsOver(t *test
 	var fo *UpstreamFailoverError
 	require.True(t, errors.As(retErr, &fo), "persistent error must return *UpstreamFailoverError")
 	require.Equal(t, http.StatusBadGateway, fo.StatusCode)
+	require.True(t, fo.BillingExposurePossible)
+	require.False(t, fo.ShouldRetryNextAccount())
 
 	// Persistent → account temporarily unscheduled for ~10min, reason carries cause.
 	require.Len(t, repo.tempUnschedCalls, 1)
@@ -87,8 +88,9 @@ func TestHandleOpenAIUpstreamTransportError_PersistentEvictsAndFailsOver(t *test
 	require.Equal(t, 0, rec.Body.Len())
 }
 
-// A transient blip should fail over but must NOT evict the account.
-func TestHandleOpenAIUpstreamTransportError_TransientFailsOverWithoutEviction(t *testing.T) {
+// A transient transport blip has no explicit upstream rejection, so it must not
+// be replayed even though it does not evict the account.
+func TestHandleOpenAIUpstreamTransportError_TransientStopsWithoutEviction(t *testing.T) {
 	repo := &openaiTransportAccountRepoStub{}
 	svc := &OpenAIGatewayService{accountRepo: repo}
 	account := &Account{ID: 99, Name: "flaky", Platform: PlatformOpenAI}
@@ -100,6 +102,8 @@ func TestHandleOpenAIUpstreamTransportError_TransientFailsOverWithoutEviction(t 
 	var fo *UpstreamFailoverError
 	require.True(t, errors.As(err, &fo), "transient error must return *UpstreamFailoverError")
 	require.Equal(t, http.StatusBadGateway, fo.StatusCode)
+	require.True(t, fo.BillingExposurePossible)
+	require.False(t, fo.ShouldRetryNextAccount())
 
 	// Transient → do NOT evict.
 	require.Empty(t, repo.tempUnschedCalls)
@@ -163,8 +167,9 @@ func TestTempUnscheduleOpenAITransportError_NilAccountRepo_InMemoryBlockOnly(t *
 		"in-memory block must apply even when accountRepo is nil")
 }
 
-// context.DeadlineExceeded is NOT special-cased — a slow upstream is worth failing over.
-func TestHandleOpenAIUpstreamTransportError_DeadlineExceeded_StillFailsOver(t *testing.T) {
+// context.DeadlineExceeded does not prove that the upstream rejected the
+// request, so it must stop without replay.
+func TestHandleOpenAIUpstreamTransportError_DeadlineExceeded_StopsWithoutReplay(t *testing.T) {
 	repo := &openaiTransportAccountRepoStub{}
 	svc := &OpenAIGatewayService{accountRepo: repo}
 	account := &Account{ID: 79, Name: "slow", Platform: PlatformOpenAI}
@@ -174,10 +179,12 @@ func TestHandleOpenAIUpstreamTransportError_DeadlineExceeded_StillFailsOver(t *t
 		context.DeadlineExceeded, false)
 
 	var fo *UpstreamFailoverError
-	require.True(t, errors.As(err, &fo), "context.DeadlineExceeded must still return *UpstreamFailoverError")
+	require.True(t, errors.As(err, &fo))
+	require.True(t, fo.BillingExposurePossible)
+	require.False(t, fo.ShouldRetryNextAccount())
 }
 
-func TestForwardAsRawChatCompletions_TransportErrorFailsOver(t *testing.T) {
+func TestForwardAsRawChatCompletions_TransportErrorStopsWithoutReplay(t *testing.T) {
 	repo := &openaiTransportAccountRepoStub{}
 	upstream := &failingOpenAIHTTPUpstream{
 		err: errors.New(`Post "https://opencode.ai/zen/v1/chat/completions": EOF`),
@@ -205,10 +212,11 @@ func TestForwardAsRawChatCompletions_TransportErrorFailsOver(t *testing.T) {
 
 	require.Equal(t, 1, upstream.calls)
 	var fo *UpstreamFailoverError
-	require.True(t, errors.As(err, &fo), "transport error must trigger account failover")
+	require.True(t, errors.As(err, &fo), "transport error must remain protocol-compatible for handler error reporting")
 	require.Equal(t, http.StatusBadGateway, fo.StatusCode)
-	require.Empty(t, repo.tempUnschedCalls, "plain EOF is transient: fail over but do not evict")
-	require.Equal(t, 0, rec.Body.Len(), "service must not write a hard 502 before handler can fail over")
+	require.False(t, fo.ShouldRetryNextAccount())
+	require.Empty(t, repo.tempUnschedCalls, "plain EOF is transient: stop without evicting the account")
+	require.Equal(t, 0, rec.Body.Len(), "service must not write a hard 502 before the handler formats the terminal error")
 }
 
 func TestHandleOpenAIUpstreamTransportError_RecordsOllamaActivityOnly(t *testing.T) {

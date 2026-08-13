@@ -906,9 +906,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			upstreamMessage, readErr := lease.ReadMessageWithContextTimeout(ctx, s.openAIWSActiveReadTimeout(turnStart, firstTokenMs))
 			if readErr != nil {
 				lease.MarkBroken()
-				if firstTokenMs == nil && ctx.Err() == nil && time.Until(turnStart.Add(s.openAIWSFirstOutputTimeout())) <= 5*time.Millisecond {
+				firstOutputTimeout := s.openAIWSFirstOutputTimeout()
+				if firstOutputTimeout > 0 && firstTokenMs == nil && ctx.Err() == nil && time.Until(turnStart.Add(firstOutputTimeout)) <= 5*time.Millisecond {
 					return nil, s.newOpenAIFirstOutputTimeoutError(
-						ctx, c, account, turnStart, originalModel, "", s.openAIWSFirstOutputTimeout(),
+						ctx, c, account, turnStart, originalModel, "", firstOutputTimeout,
 						"websocket_first_semantic_output", lease.HandshakeHeaders(),
 					)
 				}
