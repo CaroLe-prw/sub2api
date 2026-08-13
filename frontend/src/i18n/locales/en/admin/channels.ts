@@ -498,6 +498,15 @@ export default {
       deleteConfirm: 'Are you sure you want to delete monitor "{name}"? This action cannot be undone.',
       nameRequired: 'Please enter a monitor name',
       primaryModelRequired: 'Please enter a primary model',
+      cardPreview: {
+        viewLabel: 'Channel monitor management view',
+        table: 'Management list',
+        cards: 'Card preview',
+        tableDescription: 'Manage monitor configuration, enabled state, and publication scope.',
+        description: 'Admins can preview every monitor card, including private and disabled monitors.',
+        securityHint: 'This is an admin-only preview. Cards marked “Admin only” never enter the user status page; a monitor must be both enabled and public to be shown externally.',
+        disabled: 'Disabled'
+      },
       autoModels: {
         title: 'Automatic pool model probes',
         description: 'Collect model mappings from enabled, schedulable, non-OAuth upstream accounts and create streaming probes without changing manual monitors.',

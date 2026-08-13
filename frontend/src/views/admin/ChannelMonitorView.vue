@@ -51,6 +51,23 @@
 
       <div v-else class="space-y-6">
         <TablePageLayout>
+        <template #actions>
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ legacyView === 'cards'
+                ? t('admin.channelMonitor.cardPreview.description')
+                : t('admin.channelMonitor.cardPreview.tableDescription') }}
+            </p>
+            <div class="tabs inline-flex self-start" role="tablist" :aria-label="t('admin.channelMonitor.cardPreview.viewLabel')">
+              <button type="button" class="tab" :class="legacyView === 'table' ? 'tab-active' : ''" @click="legacyView = 'table'">
+                {{ t('admin.channelMonitor.cardPreview.table') }}
+              </button>
+              <button type="button" class="tab" :class="legacyView === 'cards' ? 'tab-active' : ''" @click="legacyView = 'cards'">
+                {{ t('admin.channelMonitor.cardPreview.cards') }}
+              </button>
+            </div>
+          </div>
+        </template>
         <template #filters>
         <MonitorFiltersBar
           v-model:search="searchQuery"
@@ -65,7 +82,7 @@
         </template>
 
         <template #table>
-        <DataTable :columns="columns" :data="monitors" :loading="loading">
+        <DataTable v-if="legacyView === 'table'" :columns="columns" :data="monitors" :loading="loading">
           <template #cell-name="{ row, value }">
             <div class="flex items-center gap-1.5">
               <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
@@ -136,6 +153,7 @@
             />
           </template>
         </DataTable>
+        <AdminMonitorCardGrid v-else :items="monitors" :loading="loading" />
         </template>
 
         <template #pagination>
@@ -221,6 +239,7 @@ import MonitorRunResultDialog from '@/components/admin/monitor/MonitorRunResultD
 import MonitorPublishDialog from '@/components/admin/monitor/MonitorPublishDialog.vue'
 import MonitorPrimaryModelCell from '@/components/admin/monitor/MonitorPrimaryModelCell.vue'
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
+import AdminMonitorCardGrid from '@/components/admin/monitor/AdminMonitorCardGrid.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import MonitorSettingsPanel from '@/features/channel-monitor-v2/MonitorSettingsPanel.vue'
@@ -230,6 +249,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const isV1Mode = computed(() => isChannelMonitorV1Mode())
 const adminMonitorTab = ref<'v2' | 'legacy'>(isChannelMonitorV1Mode() ? 'legacy' : 'v2')
+const legacyView = ref<'table' | 'cards'>('table')
 const {
   providerLabel,
   providerBadgeClass,

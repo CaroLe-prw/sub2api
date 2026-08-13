@@ -40,10 +40,14 @@ export interface ChannelMonitor {
   primary_status: MonitorStatus | ''
   /** Latest latency of the primary model in ms (null when no history yet) */
   primary_latency_ms: number | null
+  /** Latest endpoint ping recorded with the primary-model probe. */
+  primary_ping_latency_ms?: number | null
   /** Primary model 7-day availability percentage (0-100) */
   availability_7d: number
   /** Latest status per extra model (used for hover tooltip) */
   extra_models_status: ExtraModelStatus[]
+  /** Primary-model heartbeat samples, newest first. */
+  timeline?: MonitorTimelinePoint[]
   /** All models with admin-side probe data, including runtime auto-discovered models. */
   observed_models?: ObservedModelStatus[]
   /** 请求自定义快照字段（高级设置） */
@@ -51,6 +55,13 @@ export interface ChannelMonitor {
   extra_headers: Record<string, string>
   body_override_mode: BodyOverrideMode
   body_override: Record<string, unknown> | null
+}
+
+export interface MonitorTimelinePoint {
+  status: MonitorStatus
+  latency_ms: number | null
+  ping_latency_ms: number | null
+  checked_at: string
 }
 
 export interface ExtraModelStatus {

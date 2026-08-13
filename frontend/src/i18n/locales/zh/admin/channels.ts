@@ -498,6 +498,15 @@ export default {
       deleteConfirm: '确定要删除监控「{name}」吗？此操作不可撤销。',
       nameRequired: '请输入监控名称',
       primaryModelRequired: '请输入主模型',
+      cardPreview: {
+        viewLabel: '渠道监控管理视图',
+        table: '管理列表',
+        cards: '卡片预览',
+        tableDescription: '管理监控配置、启用状态与公开范围。',
+        description: '管理员可预览全部监控卡片，包括未公开和已停用的监控。',
+        securityHint: '这是管理员专属预览。标记为“仅管理员”的卡片不会进入用户状态页；只有“已启用 + 已公开”的监控才会对外展示。',
+        disabled: '已停用'
+      },
       autoModels: {
         title: '号池模型自动监测',
         description: '自动汇总已启用、可调度的非 OAuth 上游账号模型映射，为已有和新增号池建立流式主动探针；不会改写手工监控。',

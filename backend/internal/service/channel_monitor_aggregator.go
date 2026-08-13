@@ -115,6 +115,22 @@ func (s *ChannelMonitorService) batchTimeline(
 	return timelineMap
 }
 
+// BatchMonitorTimelines returns compact primary-model timelines for an admin
+// page of monitors. Unlike ListUserView, callers choose the monitor IDs, so
+// private and disabled monitors remain previewable without entering public APIs.
+func (s *ChannelMonitorService) BatchMonitorTimelines(
+	ctx context.Context,
+	ids []int64,
+	primaryByID map[int64]string,
+) map[int64][]UserMonitorTimelinePoint {
+	entriesByID := s.batchTimeline(ctx, ids, primaryByID)
+	out := make(map[int64][]UserMonitorTimelinePoint, len(ids))
+	for _, id := range ids {
+		out[id] = buildTimelinePoints(entriesByID[id])
+	}
+	return out
+}
+
 // pickLatest 从 latest 切片中挑出指定 model 对应项，未命中返回 nil。
 func pickLatest(rows []*ChannelMonitorLatest, model string) *ChannelMonitorLatest {
 	if model == "" {

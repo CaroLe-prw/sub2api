@@ -1,8 +1,10 @@
 <template>
   <button
     type="button"
-    class="group text-left p-5 rounded-2xl min-h-[280px] w-full bg-white/70 backdrop-blur-xl border border-gray-200/80 shadow-card dark:bg-dark-800/60 dark:border-dark-700/70 hover:-translate-y-1 hover:shadow-card-hover dark:hover:border-primary-500/30 hover:border-gray-300 transition-all duration-300 ease-out flex flex-col"
-    @click="emit('click')"
+    :disabled="!interactive"
+    class="group flex min-h-[280px] w-full flex-col rounded-2xl border border-gray-200/80 bg-white/70 p-5 text-left shadow-card backdrop-blur-xl transition-all duration-300 ease-out dark:border-dark-700/70 dark:bg-dark-800/60"
+    :class="interactive ? 'hover:-translate-y-1 hover:border-gray-300 hover:shadow-card-hover dark:hover:border-primary-500/30' : 'cursor-default'"
+    @click="interactive && emit('click')"
   >
     <!-- Header: icon + name/model + status chip -->
     <div class="flex items-start gap-3">
@@ -92,12 +94,19 @@ const PROVIDER_TINT: Record<string, string> = {
   grok: 'text-zinc-700 dark:text-zinc-200',
 }
 
-const props = defineProps<{
-  item: UserMonitorView
-  window: '7d' | '15d' | '30d'
-  availabilityValue: number | null
-  countdownSeconds: number
-}>()
+const props = withDefaults(
+  defineProps<{
+    item: UserMonitorView
+    window: '7d' | '15d' | '30d'
+    availabilityValue: number | null
+    countdownSeconds?: number | null
+    interactive?: boolean
+  }>(),
+  {
+    countdownSeconds: null,
+    interactive: true,
+  },
+)
 
 const emit = defineEmits<{
   (e: 'click'): void
