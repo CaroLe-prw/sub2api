@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -140,7 +141,8 @@ func (r *scheduledTestPlanRepository) ListChannelMonitorPoolOverview(ctx context
 		SELECT p.id, p.account_id, a.name, a.platform, a.type, a.status, a.schedulable, a.concurrency,
 		       p.model_id, p.enabled,
 		       latest.status, latest.latency_ms, latest.finished_at,
-		       stats.sample_count, stats.failure_count, stats.availability
+		       stats.sample_count, stats.failure_count, stats.availability,
+		       heartbeat.recent_results
 		FROM scheduled_test_plans p
 		JOIN accounts a ON a.id = p.account_id AND a.deleted_at IS NULL
 		LEFT JOIN LATERAL (
@@ -156,6 +158,26 @@ func (r *scheduledTestPlanRepository) ListChannelMonitorPoolOverview(ctx context
 			       END AS availability
 			FROM scheduled_test_results r WHERE r.plan_id = p.id AND r.created_at >= $2
 		) stats ON true
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(jsonb_agg(jsonb_build_object(
+				'id', recent.id,
+				'plan_id', recent.plan_id,
+				'status', recent.status,
+				'ttft_ms', recent.ttft_ms,
+				'latency_ms', recent.latency_ms,
+				'started_at', recent.started_at,
+				'finished_at', recent.finished_at,
+				'created_at', recent.created_at
+			) ORDER BY recent.created_at ASC), '[]'::jsonb) AS recent_results
+			FROM (
+				SELECT r.id, r.plan_id, r.status, r.ttft_ms, r.latency_ms,
+				       r.started_at, r.finished_at, r.created_at
+				FROM scheduled_test_results r
+				WHERE r.plan_id = p.id
+				ORDER BY r.created_at DESC
+				LIMIT 12
+			) recent
+		) heartbeat ON true
 		WHERE p.managed_by = $1 AND p.enabled = true
 		ORDER BY a.priority ASC, a.id ASC, p.model_id ASC
 	`, service.ScheduledTestManagedByChannelMonitor, since)
@@ -177,12 +199,16 @@ func (r *scheduledTestPlanRepository) ListChannelMonitorPoolOverview(ctx context
 		var latestAt sql.NullTime
 		var sampleCount, failureCount int64
 		var availability sql.NullFloat64
+		var recentResultsJSON []byte
 		if err := rows.Scan(
 			&model.PlanID, &accountID, &name, &platform, &accountType, &accountStatus, &schedulable, &concurrency,
 			&model.Model, &model.Enabled, &latestStatus, &latestLatency, &latestAt,
-			&sampleCount, &failureCount, &availability,
+			&sampleCount, &failureCount, &availability, &recentResultsJSON,
 		); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal(recentResultsJSON, &model.RecentResults); err != nil {
+			return nil, fmt.Errorf("decode channel monitor recent results: %w", err)
 		}
 		if latestStatus.Valid {
 			model.Status = latestStatus.String

@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { PoolMonitorAccount, PoolProbeResult } from '@/api/admin/channelMonitor'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
-import MonitorHeartbeatTooltip from './MonitorHeartbeatTooltip.vue'
+import MonitorHeartbeatTimeline from './MonitorHeartbeatTimeline.vue'
 import type { ProbeHistoryByPlan } from './monitorDataTypes'
 
 const props = defineProps<{
@@ -68,8 +68,11 @@ function history(planId: number): PoolProbeResult[] {
       </div>
 
       <section>
-        <div class="mb-3 flex items-center justify-between">
-          <h3 class="text-sm font-bold text-gray-900 dark:text-white">{{ t('admin.channelMonitor.dataPanel.modelPerformance') }}</h3>
+        <div class="mb-3 flex items-start justify-between gap-4">
+          <div>
+            <h3 class="text-sm font-bold text-gray-900 dark:text-white">{{ t('admin.channelMonitor.dataPanel.modelPerformance') }}</h3>
+            <p class="mt-1 text-[11px] leading-4 text-gray-400">{{ t('admin.channelMonitor.dataPanel.historyScope') }}</p>
+          </div>
           <span class="text-xs text-gray-400">{{ t('admin.channelMonitor.dataPanel.modelCount', { n: account.models.length }) }}</span>
         </div>
         <div v-if="loading" class="flex min-h-40 items-center justify-center text-gray-400"><Icon name="refresh" size="lg" class="animate-spin" /></div>
@@ -79,10 +82,7 @@ function history(planId: number): PoolProbeResult[] {
               <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-full" :class="model.status === 'success' ? 'bg-emerald-500' : model.status === 'failed' ? 'bg-red-500' : 'bg-gray-300'" /><strong class="font-mono text-sm text-gray-900 dark:text-white">{{ model.model }}</strong><span class="text-xs" :class="model.status === 'success' ? 'text-emerald-500' : model.status === 'failed' ? 'text-red-500' : 'text-gray-400'">{{ t(`admin.channelMonitor.dataPanel.probeStatus.${model.status || 'pending'}`) }}</span></div>
               <div class="flex items-center gap-4"><span class="text-xs tabular-nums text-gray-500">{{ model.latency_ms == null ? '-' : `${model.latency_ms}ms` }}</span><span class="text-xs font-semibold tabular-nums text-emerald-500">{{ model.availability == null ? '-' : `${model.availability.toFixed(1)}%` }}</span><button type="button" class="btn btn-secondary btn-sm" :disabled="runningPlanId != null" @click="emit('run', model.plan_id)"><Icon name="refresh" size="xs" :class="runningPlanId === model.plan_id ? 'animate-spin' : ''" />{{ t('admin.channelMonitor.runNow') }}</button></div>
             </div>
-            <div class="mt-3 flex h-5 items-end gap-1 overflow-hidden" :aria-label="t('admin.channelMonitor.dataPanel.recentTrend')">
-              <MonitorHeartbeatTooltip v-for="sample in [...history(model.plan_id)].reverse().slice(-60)" :key="sample.id" :sample="sample" />
-              <span v-if="history(model.plan_id).length === 0" class="text-xs text-gray-400">{{ t('admin.channelMonitor.dataPanel.noHistory') }}</span>
-            </div>
+            <MonitorHeartbeatTimeline :samples="history(model.plan_id)" />
           </article>
         </div>
       </section>

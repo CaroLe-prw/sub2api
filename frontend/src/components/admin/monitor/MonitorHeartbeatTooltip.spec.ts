@@ -72,4 +72,11 @@ describe('MonitorHeartbeatTooltip', () => {
     expect(document.body.textContent).toContain('暂无数据')
     expect(document.body.textContent).toContain('2425ms')
   })
+
+  it('uses a shorter bar in compact overview strips', () => {
+    const wrapper = mount(MonitorHeartbeatTooltip, { props: { sample, compact: true } })
+
+    expect(wrapper.get('button').classes()).toContain('h-1.5')
+    expect(wrapper.get('button').classes()).toContain('min-w-1')
+  })
 })

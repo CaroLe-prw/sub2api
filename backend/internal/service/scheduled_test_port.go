@@ -26,15 +26,30 @@ const ScheduledTestManagedByChannelMonitor = "channel_monitor"
 // ChannelMonitorPoolModel is the admin-only active-probe snapshot for one
 // account/model pair. Scheduled account tests are streaming by design.
 type ChannelMonitorPoolModel struct {
-	PlanID        int64      `json:"plan_id"`
-	Model         string     `json:"model"`
-	Enabled       bool       `json:"enabled"`
-	Status        string     `json:"status"`
-	LatencyMs     *int64     `json:"latency_ms"`
-	Availability  *float64   `json:"availability"`
-	SampleCount   int64      `json:"sample_count"`
-	FailureCount  int64      `json:"failure_count"`
-	LastCheckedAt *time.Time `json:"last_checked_at"`
+	PlanID        int64                         `json:"plan_id"`
+	Model         string                        `json:"model"`
+	Enabled       bool                          `json:"enabled"`
+	Status        string                        `json:"status"`
+	LatencyMs     *int64                        `json:"latency_ms"`
+	Availability  *float64                      `json:"availability"`
+	SampleCount   int64                         `json:"sample_count"`
+	FailureCount  int64                         `json:"failure_count"`
+	LastCheckedAt *time.Time                    `json:"last_checked_at"`
+	RecentResults []ChannelMonitorPoolHeartbeat `json:"recent_results"`
+}
+
+// ChannelMonitorPoolHeartbeat is the compact result shape embedded in the
+// pool overview. It keeps overview payloads small while still supporting the
+// admin heartbeat tooltips without one history request per plan.
+type ChannelMonitorPoolHeartbeat struct {
+	ID         int64     `json:"id"`
+	PlanID     int64     `json:"plan_id"`
+	Status     string    `json:"status"`
+	TTFTMs     *int64    `json:"ttft_ms"`
+	LatencyMs  int64     `json:"latency_ms"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // ChannelMonitorPoolAccount groups automatically managed probes by upstream

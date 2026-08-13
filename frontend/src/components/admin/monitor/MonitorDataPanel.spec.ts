@@ -62,6 +62,16 @@ describe('MonitorDataPanel', () => {
           sample_count: 52,
           failure_count: 0,
           last_checked_at: '2026-08-13T08:00:00Z',
+          recent_results: [{
+            id: 1,
+            plan_id: 81,
+            status: 'success',
+            ttft_ms: 200,
+            latency_ms: 234,
+            started_at: '2026-08-13T07:59:59Z',
+            finished_at: '2026-08-13T08:00:00Z',
+            created_at: '2026-08-13T08:00:00Z',
+          }],
         }],
       }],
     })
@@ -92,6 +102,7 @@ describe('MonitorDataPanel', () => {
 
     expect(listPoolOverview).toHaveBeenCalledOnce()
     expect(wrapper.text()).toContain('sky-pro')
+    expect(wrapper.findAll('[data-testid="compact-heartbeat-strip"]')).toHaveLength(1)
 
     const tabs = wrapper.findAll('button.tab')
     await tabs[1].trigger('click')
@@ -100,6 +111,37 @@ describe('MonitorDataPanel', () => {
     expect(wrapper.find('table').exists()).toBe(true)
     expect(wrapper.text()).toContain('gpt-5.6-sol')
     expect(wrapper.text()).toContain('#35 · openai · apikey')
+    expect(wrapper.findAll('[data-testid="compact-heartbeat-strip"]')).toHaveLength(1)
+  })
+
+  it('shows twelve compact model cards per page', async () => {
+    const base = (await listPoolOverview()).items[0]
+    listPoolOverview.mockResolvedValue({
+      items: [{
+        ...base,
+        models: Array.from({ length: 13 }, (_, index) => ({
+          ...base.models[0],
+          plan_id: 100 + index,
+          model: `model-${String(index + 1).padStart(2, '0')}`,
+        })),
+      }],
+    })
+    const wrapper = mount(MonitorDataPanel, {
+      global: { stubs: { Icon: true, MonitorModelHistoryDialog: true } },
+    })
+    await flushPromises()
+
+    await wrapper.findAll('button.tab')[1].trigger('click')
+    expect(wrapper.findAll('[data-testid="model-group"]')).toHaveLength(12)
+    expect(wrapper.text()).toContain('model-01')
+    expect(wrapper.text()).not.toContain('model-13')
+
+    const next = wrapper.findAll('button').find((button) => button.attributes('aria-label') === 'pagination.next')
+    expect(next).toBeDefined()
+    await next!.trigger('click')
+
+    expect(wrapper.findAll('[data-testid="model-group"]')).toHaveLength(1)
+    expect(wrapper.text()).toContain('model-13')
   })
 
   it('paginates the channel card view instead of rendering every channel', async () => {

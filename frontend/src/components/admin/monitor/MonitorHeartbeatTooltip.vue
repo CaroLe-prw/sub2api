@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PoolProbeResult } from '@/api/admin/channelMonitor'
+import type { PoolProbeHeartbeat } from '@/api/admin/channelMonitor'
 import { formatDateTime } from '@/utils/format'
 
 const props = defineProps<{
-  sample: PoolProbeResult
+  sample: PoolProbeHeartbeat
+  compact?: boolean
 }>()
 
 const { t } = useI18n()
@@ -51,8 +52,11 @@ function closeTooltip() {
   <button
     ref="trigger"
     type="button"
-    class="h-3 min-w-2 flex-1 cursor-help appearance-none rounded-sm border-0 p-0 outline-none ring-offset-1 transition-[filter,transform] hover:brightness-90 focus-visible:ring-2 focus-visible:ring-primary-500"
-    :class="sample.status === 'success' ? 'bg-emerald-400' : 'bg-red-500'"
+    class="flex-1 cursor-help appearance-none border-0 p-0 outline-none ring-offset-1 transition-[filter,transform] hover:brightness-90 focus-visible:ring-2 focus-visible:ring-primary-500"
+    :class="[
+      sample.status === 'success' ? 'bg-emerald-400' : 'bg-red-500',
+      compact ? 'h-1.5 min-w-1 rounded-[2px]' : 'h-3 min-w-2 rounded-sm',
+    ]"
     :aria-label="accessibleLabel"
     @mouseenter="openTooltip"
     @mouseleave="closeTooltip"

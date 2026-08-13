@@ -155,6 +155,7 @@ export interface PoolMonitorModel {
   sample_count: number
   failure_count: number
   last_checked_at: string | null
+  recent_results?: PoolProbeHeartbeat[]
 }
 
 export interface PoolMonitorAccount {
@@ -179,17 +180,20 @@ export interface PoolAccountModelPolicy {
   effective_models: string[]
 }
 
-export interface PoolProbeResult {
+export interface PoolProbeHeartbeat {
   id: number
   plan_id: number
   status: 'success' | 'failed'
-  response_text: string
-  error_message: string
   ttft_ms: number | null
   latency_ms: number
   started_at: string
   finished_at: string
   created_at: string
+}
+
+export interface PoolProbeResult extends PoolProbeHeartbeat {
+  response_text: string
+  error_message: string
 }
 
 export interface AutoModelPolicy {

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PoolMonitorAccount } from '@/api/admin/channelMonitor'
+import type { PoolMonitorAccount, PoolProbeHeartbeat } from '@/api/admin/channelMonitor'
 import Icon from '@/components/icons/Icon.vue'
 import { formatRelativeTime } from '@/utils/format'
+import MonitorCompactHeartbeatStrip from './MonitorCompactHeartbeatStrip.vue'
 
 const props = defineProps<{ accounts: PoolMonitorAccount[] }>()
 const emit = defineEmits<{
@@ -35,6 +36,13 @@ function lastChecked(account: PoolMonitorAccount): string | null {
   return values.sort().at(-1) ?? null
 }
 
+function recentResults(account: PoolMonitorAccount): PoolProbeHeartbeat[] {
+  return account.models
+    .flatMap((model) => model.recent_results ?? [])
+    .sort((left, right) => Date.parse(left.finished_at) - Date.parse(right.finished_at))
+    .slice(-18)
+}
+
 const sorted = computed(() => [...props.accounts].sort((a, b) => {
   const order = { issue: 0, pending: 1, healthy: 2 }
   return order[state(a)] - order[state(b)] || a.account_id - b.account_id
@@ -62,6 +70,9 @@ const sorted = computed(() => [...props.accounts].sort((a, b) => {
         <div><div class="text-sm font-bold text-gray-800 dark:text-gray-100">{{ account.models.length }}</div><div class="text-[10px] text-gray-400">{{ t('admin.channelMonitor.dataPanel.stats.models') }}</div></div>
         <div><div class="text-sm font-bold text-gray-800 dark:text-gray-100">{{ avgLatency(account) == null ? '-' : `${avgLatency(account)}ms` }}</div><div class="text-[10px] text-gray-400">{{ t('admin.channelMonitor.dataPanel.avgLatency') }}</div></div>
         <div><div class="text-sm font-bold" :class="availability(account) != null && availability(account)! >= 99 ? 'text-emerald-600' : 'text-gray-800 dark:text-gray-100'">{{ availability(account) == null ? '-' : `${availability(account)!.toFixed(1)}%` }}</div><div class="text-[10px] text-gray-400">{{ t('admin.channelMonitor.dataPanel.availability') }}</div></div>
+      </div>
+      <div class="mt-3 border-t border-gray-100 pt-3 dark:border-dark-700">
+        <MonitorCompactHeartbeatStrip :samples="recentResults(account)" />
       </div>
       <div class="mt-3 flex items-center justify-between gap-2 border-t border-gray-100 pt-3 dark:border-dark-700">
         <span>{{ formatRelativeTime(lastChecked(account)) }}</span>
