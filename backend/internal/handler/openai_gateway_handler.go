@@ -283,6 +283,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// Read request body
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {
+		logRequestBodyReadFailure(reqLog, c.Request, err)
 		if maxErr, ok := extractMaxBytesError(err); ok {
 			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
 			return
@@ -752,10 +753,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
 				h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
-					AccountID:   account.ID,
-					AccountName: account.Name,
-					Reason:      "upstream_error",
-					DurationMs:  time.Since(routingStart).Milliseconds(),
+					AccountID:      account.ID,
+					AccountName:    account.Name,
+					UpstreamStatus: openAIForwardFailureUpstreamStatus(c, err),
+					Reason:         "upstream_error",
+					DurationMs:     time.Since(routingStart).Milliseconds(),
 				})
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
@@ -1058,6 +1060,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {
+		logRequestBodyReadFailure(reqLog, c.Request, err)
 		if maxErr, ok := extractMaxBytesError(err); ok {
 			h.anthropicErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
 			return
@@ -3091,6 +3094,18 @@ func openAIForwardMayFailover(c *gin.Context, writerSizeBeforeForward int, failo
 		return true
 	}
 	return failoverErr != nil && failoverErr.SafeToFailoverAfterWrite
+}
+
+func openAIForwardFailureUpstreamStatus(c *gin.Context, err error) int {
+	var failoverErr *service.UpstreamFailoverError
+	if errors.As(err, &failoverErr) && failoverErr.StatusCode > 0 {
+		return failoverErr.StatusCode
+	}
+	status, ok := getContextInt64(c, service.OpsUpstreamStatusCodeKey)
+	if !ok || status <= 0 {
+		return 0
+	}
+	return int(status)
 }
 
 func openAIRequestAllowsFailoverReplay(c *gin.Context) bool {

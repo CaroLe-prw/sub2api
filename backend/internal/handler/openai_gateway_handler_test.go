@@ -3164,3 +3164,16 @@ data: {"type":"response.failed","error":{"message":"This content was flagged"}}
 		require.False(t, openAIForwardErrorAlreadyCommunicated(c, c.Writer.Size(), errors.New("openai cyber_policy: blocked")))
 	})
 }
+
+func TestOpenAIForwardFailureUpstreamStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(service.OpsUpstreamStatusCodeKey, http.StatusBadRequest)
+
+	require.Equal(t, http.StatusBadRequest, openAIForwardFailureUpstreamStatus(c, errors.New("upstream error")))
+	require.Equal(t, http.StatusBadGateway, openAIForwardFailureUpstreamStatus(c, &service.UpstreamFailoverError{
+		StatusCode: http.StatusBadGateway,
+	}))
+	require.Zero(t, openAIForwardFailureUpstreamStatus(nil, errors.New("upstream error")))
+}

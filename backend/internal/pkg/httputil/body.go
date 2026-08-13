@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -22,6 +23,52 @@ const (
 	maxDecompressedBodySize = 64 << 20
 )
 
+var ErrUnsupportedContentEncoding = errors.New("unsupported Content-Encoding")
+
+type RequestBodyReadStage string
+
+const (
+	RequestBodyReadStageRead      RequestBodyReadStage = "read"
+	RequestBodyReadStageDecode    RequestBodyReadStage = "decode"
+	RequestBodyReadStageNormalize RequestBodyReadStage = "normalize"
+)
+
+// RequestBodyReadError carries safe transport metadata for request-body
+// diagnostics. It deliberately contains no body bytes.
+type RequestBodyReadError struct {
+	Stage     RequestBodyReadStage
+	BytesRead int64
+	Elapsed   time.Duration
+	Err       error
+}
+
+func (e *RequestBodyReadError) Error() string {
+	if e == nil || e.Err == nil {
+		return "request body read failed"
+	}
+	return fmt.Sprintf("request body %s failed after %d bytes: %v", e.Stage, e.BytesRead, e.Err)
+}
+
+func (e *RequestBodyReadError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func newRequestBodyReadError(started time.Time, stage RequestBodyReadStage, bytesRead int64, err error) error {
+	elapsed := time.Since(started)
+	if elapsed <= 0 {
+		elapsed = time.Nanosecond
+	}
+	return &RequestBodyReadError{
+		Stage:     stage,
+		BytesRead: bytesRead,
+		Elapsed:   elapsed,
+		Err:       err,
+	}
+}
+
 // ReadRequestBodyWithPrealloc reads request body with preallocated buffer based
 // on content length, transparently decoding any Content-Encoding the upstream
 // client used to compress the body (zstd, gzip, deflate).
@@ -29,6 +76,7 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 	if req == nil || req.Body == nil {
 		return nil, nil
 	}
+	started := time.Now()
 
 	capHint := requestBodyReadInitCap
 	if req.ContentLength > 0 {
@@ -43,8 +91,9 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 	}
 
 	buf := bytes.NewBuffer(make([]byte, 0, capHint))
-	if _, err := io.Copy(buf, req.Body); err != nil {
-		return nil, err
+	bytesRead, err := io.Copy(buf, req.Body)
+	if err != nil {
+		return nil, newRequestBodyReadError(started, RequestBodyReadStageRead, bytesRead, err)
 	}
 	raw := buf.Bytes()
 
@@ -55,7 +104,8 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 
 	decoded, err := decompressRequestBody(enc, raw)
 	if err != nil {
-		return nil, fmt.Errorf("decode Content-Encoding %q: %w", enc, err)
+		decodeErr := fmt.Errorf("decode Content-Encoding %q: %w", enc, err)
+		return nil, newRequestBodyReadError(started, RequestBodyReadStageDecode, bytesRead, decodeErr)
 	}
 
 	req.Header.Del("Content-Encoding")
@@ -68,11 +118,16 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 // ReadLenientJSONRequestBodyWithPrealloc reads a request body and normalizes
 // JSON string control bytes before strict validation.
 func ReadLenientJSONRequestBodyWithPrealloc(req *http.Request, maxNormalizedBytes int64) ([]byte, error) {
+	started := time.Now()
 	body, err := ReadRequestBodyWithPrealloc(req)
 	if err != nil {
 		return nil, err
 	}
-	return NormalizeLenientJSONRequestBody(body, maxNormalizedBytes)
+	normalized, err := NormalizeLenientJSONRequestBody(body, maxNormalizedBytes)
+	if err != nil {
+		return nil, newRequestBodyReadError(started, RequestBodyReadStageNormalize, int64(len(body)), err)
+	}
+	return normalized, nil
 }
 
 func decompressRequestBody(encoding string, raw []byte) ([]byte, error) {
@@ -99,7 +154,7 @@ func decompressRequestBody(encoding string, raw []byte) ([]byte, error) {
 		defer func() { _ = zr.Close() }()
 		return io.ReadAll(io.LimitReader(zr, maxDecompressedBodySize))
 	default:
-		return nil, errors.New("unsupported Content-Encoding")
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedContentEncoding, encoding)
 	}
 }
 

@@ -265,6 +265,18 @@ func TestLogOpenAIInstructionsRequiredDebug_NonTargetErrorSkipped(t *testing.T) 
 func TestIsOpenAITransientProcessingError(t *testing.T) {
 	require.True(t, isOpenAITransientProcessingError(
 		http.StatusBadRequest,
+		"Upstream request failed",
+		[]byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"}}`),
+	))
+
+	require.True(t, isOpenAITransientProcessingError(
+		http.StatusBadRequest,
+		"upstream returned 400",
+		[]byte(`{"error":{"code":"gg_upstream_failed","message":"upstream returned 400","type":"upstream_error"}}`),
+	))
+
+	require.True(t, isOpenAITransientProcessingError(
+		http.StatusBadRequest,
 		"An error occurred while processing your request.",
 		nil,
 	))
@@ -304,6 +316,18 @@ func TestIsOpenAITransientProcessingError(t *testing.T) {
 		"Missing required parameter: 'instructions'",
 		[]byte(`{"error":{"message":"Missing required parameter: 'instructions'"}}`),
 	))
+
+	require.False(t, isOpenAITransientProcessingError(
+		http.StatusBadRequest,
+		"Upstream request failed",
+		[]byte(`{"error":{"message":"Upstream request failed","type":"invalid_request_error"}}`),
+	))
+
+	require.False(t, isOpenAITransientProcessingError(
+		http.StatusBadRequest,
+		"upstream returned 400",
+		[]byte(`{"error":{"code":"invalid_request","message":"upstream returned 400","type":"upstream_error"}}`),
+	))
 }
 
 func TestIsOpenAIContextWindowError(t *testing.T) {
@@ -327,6 +351,26 @@ func TestShouldFailoverOpenAIUpstreamResponseContextWindow502(t *testing.T) {
 
 	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadGateway, "", body))
 	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadGateway, "temporary upstream outage", []byte(`{"error":{"message":"temporary upstream outage"}}`)))
+}
+
+func TestShouldFailoverOpenAIUpstreamResponseTransient400Envelopes(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusBadRequest,
+		"Upstream request failed",
+		[]byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"}}`),
+	))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusBadRequest,
+		"upstream returned 400",
+		[]byte(`{"error":{"code":"gg_upstream_failed","message":"upstream returned 400","type":"upstream_error"}}`),
+	))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusBadRequest,
+		"Upstream request failed",
+		[]byte(`{"error":{"message":"Upstream request failed","type":"invalid_request_error"}}`),
+	))
 }
 
 func TestOpenAIGatewayService_Forward_LogsInstructionsRequiredDetails(t *testing.T) {

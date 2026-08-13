@@ -121,9 +121,36 @@ func isOpenAIServerOverloadedMessage(text string) bool {
 	return strings.Contains(lower, "server") && strings.Contains(lower, "overloaded")
 }
 
+// isOpenAITransientUpstreamErrorEnvelope identifies generic infrastructure
+// failures that some OpenAI-compatible upstream layers return with HTTP 400.
+// Keep this intentionally narrow: a normal invalid_request_error must not be
+// replayed across the account pool.
+func isOpenAITransientUpstreamErrorEnvelope(payload []byte) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	readErrorField := func(field string) string {
+		value := strings.TrimSpace(gjson.GetBytes(payload, "error."+field).String())
+		if value == "" {
+			value = strings.TrimSpace(gjson.GetBytes(payload, "response.error."+field).String())
+		}
+		return strings.ToLower(value)
+	}
+	if readErrorField("type") != "upstream_error" {
+		return false
+	}
+	if readErrorField("code") == "gg_upstream_failed" {
+		return true
+	}
+	return readErrorField("message") == "upstream request failed"
+}
+
 func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	if upstreamStatusCode != http.StatusBadRequest && upstreamStatusCode != http.StatusServiceUnavailable {
 		return false
+	}
+	if upstreamStatusCode == http.StatusBadRequest && isOpenAITransientUpstreamErrorEnvelope(upstreamBody) {
+		return true
 	}
 
 	hasOpenAIServerOverloadedCode := func(payload []byte) bool {
