@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 )
 
 // 渠道监控聚合层：把 latest + availability 拼成 admin/user 视图所需的 summary / detail。
@@ -199,7 +200,10 @@ func buildStatusSummary(
 	primary string,
 	extras []string,
 ) MonitorStatusSummary {
-	summary := MonitorStatusSummary{ExtraModels: make([]ExtraModelStatus, 0, len(extras))}
+	summary := MonitorStatusSummary{
+		ExtraModels:    make([]ExtraModelStatus, 0, len(extras)),
+		ObservedModels: buildObservedModelStatuses(latestByModel, availByModel, primary, extras),
+	}
 	if primary != "" {
 		if l, ok := latestByModel[primary]; ok {
 			summary.PrimaryStatus = l.Status
@@ -218,6 +222,61 @@ func buildStatusSummary(
 		summary.ExtraModels = append(summary.ExtraModels, entry)
 	}
 	return summary
+}
+
+// buildObservedModelStatuses 合并配置模型与实际历史模型。
+// 历史模型集合不能只按 primary/extras 裁剪，否则自动发现模型虽已探测入库，管理端却无法查看。
+func buildObservedModelStatuses(
+	latestByModel map[string]*ChannelMonitorLatest,
+	availByModel map[string]*ChannelMonitorAvailability,
+	primary string,
+	extras []string,
+) []MonitorObservedModelStatus {
+	models := make(map[string]struct{}, 1+len(extras)+len(latestByModel)+len(availByModel))
+	if primary != "" {
+		models[primary] = struct{}{}
+	}
+	for _, model := range extras {
+		if model != "" {
+			models[model] = struct{}{}
+		}
+	}
+	for model := range latestByModel {
+		if model != "" {
+			models[model] = struct{}{}
+		}
+	}
+	for model := range availByModel {
+		if model != "" {
+			models[model] = struct{}{}
+		}
+	}
+
+	ordered := make([]string, 0, len(models))
+	for model := range models {
+		ordered = append(ordered, model)
+	}
+	sort.Strings(ordered)
+
+	out := make([]MonitorObservedModelStatus, 0, len(ordered))
+	for _, model := range ordered {
+		item := MonitorObservedModelStatus{Model: model}
+		if latest, ok := latestByModel[model]; ok {
+			item.Status = latest.Status
+			item.LatencyMs = latest.LatencyMs
+			item.PingLatencyMs = latest.PingLatencyMs
+			checkedAt := latest.CheckedAt
+			item.CheckedAt = &checkedAt
+		}
+		if availability, ok := availByModel[model]; ok {
+			pct := availability.AvailabilityPct
+			item.Availability7d = &pct
+			item.AvgLatency7dMs = availability.AvgLatencyMs
+			item.TotalChecks7d = availability.TotalChecks
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 // buildUserViewFromSummary 用预聚合好的 MonitorStatusSummary + 主模型 latest + timeline 装填 UserMonitorView（无 IO）。

@@ -114,3 +114,16 @@ func TestDisabledAutoMonitorPolicyUsesOnlyManualModels(t *testing.T) {
 
 	require.Equal(t, []string{"manual-primary"}, models)
 }
+
+func TestChannelMonitorModelsForAccountUsesRequestedAliasesInStableOrder(t *testing.T) {
+	models := channelMonitorModelsForAccount(&Account{
+		Platform: PlatformOpenAI,
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			"gpt-5.6-terra": "upstream-terra",
+			"gpt-5.6-*":     "wildcard-must-not-be-probed",
+			"gpt-5.6-sol":   "upstream-sol",
+		}},
+	})
+
+	require.Equal(t, []string{"gpt-5.6-sol", "gpt-5.6-terra"}, models)
+}

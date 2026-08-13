@@ -298,7 +298,7 @@ const form = reactive<MonitorForm>({
   interval_seconds: systemDefaultInterval.value,
   jitter_seconds: 0,
   enabled: true,
-  streaming: false,
+  streaming: true,
   template_id: null,
   extra_headers: {},
   body_override_mode: 'off',
@@ -444,6 +444,8 @@ watch(() => form.provider, () => {
   form.api_key = ''
   if (form.provider === PROVIDER_GEMINI) {
     form.streaming = false
+  } else {
+    form.streaming = true
   }
   if (form.provider !== PROVIDER_OPENAI) {
     form.api_mode = API_MODE_CHAT_COMPLETIONS
@@ -471,7 +473,7 @@ function resetForm() {
   form.interval_seconds = systemDefaultInterval.value
   form.jitter_seconds = 0
   form.enabled = true
-  form.streaming = false
+  form.streaming = true
   form.template_id = null
   form.extra_headers = {}
   form.body_override_mode = 'off'

@@ -44,6 +44,8 @@ export interface ChannelMonitor {
   availability_7d: number
   /** Latest status per extra model (used for hover tooltip) */
   extra_models_status: ExtraModelStatus[]
+  /** All models with admin-side probe data, including runtime auto-discovered models. */
+  observed_models?: ObservedModelStatus[]
   /** 请求自定义快照字段（高级设置） */
   template_id: number | null
   extra_headers: Record<string, string>
@@ -55,6 +57,20 @@ export interface ExtraModelStatus {
   model: string
   status: MonitorStatus | ''
   latency_ms: number | null
+}
+
+export type ObservedModelSource = 'primary' | 'manual' | 'auto'
+
+export interface ObservedModelStatus {
+  model: string
+  source: ObservedModelSource
+  status: MonitorStatus | ''
+  latency_ms: number | null
+  ping_latency_ms: number | null
+  checked_at: string | null
+  availability_7d: number | null
+  avg_latency_7d_ms: number | null
+  total_checks_7d: number
 }
 
 export interface ListParams {
@@ -127,6 +143,45 @@ export interface HistoryParams {
 
 export interface HistoryResponse {
   items: HistoryItem[]
+}
+
+export interface PoolMonitorModel {
+  plan_id: number
+  model: string
+  enabled: boolean
+  status: '' | 'success' | 'failed'
+  latency_ms: number | null
+  availability: number | null
+  sample_count: number
+  failure_count: number
+  last_checked_at: string | null
+}
+
+export interface PoolMonitorAccount {
+  account_id: number
+  name: string
+  platform: string
+  type: string
+  status: string
+  schedulable: boolean
+  concurrency: number
+  models: PoolMonitorModel[]
+}
+
+export interface PoolMonitorOverviewResponse {
+  items: PoolMonitorAccount[]
+}
+
+export interface PoolProbeResult {
+  id: number
+  plan_id: number
+  status: 'success' | 'failed'
+  response_text: string
+  error_message: string
+  latency_ms: number
+  started_at: string
+  finished_at: string
+  created_at: string
 }
 
 export interface AutoModelPolicy {
@@ -309,6 +364,21 @@ export async function updateAutoModelPolicy(input: Pick<AutoModelPolicy, 'enable
   return data
 }
 
+export async function listPoolOverview(): Promise<PoolMonitorOverviewResponse> {
+  const { data } = await apiClient.get<PoolMonitorOverviewResponse>('/admin/channel-monitors/pool-overview')
+  return data
+}
+
+export async function listPoolProbeResults(planId: number, limit = 100): Promise<PoolProbeResult[]> {
+  const { data } = await apiClient.get<PoolProbeResult[]>(`/admin/scheduled-test-plans/${planId}/results`, { params: { limit } })
+  return data
+}
+
+export async function runPoolProbe(planId: number): Promise<PoolProbeResult> {
+  const { data } = await apiClient.post<PoolProbeResult>(`/admin/scheduled-test-plans/${planId}/run`)
+  return data
+}
+
 export const channelMonitorAPI = {
   list,
   get,
@@ -322,6 +392,9 @@ export const channelMonitorAPI = {
   listHistory,
   getAutoModelPolicy,
   updateAutoModelPolicy,
+  listPoolOverview,
+  listPoolProbeResults,
+  runPoolProbe,
 }
 
 export default channelMonitorAPI

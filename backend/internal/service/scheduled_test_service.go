@@ -76,12 +76,18 @@ func (s *ScheduledTestService) ListResults(ctx context.Context, planID int64, li
 	return s.resultRepo.ListByPlanID(ctx, planID, limit)
 }
 
+func (s *ScheduledTestService) ListChannelMonitorPoolOverview(ctx context.Context) ([]*ChannelMonitorPoolAccount, error) {
+	return s.planRepo.ListChannelMonitorPoolOverview(ctx, time.Now().Add(-7*24*time.Hour))
+}
+
 // SaveResult inserts a result and prunes old entries beyond maxResults.
 func (s *ScheduledTestService) SaveResult(ctx context.Context, planID int64, maxResults int, result *ScheduledTestResult) error {
 	result.PlanID = planID
-	if _, err := s.resultRepo.Create(ctx, result); err != nil {
+	created, err := s.resultRepo.Create(ctx, result)
+	if err != nil {
 		return err
 	}
+	*result = *created
 	return s.resultRepo.PruneOldResults(ctx, planID, maxResults)
 }
 

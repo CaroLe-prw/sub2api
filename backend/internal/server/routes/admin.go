@@ -726,6 +726,7 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		plans.PUT("/:id", h.Admin.ScheduledTest.Update)
 		plans.DELETE("/:id", h.Admin.ScheduledTest.Delete)
 		plans.GET("/:id/results", h.Admin.ScheduledTest.ListResults)
+		plans.POST("/:id/run", h.Admin.ScheduledTest.RunNow)
 	}
 	// Nested under accounts
 	admin.GET("/accounts/:id/scheduled-test-plans", h.Admin.ScheduledTest.ListByAccount)
@@ -775,6 +776,7 @@ func registerChannelMonitorRoutes(admin *gin.RouterGroup, h *handler.Handlers, s
 		monitors.POST("", h.Admin.ChannelMonitor.Create)
 		monitors.GET("/auto-model-policy", h.Admin.ChannelMonitor.GetAutoModelPolicy)
 		monitors.PUT("/auto-model-policy", h.Admin.ChannelMonitor.UpdateAutoModelPolicy)
+		monitors.GET("/pool-overview", h.Admin.ScheduledTest.ListChannelMonitorPool)
 		monitors.GET("/:id", h.Admin.ChannelMonitor.Get)
 		monitors.POST("/:id/duplicate", h.Admin.ChannelMonitor.Duplicate)
 		monitors.POST("/:id/publish", h.Admin.ChannelMonitor.Publish)

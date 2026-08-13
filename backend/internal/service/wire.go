@@ -572,8 +572,12 @@ func ProvideScheduledTestRunnerService(
 	accountTestSvc *AccountTestService,
 	rateLimitSvc *RateLimitService,
 	cfg *config.Config,
+	accountRepo AccountRepository,
+	settingRepo SettingRepository,
+	openAIGateway *OpenAIGatewayService,
 ) *ScheduledTestRunnerService {
 	svc := NewScheduledTestRunnerService(planRepo, scheduledSvc, accountTestSvc, rateLimitSvc, cfg)
+	svc.SetChannelMonitorPoolDependencies(accountRepo, settingRepo, openAIGateway)
 	svc.Start()
 	return svc
 }

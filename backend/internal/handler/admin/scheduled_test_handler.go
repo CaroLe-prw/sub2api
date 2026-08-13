@@ -12,11 +12,17 @@ import (
 // ScheduledTestHandler handles admin scheduled-test-plan management.
 type ScheduledTestHandler struct {
 	scheduledTestSvc *service.ScheduledTestService
+	accountTestSvc   *service.AccountTestService
+	probeReporter    *service.OpenAIGatewayService
 }
 
 // NewScheduledTestHandler creates a new ScheduledTestHandler.
-func NewScheduledTestHandler(scheduledTestSvc *service.ScheduledTestService) *ScheduledTestHandler {
-	return &ScheduledTestHandler{scheduledTestSvc: scheduledTestSvc}
+func NewScheduledTestHandler(
+	scheduledTestSvc *service.ScheduledTestService,
+	accountTestSvc *service.AccountTestService,
+	probeReporter *service.OpenAIGatewayService,
+) *ScheduledTestHandler {
+	return &ScheduledTestHandler{scheduledTestSvc: scheduledTestSvc, accountTestSvc: accountTestSvc, probeReporter: probeReporter}
 }
 
 type createScheduledTestPlanRequest struct {
@@ -50,6 +56,48 @@ func (h *ScheduledTestHandler) ListByAccount(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, plans)
+}
+
+// ListChannelMonitorPool GET /admin/channel-monitors/pool-overview
+// This endpoint is admin-only and never participates in the public status API.
+func (h *ScheduledTestHandler) ListChannelMonitorPool(c *gin.Context) {
+	items, err := h.scheduledTestSvc.ListChannelMonitorPoolOverview(c.Request.Context())
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+	response.Success(c, map[string]any{"items": items})
+}
+
+// RunNow executes one automatically managed account/model streaming probe.
+func (h *ScheduledTestHandler) RunNow(c *gin.Context) {
+	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid plan id")
+		return
+	}
+	plan, err := h.scheduledTestSvc.GetPlan(c.Request.Context(), planID)
+	if err != nil {
+		response.NotFound(c, "plan not found")
+		return
+	}
+	if plan.ManagedBy != service.ScheduledTestManagedByChannelMonitor {
+		response.NotFound(c, "channel monitor plan not found")
+		return
+	}
+	result, err := h.accountTestSvc.RunTestBackground(c.Request.Context(), plan.AccountID, plan.ModelID)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+	if err := h.scheduledTestSvc.SaveResult(c.Request.Context(), plan.ID, plan.MaxResults, result); err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+	if plan.ManagedBy == service.ScheduledTestManagedByChannelMonitor && h.probeReporter != nil {
+		h.probeReporter.ReportChannelMonitorProbe(plan.AccountID, plan.ModelID, result.Status == "success")
+	}
+	response.Success(c, result)
 }
 
 // Create POST /admin/scheduled-test-plans

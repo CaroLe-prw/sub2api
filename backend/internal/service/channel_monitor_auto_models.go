@@ -80,11 +80,15 @@ func (s *ChannelMonitorService) UpdateAutoModelPolicy(ctx context.Context, input
 }
 
 func (s *ChannelMonitorService) loadAutoModelPolicy(ctx context.Context) (ChannelMonitorAutoModelPolicy, error) {
+	return loadAutoModelPolicyFromStore(ctx, s.settings)
+}
+
+func loadAutoModelPolicyFromStore(ctx context.Context, settings channelMonitorAutoModelSettingStore) (ChannelMonitorAutoModelPolicy, error) {
 	policy := defaultChannelMonitorAutoModelPolicy()
-	if s == nil || s.settings == nil {
+	if settings == nil {
 		return policy, nil
 	}
-	values, err := s.settings.GetMultiple(ctx, []string{
+	values, err := settings.GetMultiple(ctx, []string{
 		SettingKeyChannelMonitorAutoModelsEnabled,
 		SettingKeyChannelMonitorAutoModelsWhitelist,
 	})

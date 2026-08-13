@@ -2429,6 +2429,30 @@ func (s *OpenAIGatewayService) getOpenAIAccountScheduler(ctx context.Context) Op
 	return s.openaiScheduler
 }
 
+// ReportChannelMonitorProbe seeds the scheduler's account health EWMA with
+// admin-only active-probe outcomes. Probe duration is deliberately not treated
+// as TTFT; real traffic remains the source of first-token latency.
+func (s *OpenAIGatewayService) ReportChannelMonitorProbe(accountID int64, model string, success bool) {
+	if s == nil || accountID <= 0 {
+		return
+	}
+	s.openaiSchedulerOnce.Do(func() {
+		if s.openaiAccountStats == nil {
+			s.openaiAccountStats = newOpenAIAccountRuntimeStats()
+		}
+		if s.openaiScheduler == nil {
+			s.openaiScheduler = newDefaultOpenAIAccountScheduler(s, s.openaiAccountStats)
+		}
+	})
+	s.openaiAccountStats.report(accountID, success, nil)
+	modelState := s.getOpenAIAccountModelTransientState()
+	if success {
+		modelState.recordSuccess(accountID, model)
+	} else {
+		modelState.recordFailure(accountID, model, time.Now())
+	}
+}
+
 func resetOpenAIAdvancedSchedulerSettingCacheForTest() {
 	openAIAdvancedSchedulerSettingCache = atomic.Value{}
 	openAIAdvancedSchedulerSettingSF = singleflight.Group{}

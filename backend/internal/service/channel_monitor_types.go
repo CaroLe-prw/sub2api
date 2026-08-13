@@ -221,6 +221,19 @@ type ChannelMonitorAvailability struct {
 	AvgLatencyMs      *int
 }
 
+// MonitorObservedModelStatus 管理端数据面板中的单模型实测汇总。
+// 该结构来自实际 history 数据，因此也包含运行时自动发现、但未写入监控配置的模型。
+type MonitorObservedModelStatus struct {
+	Model          string
+	Status         string
+	LatencyMs      *int
+	PingLatencyMs  *int
+	CheckedAt      *time.Time
+	Availability7d *float64
+	AvgLatency7dMs *int
+	TotalChecks7d  int
+}
+
 // MonitorStatusSummary 监控状态聚合（admin list 用，单次 repo 查询消除前端 N+1）。
 // PrimaryStatus / PrimaryLatencyMs 描述主模型最近状态；Availability7d 是主模型 7 天可用率；
 // ExtraModels 描述附加模型最近状态（用于 hover 展示）。
@@ -229,4 +242,5 @@ type MonitorStatusSummary struct {
 	PrimaryLatencyMs *int
 	Availability7d   float64 // 0-100，无历史时为 0
 	ExtraModels      []ExtraModelStatus
+	ObservedModels   []MonitorObservedModelStatus
 }

@@ -14,10 +14,40 @@ type ScheduledTestPlan struct {
 	Enabled        bool       `json:"enabled"`
 	MaxResults     int        `json:"max_results"`
 	AutoRecover    bool       `json:"auto_recover"`
+	ManagedBy      string     `json:"managed_by"`
 	LastRunAt      *time.Time `json:"last_run_at"`
 	NextRunAt      *time.Time `json:"next_run_at"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+const ScheduledTestManagedByChannelMonitor = "channel_monitor"
+
+// ChannelMonitorPoolModel is the admin-only active-probe snapshot for one
+// account/model pair. Scheduled account tests are streaming by design.
+type ChannelMonitorPoolModel struct {
+	PlanID        int64      `json:"plan_id"`
+	Model         string     `json:"model"`
+	Enabled       bool       `json:"enabled"`
+	Status        string     `json:"status"`
+	LatencyMs     *int64     `json:"latency_ms"`
+	Availability  *float64   `json:"availability"`
+	SampleCount   int64      `json:"sample_count"`
+	FailureCount  int64      `json:"failure_count"`
+	LastCheckedAt *time.Time `json:"last_checked_at"`
+}
+
+// ChannelMonitorPoolAccount groups automatically managed probes by upstream
+// account so the admin UI can switch between account and model perspectives.
+type ChannelMonitorPoolAccount struct {
+	AccountID   int64                     `json:"account_id"`
+	Name        string                    `json:"name"`
+	Platform    string                    `json:"platform"`
+	Type        string                    `json:"type"`
+	Status      string                    `json:"status"`
+	Schedulable bool                      `json:"schedulable"`
+	Concurrency int                       `json:"concurrency"`
+	Models      []ChannelMonitorPoolModel `json:"models"`
 }
 
 // ScheduledTestResult represents a single test execution result.
@@ -42,6 +72,8 @@ type ScheduledTestPlanRepository interface {
 	Update(ctx context.Context, plan *ScheduledTestPlan) (*ScheduledTestPlan, error)
 	Delete(ctx context.Context, id int64) error
 	UpdateAfterRun(ctx context.Context, id int64, lastRunAt time.Time, nextRunAt time.Time) error
+	ReconcileChannelMonitorPlans(ctx context.Context, desired []*ScheduledTestPlan) error
+	ListChannelMonitorPoolOverview(ctx context.Context, since time.Time) ([]*ChannelMonitorPoolAccount, error)
 }
 
 // ScheduledTestResultRepository defines the data access interface for test results.
