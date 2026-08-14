@@ -398,7 +398,7 @@ func readMonitorStreamingResponse(
 		if message := monitorStreamingErrorMessage([]byte(eventData)); message != "" {
 			return fmt.Errorf("upstream event stream failed: %s", sanitizeErrorMessage(message))
 		}
-		text.WriteString(extractMonitorStreamingText(provider, apiMode, []byte(eventData)))
+		_, _ = text.WriteString(extractMonitorStreamingText(provider, apiMode, []byte(eventData)))
 		if answerLatency == 0 && text.Len() > 0 {
 			answerLatency = time.Since(startedAt)
 		}
@@ -411,7 +411,7 @@ func readMonitorStreamingResponse(
 		if receivedBytes > monitorResponseMaxBytes {
 			return "", rawBody.String(), 0, errors.New("upstream event stream response is too large")
 		}
-		rawBody.WriteString(line)
+		_, _ = rawBody.WriteString(line)
 		trimmed := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 		switch {
 		case trimmed == "":
