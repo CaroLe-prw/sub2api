@@ -160,6 +160,49 @@ type upstreamBillingProbeHTTPStub struct {
 	beforeResponse func()
 }
 
+type upstreamBillingLegacyDeadlineHTTPStub struct {
+	requests []*http.Request
+}
+
+func (u *upstreamBillingLegacyDeadlineHTTPStub) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	return u.DoWithTLS(req, "", 0, 0, nil)
+}
+
+func (u *upstreamBillingLegacyDeadlineHTTPStub) DoWithTLS(
+	req *http.Request,
+	_ string,
+	_ int64,
+	_ int,
+	_ *tlsfingerprint.Profile,
+) (*http.Response, error) {
+	u.requests = append(u.requests, req)
+	if req.URL.Path == "/v1/usage" {
+		deadline, ok := req.Context().Deadline()
+		if !ok || time.Until(deadline) < 30*time.Second {
+			return nil, context.DeadlineExceeded
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"remaining":2.15567904,"balance":2.15567904,"unit":"USD"}`)),
+		}, nil
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{
+			"object":"sub2api.key_billing",
+			"schema_version":1,
+			"billing_scope":"token",
+			"group_rate_multiplier":0.04,
+			"resolved_rate_multiplier":0.04,
+			"peak_rate_enabled":false,
+			"effective_rate_multiplier":0.04,
+			"observed_at":"2026-08-14T09:46:06Z"
+		}`)),
+	}, nil
+}
+
 func (u *upstreamBillingProbeHTTPStub) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
 	u.calls.Add(1)
 	active := u.active.Add(1)
@@ -397,6 +440,30 @@ func TestUpstreamBillingProbeFallsBackToLegacyUsageBalance(t *testing.T) {
 	require.Equal(t, "/v1/sub2api/billing", upstream.requests[0].URL.Path)
 	require.Equal(t, "/v1/usage", upstream.requests[1].URL.Path)
 	require.Equal(t, "Bearer sk-sensitive", upstream.requests[1].Header.Get("Authorization"))
+}
+
+func TestUpstreamBillingProbeLegacyUsageGetsIndependentTimeout(t *testing.T) {
+	account := &Account{
+		ID:          347,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Concurrency: 100,
+		Credentials: map[string]any{
+			"api_key":  "sk-sensitive",
+			"base_url": "https://tkapi.cc.cd",
+		},
+	}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	upstream := &upstreamBillingLegacyDeadlineHTTPStub{}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+
+	snapshot, err := svc.ProbeAccount(context.Background(), account.ID)
+
+	require.NoError(t, err)
+	require.Equal(t, 2.15567904, snapshot.Data["balance"])
+	require.Equal(t, "wallet", snapshot.Data["balance_kind"])
+	require.Len(t, upstream.requests, 2)
 }
 
 func TestUpstreamBillingProbeFallsBackToLegacyUsageWhenBillingEndpointUnavailable(t *testing.T) {

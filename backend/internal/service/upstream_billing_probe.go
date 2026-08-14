@@ -42,10 +42,15 @@ const (
 	upstreamBillingProbeMaxIntervalMinutes     = 24 * 60
 	upstreamBillingProbeCycleInterval          = time.Minute
 	upstreamBillingProbeRequestTimeout         = 10 * time.Second
-	upstreamBillingProbeMaxBodyBytes           = 64 * 1024
-	upstreamBillingProbeMaxPerCycle            = 20
-	upstreamBillingProbeConcurrency            = 4
-	upstreamBillingProbeMaxDelay               = 24 * time.Hour
+	// Legacy /v1/usage computes usage summaries before returning the wallet
+	// balance. Older upstreams can legitimately take longer than the lightweight
+	// /v1/sub2api/billing endpoint, so it needs its own request budget instead of
+	// inheriting the primary probe's nearly-expired deadline.
+	upstreamBillingLegacyUsageRequestTimeout = 45 * time.Second
+	upstreamBillingProbeMaxBodyBytes         = 64 * 1024
+	upstreamBillingProbeMaxPerCycle          = 20
+	upstreamBillingProbeConcurrency          = 4
+	upstreamBillingProbeMaxDelay             = 24 * time.Hour
 	// unsupported 账号的重探间隔倍数：上游不是 sub2api 中转就不会突然长出
 	// /v1/sub2api/billing，按常规 interval 重排只会持续占满每周期
 	// upstreamBillingProbeMaxPerCycle 个名额。
@@ -800,9 +805,19 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 	if resp == nil || resp.Body == nil {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "empty_response", 0)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	primaryResponseClosed := false
+	closePrimaryResponse := func() {
+		if !primaryResponseClosed {
+			_ = resp.Body.Close()
+			primaryResponseClosed = true
+		}
+	}
+	defer closePrimaryResponse()
 	tryLegacyUsage := func() (*UpstreamBillingProbeSnapshot, bool, error) {
-		balance, balanceKind, ok := s.probeLegacyUpstreamUsage(req.Context(), normalizedBaseURL, apiKey, proxyURL, account, tlsProfile)
+		// Release the first request's connection before starting the fallback.
+		// This matters for account-isolated pools with a small MaxConnsPerHost.
+		closePrimaryResponse()
+		balance, balanceKind, ok := s.probeLegacyUpstreamUsage(ctx, normalizedBaseURL, apiKey, proxyURL, account, tlsProfile)
 		if !ok {
 			return nil, false, nil
 		}
@@ -858,7 +873,8 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "invalid_response", retryAfter(resp.Header, now))
 	}
 	if _, hasBalance := data["balance"]; !hasBalance {
-		if balance, balanceKind, ok := s.probeLegacyUpstreamUsage(req.Context(), normalizedBaseURL, apiKey, proxyURL, account, tlsProfile); ok {
+		closePrimaryResponse()
+		if balance, balanceKind, ok := s.probeLegacyUpstreamUsage(ctx, normalizedBaseURL, apiKey, proxyURL, account, tlsProfile); ok {
 			data["balance"] = balance
 			data["balance_kind"] = balanceKind
 		}
@@ -927,8 +943,16 @@ func (s *UpstreamBillingProbeService) probeLegacyUpstreamUsage(
 	if s == nil || s.accountTestService == nil || s.accountTestService.httpUpstream == nil || account == nil {
 		return 0, "", false
 	}
+	profile := HTTPUpstreamProfileDefault
+	if account.Platform == PlatformOpenAI {
+		profile = HTTPUpstreamProfileOpenAI
+	}
+	usageCtx := WithHTTPUpstreamProfile(ctx, profile)
+	usageCtx = WithHTTPUpstreamRedirectsDisabled(usageCtx)
+	usageCtx, cancel := context.WithTimeout(usageCtx, upstreamBillingLegacyUsageRequestTimeout)
+	defer cancel()
 	usageURL := buildOpenAIEndpointURL(normalizedBaseURL, "/v1/usage")
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, usageURL, nil)
+	request, err := http.NewRequestWithContext(usageCtx, http.MethodGet, usageURL, nil)
 	if err != nil {
 		return 0, "", false
 	}
