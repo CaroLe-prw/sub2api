@@ -116,6 +116,24 @@ func TestSettingService_ChannelMonitorHideThroughputDefaultsToPrivate(t *testing
 	}
 }
 
+func TestSettingService_ChannelMonitorRequireAuthDefaultsToEnabled(t *testing.T) {
+	runtime := NewSettingService(&settingPublicRepoStub{values: map[string]string{}}, &config.Config{}).
+		GetChannelMonitorRuntime(context.Background())
+	require.True(t, runtime.RequireAuth)
+
+	public, err := NewSettingService(&settingPublicRepoStub{values: map[string]string{}}, &config.Config{}).
+		GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.True(t, public.ChannelMonitorRequireAuth)
+
+	for _, value := range []string{"false", "0", "off", "disabled"} {
+		runtime := NewSettingService(&settingPublicRepoStub{values: map[string]string{
+			SettingKeyChannelMonitorRequireAuth: value,
+		}}, &config.Config{}).GetChannelMonitorRuntime(context.Background())
+		require.False(t, runtime.RequireAuth, "value=%q", value)
+	}
+}
+
 func TestSettingService_GetPublicSettings_ExposesForceEmailOnThirdPartySignup(t *testing.T) {
 	repo := &settingPublicRepoStub{
 		values: map[string]string{

@@ -410,6 +410,11 @@ const (
 	// When false: runner skips scheduling and user-facing endpoints return an empty list.
 	SettingKeyChannelMonitorEnabled = "channel_monitor_enabled"
 
+	// SettingKeyChannelMonitorRequireAuth controls whether user-facing status APIs
+	// require a valid login. Default true keeps status data private unless an
+	// administrator explicitly allows anonymous access.
+	SettingKeyChannelMonitorRequireAuth = "channel_monitor_require_auth"
+
 	// SettingKeyChannelMonitorMode selects exclusive implementation:
 	// "v1" active probes, "v2" passive aggregation. Default "v1" (opt-in to v2).
 	SettingKeyChannelMonitorMode = "channel_monitor_mode"

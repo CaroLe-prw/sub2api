@@ -55,6 +55,7 @@ interface MockAuthState {
   backendModeEnabled: boolean
   hasPendingAuthSession: boolean
   setupNeedsSetup?: boolean
+  channelMonitorRequireAuth?: boolean
 }
 
 /**
@@ -83,8 +84,15 @@ function simulateGuard(
       }
       return authState.isAdmin ? '/admin/dashboard' : '/dashboard'
     }
+    if (
+      toPath === '/monitor' &&
+      authState.channelMonitorRequireAuth !== false &&
+      !authState.isAuthenticated
+    ) {
+      return '/login'
+    }
     if (authState.backendModeEnabled && !authState.isAuthenticated) {
-      const allowed = ['/login', '/key-usage', '/setup', '/payment/result']
+      const allowed = ['/login', '/key-usage', '/monitor', '/setup', '/payment/result']
       const callbackPaths = [
         '/auth/callback',
         '/auth/linuxdo/callback',
@@ -134,7 +142,7 @@ function simulateGuard(
     if (authState.isAuthenticated && authState.isAdmin) {
       return null
     }
-    const allowed = ['/login', '/key-usage', '/setup', '/payment/result']
+    const allowed = ['/login', '/key-usage', '/monitor', '/setup', '/payment/result']
     const callbackPaths = [
       '/auth/callback',
       '/auth/linuxdo/callback',
@@ -387,6 +395,32 @@ describe('路由守卫逻辑', () => {
       }
       const redirect = simulateGuard('/key-usage', { requiresAuth: false }, authState)
       expect(redirect).toBeNull()
+    })
+
+    it('unauthenticated: /monitor is allowed when login is not required', () => {
+      const authState: MockAuthState = {
+        isAuthenticated: false,
+        isAdmin: false,
+        isSimpleMode: false,
+        backendModeEnabled: true,
+        hasPendingAuthSession: false,
+        channelMonitorRequireAuth: false,
+      }
+      const redirect = simulateGuard('/monitor', { requiresAuth: false }, authState)
+      expect(redirect).toBeNull()
+    })
+
+    it('unauthenticated: /monitor redirects when login is required', () => {
+      const authState: MockAuthState = {
+        isAuthenticated: false,
+        isAdmin: false,
+        isSimpleMode: false,
+        backendModeEnabled: false,
+        hasPendingAuthSession: false,
+        channelMonitorRequireAuth: true,
+      }
+      const redirect = simulateGuard('/monitor', { requiresAuth: false }, authState)
+      expect(redirect).toBe('/login')
     })
 
     it('unauthenticated: /setup is allowed', () => {

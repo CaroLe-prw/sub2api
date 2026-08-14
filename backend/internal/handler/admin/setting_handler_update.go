@@ -333,6 +333,7 @@ type UpdateSettingsRequest struct {
 
 	// Channel Monitor feature switch
 	ChannelMonitorEnabled                *bool   `json:"channel_monitor_enabled"`
+	ChannelMonitorRequireAuth            *bool   `json:"channel_monitor_require_auth"`
 	ChannelMonitorMode                   *string `json:"channel_monitor_mode"`
 	ChannelMonitorDefaultIntervalSeconds *int    `json:"channel_monitor_default_interval_seconds"`
 	ChannelMonitorHideThroughput         *bool   `json:"channel_monitor_hide_throughput"`
@@ -1899,6 +1900,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ChannelMonitorEnabled
 		}(),
+		ChannelMonitorRequireAuth: func() bool {
+			if req.ChannelMonitorRequireAuth != nil {
+				return *req.ChannelMonitorRequireAuth
+			}
+			return previousSettings.ChannelMonitorRequireAuth
+		}(),
 		ChannelMonitorMode: func() string {
 			if req.ChannelMonitorMode != nil {
 				return *req.ChannelMonitorMode
@@ -2371,6 +2378,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PaymentAlipayMobilePrecreateDeepLink:                   updatedPaymentCfg.AlipayMobilePrecreateDeepLink,
 
 		ChannelMonitorEnabled:                updatedSettings.ChannelMonitorEnabled,
+		ChannelMonitorRequireAuth:            updatedSettings.ChannelMonitorRequireAuth,
 		ChannelMonitorMode:                   updatedSettings.ChannelMonitorMode,
 		ChannelMonitorDefaultIntervalSeconds: updatedSettings.ChannelMonitorDefaultIntervalSeconds,
 		ChannelMonitorHideThroughput:         updatedSettings.ChannelMonitorHideThroughput,
