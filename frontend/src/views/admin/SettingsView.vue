@@ -9889,57 +9889,57 @@ const openAIAdvancedSchedulerWeightFields = computed<
     {
       key: "openai_advanced_scheduler_lb_top_k",
       label: t("admin.settings.openaiExperimentalScheduler.topKLabel"),
-      placeholder: placeholder("openai_advanced_scheduler_effective_lb_top_k", "7"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_lb_top_k", "4"),
     },
     {
       key: "openai_advanced_scheduler_weight_priority",
       label: t("admin.settings.openaiExperimentalScheduler.priorityWeight"),
-      placeholder: placeholder("openai_advanced_scheduler_effective_weight_priority", "1"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_priority", "0.5"),
     },
     {
       key: "openai_advanced_scheduler_weight_load",
       label: t("admin.settings.openaiExperimentalScheduler.loadWeight"),
-      placeholder: placeholder("openai_advanced_scheduler_effective_weight_load", "1"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_load", "1.5"),
     },
     {
       key: "openai_advanced_scheduler_weight_queue",
       label: t("admin.settings.openaiExperimentalScheduler.queueWeight"),
-      placeholder: placeholder("openai_advanced_scheduler_effective_weight_queue", "0.7"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_queue", "1.5"),
     },
     {
       key: "openai_advanced_scheduler_weight_error_rate",
       label: t("admin.settings.openaiExperimentalScheduler.errorRateWeight"),
-      placeholder: placeholder("openai_advanced_scheduler_effective_weight_error_rate", "0.8"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_error_rate", "4"),
     },
     {
       key: "openai_advanced_scheduler_weight_ttft",
       label: t("admin.settings.openaiExperimentalScheduler.ttftWeight"),
-      placeholder: placeholder("openai_advanced_scheduler_effective_weight_ttft", "0.5"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_ttft", "2.5"),
     },
     {
       key: "openai_advanced_scheduler_weight_reset",
       label: t("admin.settings.openaiExperimentalScheduler.resetWeight"),
-      placeholder: placeholder("openai_advanced_scheduler_effective_weight_reset", "0"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_reset", "0.2"),
     },
     {
       key: "openai_advanced_scheduler_weight_quota_headroom",
       label: t("admin.settings.openaiExperimentalScheduler.quotaHeadroomWeight"),
-      placeholder: placeholder("openai_advanced_scheduler_effective_weight_quota_headroom", "0"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_quota_headroom", "0.8"),
     },
     {
       key: "openai_advanced_scheduler_weight_upstream_cost",
       label: t("admin.settings.openaiExperimentalScheduler.upstreamCostWeight"),
-      placeholder: placeholder("openai_advanced_scheduler_effective_weight_upstream_cost", "0"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_upstream_cost", "1.5"),
     },
     {
       key: "openai_advanced_scheduler_weight_previous_response",
       label: t("admin.settings.openaiExperimentalScheduler.previousResponseWeight"),
-      placeholder: placeholder("openai_advanced_scheduler_effective_weight_previous_response", "5"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_previous_response", "0.3"),
     },
     {
       key: "openai_advanced_scheduler_weight_session_sticky",
       label: t("admin.settings.openaiExperimentalScheduler.sessionStickyWeight"),
-      placeholder: placeholder("openai_advanced_scheduler_effective_weight_session_sticky", "3"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_session_sticky", "0.1"),
     },
   ];
 });

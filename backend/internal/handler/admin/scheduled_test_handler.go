@@ -96,7 +96,12 @@ func (h *ScheduledTestHandler) RunNow(c *gin.Context) {
 		return
 	}
 	if plan.ManagedBy == service.ScheduledTestManagedBySchedulerProbe && h.probeReporter != nil {
-		h.probeReporter.ReportChannelMonitorProbe(plan.AccountID, plan.ModelID, result.Status == "success")
+		var firstTokenMs *int
+		if result.TTFTMs != nil {
+			value := int(*result.TTFTMs)
+			firstTokenMs = &value
+		}
+		h.probeReporter.ReportChannelMonitorProbe(plan.AccountID, plan.ModelID, result.Status == "success", firstTokenMs)
 	}
 	response.Success(c, result)
 }

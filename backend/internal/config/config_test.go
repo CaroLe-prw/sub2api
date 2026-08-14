@@ -479,11 +479,23 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	if cfg.Gateway.OpenAIWS.PayloadLogSampleRate != 0.2 {
 		t.Fatalf("Gateway.OpenAIWS.PayloadLogSampleRate = %v, want 0.2", cfg.Gateway.OpenAIWS.PayloadLogSampleRate)
 	}
-	if cfg.Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom != 0 {
-		t.Fatalf("Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom = %v, want 0", cfg.Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom)
+	if cfg.Gateway.OpenAIWS.LBTopK != 4 {
+		t.Fatalf("Gateway.OpenAIWS.LBTopK = %d, want 4", cfg.Gateway.OpenAIWS.LBTopK)
 	}
-	if cfg.Gateway.OpenAIWS.SchedulerScoreWeights.UpstreamCost != 0 {
-		t.Fatalf("Gateway.OpenAIWS.SchedulerScoreWeights.UpstreamCost = %v, want 0", cfg.Gateway.OpenAIWS.SchedulerScoreWeights.UpstreamCost)
+	wantSchedulerWeights := GatewayOpenAIWSSchedulerScoreWeights{
+		Priority:         0.5,
+		Load:             1.5,
+		Queue:            1.5,
+		ErrorRate:        4,
+		TTFT:             2.5,
+		Reset:            0.2,
+		QuotaHeadroom:    0.8,
+		UpstreamCost:     1.5,
+		PreviousResponse: 0.3,
+		SessionSticky:    0.1,
+	}
+	if cfg.Gateway.OpenAIWS.SchedulerScoreWeights != wantSchedulerWeights {
+		t.Fatalf("Gateway.OpenAIWS.SchedulerScoreWeights = %+v, want %+v", cfg.Gateway.OpenAIWS.SchedulerScoreWeights, wantSchedulerWeights)
 	}
 	if !cfg.Gateway.OpenAIWS.StoreDisabledForceNewConn {
 		t.Fatalf("Gateway.OpenAIWS.StoreDisabledForceNewConn = false, want true")
@@ -2320,6 +2332,9 @@ func TestValidateConfig_OpenAIWSRules(t *testing.T) {
 				c.Gateway.OpenAIWS.SchedulerScoreWeights.Queue = 0
 				c.Gateway.OpenAIWS.SchedulerScoreWeights.ErrorRate = 0
 				c.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT = 0
+				c.Gateway.OpenAIWS.SchedulerScoreWeights.Reset = 0
+				c.Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom = 0
+				c.Gateway.OpenAIWS.SchedulerScoreWeights.UpstreamCost = 0
 			},
 			wantErr: "gateway.openai_ws.scheduler_score_weights must not all be zero",
 		},

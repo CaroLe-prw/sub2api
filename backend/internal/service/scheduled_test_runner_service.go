@@ -32,7 +32,8 @@ type ScheduledTestRunnerService struct {
 }
 
 type channelMonitorProbeOutcomeReporter interface {
-	ReportChannelMonitorProbe(accountID int64, model string, success bool)
+	ReportChannelMonitorProbe(accountID int64, model string, success bool, firstTokenMs *int)
+	RefreshOpenAISchedulerHealth(ctx context.Context)
 }
 
 // NewScheduledTestRunnerService creates a new runner.
@@ -153,6 +154,11 @@ func (s *ScheduledTestRunnerService) reconcileChannelMonitorPlans(ctx context.Co
 	if s == nil || s.planRepo == nil || s.accounts == nil {
 		return nil
 	}
+	if s.probeReporter != nil {
+		healthCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		s.probeReporter.RefreshOpenAISchedulerHealth(healthCtx)
+		cancel()
+	}
 	policy, err := loadAutoModelPolicyFromStore(ctx, s.settings)
 	if err != nil {
 		return err
@@ -233,7 +239,12 @@ func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *Sched
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d SaveResult error: %v", plan.ID, err)
 	}
 	if plan.ManagedBy == ScheduledTestManagedBySchedulerProbe && s.probeReporter != nil {
-		s.probeReporter.ReportChannelMonitorProbe(plan.AccountID, plan.ModelID, result.Status == "success")
+		var firstTokenMs *int
+		if result.TTFTMs != nil {
+			value := int(*result.TTFTMs)
+			firstTokenMs = &value
+		}
+		s.probeReporter.ReportChannelMonitorProbe(plan.AccountID, plan.ModelID, result.Status == "success", firstTokenMs)
 	}
 
 	// Auto-recover account if test succeeded and auto_recover is enabled.

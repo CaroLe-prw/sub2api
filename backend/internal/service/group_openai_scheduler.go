@@ -56,21 +56,21 @@ type OpenAISchedulerTemplates struct {
 func DefaultOpenAISchedulerTemplates() OpenAISchedulerTemplates {
 	return OpenAISchedulerTemplates{
 		SLA: OpenAISchedulerTemplate{
-			TopK: 2, Priority: 1, Load: 1.5, Queue: 1.5, ErrorRate: 3,
-			TTFT: 2.5, Reset: 0, QuotaHeadroom: 0.5, UpstreamCost: 0,
-			PreviousResponse: 0.5, SessionSticky: 0.15,
+			TopK: 2, Priority: 0.5, Load: 1.5, Queue: 1.5, ErrorRate: 5,
+			TTFT: 3.5, Reset: 0, QuotaHeadroom: 0.5, UpstreamCost: 0.5,
+			PreviousResponse: 0.3, SessionSticky: 0.1,
 			StickyWeightedEnabled: true, SubscriptionPriorityEnabled: false,
 		},
 		Balanced: OpenAISchedulerTemplate{
-			TopK: 3, Priority: 1, Load: 1.2, Queue: 1, ErrorRate: 2,
-			TTFT: 1.2, Reset: 0.3, QuotaHeadroom: 0.8, UpstreamCost: 1.5,
-			PreviousResponse: 0.35, SessionSticky: 0.15,
+			TopK: 3, Priority: 0.5, Load: 1.5, Queue: 1.5, ErrorRate: 4,
+			TTFT: 2.5, Reset: 0.2, QuotaHeadroom: 0.8, UpstreamCost: 1.5,
+			PreviousResponse: 0.3, SessionSticky: 0.1,
 			StickyWeightedEnabled: true, SubscriptionPriorityEnabled: false,
 		},
 		Cost: OpenAISchedulerTemplate{
-			TopK: 2, Priority: 0.3, Load: 0.8, Queue: 0.7, ErrorRate: 2,
-			TTFT: 0.8, Reset: 0.5, QuotaHeadroom: 1.2, UpstreamCost: 5,
-			PreviousResponse: 0.25, SessionSticky: 0.1,
+			TopK: 3, Priority: 0.3, Load: 1.2, Queue: 1.2, ErrorRate: 5,
+			TTFT: 1.5, Reset: 0.3, QuotaHeadroom: 1, UpstreamCost: 4,
+			PreviousResponse: 0.2, SessionSticky: 0.1,
 			StickyWeightedEnabled: true, SubscriptionPriorityEnabled: false,
 		},
 	}
