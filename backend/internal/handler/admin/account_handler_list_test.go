@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -464,6 +465,16 @@ func TestAccountHandlerListSchedulerScoreIgnoresPagination(t *testing.T) {
 	}
 	adminSvc.accounts = []service.Account{visibleAccount}
 	adminSvc.accountSchedulerScoreFilterAccounts = []service.Account{visibleAccount, hiddenFilterPeer}
+	fullPoolScores := service.BuildOpenAIAccountSchedulerScoreSnapshot(
+		[]*service.Account{&visibleAccount, &hiddenFilterPeer},
+		nil,
+		nil,
+	)
+	pageOnlyScores := service.BuildOpenAIAccountSchedulerScoreSnapshot(
+		[]*service.Account{&visibleAccount},
+		nil,
+		nil,
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=1&platform=openai&include_scheduler_score=1", nil)
@@ -487,6 +498,8 @@ func TestAccountHandlerListSchedulerScoreIgnoresPagination(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
 	require.Len(t, payload.Data.Items, 1)
 	require.Equal(t, int64(301), payload.Data.Items[0].ID)
-	require.Less(t, payload.Data.Items[0].SchedulerScore.BaseScore, 3.75)
+	actualScore := payload.Data.Items[0].SchedulerScore.BaseScore
+	require.InDelta(t, fullPoolScores[visibleAccount.ID].BaseScore, actualScore, 1e-9)
+	require.Greater(t, math.Abs(pageOnlyScores[visibleAccount.ID].BaseScore-actualScore), 1e-9)
 	require.Empty(t, payload.Data.Items[0].SchedulerScores)
 }
