@@ -46,11 +46,11 @@ const (
 	// balance. Older upstreams can legitimately take longer than the lightweight
 	// /v1/sub2api/billing endpoint, so it needs its own request budget instead of
 	// inheriting the primary probe's nearly-expired deadline.
-	upstreamBillingLegacyUsageRequestTimeout = 45 * time.Second
+	upstreamBillingLegacyUsageRequestTimeout = 2 * time.Minute
 	// Manual probes run outside the admin request lifecycle. Keep the total
 	// budget bounded while allowing both the primary and legacy endpoints to use
 	// their complete individual timeouts.
-	upstreamBillingManualRefreshTimeout = time.Minute
+	upstreamBillingManualRefreshTimeout = upstreamBillingProbeRequestTimeout + upstreamBillingLegacyUsageRequestTimeout + 5*time.Second
 	upstreamBillingProbeMaxBodyBytes    = 64 * 1024
 	upstreamBillingProbeMaxPerCycle     = 20
 	upstreamBillingProbeConcurrency     = 4
@@ -994,8 +994,22 @@ func (s *UpstreamBillingProbeService) probeLegacyUpstreamUsage(
 	usageCtx = WithHTTPUpstreamRedirectsDisabled(usageCtx)
 	usageCtx, cancel := context.WithTimeout(usageCtx, upstreamBillingLegacyUsageRequestTimeout)
 	defer cancel()
-	usageURL := buildOpenAIEndpointURL(normalizedBaseURL, "/v1/usage")
-	request, err := http.NewRequestWithContext(usageCtx, http.MethodGet, usageURL, nil)
+	usageURL, err := url.Parse(buildOpenAIEndpointURL(normalizedBaseURL, "/v1/usage"))
+	if err != nil {
+		return 0, "", false
+	}
+	// Old Sub2API versions build usage, daily, and model summaries before
+	// returning the balance. Restrict optional summaries to one day so the
+	// compatibility fallback reaches the balance as quickly as that version
+	// permits. Versions that do not recognize these parameters safely ignore
+	// them.
+	usageDate := s.currentTime().UTC().Format("2006-01-02")
+	query := usageURL.Query()
+	query.Set("days", "1")
+	query.Set("start_date", usageDate)
+	query.Set("end_date", usageDate)
+	usageURL.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(usageCtx, http.MethodGet, usageURL.String(), nil)
 	if err != nil {
 		return 0, "", false
 	}

@@ -948,7 +948,7 @@ export async function probeUpstreamBilling(id: number): Promise<UpstreamBillingP
   if (!data.accepted || data.snapshot) return data
 
   const acceptedAt = Date.parse(data.accepted_at ?? '')
-  const deadline = Date.now() + 70_000
+  const deadline = Date.now() + 150_000
   while (Date.now() < deadline) {
     try {
       const account = await getById(id)

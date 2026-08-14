@@ -218,7 +218,9 @@ func (u *upstreamBillingLegacyDeadlineHTTPStub) DoWithTLS(
 	u.requests = append(u.requests, req)
 	if req.URL.Path == "/v1/usage" {
 		deadline, ok := req.Context().Deadline()
-		if !ok || time.Until(deadline) < 30*time.Second {
+		// The real legacy endpoint can spend around 90 seconds aggregating usage
+		// before it emits the wallet balance.
+		if !ok || time.Until(deadline) < 90*time.Second {
 			return nil, context.DeadlineExceeded
 		}
 		return &http.Response{
@@ -543,12 +545,22 @@ func TestUpstreamBillingProbeLegacyUsageGetsIndependentTimeout(t *testing.T) {
 	upstream := &upstreamBillingLegacyDeadlineHTTPStub{}
 	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
 
-	snapshot, err := svc.ProbeAccount(context.Background(), account.ID)
-
+	t.Cleanup(svc.Stop)
+	result, err := svc.EnqueueSchedulingCostRefresh(account.ID)
 	require.NoError(t, err)
-	require.Equal(t, 2.15567904, snapshot.Data["balance"])
-	require.Equal(t, "wallet", snapshot.Data["balance_kind"])
+	require.True(t, result.Accepted)
+	require.Eventually(t, func() bool {
+		updated, loadErr := repo.GetByID(context.Background(), account.ID)
+		if loadErr != nil {
+			return false
+		}
+		snapshot := decodeUpstreamBillingProbeSnapshot(updated.Extra)
+		return snapshot != nil && snapshot.Data["balance"] == 2.15567904 && snapshot.Data["balance_kind"] == "wallet"
+	}, time.Second, 10*time.Millisecond)
 	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "1", upstream.requests[1].URL.Query().Get("days"))
+	require.NotEmpty(t, upstream.requests[1].URL.Query().Get("start_date"))
+	require.Equal(t, upstream.requests[1].URL.Query().Get("start_date"), upstream.requests[1].URL.Query().Get("end_date"))
 }
 
 func TestUpstreamBillingProbeFallsBackToLegacyUsageWhenBillingEndpointUnavailable(t *testing.T) {

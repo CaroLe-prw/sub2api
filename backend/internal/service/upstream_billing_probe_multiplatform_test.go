@@ -69,7 +69,9 @@ func TestUpstreamBillingProbeGrokAccountPersistsSnapshot(t *testing.T) {
 	require.Equal(t, 0.02, snapshot.Data["resolved_rate_multiplier"])
 	require.Len(t, upstream.requests, 2)
 	require.Equal(t, "https://relay.example/v1/sub2api/billing", upstream.requests[0].URL.String())
-	require.Equal(t, "https://relay.example/v1/usage", upstream.requests[1].URL.String())
+	require.Equal(t, "relay.example", upstream.requests[1].URL.Host)
+	require.Equal(t, "/v1/usage", upstream.requests[1].URL.Path)
+	require.Equal(t, "1", upstream.requests[1].URL.Query().Get("days"))
 	require.Equal(t, "Bearer sk-grok-relay", upstream.requests[0].Header.Get("Authorization"))
 	// 非 OpenAI 平台探测使用默认传输画像。
 	require.Equal(t, HTTPUpstreamProfileDefault, HTTPUpstreamProfileFromContext(upstream.lastReq.Context()))
@@ -193,7 +195,9 @@ func TestUpstreamBillingProbeOpenAIDefaultBaseURLPreserved(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, upstream.requests, 2)
 	require.Equal(t, "https://api.openai.com/v1/sub2api/billing", upstream.requests[0].URL.String())
-	require.Equal(t, "https://api.openai.com/v1/usage", upstream.requests[1].URL.String())
+	require.Equal(t, "api.openai.com", upstream.requests[1].URL.Host)
+	require.Equal(t, "/v1/usage", upstream.requests[1].URL.Path)
+	require.Equal(t, "1", upstream.requests[1].URL.Query().Get("days"))
 	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.lastReq.Context()))
 }
 
