@@ -47,10 +47,14 @@ const (
 	// /v1/sub2api/billing endpoint, so it needs its own request budget instead of
 	// inheriting the primary probe's nearly-expired deadline.
 	upstreamBillingLegacyUsageRequestTimeout = 45 * time.Second
-	upstreamBillingProbeMaxBodyBytes         = 64 * 1024
-	upstreamBillingProbeMaxPerCycle          = 20
-	upstreamBillingProbeConcurrency          = 4
-	upstreamBillingProbeMaxDelay             = 24 * time.Hour
+	// Manual probes run outside the admin request lifecycle. Keep the total
+	// budget bounded while allowing both the primary and legacy endpoints to use
+	// their complete individual timeouts.
+	upstreamBillingManualRefreshTimeout = time.Minute
+	upstreamBillingProbeMaxBodyBytes    = 64 * 1024
+	upstreamBillingProbeMaxPerCycle     = 20
+	upstreamBillingProbeConcurrency     = 4
+	upstreamBillingProbeMaxDelay        = 24 * time.Hour
 	// unsupported 账号的重探间隔倍数：上游不是 sub2api 中转就不会突然长出
 	// /v1/sub2api/billing，按常规 interval 重排只会持续占满每周期
 	// upstreamBillingProbeMaxPerCycle 个名额。
@@ -141,6 +145,8 @@ type UpstreamBalanceAlertSnapshot struct {
 // UpstreamBillingProbeResult is returned by manual probe endpoints.
 type UpstreamBillingProbeResult struct {
 	AccountID  int64                         `json:"account_id"`
+	Accepted   bool                          `json:"accepted,omitempty"`
+	AcceptedAt *time.Time                    `json:"accepted_at,omitempty"`
 	Snapshot   *UpstreamBillingProbeSnapshot `json:"snapshot,omitempty"`
 	NewAPISync *NewAPISyncResult             `json:"newapi_sync,omitempty"`
 	Error      string                        `json:"error,omitempty"`
@@ -605,6 +611,43 @@ func (s *UpstreamBillingProbeService) RefreshSchedulingCost(
 		return nil, err
 	}
 	return s.refreshSchedulingCost(ctx, accountID, settings.IntervalMinutes)
+}
+
+// EnqueueSchedulingCostRefresh detaches a manual refresh from the HTTP request
+// that triggered it. Legacy upstream usage endpoints may need tens of seconds
+// to calculate a response, which is longer than common reverse-proxy request
+// limits. The stored account snapshot is the durable result polled by clients.
+func (s *UpstreamBillingProbeService) EnqueueSchedulingCostRefresh(
+	accountID int64,
+) (*UpstreamBillingProbeResult, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, ErrUpstreamBillingProbeUnavailable
+	}
+
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return nil, ErrUpstreamBillingProbeUnavailable
+	}
+	acceptedAt := s.currentTime().UTC()
+	s.wg.Add(1)
+	parentCtx := s.parentCtx
+	s.mu.Unlock()
+
+	go func() {
+		defer s.wg.Done()
+		ctx, cancel := context.WithTimeout(parentCtx, upstreamBillingManualRefreshTimeout)
+		defer cancel()
+		if _, err := s.RefreshSchedulingCost(ctx, accountID); err != nil {
+			slog.Warn("upstream_billing_manual_refresh_failed", "account_id", accountID, "error", safeProbeError(err))
+		}
+	}()
+
+	return &UpstreamBillingProbeResult{
+		AccountID:  accountID,
+		Accepted:   true,
+		AcceptedAt: &acceptedAt,
+	}, nil
 }
 
 func (s *UpstreamBillingProbeService) refreshSchedulingCost(

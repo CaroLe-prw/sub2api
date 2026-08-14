@@ -164,6 +164,46 @@ type upstreamBillingLegacyDeadlineHTTPStub struct {
 	requests []*http.Request
 }
 
+type upstreamBillingBlockingHTTPStub struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (u *upstreamBillingBlockingHTTPStub) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	return u.DoWithTLS(req, "", 0, 0, nil)
+}
+
+func (u *upstreamBillingBlockingHTTPStub) DoWithTLS(
+	req *http.Request,
+	_ string,
+	_ int64,
+	_ int,
+	_ *tlsfingerprint.Profile,
+) (*http.Response, error) {
+	u.once.Do(func() { close(u.started) })
+	select {
+	case <-u.release:
+	case <-req.Context().Done():
+		return nil, req.Context().Err()
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{
+			"object":"sub2api.key_billing",
+			"schema_version":1,
+			"billing_scope":"token",
+			"group_rate_multiplier":0.04,
+			"resolved_rate_multiplier":0.04,
+			"peak_rate_enabled":false,
+			"effective_rate_multiplier":0.04,
+			"balance":2.15567904,
+			"observed_at":"2026-08-14T09:46:06Z"
+		}`)),
+	}, nil
+}
+
 func (u *upstreamBillingLegacyDeadlineHTTPStub) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
 	return u.DoWithTLS(req, "", 0, 0, nil)
 }
@@ -269,6 +309,51 @@ func newUpstreamBillingProbeTestService(
 	}}}
 	accountTestService := &AccountTestService{accountRepo: repo, httpUpstream: upstream, cfg: cfg}
 	return NewUpstreamBillingProbeService(repo, accountTestService, NewSettingService(settingRepo, cfg))
+}
+
+func TestUpstreamBillingProbeAsyncRefreshReturnsBeforeSlowUpstream(t *testing.T) {
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
+		347: {
+			ID:             347,
+			Name:           "tkapi-福利",
+			Platform:       PlatformOpenAI,
+			Type:           AccountTypeAPIKey,
+			Status:         StatusActive,
+			RateMultiplier: float64Ptr(0.04),
+			Credentials: map[string]any{
+				"api_key":  "test-key",
+				"base_url": "https://tkapi.cc.cd",
+			},
+			Extra: map[string]any{UpstreamBillingProbeEnabledExtraKey: true},
+		},
+	}}
+	upstream := &upstreamBillingBlockingHTTPStub{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	probeService := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+	t.Cleanup(probeService.Stop)
+
+	result, err := probeService.EnqueueSchedulingCostRefresh(347)
+	require.NoError(t, err)
+	require.True(t, result.Accepted)
+	require.NotNil(t, result.AcceptedAt)
+
+	select {
+	case <-upstream.started:
+	case <-time.After(time.Second):
+		t.Fatal("background probe did not start")
+	}
+	close(upstream.release)
+
+	require.Eventually(t, func() bool {
+		account, loadErr := repo.GetByID(context.Background(), 347)
+		if loadErr != nil {
+			return false
+		}
+		snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra)
+		return snapshot != nil && snapshot.Status == UpstreamBillingProbeStatusOK && snapshot.Data["balance"] == 2.15567904
+	}, time.Second, 10*time.Millisecond)
 }
 
 func TestUpstreamBillingProbeSettingsDefaultsAndValidation(t *testing.T) {

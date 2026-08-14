@@ -941,9 +941,38 @@ export async function probeUpstreamBilling(id: number): Promise<UpstreamBillingP
   const { data } = await apiClient.post<UpstreamBillingProbeResult>(
     `/admin/accounts/${id}/upstream-billing-probe`,
     undefined,
-    { timeout: 60_000 }
+    { params: { async: true } }
   )
-  return data
+  // Older servers still return the completed snapshot synchronously. Keeping
+  // this branch makes a rolling frontend/backend deployment safe.
+  if (!data.accepted || data.snapshot) return data
+
+  const acceptedAt = Date.parse(data.accepted_at ?? '')
+  const deadline = Date.now() + 70_000
+  while (Date.now() < deadline) {
+    try {
+      const account = await getById(id)
+      const snapshot = account.extra?.upstream_billing_probe
+      const attemptedAt = Date.parse(snapshot?.last_attempt_at ?? '')
+      if (
+        snapshot &&
+        (!Number.isFinite(acceptedAt) || (Number.isFinite(attemptedAt) && attemptedAt >= acceptedAt))
+      ) {
+        return { account_id: id, snapshot }
+      }
+    } catch (error) {
+      const status = typeof error === 'object' && error !== null && 'status' in error
+        ? Number((error as { status?: unknown }).status)
+        : 0
+      if (status >= 400) throw error
+      // A transient polling failure should not discard the background task.
+    }
+    await new Promise(resolve => globalThis.setTimeout(resolve, 1_500))
+  }
+
+  throw {
+    reason: 'UPSTREAM_BILLING_PROBE_TIMEOUT'
+  }
 }
 
 export async function probeUpstreamBillingBatch(accountIds: number[]): Promise<UpstreamBillingProbeResult[]> {

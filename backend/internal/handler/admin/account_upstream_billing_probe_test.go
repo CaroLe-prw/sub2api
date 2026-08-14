@@ -2,6 +2,7 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,16 +13,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type upstreamBillingProbeHandlerAccountRepo struct {
+	service.AccountRepository
+}
+
+func (upstreamBillingProbeHandlerAccountRepo) GetByID(context.Context, int64) (*service.Account, error) {
+	return nil, service.ErrAccountNotFound
+}
+
 func setupUpstreamBillingProbeRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	handler := NewAccountHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	handler.SetUpstreamBillingProbeService(service.NewUpstreamBillingProbeService(nil, nil, nil))
+	handler.SetUpstreamBillingProbeService(service.NewUpstreamBillingProbeService(upstreamBillingProbeHandlerAccountRepo{}, nil, nil))
 
 	router := gin.New()
 	router.GET("/admin/accounts/upstream-billing-probe/settings", handler.GetUpstreamBillingProbeSettings)
+	router.POST("/admin/accounts/:id/upstream-billing-probe", handler.ProbeUpstreamBilling)
 	router.POST("/admin/accounts/upstream-billing-probe/batch", handler.ProbeUpstreamBillingBatch)
 	router.PUT("/admin/accounts/:id/upstream-billing-probe", handler.SetUpstreamBillingProbeEnabled)
 	return router
+}
+
+func TestAccountHandlerProbeUpstreamBillingCanReturnBeforeBackgroundProbeCompletes(t *testing.T) {
+	router := setupUpstreamBillingProbeRouter()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/admin/accounts/347/upstream-billing-probe?async=true", nil)
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Data service.UpstreamBillingProbeResult `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, int64(347), response.Data.AccountID)
+	require.True(t, response.Data.Accepted)
+	require.NotNil(t, response.Data.AcceptedAt)
 }
 
 func TestAccountHandlerGetUpstreamBillingProbeSettingsReturnsDefaults(t *testing.T) {

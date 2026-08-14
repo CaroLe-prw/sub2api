@@ -83,6 +83,15 @@ func (h *AccountHandler) ProbeUpstreamBilling(c *gin.Context) {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
+	if c.Query("async") == "true" {
+		result, enqueueErr := h.upstreamBillingProbe.EnqueueSchedulingCostRefresh(accountID)
+		if enqueueErr != nil {
+			response.ErrorFrom(c, enqueueErr)
+			return
+		}
+		response.Success(c, result)
+		return
+	}
 	result, err := h.upstreamBillingProbe.RefreshSchedulingCost(c.Request.Context(), accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)

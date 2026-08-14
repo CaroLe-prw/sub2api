@@ -36,25 +36,33 @@ describe('admin account upstream billing probe API', () => {
     expect(put).toHaveBeenCalledWith('/admin/accounts/upstream-billing-probe/settings', settings)
   })
 
-  it('uses dedicated account and batch endpoints', async () => {
-    const result = { account_id: 7, snapshot: { status: 'unsupported' } }
+  it('uses an asynchronous account probe and polls the stored result', async () => {
+    const accepted = { account_id: 7, accepted: true, accepted_at: '2026-08-14T09:46:05Z' }
+    const snapshot = { status: 'unsupported', last_attempt_at: '2026-08-14T09:46:06Z' }
+    const result = { account_id: 7, snapshot }
     put.mockResolvedValueOnce({ data: {} })
-    post.mockResolvedValueOnce({ data: result })
-    post.mockResolvedValueOnce({ data: { results: [result] } })
+    post.mockResolvedValueOnce({ data: accepted })
+    get.mockResolvedValueOnce({ data: { id: 7, extra: { upstream_billing_probe: snapshot } } })
 
     await setUpstreamBillingProbeEnabled(7, true)
     await expect(probeUpstreamBilling(7)).resolves.toEqual(result)
-    await expect(probeUpstreamBillingBatch([7])).resolves.toEqual([result])
 
     expect(put).toHaveBeenCalledWith('/admin/accounts/7/upstream-billing-probe', { enabled: true })
-    expect(post).toHaveBeenNthCalledWith(
-      1,
+    expect(post).toHaveBeenCalledWith(
       '/admin/accounts/7/upstream-billing-probe',
       undefined,
-      { timeout: 60_000 }
+      { params: { async: true } }
     )
-    expect(post).toHaveBeenNthCalledWith(
-      2,
+    expect(get).toHaveBeenCalledWith('/admin/accounts/7')
+  })
+
+  it('keeps the dedicated batch endpoint', async () => {
+    const result = { account_id: 7, snapshot: { status: 'unsupported' } }
+    post.mockResolvedValueOnce({ data: { results: [result] } })
+
+    await expect(probeUpstreamBillingBatch([7])).resolves.toEqual([result])
+
+    expect(post).toHaveBeenCalledWith(
       '/admin/accounts/upstream-billing-probe/batch',
       { account_ids: [7] },
       { timeout: 60_000 }

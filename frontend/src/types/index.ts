@@ -1103,6 +1103,8 @@ export interface UpstreamBillingProbeSettings {
 
 export interface UpstreamBillingProbeResult {
   account_id: number
+  accepted?: boolean
+  accepted_at?: string
   snapshot?: UpstreamBillingProbeSnapshot
   newapi_sync?: NewAPISyncResult
   error?: string
