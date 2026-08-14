@@ -200,6 +200,38 @@ func TestNewAPIBalanceUnlimitedTokenAcceptsNegativeReportedTotal(t *testing.T) {
 	require.Empty(t, balance.Warnings)
 }
 
+func TestNewAPIBalanceUnlimitedTokenAcceptsNegativeReportedUsed(t *testing.T) {
+	doer := &newAPITestDoer{}
+	doer.handle = newAPIBalanceHandler(
+		t,
+		validNewAPIUserBalanceBody(),
+		`{"code":true,"data":{"name":"gpt-01","total_granted":0,"total_used":-10412,"total_available":10412,"unlimited_quota":true,"expires_at":0}}`,
+	)
+
+	_, balance, err := NewNewAPIClient(doer).ResolveWithBalance(t.Context(), newAPITestConnection())
+
+	require.NoError(t, err)
+	require.Equal(t, int64(-10412), balance.Token.UsedQuota)
+	require.Equal(t, int64(10412), balance.Token.RemainingQuota)
+	require.Zero(t, balance.Token.TotalQuota)
+	require.True(t, balance.TokenAvailable)
+	require.True(t, balance.OverallAvailable)
+	require.Empty(t, balance.Warnings)
+}
+
+func TestNewAPIBalanceFiniteTokenRejectsNegativeReportedUsed(t *testing.T) {
+	doer := &newAPITestDoer{}
+	doer.handle = newAPIBalanceHandler(
+		t,
+		validNewAPIUserBalanceBody(),
+		`{"code":true,"data":{"name":"finite","total_granted":0,"total_used":-10412,"total_available":10412,"unlimited_quota":false,"expires_at":0}}`,
+	)
+
+	_, _, err := NewNewAPIClient(doer).ResolveWithBalance(t.Context(), newAPITestConnection())
+
+	require.EqualError(t, err, "newapi_token_used_quota_invalid")
+}
+
 func TestNewAPIBalanceFiniteTokenRejectsNegativeReportedTotal(t *testing.T) {
 	doer := &newAPITestDoer{}
 	doer.handle = newAPIBalanceHandler(

@@ -371,7 +371,12 @@ func (c *NewAPIClient) getTokenUsage(
 	if err != nil {
 		return nil, nil, newAPIClientError("token_remaining_quota_invalid")
 	}
-	used, err := parseNewAPIQuota(envelope.Data.TotalUsed)
+	// NewAPI quota refunds increase remain_quota and decrease used_quota. An
+	// unlimited token can therefore legitimately report a negative total_used.
+	used, err := parseNewAPIQuotaWithNegative(
+		envelope.Data.TotalUsed,
+		envelope.Data.UnlimitedQuota,
+	)
 	if err != nil {
 		return nil, nil, newAPIClientError("token_used_quota_invalid")
 	}
