@@ -269,7 +269,7 @@ func (r *channelMonitorV2Repository) GetSnapshot(ctx context.Context, filter ser
 		bucket, _ := time.Parse(time.RFC3339Nano, key)
 		m := byBucket[key].metric(filter.Bucket.Minutes(), admin)
 		applyIgnoredErrors(&m, ignoredByBucket[key])
-		result.Trend = append(result.Trend, service.ChannelMonitorV2TrendPoint{BucketStart: bucket, Metrics: m, Health: service.ChannelMonitorV2HealthForWithThresholds(m, cfg.HealthThresholds)})
+		result.Trend = append(result.Trend, service.ChannelMonitorV2TrendPoint{BucketStart: bucket, Metrics: m, Health: channelMonitorV2BucketHealth(m, cfg.HealthThresholds, filter.Bucket)})
 	}
 	return result, nil
 }
@@ -459,7 +459,7 @@ func (r *channelMonitorV2Repository) GetMatrix(ctx context.Context, filter servi
 			}
 			bucketMetrics := acc.buckets[bucketKey].metric(filter.Bucket.Minutes(), admin)
 			applyIgnoredErrors(&bucketMetrics, ignoredByDimBucket[key][bucketKey])
-			row.Buckets = append(row.Buckets, service.ChannelMonitorV2TrendPoint{BucketStart: bucketStart, Metrics: bucketMetrics, Health: service.ChannelMonitorV2HealthForWithThresholds(bucketMetrics, cfg.HealthThresholds)})
+			row.Buckets = append(row.Buckets, service.ChannelMonitorV2TrendPoint{BucketStart: bucketStart, Metrics: bucketMetrics, Health: channelMonitorV2BucketHealth(bucketMetrics, cfg.HealthThresholds, filter.Bucket)})
 		}
 		result.Items = append(result.Items, row)
 	}
@@ -1288,6 +1288,40 @@ func shiftSQLPlaceholders(query string, offset int) string {
 type metricAccumulator struct {
 	success, errors, upstreamAffected, upstreamAttempts, input, output, cacheCreation, cacheRead, ttftSum, ttftCount, durationSum, durationCount int64
 	hist                                                                                                                                         map[string]map[int64]int64
+}
+
+// channelMonitorV2BucketMinimumSample scales the configured hourly confidence
+// floor down for short trend buckets. The UI's 5-minute buckets should not
+// require the full hourly minimum, while larger summary buckets retain the
+// configured floor.
+func channelMonitorV2BucketMinimumSample(minimum int64, bucket time.Duration) int64 {
+	if minimum <= 1 || bucket <= 0 || bucket >= time.Hour {
+		return maximumInt64(1, minimum)
+	}
+	scaled := (minimum*int64(bucket) + int64(time.Hour) - 1) / int64(time.Hour)
+	if scaled < 1 {
+		return 1
+	}
+	if scaled > minimum {
+		return minimum
+	}
+	return scaled
+}
+
+func channelMonitorV2BucketHealth(
+	metrics service.ChannelMonitorV2Metric,
+	thresholds service.ChannelMonitorV2HealthThresholds,
+	bucket time.Duration,
+) service.ChannelMonitorV2Health {
+	thresholds.MinimumSample = channelMonitorV2BucketMinimumSample(thresholds.MinimumSample, bucket)
+	return service.ChannelMonitorV2HealthForWithThresholds(metrics, thresholds)
+}
+
+func maximumInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func newMetricAccumulator() *metricAccumulator {

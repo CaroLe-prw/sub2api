@@ -298,6 +298,19 @@
               <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
             </button>
           </template>
+          <template #header-model_availability="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip :content="t('admin.accounts.modelAvailability.hint')" width-class="w-72" />
+            </div>
+          </template>
+          <template #cell-model_availability="{ row }">
+            <AccountModelAvailabilityCell
+              :monitor="poolMonitorForAccount(row.id)"
+              :loading="poolMonitorLoading"
+              @detail="openPoolMonitorDetail"
+            />
+          </template>
           <template #cell-today_stats="{ row }">
             <AccountTodayStatsCell
               :stats="todayStatsByAccountId[String(row.id)] ?? null"
@@ -473,6 +486,15 @@
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
+    <MonitorModelHistoryDialog
+      :show="selectedPoolMonitor != null"
+      :account="selectedPoolMonitor"
+      :histories="poolMonitorHistories"
+      :loading="poolMonitorHistoryLoading"
+      :running-plan-id="runningProbePlanId"
+      @close="closePoolMonitorDetail"
+      @run="runPoolModelProbe"
+    />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @pause-scheduling="handlePauseScheduling" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
@@ -537,6 +559,10 @@ import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vu
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
+import AccountModelAvailabilityCell from '@/components/admin/account/AccountModelAvailabilityCell.vue'
+import MonitorModelHistoryDialog from '@/components/admin/monitor/MonitorModelHistoryDialog.vue'
+import type { PoolMonitorAccount, PoolProbeResult } from '@/api/admin/schedulerProbes'
+import type { ProbeHistoryByPlan } from '@/components/admin/monitor/monitorDataTypes'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
@@ -564,6 +590,16 @@ const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
+const poolMonitorAccounts = shallowRef<PoolMonitorAccount[]>([])
+const poolMonitorLoading = shallowRef(false)
+const poolMonitorRequestSequence = shallowRef(0)
+const selectedPoolMonitor = shallowRef<PoolMonitorAccount | null>(null)
+const poolMonitorHistories = shallowRef<ProbeHistoryByPlan>({})
+const poolMonitorHistoryLoading = shallowRef(false)
+const runningProbePlanId = shallowRef<number | null>(null)
+const poolMonitorByAccountID = computed(() => new Map(
+  poolMonitorAccounts.value.map((account) => [account.account_id, account]),
+))
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)
 type AccountBulkEditTarget =
@@ -1194,7 +1230,7 @@ const load = async () => {
     isFirstLoad.value = false
     delete requestParams.lite
   }
-  await refreshTodayStatsBatch()
+  await Promise.all([refreshTodayStatsBatch(), loadPoolMonitorOverview()])
 }
 
 const reload = async () => {
@@ -1204,7 +1240,86 @@ const reload = async () => {
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
   await baseReload()
-  await refreshTodayStatsBatch()
+  await Promise.all([refreshTodayStatsBatch(), loadPoolMonitorOverview()])
+}
+
+const poolMonitorForAccount = (accountID: number): PoolMonitorAccount | null =>
+  poolMonitorByAccountID.value.get(accountID) ?? null
+
+const loadPoolMonitorOverview = async () => {
+  const accountIDs = accounts.value.map((account) => account.id)
+  const requestSequence = ++poolMonitorRequestSequence.value
+  if (accountIDs.length === 0) {
+    poolMonitorAccounts.value = []
+    poolMonitorLoading.value = false
+    return
+  }
+
+  poolMonitorLoading.value = true
+  try {
+    const result = await adminAPI.schedulerProbes.listOverview(accountIDs)
+    if (requestSequence !== poolMonitorRequestSequence.value) return
+    poolMonitorAccounts.value = result?.items ?? []
+    if (selectedPoolMonitor.value) {
+      selectedPoolMonitor.value = poolMonitorForAccount(selectedPoolMonitor.value.account_id)
+    }
+  } catch (error) {
+    if (requestSequence !== poolMonitorRequestSequence.value) return
+    console.error('Failed to load account model availability:', error)
+    if (poolMonitorAccounts.value.length === 0) {
+      appStore.showError(extractApiErrorMessage(error, t('admin.accounts.modelAvailability.loadError')))
+    }
+  } finally {
+    if (requestSequence === poolMonitorRequestSequence.value) {
+      poolMonitorLoading.value = false
+    }
+  }
+}
+
+const openPoolMonitorDetail = async (monitor: PoolMonitorAccount) => {
+  selectedPoolMonitor.value = monitor
+  poolMonitorHistories.value = {}
+  poolMonitorHistoryLoading.value = true
+  try {
+    const histories = await Promise.all(monitor.models.map(async (model) => [
+      model.plan_id,
+      await adminAPI.schedulerProbes.listResults(model.plan_id, 100),
+    ] as const))
+    if (selectedPoolMonitor.value?.account_id === monitor.account_id) {
+      poolMonitorHistories.value = Object.fromEntries(histories)
+    }
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.channelMonitor.dataPanel.historyError')))
+  } finally {
+    if (selectedPoolMonitor.value?.account_id === monitor.account_id) {
+      poolMonitorHistoryLoading.value = false
+    }
+  }
+}
+
+const closePoolMonitorDetail = () => {
+  selectedPoolMonitor.value = null
+  poolMonitorHistories.value = {}
+  poolMonitorHistoryLoading.value = false
+}
+
+const runPoolModelProbe = async (planID: number) => {
+  if (runningProbePlanId.value != null) return
+  runningProbePlanId.value = planID
+  try {
+    const result = await adminAPI.schedulerProbes.runNow(planID)
+    const current = poolMonitorHistories.value[planID] ?? []
+    poolMonitorHistories.value = {
+      ...poolMonitorHistories.value,
+      [planID]: [result as PoolProbeResult, ...current],
+    }
+    await loadPoolMonitorOverview()
+    appStore.showSuccess(t('admin.channelMonitor.runSuccess'))
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.channelMonitor.runFailed')))
+  } finally {
+    runningProbePlanId.value = null
+  }
 }
 
 const refreshUpstreamBillingSortedList = async (force = false) => {
@@ -1280,8 +1395,8 @@ watch(loading, (isLoading, wasLoading) => {
   }
   if (wasLoading && !isLoading && pendingTodayStatsRefresh.value) {
     pendingTodayStatsRefresh.value = false
-    refreshTodayStatsBatch().catch((error) => {
-      console.error('Failed to refresh account today stats after table load:', error)
+    Promise.all([refreshTodayStatsBatch(), loadPoolMonitorOverview()]).catch((error) => {
+      console.error('Failed to refresh account page details after table load:', error)
     })
   }
 })
@@ -1425,7 +1540,7 @@ const refreshAccountsIncrementally = async () => {
     }
     upstreamBillingNow.value = Date.now()
 
-    await refreshTodayStatsBatch()
+    await Promise.all([refreshTodayStatsBatch(), loadPoolMonitorOverview()])
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {
@@ -1744,6 +1859,7 @@ const allColumns = computed(() => {
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
+    { key: 'model_availability', label: t('admin.accounts.columns.modelAvailability'), sortable: false },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
   ]
   if (!authStore.isSimpleMode) {

@@ -1,8 +1,10 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -62,12 +64,41 @@ func (h *ScheduledTestHandler) ListByAccount(c *gin.Context) {
 // It never participates in the public status API. The legacy method name is
 // retained while old channel-monitor API aliases remain compatible.
 func (h *ScheduledTestHandler) ListChannelMonitorPool(c *gin.Context) {
-	items, err := h.scheduledTestSvc.ListChannelMonitorPoolOverview(c.Request.Context())
+	accountIDs, err := parseSchedulerProbeAccountIDs(c.Query("account_ids"))
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	items, err := h.scheduledTestSvc.ListChannelMonitorPoolOverview(c.Request.Context(), accountIDs)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
 	}
 	response.Success(c, map[string]any{"items": items})
+}
+
+func parseSchedulerProbeAccountIDs(raw string) ([]int64, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	parts := strings.Split(raw, ",")
+	if len(parts) > 200 {
+		return nil, fmt.Errorf("account_ids must contain at most 200 ids")
+	}
+	seen := make(map[int64]struct{}, len(parts))
+	accountIDs := make([]int64, 0, len(parts))
+	for _, part := range parts {
+		accountID, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+		if err != nil || accountID <= 0 {
+			return nil, fmt.Errorf("account_ids must contain positive integers")
+		}
+		if _, duplicate := seen[accountID]; duplicate {
+			continue
+		}
+		seen[accountID] = struct{}{}
+		accountIDs = append(accountIDs, accountID)
+	}
+	return accountIDs, nil
 }
 
 // RunNow executes one automatically managed account/model streaming probe.

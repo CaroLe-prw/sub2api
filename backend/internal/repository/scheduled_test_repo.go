@@ -136,7 +136,7 @@ func (r *scheduledTestPlanRepository) ReconcileChannelMonitorPlans(ctx context.C
 	return tx.Commit()
 }
 
-func (r *scheduledTestPlanRepository) ListChannelMonitorPoolOverview(ctx context.Context, since time.Time) ([]*service.ChannelMonitorPoolAccount, error) {
+func (r *scheduledTestPlanRepository) ListChannelMonitorPoolOverview(ctx context.Context, since time.Time, accountIDs []int64) ([]*service.ChannelMonitorPoolAccount, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT p.id, p.account_id, a.name, a.platform, a.type, a.status, a.schedulable, a.concurrency,
 		       p.model_id, p.enabled,
@@ -179,8 +179,9 @@ func (r *scheduledTestPlanRepository) ListChannelMonitorPoolOverview(ctx context
 			) recent
 		) heartbeat ON true
 		WHERE p.managed_by = $1 AND p.enabled = true
+		  AND (COALESCE(cardinality($3::bigint[]), 0) = 0 OR p.account_id = ANY($3::bigint[]))
 		ORDER BY a.priority ASC, a.id ASC, p.model_id ASC
-	`, service.ScheduledTestManagedBySchedulerProbe, since)
+	`, service.ScheduledTestManagedBySchedulerProbe, since, pq.Array(accountIDs))
 	if err != nil {
 		return nil, err
 	}

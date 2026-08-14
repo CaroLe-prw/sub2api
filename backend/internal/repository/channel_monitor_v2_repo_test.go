@@ -67,6 +67,44 @@ func TestChannelMonitorV2MetricIncludesSuccessRate(t *testing.T) {
 	require.NotNil(t, adminMetric.UpstreamAffectedRequests)
 }
 
+func TestChannelMonitorV2BucketMinimumSampleScalesShortBuckets(t *testing.T) {
+	require.Equal(t, int64(5), channelMonitorV2BucketMinimumSample(50, 5*time.Minute))
+	require.Equal(t, int64(25), channelMonitorV2BucketMinimumSample(50, 30*time.Minute))
+	require.Equal(t, int64(50), channelMonitorV2BucketMinimumSample(50, time.Hour))
+	require.Equal(t, int64(50), channelMonitorV2BucketMinimumSample(50, 12*time.Hour))
+	require.Equal(t, int64(1), channelMonitorV2BucketMinimumSample(0, 5*time.Minute))
+}
+
+func TestChannelMonitorV2BucketHealthDoesNotCollapseToCacheOnly(t *testing.T) {
+	p50 := int64(5000)
+	health := channelMonitorV2BucketHealth(service.ChannelMonitorV2Metric{
+		RequestCount:         10,
+		ErrorRate:            0,
+		CacheRate:            0.05,
+		CacheRateNumerator:   100,
+		CacheRateDenominator: 2000,
+		TTFT:                 service.ChannelMonitorV2Latency{SampleCount: 10, P50Ms: &p50},
+	}, service.ChannelMonitorV2HealthThresholds{
+		MinimumSample:     50,
+		WarningErrorRate:  0.05,
+		CriticalErrorRate: 0.20,
+		TargetTTFTMs:      5000,
+		WarningTTFTMs:     10000,
+		CriticalTTFTMs:    20000,
+		WarningCacheRate:  0.80,
+		CriticalCacheRate: 0.50,
+		ErrorWeight:       0.60,
+		TTFTWeight:        0.20,
+		CacheWeight:       0.20,
+	}, 5*time.Minute)
+	require.Equal(t, "healthy", health.Overall)
+	require.NotNil(t, health.Score)
+	require.InDelta(t, 81.0, *health.Score, 0.01)
+	require.NotNil(t, health.ErrorRateScore)
+	require.NotNil(t, health.TTFTScore)
+	require.NotNil(t, health.CacheScore)
+}
+
 func TestChannelMonitorV2WhereUsesConfiguredScopeAndEmptyFilterMeansAllConfigured(t *testing.T) {
 	filter := service.ChannelMonitorV2Filter{Start: time.Unix(1, 0), End: time.Unix(2, 0)}
 	cfg := service.ChannelMonitorV2Config{

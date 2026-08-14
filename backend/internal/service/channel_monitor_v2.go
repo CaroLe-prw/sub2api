@@ -139,7 +139,9 @@ type ChannelMonitorV2HealthThresholds struct {
 	WarningTTFTMs  int64 `json:"warning_ttft_ms"`
 	CriticalTTFTMs int64 `json:"critical_ttft_ms"`
 	// WarningCacheRate / CriticalCacheRate: cache rate below these → warning/critical bands.
-	// Higher cache rate is better; defaults 20% warning / 5% critical.
+	// Higher cache rate is better. Cache scoring is only applied after the
+	// window contains at least one cache read, so a first-turn/new session with
+	// no reusable cache is treated as unknown rather than as a cache failure.
 	WarningCacheRate  float64 `json:"warning_cache_rate"`
 	CriticalCacheRate float64 `json:"critical_cache_rate"`
 	// ErrorWeight + TTFTWeight + CacheWeight should sum to 1.0.
@@ -972,8 +974,15 @@ func ChannelMonitorV2HealthForWithThresholds(metrics ChannelMonitorV2Metric, thr
 			parts = append(parts, scored{score: s, weight: thresholds.TTFTWeight, band: result.TTFT})
 		}
 	}
-	// Cache: need a meaningful denominator; higher rate is better.
-	if metrics.CacheRateDenominator >= result.MinimumSample {
+	// Cache: use the same request-level minimum as the other health signals,
+	// plus a meaningful token denominator and evidence that this traffic had a
+	// reusable cache. Without the request gate, a low-volume bucket can qualify
+	// on token count alone and make the blended score silently become cache-only.
+	// A new session commonly has zero cache reads by design; its zero rate must
+	// not be interpreted as a cache outage or a poor health score.
+	if metrics.RequestCount >= result.MinimumSample &&
+		metrics.CacheRateDenominator >= result.MinimumSample &&
+		metrics.CacheRateNumerator > 0 {
 		s := cacheRateScore(metrics.CacheRate)
 		if thresholds.WarningCacheRate <= 0 && thresholds.CriticalCacheRate <= 0 {
 			// A zero/zero cache threshold means "do not penalize cache misses".

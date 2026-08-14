@@ -223,6 +223,7 @@ func TestChannelMonitorV2HealthBlendsErrorTTFTAndCache(t *testing.T) {
 		RequestCount:         100,
 		ErrorRate:            0.03,
 		CacheRate:            0.50,
+		CacheRateNumerator:   50,
 		CacheRateDenominator: 100,
 		TTFT:                 ChannelMonitorV2Latency{SampleCount: 100, P50Ms: &p50, P95Ms: &p95},
 	}
@@ -240,6 +241,7 @@ func TestChannelMonitorV2HealthBlendsErrorTTFTAndCache(t *testing.T) {
 	p50OK := int64(1000)
 	metrics.ErrorRate = 0
 	metrics.CacheRate = 1
+	metrics.CacheRateNumerator = 100
 	metrics.TTFT.P50Ms = &p50OK
 	health = ChannelMonitorV2HealthForWithThresholds(metrics, thresholds)
 	require.Equal(t, "healthy", health.Overall)
@@ -258,15 +260,72 @@ func TestChannelMonitorV2DefaultHealthThresholdsAreTolerant(t *testing.T) {
 		RequestCount:         100,
 		ErrorRate:            0.03,
 		CacheRate:            0,
+		CacheRateNumerator:   0,
 		CacheRateDenominator: 100,
 		TTFT:                 ChannelMonitorV2Latency{SampleCount: 100, P50Ms: &p50},
 	})
 	require.Equal(t, "healthy", health.ErrorRate)
 	require.Equal(t, "healthy", health.TTFT)
-	require.Equal(t, "healthy", health.Cache)
+	require.Equal(t, "unknown", health.Cache)
 	require.Equal(t, "healthy", health.Overall)
-	require.NotNil(t, health.CacheScore)
-	require.InDelta(t, 100.0, *health.CacheScore, 0.01)
+	require.Nil(t, health.CacheScore)
+}
+
+func TestChannelMonitorV2NewSessionWithoutCacheIsNotScoredAsCacheFailure(t *testing.T) {
+	p50 := int64(1000)
+	health := ChannelMonitorV2HealthForWithThresholds(ChannelMonitorV2Metric{
+		RequestCount:         100,
+		ErrorRate:            0,
+		CacheRateDenominator: 100,
+		CacheRateNumerator:   0,
+		TTFT:                 ChannelMonitorV2Latency{SampleCount: 100, P50Ms: &p50},
+	}, ChannelMonitorV2HealthThresholds{
+		MinimumSample:     20,
+		WarningErrorRate:  0.02,
+		CriticalErrorRate: 0.05,
+		TargetTTFTMs:      2500,
+		WarningTTFTMs:     2501,
+		CriticalTTFTMs:    6000,
+		WarningCacheRate:  0.85,
+		CriticalCacheRate: 0.60,
+		ErrorWeight:       0.60,
+		TTFTWeight:        0.20,
+		CacheWeight:       0.20,
+	})
+	require.Equal(t, "unknown", health.Cache)
+	require.Nil(t, health.CacheScore)
+	require.Equal(t, "healthy", health.Overall)
+	require.InDelta(t, 100.0, *health.Score, 0.01)
+}
+
+func TestChannelMonitorV2SparseBucketDoesNotCollapseToCacheOnlyScore(t *testing.T) {
+	p50 := int64(5000)
+	health := ChannelMonitorV2HealthForWithThresholds(ChannelMonitorV2Metric{
+		RequestCount:         10,
+		ErrorRate:            0,
+		CacheRate:            0.05,
+		CacheRateNumerator:   100,
+		CacheRateDenominator: 2000,
+		TTFT:                 ChannelMonitorV2Latency{SampleCount: 10, P50Ms: &p50},
+	}, ChannelMonitorV2HealthThresholds{
+		MinimumSample:     50,
+		WarningErrorRate:  0.05,
+		CriticalErrorRate: 0.20,
+		TargetTTFTMs:      5000,
+		WarningTTFTMs:     10000,
+		CriticalTTFTMs:    20000,
+		WarningCacheRate:  0.80,
+		CriticalCacheRate: 0.50,
+		ErrorWeight:       0.60,
+		TTFTWeight:        0.20,
+		CacheWeight:       0.20,
+	})
+	require.Equal(t, "unknown", health.Overall)
+	require.Nil(t, health.Score)
+	require.Equal(t, "unknown", health.ErrorRate)
+	require.Equal(t, "unknown", health.TTFT)
+	require.Equal(t, "unknown", health.Cache)
+	require.Nil(t, health.CacheScore)
 }
 
 func TestErrorRateTTFTAndCacheScoreHelpers(t *testing.T) {
