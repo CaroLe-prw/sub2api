@@ -801,6 +801,45 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "empty_response", 0)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	tryLegacyUsage := func() (*UpstreamBillingProbeSnapshot, bool, error) {
+		balance, balanceKind, ok := s.probeLegacyUpstreamUsage(req.Context(), normalizedBaseURL, apiKey, proxyURL, account, tlsProfile)
+		if !ok {
+			return nil, false, nil
+		}
+		snapshot := &UpstreamBillingProbeSnapshot{
+			Status: UpstreamBillingProbeStatusOK,
+			Data: map[string]any{
+				"balance":      balance,
+				"balance_kind": balanceKind,
+			},
+			ReceivedAt:    probeTimePtr(now),
+			FreshUntil:    probeTimePtr(now.Add(2 * time.Duration(intervalMinutes) * time.Minute)),
+			LastAttemptAt: now,
+			NextProbeAt:   now.Add(nextProbeDelay(intervalMinutes, 0)),
+			HTTPStatus:    http.StatusOK,
+		}
+		alertBalance, balanceThreshold, notifyBalance := applyUpstreamBalanceAlertSnapshot(account, previousSnapshot, snapshot, now)
+		if err := s.updateSnapshot(ctx, account, snapshot, nil); err != nil {
+			return nil, true, err
+		}
+		if notifyBalance && s.opsService != nil {
+			s.opsService.notifyUpstreamBalanceLow(account, alertBalance, balanceThreshold)
+		}
+		return snapshot, true, nil
+	}
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+		if snapshot, ok, fallbackErr := tryLegacyUsage(); ok || fallbackErr != nil {
+			return snapshot, fallbackErr
+		}
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "unsupported", retryAfter(resp.Header, now))
+	}
+	contentType := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 && strings.HasPrefix(contentType, "text/html") {
+		if snapshot, ok, fallbackErr := tryLegacyUsage(); ok || fallbackErr != nil {
+			return snapshot, fallbackErr
+		}
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "invalid_response", retryAfter(resp.Header, now))
+	}
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, upstreamBillingProbeMaxBodyBytes+1))
 	if readErr != nil {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "response_read_failed", retryAfter(resp.Header, now))
@@ -808,14 +847,14 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 	if len(body) > upstreamBillingProbeMaxBodyBytes {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "response_too_large", retryAfter(resp.Header, now))
 	}
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "unsupported", retryAfter(resp.Header, now))
-	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "http_error", retryAfter(resp.Header, now))
 	}
 	data, err := parseUpstreamBillingProbeResponse(body)
 	if err != nil {
+		if snapshot, ok, fallbackErr := tryLegacyUsage(); ok || fallbackErr != nil {
+			return snapshot, fallbackErr
+		}
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "invalid_response", retryAfter(resp.Header, now))
 	}
 	if _, hasBalance := data["balance"]; !hasBalance {

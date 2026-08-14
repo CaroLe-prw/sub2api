@@ -399,6 +399,97 @@ func TestUpstreamBillingProbeFallsBackToLegacyUsageBalance(t *testing.T) {
 	require.Equal(t, "Bearer sk-sensitive", upstream.requests[1].Header.Get("Authorization"))
 }
 
+func TestUpstreamBillingProbeFallsBackToLegacyUsageWhenBillingEndpointUnavailable(t *testing.T) {
+	tests := []struct {
+		name        string
+		statusCode  int
+		contentType string
+		body        string
+	}{
+		{
+			name:        "frontend html fallback",
+			statusCode:  http.StatusOK,
+			contentType: "text/html; charset=utf-8",
+			body:        "<!doctype html><html lang=\"zh-CN\"><body>legacy frontend</body></html>",
+		},
+		{
+			name:        "missing billing route",
+			statusCode:  http.StatusNotFound,
+			contentType: "application/json",
+			body:        `{"error":{"message":"route not found"}}`,
+		},
+		{
+			name:        "legacy billing response schema",
+			statusCode:  http.StatusOK,
+			contentType: "application/json",
+			body:        `{"object":"legacy.key_billing"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			initialRate := 0.08
+			account := &Account{
+				ID:          19,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key":  "sk-sensitive",
+					"base_url": "https://legacy-upstream.example",
+				},
+				Extra: map[string]any{
+					UpstreamBillingProbeEnabledExtraKey:    true,
+					UpstreamBillingRateSyncEnabledExtraKey: true,
+				},
+				RateMultiplier: &initialRate,
+			}
+			repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+			upstream := &httpUpstreamRecorder{responses: []*http.Response{
+				{
+					StatusCode: tt.statusCode,
+					Header:     http.Header{"Content-Type": []string{tt.contentType}},
+					Body:       io.NopCloser(strings.NewReader(tt.body)),
+				},
+				{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"application/json; charset=utf-8"}},
+					Body: io.NopCloser(strings.NewReader(`{
+						"balance":2.15567904,
+						"isValid":true,
+						"mode":"unrestricted",
+						"planName":"钱包余额",
+						"remaining":2.15567904,
+						"unit":"USD"
+					}`)),
+				},
+			}}
+			svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+			fixedNow := time.Date(2026, time.August, 14, 6, 9, 50, 0, time.UTC)
+			svc.now = func() time.Time { return fixedNow }
+
+			snapshot, err := svc.ProbeAccount(context.Background(), account.ID)
+
+			require.NoError(t, err)
+			require.Equal(t, UpstreamBillingProbeStatusOK, snapshot.Status)
+			require.Equal(t, 2.15567904, snapshot.Data["balance"])
+			require.Equal(t, "wallet", snapshot.Data["balance_kind"])
+			require.Equal(t, http.StatusOK, snapshot.HTTPStatus)
+			require.NotNil(t, snapshot.ReceivedAt)
+			require.Equal(t, fixedNow, *snapshot.ReceivedAt)
+			require.NotNil(t, snapshot.FreshUntil)
+			require.Equal(t, fixedNow.Add(time.Hour), *snapshot.FreshUntil)
+			require.Len(t, upstream.requests, 2)
+			require.Equal(t, "/v1/sub2api/billing", upstream.requests[0].URL.Path)
+			require.Equal(t, "/v1/usage", upstream.requests[1].URL.Path)
+			require.Equal(t, "Bearer sk-sensitive", upstream.requests[1].Header.Get("Authorization"))
+			require.NotNil(t, account.RateMultiplier)
+			require.Equal(t, initialRate, *account.RateMultiplier)
+		})
+	}
+}
+
 func TestApplyUpstreamBalanceAlertSnapshotTransitions(t *testing.T) {
 	now := time.Date(2026, time.July, 31, 3, 0, 0, 0, time.UTC)
 	account := &Account{Extra: map[string]any{
