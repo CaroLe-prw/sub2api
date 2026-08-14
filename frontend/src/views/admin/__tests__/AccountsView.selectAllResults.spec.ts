@@ -38,6 +38,11 @@ vi.mock('@/api/admin', () => ({
     },
     groups: {
       getAll: getAllGroups
+    },
+    schedulerProbes: {
+      listOverview: vi.fn().mockResolvedValue({ items: [] }),
+      listResults: vi.fn().mockResolvedValue([]),
+      runNow: vi.fn()
     }
   }
 }))

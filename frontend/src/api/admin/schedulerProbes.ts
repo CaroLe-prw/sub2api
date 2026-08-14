@@ -79,8 +79,13 @@ export async function updatePolicy(
   return data
 }
 
-export async function listOverview(): Promise<PoolMonitorOverviewResponse> {
-  const { data } = await apiClient.get<PoolMonitorOverviewResponse>('/admin/scheduler-observability/probes/overview')
+export async function listOverview(accountIds: number[] = []): Promise<PoolMonitorOverviewResponse> {
+  const url = '/admin/scheduler-observability/probes/overview'
+  const { data } = accountIds.length
+    ? await apiClient.get<PoolMonitorOverviewResponse>(url, {
+      params: { account_ids: accountIds.join(',') },
+    })
+    : await apiClient.get<PoolMonitorOverviewResponse>(url)
   return data
 }
 

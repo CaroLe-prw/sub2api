@@ -8,13 +8,19 @@ const {
   listWithEtag,
   getBatchTodayStats,
   getAllProxies,
-  getAllGroups
+  getAllGroups,
+  listProbeOverview,
+  listProbeResults,
+  runProbeNow
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
   getAllProxies: vi.fn(),
-  getAllGroups: vi.fn()
+  getAllGroups: vi.fn(),
+  listProbeOverview: vi.fn(),
+  listProbeResults: vi.fn(),
+  runProbeNow: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -34,6 +40,11 @@ vi.mock('@/api/admin', () => ({
     },
     groups: {
       getAll: getAllGroups
+    },
+    schedulerProbes: {
+      listOverview: listProbeOverview,
+      listResults: listProbeResults,
+      runNow: runProbeNow
     }
   }
 }))
@@ -74,9 +85,18 @@ const DataTableStub = {
         <span :data-test="'rate-multiplier-' + row.id">
           <slot name="cell-rate_multiplier" :row="row" />
         </span>
+        <div :data-test="'model-availability-' + row.id">
+          <slot name="cell-model_availability" :row="row" />
+        </div>
       </div>
     </div>
   `
+}
+
+const PaginationStub = {
+  name: 'Pagination',
+  emits: ['update:page', 'update:pageSize'],
+  template: '<button data-test="next-page" type="button" @click="$emit(\'update:page\', 2)">next</button>'
 }
 
 function mountView() {
@@ -89,7 +109,7 @@ function mountView() {
         },
         DataTable: DataTableStub,
         HelpTooltip: true,
-        Pagination: true,
+        Pagination: PaginationStub,
         ConfirmDialog: true,
         AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
         AccountTableFilters: { template: '<div></div>' },
@@ -111,6 +131,11 @@ function mountView() {
         AccountCapacityCell: true,
         AccountStatusIndicator: true,
         AccountTodayStatsCell: true,
+        MonitorCompactHeartbeatStrip: true,
+        MonitorModelHistoryDialog: {
+          props: ['show', 'account', 'histories', 'loading', 'runningPlanId'],
+          template: '<div data-test="monitor-detail" :data-show="String(show)" />'
+        },
         AccountGroupsCell: true,
         AccountUsageCell: true,
         Icon: true
@@ -143,6 +168,9 @@ describe('admin AccountsView scheduler score column', () => {
     getBatchTodayStats.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
+    listProbeOverview.mockReset()
+    listProbeResults.mockReset()
+    runProbeNow.mockReset()
 
     listAccounts.mockResolvedValue({
       items: [
@@ -210,6 +238,45 @@ describe('admin AccountsView scheduler score column', () => {
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    listProbeOverview.mockResolvedValue({
+      items: [{
+        account_id: 1,
+        name: 'ungrouped-openai',
+        platform: 'openai',
+        type: 'apikey',
+        status: 'active',
+        schedulable: true,
+        concurrency: 1,
+        models: [
+          {
+            plan_id: 81,
+            model: 'gpt-5.6-sol',
+            enabled: true,
+            status: 'success',
+            latency_ms: 900,
+            availability: 100,
+            sample_count: 1,
+            failure_count: 0,
+            last_checked_at: '2026-08-14T00:00:00Z',
+            recent_results: []
+          },
+          {
+            plan_id: 82,
+            model: 'gpt-5.6-terra',
+            enabled: true,
+            status: 'failed',
+            latency_ms: 15000,
+            availability: 0,
+            sample_count: 1,
+            failure_count: 1,
+            last_checked_at: '2026-08-14T00:00:00Z',
+            recent_results: []
+          }
+        ]
+      }]
+    })
+    listProbeResults.mockResolvedValue([])
+    runProbeNow.mockResolvedValue(null)
   })
 
   it('falls back to the base score for ungrouped accounts instead of showing a dash', async () => {
@@ -225,6 +292,74 @@ describe('admin AccountsView scheduler score column', () => {
     expect(ungroupedCell.text()).toContain('1.234567')
     expect(ungroupedCell.text()).toContain('admin.accounts.schedulerScore.ungrouped')
     expect(ungroupedCell.text()).not.toBe('-')
+  })
+
+  it('shows current model availability and opens the shared monitor detail', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(listProbeOverview).toHaveBeenCalledWith([1, 2, 4, 3])
+    const availabilityCell = wrapper.get('[data-test="model-availability-1"]')
+    expect(availabilityCell.text()).toContain('1/2')
+
+    await availabilityCell.get('button').trigger('click')
+    await flushPromises()
+
+    expect(listProbeResults).toHaveBeenCalledWith(81, 100)
+    expect(listProbeResults).toHaveBeenCalledWith(82, 100)
+    expect(wrapper.get('[data-test="monitor-detail"]').attributes('data-show')).toBe('true')
+  })
+
+  it('loads model availability automatically after switching pages', async () => {
+    const accountForPage = (id: number, name: string) => ({
+      ...baseAccount,
+      id,
+      name,
+      rate_multiplier: 1,
+    })
+    listAccounts.mockImplementation(async (page: number) => ({
+      items: page === 2
+        ? [accountForPage(7, 'page-two-openai')]
+        : [accountForPage(1, 'page-one-openai')],
+      total: 2,
+      page,
+      page_size: 1,
+      pages: 2,
+    }))
+    listProbeOverview.mockImplementation(async (accountIDs: number[]) => ({
+      items: accountIDs.map((accountID) => ({
+        account_id: accountID,
+        name: accountID === 7 ? 'page-two-openai' : 'page-one-openai',
+        platform: 'openai',
+        type: 'apikey',
+        status: 'active',
+        schedulable: true,
+        concurrency: 1,
+        models: [{
+          plan_id: accountID * 10,
+          model: 'gpt-5.6-sol',
+          enabled: true,
+          status: 'success',
+          latency_ms: 900,
+          availability: 100,
+          sample_count: 1,
+          failure_count: 0,
+          last_checked_at: '2026-08-14T00:00:00Z',
+          recent_results: [],
+        }],
+      })),
+    }))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="model-availability-1"]').text()).toContain('1/1')
+
+    await wrapper.get('[data-test="next-page"]').trigger('click')
+    await flushPromises()
+
+    expect(listProbeOverview).toHaveBeenLastCalledWith([7])
+    expect(wrapper.get('[data-test="model-availability-7"]').text()).toContain('1/1')
   })
 
   it('renders per-group scores for grouped accounts', async () => {

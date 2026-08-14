@@ -109,6 +109,7 @@ export default {
         upstreamBalance: '上游余额',
         weight: '权重',
         schedulerScore: '调度权值',
+        modelAvailability: '模型可用性',
         status: '状态',
         schedulable: '调度',
         todayStats: '今日统计',
@@ -126,6 +127,18 @@ export default {
         ungrouped: '未分组',
         onlySelectedGroup: '仅看选中分组',
         hint: '显示格式为“分组名 / 基础分 / 粘性加分”。基础分按当前筛选条件限定的候选账号计算，包含优先级、负载、排队、错误率、首包延迟、重置窗口、额度余量、调度成本倍率等因子；粘性加分只在开启粘性加权时用于 previous_response_id 或 session_hash。分数越大越优先。'
+      },
+      modelAvailability: {
+        hint: '显示调度探针最近一次结果中的可用模型数/探测模型总数；点击可查看与调度观测一致的渠道监控详情。',
+        openDetail: '可用模型 {available}/{total}，点击查看渠道监控详情',
+        loadError: '加载模型可用性失败',
+        states: {
+          healthy: '全部可用',
+          partial: '部分可用',
+          failed: '全部异常',
+          pending: '待探测',
+          unmonitored: '未纳入探测'
+        }
       },
       usageWindowsHint: '“5h / 7d”是上游账号（如 OpenAI ChatGPT、Claude）官方的滚动用量窗口限制，由上游对账号设定，并非 sub2api 配置，也与你映射的模型无关。窗口滚动到期后用量会自动重置，无法在 sub2api 端解除该限制。',
       ollamaCloud: {

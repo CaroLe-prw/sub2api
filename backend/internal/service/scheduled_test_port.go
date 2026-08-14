@@ -96,7 +96,7 @@ type ScheduledTestPlanRepository interface {
 	Delete(ctx context.Context, id int64) error
 	UpdateAfterRun(ctx context.Context, id int64, lastRunAt time.Time, nextRunAt time.Time) error
 	ReconcileChannelMonitorPlans(ctx context.Context, desired []*ScheduledTestPlan) error
-	ListChannelMonitorPoolOverview(ctx context.Context, since time.Time) ([]*ChannelMonitorPoolAccount, error)
+	ListChannelMonitorPoolOverview(ctx context.Context, since time.Time, accountIDs []int64) ([]*ChannelMonitorPoolAccount, error)
 }
 
 // ScheduledTestResultRepository defines the data access interface for test results.
