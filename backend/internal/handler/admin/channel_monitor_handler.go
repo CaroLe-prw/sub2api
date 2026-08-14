@@ -47,6 +47,7 @@ type channelMonitorCreateRequest struct {
 	ExtraModels      []string          `json:"extra_models"`
 	GroupName        string            `json:"group_name" binding:"max=100"`
 	Enabled          *bool             `json:"enabled"`
+	Streaming        *bool             `json:"streaming"`
 	IntervalSeconds  int               `json:"interval_seconds" binding:"required,min=15,max=3600"`
 	JitterSeconds    int               `json:"jitter_seconds" binding:"omitempty,min=0,max=3585"`
 	TemplateID       *int64            `json:"template_id"`
@@ -65,6 +66,7 @@ type channelMonitorUpdateRequest struct {
 	ExtraModels      *[]string          `json:"extra_models"`
 	GroupName        *string            `json:"group_name" binding:"omitempty,max=100"`
 	Enabled          *bool              `json:"enabled"`
+	Streaming        *bool              `json:"streaming"`
 	IntervalSeconds  *int               `json:"interval_seconds" binding:"omitempty,min=15,max=3600"`
 	JitterSeconds    *int               `json:"jitter_seconds" binding:"omitempty,min=0,max=3585"`
 	TemplateID       *int64             `json:"template_id"`
@@ -75,32 +77,56 @@ type channelMonitorUpdateRequest struct {
 }
 
 type channelMonitorResponse struct {
-	ID                  int64                                `json:"id"`
-	Name                string                               `json:"name"`
-	Provider            string                               `json:"provider"`
-	APIMode             string                               `json:"api_mode"`
-	Endpoint            string                               `json:"endpoint"`
-	APIKeyMasked        string                               `json:"api_key_masked"`
-	APIKeyDecryptFailed bool                                 `json:"api_key_decrypt_failed"`
-	PrimaryModel        string                               `json:"primary_model"`
-	ExtraModels         []string                             `json:"extra_models"`
-	GroupName           string                               `json:"group_name"`
-	Enabled             bool                                 `json:"enabled"`
-	IntervalSeconds     int                                  `json:"interval_seconds"`
-	JitterSeconds       int                                  `json:"jitter_seconds"`
-	LastCheckedAt       *string                              `json:"last_checked_at"`
-	CreatedBy           int64                                `json:"created_by"`
-	CreatedAt           string                               `json:"created_at"`
-	UpdatedAt           string                               `json:"updated_at"`
-	PrimaryStatus       string                               `json:"primary_status"`
-	PrimaryLatencyMs    *int                                 `json:"primary_latency_ms"`
-	Availability7d      float64                              `json:"availability_7d"`
-	ExtraModelsStatus   []dto.ChannelMonitorExtraModelStatus `json:"extra_models_status"`
+	ID                   int64                                 `json:"id"`
+	Name                 string                                `json:"name"`
+	Provider             string                                `json:"provider"`
+	APIMode              string                                `json:"api_mode"`
+	Endpoint             string                                `json:"endpoint"`
+	APIKeyMasked         string                                `json:"api_key_masked"`
+	APIKeyDecryptFailed  bool                                  `json:"api_key_decrypt_failed"`
+	PrimaryModel         string                                `json:"primary_model"`
+	ExtraModels          []string                              `json:"extra_models"`
+	GroupName            string                                `json:"group_name"`
+	Enabled              bool                                  `json:"enabled"`
+	PublicVisible        bool                                  `json:"public_visible"`
+	Streaming            bool                                  `json:"streaming"`
+	IntervalSeconds      int                                   `json:"interval_seconds"`
+	JitterSeconds        int                                   `json:"jitter_seconds"`
+	LastCheckedAt        *string                               `json:"last_checked_at"`
+	CreatedBy            int64                                 `json:"created_by"`
+	CreatedAt            string                                `json:"created_at"`
+	UpdatedAt            string                                `json:"updated_at"`
+	PrimaryStatus        string                                `json:"primary_status"`
+	PrimaryLatencyMs     *int                                  `json:"primary_latency_ms"`
+	PrimaryPingLatencyMs *int                                  `json:"primary_ping_latency_ms"`
+	Availability7d       float64                               `json:"availability_7d"`
+	ExtraModelsStatus    []dto.ChannelMonitorExtraModelStatus  `json:"extra_models_status"`
+	Timeline             []channelMonitorTimelinePointResponse `json:"timeline"`
+	ObservedModels       []channelMonitorObservedModelResponse `json:"observed_models"`
 	// 请求自定义快照：前端编辑 / 展示「高级设置」用
 	TemplateID       *int64            `json:"template_id"`
 	ExtraHeaders     map[string]string `json:"extra_headers"`
 	BodyOverrideMode string            `json:"body_override_mode"`
 	BodyOverride     map[string]any    `json:"body_override"`
+}
+
+type channelMonitorTimelinePointResponse struct {
+	Status        string `json:"status"`
+	LatencyMs     *int   `json:"latency_ms"`
+	PingLatencyMs *int   `json:"ping_latency_ms"`
+	CheckedAt     string `json:"checked_at"`
+}
+
+type channelMonitorObservedModelResponse struct {
+	Model          string   `json:"model"`
+	Source         string   `json:"source"`
+	Status         string   `json:"status"`
+	LatencyMs      *int     `json:"latency_ms"`
+	PingLatencyMs  *int     `json:"ping_latency_ms"`
+	CheckedAt      *string  `json:"checked_at"`
+	Availability7d *float64 `json:"availability_7d"`
+	AvgLatency7dMs *int     `json:"avg_latency_7d_ms"`
+	TotalChecks7d  int      `json:"total_checks_7d"`
 }
 
 type channelMonitorCheckResultResponse struct {
@@ -120,6 +146,19 @@ type channelMonitorHistoryItemResponse struct {
 	PingLatencyMs *int   `json:"ping_latency_ms"`
 	Message       string `json:"message"`
 	CheckedAt     string `json:"checked_at"`
+}
+
+type channelMonitorAutoModelPolicyRequest struct {
+	Enabled   bool     `json:"enabled"`
+	Whitelist []string `json:"whitelist"`
+}
+
+type channelMonitorAccountModelPolicyRequest struct {
+	Whitelist []string `json:"whitelist"`
+}
+
+type channelMonitorPublishRequest struct {
+	ConfirmName string `json:"confirm_name" binding:"required"`
 }
 
 // maskAPIKey 对 API Key 明文做脱敏：前 4 字符 + "***"，长度 ≤ 4 时只显示 "***"。
@@ -154,6 +193,8 @@ func channelMonitorToResponse(m *service.ChannelMonitor) *channelMonitorResponse
 		ExtraModels:         extras,
 		GroupName:           m.GroupName,
 		Enabled:             m.Enabled,
+		PublicVisible:       m.PublicVisible,
+		Streaming:           m.Streaming,
 		IntervalSeconds:     m.IntervalSeconds,
 		JitterSeconds:       m.JitterSeconds,
 		CreatedBy:           m.CreatedBy,
@@ -244,11 +285,22 @@ func (h *ChannelMonitorHandler) List(c *gin.Context) {
 	}
 
 	summaries := h.batchSummaryFor(c, items)
+	timelines := h.batchTimelinesFor(c, items)
 	out := make([]*channelMonitorResponse, 0, len(items))
 	for _, m := range items {
-		out = append(out, buildListItemResponse(m, summaries[m.ID]))
+		out = append(out, buildListItemResponse(m, summaries[m.ID], timelines[m.ID]))
 	}
 	response.Paginated(c, out, total, page, pageSize)
+}
+
+func (h *ChannelMonitorHandler) batchTimelinesFor(c *gin.Context, items []*service.ChannelMonitor) map[int64][]service.UserMonitorTimelinePoint {
+	ids := make([]int64, 0, len(items))
+	primaryByID := make(map[int64]string, len(items))
+	for _, monitor := range items {
+		ids = append(ids, monitor.ID)
+		primaryByID[monitor.ID] = monitor.PrimaryModel
+	}
+	return h.monitorService.BatchMonitorTimelines(c.Request.Context(), ids, primaryByID)
 }
 
 // batchSummaryFor 批量聚合 latest + 7d 可用率，避免每行 2 次 SQL（消除 N+1）。
@@ -265,7 +317,11 @@ func (h *ChannelMonitorHandler) batchSummaryFor(c *gin.Context, items []*service
 }
 
 // buildListItemResponse 把 monitor + summary 装成 admin list 的响应行。
-func buildListItemResponse(m *service.ChannelMonitor, summary service.MonitorStatusSummary) *channelMonitorResponse {
+func buildListItemResponse(
+	m *service.ChannelMonitor,
+	summary service.MonitorStatusSummary,
+	timeline []service.UserMonitorTimelinePoint,
+) *channelMonitorResponse {
 	resp := channelMonitorToResponse(m)
 	resp.PrimaryStatus = summary.PrimaryStatus
 	resp.PrimaryLatencyMs = summary.PrimaryLatencyMs
@@ -278,6 +334,46 @@ func buildListItemResponse(m *service.ChannelMonitor, summary service.MonitorSta
 			LatencyMs: e.LatencyMs,
 		})
 	}
+	resp.ObservedModels = make([]channelMonitorObservedModelResponse, 0, len(summary.ObservedModels))
+	manualExtras := make(map[string]struct{}, len(m.ExtraModels))
+	for _, model := range m.ExtraModels {
+		manualExtras[model] = struct{}{}
+	}
+	for _, observed := range summary.ObservedModels {
+		source := "auto"
+		if observed.Model == m.PrimaryModel {
+			source = "primary"
+		} else if _, ok := manualExtras[observed.Model]; ok {
+			source = "manual"
+		}
+		item := channelMonitorObservedModelResponse{
+			Model:          observed.Model,
+			Source:         source,
+			Status:         observed.Status,
+			LatencyMs:      observed.LatencyMs,
+			PingLatencyMs:  observed.PingLatencyMs,
+			Availability7d: observed.Availability7d,
+			AvgLatency7dMs: observed.AvgLatency7dMs,
+			TotalChecks7d:  observed.TotalChecks7d,
+		}
+		if observed.CheckedAt != nil {
+			checkedAt := observed.CheckedAt.UTC().Format(time.RFC3339)
+			item.CheckedAt = &checkedAt
+		}
+		if observed.Model == m.PrimaryModel {
+			resp.PrimaryPingLatencyMs = observed.PingLatencyMs
+		}
+		resp.ObservedModels = append(resp.ObservedModels, item)
+	}
+	resp.Timeline = make([]channelMonitorTimelinePointResponse, 0, len(timeline))
+	for _, point := range timeline {
+		resp.Timeline = append(resp.Timeline, channelMonitorTimelinePointResponse{
+			Status:        point.Status,
+			LatencyMs:     point.LatencyMs,
+			PingLatencyMs: point.PingLatencyMs,
+			CheckedAt:     point.CheckedAt.UTC().Format(time.RFC3339),
+		})
+	}
 	return resp
 }
 
@@ -288,6 +384,102 @@ func (h *ChannelMonitorHandler) Get(c *gin.Context) {
 		return
 	}
 	m, err := h.monitorService.Get(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, channelMonitorToResponse(m))
+}
+
+// GetAutoModelPolicy GET /api/v1/admin/channel-monitors/auto-model-policy
+func (h *ChannelMonitorHandler) GetAutoModelPolicy(c *gin.Context) {
+	policy, err := h.monitorService.GetAutoModelPolicy(c.Request.Context(), true)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
+}
+
+// UpdateAutoModelPolicy PUT /api/v1/admin/channel-monitors/auto-model-policy
+func (h *ChannelMonitorHandler) UpdateAutoModelPolicy(c *gin.Context) {
+	var req channelMonitorAutoModelPolicyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
+		return
+	}
+	policy, err := h.monitorService.UpdateAutoModelPolicy(c.Request.Context(), service.ChannelMonitorAutoModelPolicy{
+		Enabled:   req.Enabled,
+		Whitelist: req.Whitelist,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
+}
+
+// GetAccountModelPolicy GET /api/v1/admin/channel-monitors/pool-accounts/:account_id/model-policy
+func (h *ChannelMonitorHandler) GetAccountModelPolicy(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("account_id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", "invalid account id"))
+		return
+	}
+	policy, err := h.monitorService.GetAccountModelPolicy(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
+}
+
+// UpdateAccountModelPolicy PUT /api/v1/admin/channel-monitors/pool-accounts/:account_id/model-policy
+func (h *ChannelMonitorHandler) UpdateAccountModelPolicy(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("account_id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", "invalid account id"))
+		return
+	}
+	var req channelMonitorAccountModelPolicyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
+		return
+	}
+	policy, err := h.monitorService.UpdateAccountModelPolicy(c.Request.Context(), accountID, req.Whitelist)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
+}
+
+// Publish POST /api/v1/admin/channel-monitors/:id/publish
+func (h *ChannelMonitorHandler) Publish(c *gin.Context) {
+	id, ok := ParseChannelMonitorID(c)
+	if !ok {
+		return
+	}
+	var req channelMonitorPublishRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
+		return
+	}
+	m, err := h.monitorService.SetPublicVisibility(c.Request.Context(), id, true, req.ConfirmName)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, channelMonitorToResponse(m))
+}
+
+// Unpublish POST /api/v1/admin/channel-monitors/:id/unpublish
+func (h *ChannelMonitorHandler) Unpublish(c *gin.Context) {
+	id, ok := ParseChannelMonitorID(c)
+	if !ok {
+		return
+	}
+	m, err := h.monitorService.SetPublicVisibility(c.Request.Context(), id, false, "")
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -309,6 +501,10 @@ func (h *ChannelMonitorHandler) Create(c *gin.Context) {
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
+	streaming := req.Provider != service.MonitorProviderGemini
+	if req.Streaming != nil {
+		streaming = *req.Streaming
+	}
 
 	m, err := h.monitorService.Create(c.Request.Context(), service.ChannelMonitorCreateParams{
 		Name:             req.Name,
@@ -320,6 +516,7 @@ func (h *ChannelMonitorHandler) Create(c *gin.Context) {
 		ExtraModels:      req.ExtraModels,
 		GroupName:        req.GroupName,
 		Enabled:          enabled,
+		Streaming:        streaming,
 		IntervalSeconds:  req.IntervalSeconds,
 		JitterSeconds:    req.JitterSeconds,
 		CreatedBy:        subject.UserID,
@@ -414,6 +611,7 @@ func (h *ChannelMonitorHandler) Update(c *gin.Context) {
 		ExtraModels:      req.ExtraModels,
 		GroupName:        req.GroupName,
 		Enabled:          req.Enabled,
+		Streaming:        req.Streaming,
 		IntervalSeconds:  req.IntervalSeconds,
 		JitterSeconds:    req.JitterSeconds,
 		TemplateID:       req.TemplateID,

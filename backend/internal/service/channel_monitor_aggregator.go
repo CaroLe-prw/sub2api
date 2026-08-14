@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 )
 
 // 渠道监控聚合层：把 latest + availability 拼成 admin/user 视图所需的 summary / detail。
@@ -48,7 +49,7 @@ func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 	return out
 }
 
-// ListUserView 用户只读视图：列出所有 enabled 监控的概览。
+// ListUserView 用户只读视图：仅列出 enabled 且由管理员明确公开的监控概览。
 // 使用批量聚合接口避免 N+1：
 //
 //	1 次查 monitors；
@@ -56,9 +57,9 @@ func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 //	1 次批量 7d availability；
 //	1 次批量 timeline（主模型最近 N 条）。
 func (s *ChannelMonitorService) ListUserView(ctx context.Context) ([]*UserMonitorView, error) {
-	monitors, err := s.repo.ListEnabled(ctx)
+	monitors, err := s.repo.ListPublicEnabled(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list enabled monitors: %w", err)
+		return nil, fmt.Errorf("list public enabled monitors: %w", err)
 	}
 	if len(monitors) == 0 {
 		return []*UserMonitorView{}, nil
@@ -114,6 +115,22 @@ func (s *ChannelMonitorService) batchTimeline(
 	return timelineMap
 }
 
+// BatchMonitorTimelines returns compact primary-model timelines for an admin
+// page of monitors. Unlike ListUserView, callers choose the monitor IDs, so
+// private and disabled monitors remain previewable without entering public APIs.
+func (s *ChannelMonitorService) BatchMonitorTimelines(
+	ctx context.Context,
+	ids []int64,
+	primaryByID map[int64]string,
+) map[int64][]UserMonitorTimelinePoint {
+	entriesByID := s.batchTimeline(ctx, ids, primaryByID)
+	out := make(map[int64][]UserMonitorTimelinePoint, len(ids))
+	for _, id := range ids {
+		out[id] = buildTimelinePoints(entriesByID[id])
+	}
+	return out
+}
+
 // pickLatest 从 latest 切片中挑出指定 model 对应项，未命中返回 nil。
 func pickLatest(rows []*ChannelMonitorLatest, model string) *ChannelMonitorLatest {
 	if model == "" {
@@ -134,7 +151,7 @@ func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64) (*U
 	if err != nil {
 		return nil, err
 	}
-	if !m.Enabled {
+	if !m.Enabled || !m.PublicVisible {
 		return nil, ErrChannelMonitorNotFound
 	}
 
@@ -199,7 +216,10 @@ func buildStatusSummary(
 	primary string,
 	extras []string,
 ) MonitorStatusSummary {
-	summary := MonitorStatusSummary{ExtraModels: make([]ExtraModelStatus, 0, len(extras))}
+	summary := MonitorStatusSummary{
+		ExtraModels:    make([]ExtraModelStatus, 0, len(extras)),
+		ObservedModels: buildObservedModelStatuses(latestByModel, availByModel, primary, extras),
+	}
 	if primary != "" {
 		if l, ok := latestByModel[primary]; ok {
 			summary.PrimaryStatus = l.Status
@@ -218,6 +238,61 @@ func buildStatusSummary(
 		summary.ExtraModels = append(summary.ExtraModels, entry)
 	}
 	return summary
+}
+
+// buildObservedModelStatuses 合并配置模型与实际历史模型。
+// 历史模型集合不能只按 primary/extras 裁剪，否则自动发现模型虽已探测入库，管理端却无法查看。
+func buildObservedModelStatuses(
+	latestByModel map[string]*ChannelMonitorLatest,
+	availByModel map[string]*ChannelMonitorAvailability,
+	primary string,
+	extras []string,
+) []MonitorObservedModelStatus {
+	models := make(map[string]struct{}, 1+len(extras)+len(latestByModel)+len(availByModel))
+	if primary != "" {
+		models[primary] = struct{}{}
+	}
+	for _, model := range extras {
+		if model != "" {
+			models[model] = struct{}{}
+		}
+	}
+	for model := range latestByModel {
+		if model != "" {
+			models[model] = struct{}{}
+		}
+	}
+	for model := range availByModel {
+		if model != "" {
+			models[model] = struct{}{}
+		}
+	}
+
+	ordered := make([]string, 0, len(models))
+	for model := range models {
+		ordered = append(ordered, model)
+	}
+	sort.Strings(ordered)
+
+	out := make([]MonitorObservedModelStatus, 0, len(ordered))
+	for _, model := range ordered {
+		item := MonitorObservedModelStatus{Model: model}
+		if latest, ok := latestByModel[model]; ok {
+			item.Status = latest.Status
+			item.LatencyMs = latest.LatencyMs
+			item.PingLatencyMs = latest.PingLatencyMs
+			checkedAt := latest.CheckedAt
+			item.CheckedAt = &checkedAt
+		}
+		if availability, ok := availByModel[model]; ok {
+			pct := availability.AvailabilityPct
+			item.Availability7d = &pct
+			item.AvgLatency7dMs = availability.AvgLatencyMs
+			item.TotalChecks7d = availability.TotalChecks
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 // buildUserViewFromSummary 用预聚合好的 MonitorStatusSummary + 主模型 latest + timeline 装填 UserMonitorView（无 IO）。

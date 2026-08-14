@@ -50,52 +50,52 @@ const weightFields = computed<
   {
     key: 'priority',
     label: t('admin.groups.scheduler.weights.priority'),
-    defaultValue: 1,
+    defaultValue: 0.5,
   },
   {
     key: 'load',
     label: t('admin.groups.scheduler.weights.load'),
-    defaultValue: 1,
+    defaultValue: 1.5,
   },
   {
     key: 'queue',
     label: t('admin.groups.scheduler.weights.queue'),
-    defaultValue: 0.7,
+    defaultValue: 1.5,
   },
   {
     key: 'error_rate',
     label: t('admin.groups.scheduler.weights.errorRate'),
-    defaultValue: 0.8,
+    defaultValue: 4,
   },
   {
     key: 'ttft',
     label: t('admin.groups.scheduler.weights.ttft'),
-    defaultValue: 0.5,
+    defaultValue: 2.5,
   },
   {
     key: 'reset',
     label: t('admin.groups.scheduler.weights.reset'),
-    defaultValue: 0,
+    defaultValue: 0.2,
   },
   {
     key: 'quota_headroom',
     label: t('admin.groups.scheduler.weights.quotaHeadroom'),
-    defaultValue: 0,
+    defaultValue: 0.8,
   },
   {
     key: 'upstream_cost',
     label: t('admin.groups.scheduler.weights.upstreamCost'),
-    defaultValue: 0,
+    defaultValue: 1.5,
   },
   {
     key: 'previous_response',
     label: t('admin.groups.scheduler.weights.previousResponse'),
-    defaultValue: 5,
+    defaultValue: 0.3,
   },
   {
     key: 'session_sticky',
     label: t('admin.groups.scheduler.weights.sessionSticky'),
-    defaultValue: 3,
+    defaultValue: 0.1,
   },
 ])
 
@@ -165,7 +165,7 @@ function updateBoolean(
         </label>
         <input
           :value="config.top_k ?? ''"
-          :placeholder="t('admin.groups.scheduler.defaultPlaceholder', { value: 7 })"
+          :placeholder="t('admin.groups.scheduler.defaultPlaceholder', { value: 4 })"
           type="number"
           min="1"
           step="1"

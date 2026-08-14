@@ -27,6 +27,8 @@ export interface ChannelMonitor {
   extra_models: string[]
   group_name: string
   enabled: boolean
+  public_visible: boolean
+  streaming: boolean
   interval_seconds: number
   /** 每次调度在 interval 基础上 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔 */
   jitter_seconds: number
@@ -38,10 +40,16 @@ export interface ChannelMonitor {
   primary_status: MonitorStatus | ''
   /** Latest latency of the primary model in ms (null when no history yet) */
   primary_latency_ms: number | null
+  /** Latest endpoint ping recorded with the primary-model probe. */
+  primary_ping_latency_ms?: number | null
   /** Primary model 7-day availability percentage (0-100) */
   availability_7d: number
   /** Latest status per extra model (used for hover tooltip) */
   extra_models_status: ExtraModelStatus[]
+  /** Primary-model heartbeat samples, newest first. */
+  timeline?: MonitorTimelinePoint[]
+  /** All models with admin-side probe data, including runtime auto-discovered models. */
+  observed_models?: ObservedModelStatus[]
   /** 请求自定义快照字段（高级设置） */
   template_id: number | null
   extra_headers: Record<string, string>
@@ -49,10 +57,31 @@ export interface ChannelMonitor {
   body_override: Record<string, unknown> | null
 }
 
+export interface MonitorTimelinePoint {
+  status: MonitorStatus
+  latency_ms: number | null
+  ping_latency_ms: number | null
+  checked_at: string
+}
+
 export interface ExtraModelStatus {
   model: string
   status: MonitorStatus | ''
   latency_ms: number | null
+}
+
+export type ObservedModelSource = 'primary' | 'manual' | 'auto'
+
+export interface ObservedModelStatus {
+  model: string
+  source: ObservedModelSource
+  status: MonitorStatus | ''
+  latency_ms: number | null
+  ping_latency_ms: number | null
+  checked_at: string | null
+  availability_7d: number | null
+  avg_latency_7d_ms: number | null
+  total_checks_7d: number
 }
 
 export interface ListParams {
@@ -81,6 +110,7 @@ export interface CreateParams {
   extra_models?: string[]
   group_name?: string
   enabled?: boolean
+  streaming?: boolean
   interval_seconds: number
   jitter_seconds?: number
   template_id?: number | null
@@ -247,6 +277,18 @@ export async function update(id: number, params: UpdateParams): Promise<ChannelM
   return data
 }
 
+export async function publish(id: number, confirmName: string): Promise<ChannelMonitor> {
+  const { data } = await apiClient.post<ChannelMonitor>(`/admin/channel-monitors/${id}/publish`, {
+    confirm_name: confirmName,
+  })
+  return data
+}
+
+export async function unpublish(id: number): Promise<ChannelMonitor> {
+  const { data } = await apiClient.post<ChannelMonitor>(`/admin/channel-monitors/${id}/unpublish`)
+  return data
+}
+
 /**
  * Delete a channel monitor
  */
@@ -283,6 +325,8 @@ export const channelMonitorAPI = {
   create,
   duplicate,
   update,
+  publish,
+  unpublish,
   del,
   runNow,
   listHistory,

@@ -92,8 +92,6 @@ type grokMediaEligibilityProber interface {
 	ProbeMediaEligibility(ctx context.Context, accountID int64) (bool, string, error)
 }
 
-const maxOpenAIFirstOutputTimeoutSwitches = 1
-
 func shouldRecordOpenAISchedulerWebSocketTurnOutcome(turn int, turnErr error) bool {
 	return turnErr == nil || turn > 1
 }
@@ -715,8 +713,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						return
 					}
 					// 池模式：同账号重试
-					if failoverErr.RetryableOnSameAccount {
-						retryLimit := failoverErr.SameAccountRetryLimit(account.GetPoolModeRetryCount())
+					if retryLimit, retrySameAccount := openAISameAccountRetryLimit(account, failoverErr); retrySameAccount {
 						if sameAccountRetryCount[account.ID] < retryLimit {
 							budgetDecision := failoverBudget.evaluateSameAccountRetry(
 								c.Request.Context(), switchCount,
@@ -1396,8 +1393,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						return
 					}
 					// 池模式：同账号重试
-					if failoverErr.RetryableOnSameAccount {
-						retryLimit := account.GetPoolModeRetryCount()
+					if retryLimit, retrySameAccount := openAISameAccountRetryLimit(account, failoverErr); retrySameAccount {
 						if sameAccountRetryCount[account.ID] < retryLimit {
 							budgetDecision := failoverBudget.evaluateSameAccountRetry(
 								c.Request.Context(), switchCount,
@@ -2078,7 +2074,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	)
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
-	firstOutputTimeoutSwitchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
@@ -2107,15 +2102,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			closeOpenAIWSFailoverExhausted(wsConn, failoverErr)
 			return false
 		}
-		if openAIFirstOutputFailoverExhausted(failoverErr, &firstOutputTimeoutSwitchCount) {
-			closeOpenAIWSFailoverExhausted(wsConn, failoverErr)
-			return false
-		}
 		if ctx.Err() != nil {
 			return false
 		}
-		if failoverErr.RetryableOnSameAccount {
-			retryLimit := account.GetPoolModeRetryCount()
+		if retryLimit, retrySameAccount := openAISameAccountRetryLimit(account, failoverErr); retrySameAccount {
 			if sameAccountRetryCount[account.ID] < retryLimit {
 				sameAccountRetryCount[account.ID]++
 				reqLog.Warn("openai.websocket_pool_mode_same_account_retry",
@@ -3142,17 +3132,6 @@ func openAIRequestAllowsFailoverReplay(c *gin.Context) bool {
 		return false
 	}
 	return !failoverClientGone(c)
-}
-
-func openAIFirstOutputFailoverExhausted(failoverErr *service.UpstreamFailoverError, switchCount *int) bool {
-	if failoverErr == nil || !failoverErr.SafeToFailoverAfterWrite || switchCount == nil {
-		return false
-	}
-	if *switchCount >= maxOpenAIFirstOutputTimeoutSwitches {
-		return true
-	}
-	*switchCount = *switchCount + 1
-	return false
 }
 
 // errorResponse returns OpenAI API format error response

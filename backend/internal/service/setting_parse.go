@@ -1033,21 +1033,21 @@ func (s *SettingService) openAIAdvancedSchedulerEffectiveLBTopK() string {
 	if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.LBTopK > 0 {
 		return strconv.Itoa(s.cfg.Gateway.OpenAIWS.LBTopK)
 	}
-	return "7"
+	return "4"
 }
 
 func (s *SettingService) openAIAdvancedSchedulerEffectiveWeights() config.GatewayOpenAIWSSchedulerScoreWeights {
 	defaults := config.GatewayOpenAIWSSchedulerScoreWeights{
-		Priority:         1.0,
-		Load:             1.0,
-		Queue:            0.7,
-		ErrorRate:        0.8,
-		TTFT:             0.5,
-		Reset:            0.0,
-		QuotaHeadroom:    0.0,
-		UpstreamCost:     0.0,
-		PreviousResponse: 5.0,
-		SessionSticky:    3.0,
+		Priority:         0.5,
+		Load:             1.5,
+		Queue:            1.5,
+		ErrorRate:        4.0,
+		TTFT:             2.5,
+		Reset:            0.2,
+		QuotaHeadroom:    0.8,
+		UpstreamCost:     1.5,
+		PreviousResponse: 0.3,
+		SessionSticky:    0.1,
 	}
 	if s == nil || s.cfg == nil {
 		return defaults

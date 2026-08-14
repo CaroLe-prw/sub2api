@@ -60,6 +60,12 @@ func (ChannelMonitor) Fields() []ent.Field {
 			MaxLen(100),
 		field.Bool("enabled").
 			Default(true),
+		field.Bool("public_visible").
+			Default(false).
+			Comment("Whether this monitor and its status are exposed through user-facing V1 APIs"),
+		field.Bool("streaming").
+			Default(false).
+			Comment("Request and validate provider SSE output; supported by OpenAI-compatible and Anthropic probes"),
 		field.Int("interval_seconds").
 			Range(15, 3600),
 		field.Int("jitter_seconds").

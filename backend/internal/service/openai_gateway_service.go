@@ -459,6 +459,7 @@ type OpenAIGatewayService struct {
 	openaiSchedulerPersistence       *OpenAISchedulerObservabilityPersistence
 	openaiWSPassthroughDialer        openAIWSClientDialer
 	openaiAccountStats               *openAIAccountRuntimeStats
+	openaiSchedulerHealthHydratedAt  atomic.Int64
 	openaiModelTransient             *openAIAccountModelTransientState
 	openaiProxyStreamCircuit         *openAIProxyStreamCircuit
 	openaiProxyStreamFailOpenLogAt   atomic.Int64

@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,10 +22,18 @@ type ScheduledTestRunnerService struct {
 	accountTestSvc *AccountTestService
 	rateLimitSvc   *RateLimitService
 	cfg            *config.Config
+	accounts       AccountRepository
+	settings       channelMonitorAutoModelSettingStore
+	probeReporter  channelMonitorProbeOutcomeReporter
 
 	cron      *cron.Cron
 	startOnce sync.Once
 	stopOnce  sync.Once
+}
+
+type channelMonitorProbeOutcomeReporter interface {
+	ReportChannelMonitorProbe(accountID int64, model string, success bool, firstTokenMs *int)
+	RefreshOpenAISchedulerHealth(ctx context.Context)
 }
 
 // NewScheduledTestRunnerService creates a new runner.
@@ -40,6 +51,16 @@ func NewScheduledTestRunnerService(
 		rateLimitSvc:   rateLimitSvc,
 		cfg:            cfg,
 	}
+}
+
+func (s *ScheduledTestRunnerService) SetChannelMonitorPoolDependencies(
+	accounts AccountRepository,
+	settings channelMonitorAutoModelSettingStore,
+	reporter channelMonitorProbeOutcomeReporter,
+) {
+	s.accounts = accounts
+	s.settings = settings
+	s.probeReporter = reporter
 }
 
 // Start begins the cron ticker (every minute).
@@ -63,6 +84,13 @@ func (s *ScheduledTestRunnerService) Start() {
 		}
 		s.cron = c
 		s.cron.Start()
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := s.reconcileChannelMonitorPlans(ctx); err != nil {
+				logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] initial channel monitor reconciliation failed: %v", err)
+			}
+		}()
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] started (tick=every minute)")
 	})
 }
@@ -92,6 +120,9 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 	defer cancel()
 
 	now := time.Now()
+	if err := s.reconcileChannelMonitorPlans(ctx); err != nil {
+		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] channel monitor reconciliation failed: %v", err)
+	}
 	plans, err := s.planRepo.ListDue(ctx, now)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] ListDue error: %v", err)
@@ -119,6 +150,84 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 	wg.Wait()
 }
 
+func (s *ScheduledTestRunnerService) reconcileChannelMonitorPlans(ctx context.Context) error {
+	if s == nil || s.planRepo == nil || s.accounts == nil {
+		return nil
+	}
+	if s.probeReporter != nil {
+		healthCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		s.probeReporter.RefreshOpenAISchedulerHealth(healthCtx)
+		cancel()
+	}
+	policy, err := loadAutoModelPolicyFromStore(ctx, s.settings)
+	if err != nil {
+		return err
+	}
+	if !policy.Enabled {
+		return s.planRepo.ReconcileChannelMonitorPlans(ctx, nil)
+	}
+
+	platforms := []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok}
+	accounts, err := s.accounts.ListAllWithFilters(ctx, "", "", "", "", 0, "")
+	if err != nil {
+		return fmt.Errorf("list account pool for active probes: %w", err)
+	}
+
+	desired := make([]*ScheduledTestPlan, 0)
+	now := time.Now()
+	for i := range accounts {
+		if !channelMonitorPoolAccountEligible(&accounts[i], platforms) {
+			continue
+		}
+		models := channelMonitorModelsForAccount(&accounts[i])
+		models = filterAutoMonitorModels(models, policy.Whitelist)
+		models = filterAutoMonitorModels(models, channelMonitorAccountModelWhitelist(&accounts[i]))
+		for _, model := range models {
+			stagger := time.Duration((accounts[i].ID+int64(len(desired))*17)%240) * time.Second
+			nextRun := now.Add(stagger)
+			desired = append(desired, &ScheduledTestPlan{
+				AccountID: accounts[i].ID, ModelID: model, CronExpression: "*/5 * * * *",
+				Enabled: true, MaxResults: 288, AutoRecover: true, ManagedBy: ScheduledTestManagedBySchedulerProbe,
+				NextRunAt: &nextRun,
+			})
+		}
+	}
+	return s.planRepo.ReconcileChannelMonitorPlans(ctx, desired)
+}
+
+func channelMonitorPoolAccountEligible(account *Account, platforms []string) bool {
+	if account == nil || account.Status != StatusActive || !account.Schedulable || account.Type == AccountTypeOAuth {
+		return false
+	}
+	for _, platform := range platforms {
+		if account.Platform == platform {
+			return true
+		}
+	}
+	return false
+}
+
+func channelMonitorModelsForAccount(account *Account) []string {
+	if account == nil {
+		return []string{}
+	}
+	models := make([]string, 0)
+	mapping := account.GetModelMapping()
+	if len(mapping) == 0 {
+		models = append(models, defaultModelsListCandidateIDs(account.Platform)...)
+	} else {
+		for requested := range mapping {
+			requested = strings.TrimSpace(requested)
+			if requested != "" && !strings.Contains(requested, "*") {
+				models = append(models, requested)
+			}
+		}
+	}
+	models = normalizeModels(models)
+	sort.Slice(models, func(i, j int) bool { return strings.ToLower(models[i]) < strings.ToLower(models[j]) })
+	return models
+}
+
 func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) {
 	result, err := s.accountTestSvc.RunTestBackground(ctx, plan.AccountID, plan.ModelID)
 	if err != nil {
@@ -128,6 +237,14 @@ func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *Sched
 
 	if err := s.scheduledSvc.SaveResult(ctx, plan.ID, plan.MaxResults, result); err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d SaveResult error: %v", plan.ID, err)
+	}
+	if plan.ManagedBy == ScheduledTestManagedBySchedulerProbe && s.probeReporter != nil {
+		var firstTokenMs *int
+		if result.TTFTMs != nil {
+			value := int(*result.TTFTMs)
+			firstTokenMs = &value
+		}
+		s.probeReporter.ReportChannelMonitorProbe(plan.AccountID, plan.ModelID, result.Status == "success", firstTokenMs)
 	}
 
 	// Auto-recover account if test succeeded and auto_recover is enabled.

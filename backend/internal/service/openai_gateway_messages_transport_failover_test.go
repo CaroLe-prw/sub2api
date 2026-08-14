@@ -38,6 +38,8 @@ func TestForwardAsAnthropic_TransportError_ReturnsFailoverError(t *testing.T) {
 	var failoverErr *UpstreamFailoverError
 	require.True(t, errors.As(err, &failoverErr), "transport error should return UpstreamFailoverError for handler failover, got: %T", err)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.True(t, failoverErr.BillingExposurePossible)
+	require.False(t, failoverErr.ShouldRetryNextAccount())
 }
 
 func TestForwardAsAnthropic_TransportError_DoesNotWriteResponse(t *testing.T) {
@@ -60,8 +62,8 @@ func TestForwardAsAnthropic_TransportError_DoesNotWriteResponse(t *testing.T) {
 	account := rawChatCompletionsTestAccount()
 	_, _ = svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
 
-	require.Equal(t, http.StatusOK, rec.Code, "transport error must not write HTTP response — handler owns the response for failover")
-	require.Empty(t, rec.Body.String(), "response body must be empty so handler can write the correct error or failover")
+	require.Equal(t, http.StatusOK, rec.Code, "transport error must not write HTTP response — handler owns the terminal response")
+	require.Empty(t, rec.Body.String(), "response body must be empty so handler can write the protocol-correct terminal error")
 }
 
 func TestForwardAsAnthropic_TransportError_ClientCanceled_NoFailover(t *testing.T) {

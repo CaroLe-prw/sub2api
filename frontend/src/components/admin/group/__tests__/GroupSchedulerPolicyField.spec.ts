@@ -39,17 +39,17 @@ describe('GroupSchedulerPolicyField', () => {
       Array.from({ length: 11 }, () => ''),
     )
     expect(inputs.map((input) => input.attributes('placeholder'))).toEqual([
-      'admin.groups.scheduler.defaultPlaceholder:7',
-      'admin.groups.scheduler.defaultPlaceholder:1',
-      'admin.groups.scheduler.defaultPlaceholder:1',
-      'admin.groups.scheduler.defaultPlaceholder:0.7',
-      'admin.groups.scheduler.defaultPlaceholder:0.8',
+      'admin.groups.scheduler.defaultPlaceholder:4',
       'admin.groups.scheduler.defaultPlaceholder:0.5',
-      'admin.groups.scheduler.defaultPlaceholder:0',
-      'admin.groups.scheduler.defaultPlaceholder:0',
-      'admin.groups.scheduler.defaultPlaceholder:0',
-      'admin.groups.scheduler.defaultPlaceholder:5',
-      'admin.groups.scheduler.defaultPlaceholder:3',
+      'admin.groups.scheduler.defaultPlaceholder:1.5',
+      'admin.groups.scheduler.defaultPlaceholder:1.5',
+      'admin.groups.scheduler.defaultPlaceholder:4',
+      'admin.groups.scheduler.defaultPlaceholder:2.5',
+      'admin.groups.scheduler.defaultPlaceholder:0.2',
+      'admin.groups.scheduler.defaultPlaceholder:0.8',
+      'admin.groups.scheduler.defaultPlaceholder:1.5',
+      'admin.groups.scheduler.defaultPlaceholder:0.3',
+      'admin.groups.scheduler.defaultPlaceholder:0.1',
     ])
     await inputs[8].setValue('9')
 

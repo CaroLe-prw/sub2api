@@ -28,6 +28,9 @@ const (
 	monitorMaintenanceMaxDaysPerRun = 35
 	// monitorWorkerConcurrency 调度器并发执行的监控数（pond 池容量）。
 	monitorWorkerConcurrency = 5
+	// channelMonitorMaxConcurrentModelsPerChannel 限制单个上游渠道同时
+	// 占用的模型探针数；v1 监控和自动号池探针共用该上限。
+	channelMonitorMaxConcurrentModelsPerChannel = 2
 	// monitorStartupLoadTimeout Start 时一次性加载所有 enabled monitor 的总超时。
 	monitorStartupLoadTimeout = 10 * time.Second
 	// monitorMinIntervalSeconds / monitorMaxIntervalSeconds 用户配置的检测间隔上下限。
@@ -122,6 +125,15 @@ var (
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions or responses; responses is only supported for openai",
+	)
+	ErrChannelMonitorStreamingUnsupported = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_STREAMING_UNSUPPORTED", "streaming probes are supported only for openai, grok, and anthropic",
+	)
+	ErrChannelMonitorInvalidAutoModelWhitelist = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_INVALID_AUTO_MODEL_WHITELIST", "auto model whitelist only supports exact model IDs or a single trailing wildcard",
+	)
+	ErrChannelMonitorPublishNameMismatch = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_PUBLISH_NAME_MISMATCH", "type the exact monitor name to publish it",
 	)
 	ErrChannelMonitorInvalidRequestBody = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "openai-compatible replace-mode body_override must include non-empty messages for chat_completions or non-empty instructions and input for responses",

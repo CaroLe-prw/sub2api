@@ -14703,6 +14703,8 @@ type ChannelMonitorMutation struct {
 	appendextra_models      []string
 	group_name              *string
 	enabled                 *bool
+	public_visible          *bool
+	streaming               *bool
 	interval_seconds        *int
 	addinterval_seconds     *int
 	jitter_seconds          *int
@@ -15247,6 +15249,78 @@ func (m *ChannelMonitorMutation) OldEnabled(ctx context.Context) (v bool, err er
 // ResetEnabled resets all changes to the "enabled" field.
 func (m *ChannelMonitorMutation) ResetEnabled() {
 	m.enabled = nil
+}
+
+// SetPublicVisible sets the "public_visible" field.
+func (m *ChannelMonitorMutation) SetPublicVisible(b bool) {
+	m.public_visible = &b
+}
+
+// PublicVisible returns the value of the "public_visible" field in the mutation.
+func (m *ChannelMonitorMutation) PublicVisible() (r bool, exists bool) {
+	v := m.public_visible
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPublicVisible returns the old "public_visible" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldPublicVisible(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPublicVisible is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPublicVisible requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPublicVisible: %w", err)
+	}
+	return oldValue.PublicVisible, nil
+}
+
+// ResetPublicVisible resets all changes to the "public_visible" field.
+func (m *ChannelMonitorMutation) ResetPublicVisible() {
+	m.public_visible = nil
+}
+
+// SetStreaming sets the "streaming" field.
+func (m *ChannelMonitorMutation) SetStreaming(b bool) {
+	m.streaming = &b
+}
+
+// Streaming returns the value of the "streaming" field in the mutation.
+func (m *ChannelMonitorMutation) Streaming() (r bool, exists bool) {
+	v := m.streaming
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStreaming returns the old "streaming" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldStreaming(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStreaming is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStreaming requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStreaming: %w", err)
+	}
+	return oldValue.Streaming, nil
+}
+
+// ResetStreaming resets all changes to the "streaming" field.
+func (m *ChannelMonitorMutation) ResetStreaming() {
+	m.streaming = nil
 }
 
 // SetIntervalSeconds sets the "interval_seconds" field.
@@ -15818,7 +15892,7 @@ func (m *ChannelMonitorMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ChannelMonitorMutation) Fields() []string {
-	fields := make([]string, 0, 19)
+	fields := make([]string, 0, 21)
 	if m.created_at != nil {
 		fields = append(fields, channelmonitor.FieldCreatedAt)
 	}
@@ -15851,6 +15925,12 @@ func (m *ChannelMonitorMutation) Fields() []string {
 	}
 	if m.enabled != nil {
 		fields = append(fields, channelmonitor.FieldEnabled)
+	}
+	if m.public_visible != nil {
+		fields = append(fields, channelmonitor.FieldPublicVisible)
+	}
+	if m.streaming != nil {
+		fields = append(fields, channelmonitor.FieldStreaming)
 	}
 	if m.interval_seconds != nil {
 		fields = append(fields, channelmonitor.FieldIntervalSeconds)
@@ -15906,6 +15986,10 @@ func (m *ChannelMonitorMutation) Field(name string) (ent.Value, bool) {
 		return m.GroupName()
 	case channelmonitor.FieldEnabled:
 		return m.Enabled()
+	case channelmonitor.FieldPublicVisible:
+		return m.PublicVisible()
+	case channelmonitor.FieldStreaming:
+		return m.Streaming()
 	case channelmonitor.FieldIntervalSeconds:
 		return m.IntervalSeconds()
 	case channelmonitor.FieldJitterSeconds:
@@ -15953,6 +16037,10 @@ func (m *ChannelMonitorMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldGroupName(ctx)
 	case channelmonitor.FieldEnabled:
 		return m.OldEnabled(ctx)
+	case channelmonitor.FieldPublicVisible:
+		return m.OldPublicVisible(ctx)
+	case channelmonitor.FieldStreaming:
+		return m.OldStreaming(ctx)
 	case channelmonitor.FieldIntervalSeconds:
 		return m.OldIntervalSeconds(ctx)
 	case channelmonitor.FieldJitterSeconds:
@@ -16054,6 +16142,20 @@ func (m *ChannelMonitorMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetEnabled(v)
+		return nil
+	case channelmonitor.FieldPublicVisible:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPublicVisible(v)
+		return nil
+	case channelmonitor.FieldStreaming:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStreaming(v)
 		return nil
 	case channelmonitor.FieldIntervalSeconds:
 		v, ok := value.(int)
@@ -16258,6 +16360,12 @@ func (m *ChannelMonitorMutation) ResetField(name string) error {
 		return nil
 	case channelmonitor.FieldEnabled:
 		m.ResetEnabled()
+		return nil
+	case channelmonitor.FieldPublicVisible:
+		m.ResetPublicVisible()
+		return nil
+	case channelmonitor.FieldStreaming:
+		m.ResetStreaming()
 		return nil
 	case channelmonitor.FieldIntervalSeconds:
 		m.ResetIntervalSeconds()

@@ -37,8 +37,6 @@ const (
 	openAIWSEventFlushBatchSizeDefault    = 4
 	openAIWSEventFlushIntervalDefault     = 25 * time.Millisecond
 	openAIWSPayloadLogSampleDefault       = 0.2
-	openAIWSPassthroughIdleTimeoutDefault = time.Hour
-
 	openAIWSStoreDisabledConnModeStrict   = "strict"
 	openAIWSStoreDisabledConnModeAdaptive = "adaptive"
 	openAIWSStoreDisabledConnModeOff      = "off"
@@ -308,17 +306,17 @@ func (s *OpenAIGatewayService) openAIWSIngressPreviousResponseRecoveryEnabled() 
 }
 
 func (s *OpenAIGatewayService) openAIWSReadTimeout() time.Duration {
-	if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.ReadTimeoutSeconds > 0 {
-		return time.Duration(s.cfg.Gateway.OpenAIWS.ReadTimeoutSeconds) * time.Second
+	if s != nil && s.cfg != nil {
+		return time.Duration(max(s.cfg.Gateway.OpenAIWS.ReadTimeoutSeconds, 0)) * time.Second
 	}
-	return 15 * time.Minute
+	return 0
 }
 
 func (s *OpenAIGatewayService) openAIWSFirstOutputTimeout() time.Duration {
-	if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.FirstOutputTimeoutSeconds > 0 {
-		return time.Duration(s.cfg.Gateway.OpenAIWS.FirstOutputTimeoutSeconds) * time.Second
+	if s != nil && s.cfg != nil {
+		return time.Duration(max(s.cfg.Gateway.OpenAIWS.FirstOutputTimeoutSeconds, 0)) * time.Second
 	}
-	return 45 * time.Second
+	return 0
 }
 
 func (s *OpenAIGatewayService) openAIWSActiveReadTimeout(start time.Time, firstTokenMs *int) time.Duration {
@@ -326,7 +324,11 @@ func (s *OpenAIGatewayService) openAIWSActiveReadTimeout(start time.Time, firstT
 	if firstTokenMs != nil {
 		return readTimeout
 	}
-	remaining := time.Until(start.Add(s.openAIWSFirstOutputTimeout()))
+	firstOutputTimeout := s.openAIWSFirstOutputTimeout()
+	if firstOutputTimeout <= 0 {
+		return readTimeout
+	}
+	remaining := time.Until(start.Add(firstOutputTimeout))
 	if remaining <= 0 {
 		return time.Millisecond
 	}
@@ -337,10 +339,7 @@ func (s *OpenAIGatewayService) openAIWSActiveReadTimeout(start time.Time, firstT
 }
 
 func (s *OpenAIGatewayService) openAIWSPassthroughIdleTimeout() time.Duration {
-	if timeout := s.openAIWSReadTimeout(); timeout > 0 {
-		return timeout
-	}
-	return openAIWSPassthroughIdleTimeoutDefault
+	return s.openAIWSReadTimeout()
 }
 
 func (s *OpenAIGatewayService) openAIWSWriteTimeout() time.Duration {

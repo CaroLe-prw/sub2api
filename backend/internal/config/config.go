@@ -1246,7 +1246,8 @@ type GatewayOpenAIWSConfig struct {
 	DialTimeoutSeconds   int     `mapstructure:"dial_timeout_seconds"`
 	ReadTimeoutSeconds   int     `mapstructure:"read_timeout_seconds"`
 	// FirstOutputTimeoutSeconds limits the absolute wait for the first semantic
-	// output event. ReadTimeoutSeconds remains the per-frame timeout afterwards.
+	// output event. 0 disables the deadline. ReadTimeoutSeconds remains the
+	// per-frame timeout afterwards and also accepts 0 to disable it.
 	FirstOutputTimeoutSeconds int     `mapstructure:"first_output_timeout_seconds"`
 	WriteTimeoutSeconds       int     `mapstructure:"write_timeout_seconds"`
 	PoolTargetUtilization     float64 `mapstructure:"pool_target_utilization"`
@@ -1296,11 +1297,11 @@ type GatewayOpenAIWSSchedulerScoreWeights struct {
 	ErrorRate float64 `mapstructure:"error_rate"`
 	TTFT      float64 `mapstructure:"ttft"`
 	// Reset 倾向「会话窗口最早重置」的账号（use-it-or-lose-it）。
-	// >0 时，剩余重置时间越短的账号得分越高，从而被优先用尽。默认 0（关闭，不改变原有行为）。
+	// >0 时，剩余重置时间越短的账号得分越高，从而被优先用尽。
 	Reset float64 `mapstructure:"reset"`
-	// QuotaHeadroom 倾向 7d 剩余额度更健康的账号；默认 0（关闭，不改变原有行为）。
+	// QuotaHeadroom 倾向 7d 剩余额度更健康的账号。
 	QuotaHeadroom float64 `mapstructure:"quota_headroom"`
-	// UpstreamCost 倾向上游声明倍率更低的账号；默认 0（关闭，不改变原有行为）。
+	// UpstreamCost 倾向上游声明倍率更低的账号。
 	UpstreamCost float64 `mapstructure:"upstream_cost"`
 	// PreviousResponse/SessionSticky 仅在开启 OpenAI 高级调度的粘性加权时生效。
 	PreviousResponse float64 `mapstructure:"previous_response"`
@@ -2366,8 +2367,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.oauth_max_conns_factor", 1.0)
 	viper.SetDefault("gateway.openai_ws.apikey_max_conns_factor", 1.0)
 	viper.SetDefault("gateway.openai_ws.dial_timeout_seconds", 10)
-	viper.SetDefault("gateway.openai_ws.read_timeout_seconds", 900)
-	viper.SetDefault("gateway.openai_ws.first_output_timeout_seconds", 45)
+	viper.SetDefault("gateway.openai_ws.read_timeout_seconds", 0)
+	viper.SetDefault("gateway.openai_ws.first_output_timeout_seconds", 0)
 	viper.SetDefault("gateway.openai_ws.write_timeout_seconds", 120)
 	viper.SetDefault("gateway.openai_ws.pool_target_utilization", 0.7)
 	viper.SetDefault("gateway.openai_ws.queue_limit_per_conn", 64)
@@ -2380,23 +2381,23 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.retry_jitter_ratio", 0.2)
 	viper.SetDefault("gateway.openai_ws.retry_total_budget_ms", 5000)
 	viper.SetDefault("gateway.openai_ws.payload_log_sample_rate", 0.2)
-	viper.SetDefault("gateway.openai_ws.lb_top_k", 7)
+	viper.SetDefault("gateway.openai_ws.lb_top_k", 4)
 	viper.SetDefault("gateway.openai_ws.sticky_session_ttl_seconds", 3600)
 	viper.SetDefault("gateway.openai_ws.session_hash_read_old_fallback", true)
 	viper.SetDefault("gateway.openai_ws.session_hash_dual_write_old", true)
 	viper.SetDefault("gateway.openai_ws.metadata_bridge_enabled", true)
 	viper.SetDefault("gateway.openai_ws.sticky_response_id_ttl_seconds", 3600)
 	viper.SetDefault("gateway.openai_ws.sticky_previous_response_ttl_seconds", 3600)
-	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.priority", 1.0)
-	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.load", 1.0)
-	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.queue", 0.7)
-	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.error_rate", 0.8)
-	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.ttft", 0.5)
-	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.reset", 0.0)
-	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.quota_headroom", 0.0)
-	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.upstream_cost", 0.0)
-	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.previous_response", 5.0)
-	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.session_sticky", 3.0)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.priority", 0.5)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.load", 1.5)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.queue", 1.5)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.error_rate", 4.0)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.ttft", 2.5)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.reset", 0.2)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.quota_headroom", 0.8)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.upstream_cost", 1.5)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.previous_response", 0.3)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.session_sticky", 0.1)
 	// OpenAI HTTP upstream protocol strategy
 	viper.SetDefault("gateway.openai_http2.enabled", true)
 	viper.SetDefault("gateway.openai_http2.allow_proxy_fallback_to_http1", true)
@@ -2439,7 +2440,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.concurrency_slot_ttl_minutes", 30) // 并发槽位过期时间（支持超长请求）
 	viper.SetDefault("gateway.stream_data_interval_timeout", 180)
 	viper.SetDefault("gateway.stream_keepalive_interval", 10)
-	viper.SetDefault("gateway.image_stream_data_interval_timeout", 900)
+	// Image generation can also become billable before the next stream event.
+	// Keep the upstream read unbounded by default for the same reason as text
+	// streams; operators may opt in only when they accept billing ambiguity.
+	viper.SetDefault("gateway.image_stream_data_interval_timeout", 0)
 	viper.SetDefault("gateway.image_stream_keepalive_interval", 10)
 	viper.SetDefault("gateway.image_nonstream_keepalive_interval", 0)
 	viper.SetDefault("gateway.max_line_size", 500*1024*1024)
@@ -3363,8 +3367,8 @@ func (c *Config) Validate() error {
 	if c.Gateway.OpenAIWS.DialTimeoutSeconds <= 0 {
 		return fmt.Errorf("gateway.openai_ws.dial_timeout_seconds must be positive")
 	}
-	if c.Gateway.OpenAIWS.ReadTimeoutSeconds <= 0 {
-		return fmt.Errorf("gateway.openai_ws.read_timeout_seconds must be positive")
+	if c.Gateway.OpenAIWS.ReadTimeoutSeconds < 0 {
+		return fmt.Errorf("gateway.openai_ws.read_timeout_seconds must be non-negative")
 	}
 	if c.Gateway.OpenAIWS.FirstOutputTimeoutSeconds < 0 || c.Gateway.OpenAIWS.FirstOutputTimeoutSeconds > 600 ||
 		(c.Gateway.OpenAIWS.FirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIWS.FirstOutputTimeoutSeconds < 5) {

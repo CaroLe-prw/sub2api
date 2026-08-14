@@ -43,8 +43,9 @@ import (
 var sseDataPrefix = regexp.MustCompile(`^data:\s*`)
 
 const (
-	testClaudeAPIURL   = "https://api.anthropic.com/v1/messages?beta=true"
-	chatgptCodexAPIURL = "https://chatgpt.com/backend-api/codex/responses"
+	testClaudeAPIURL            = "https://api.anthropic.com/v1/messages?beta=true"
+	chatgptCodexAPIURL          = "https://chatgpt.com/backend-api/codex/responses"
+	accountTestTimingTrackerKey = "sub2api.account_test_timing_tracker"
 )
 
 // TestEvent represents a SSE event for account testing
@@ -62,6 +63,42 @@ type TestEvent struct {
 	Data     any    `json:"data,omitempty"`
 	Success  bool   `json:"success,omitempty"`
 	Error    string `json:"error,omitempty"`
+}
+
+// accountTestTimingTracker records the first non-empty streamed content event.
+// Status and lifecycle events are deliberately ignored so TTFT reflects the
+// first response content visible to the caller.
+type accountTestTimingTracker struct {
+	mu        sync.Mutex
+	startedAt time.Time
+	ttftMs    *int64
+}
+
+func (t *accountTestTimingTracker) observe(event TestEvent, observedAt time.Time) {
+	if event.Type != "content" || strings.TrimSpace(event.Text) == "" {
+		return
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.ttftMs != nil {
+		return
+	}
+	value := observedAt.Sub(t.startedAt).Milliseconds()
+	if value < 0 {
+		value = 0
+	}
+	t.ttftMs = &value
+}
+
+func (t *accountTestTimingTracker) value() *int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.ttftMs == nil {
+		return nil
+	}
+	value := *t.ttftMs
+	return &value
 }
 
 // AccountTestOptions carries optional media for admin connectivity tests.
@@ -151,6 +188,11 @@ type AccountTestService struct {
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
 	// WS dialer when nil (supports proxy + coder/websocket handshake).
 	grokWSDialer openAIWSClientDialer
+	// backgroundProbeLimiter caps automatic and manual channel-monitor probes
+	// together. A single upstream account must never be occupied by more than
+	// two model probes at once.
+	backgroundProbeLimiterOnce sync.Once
+	backgroundProbeLimiter     *accountProbeConcurrencyLimiter
 }
 
 func (s *AccountTestService) SetSettingService(settingService *SettingService) {
@@ -179,6 +221,7 @@ func NewAccountTestService(
 		httpUpstream:              httpUpstream,
 		cfg:                       cfg,
 		tlsFPProfileService:       tlsFPProfileService,
+		backgroundProbeLimiter:    newAccountProbeConcurrencyLimiter(channelMonitorMaxConcurrentModelsPerChannel),
 	}
 }
 
@@ -3013,6 +3056,11 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 }
 
 func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
+	if trackerValue, ok := c.Get(accountTestTimingTrackerKey); ok {
+		if tracker, ok := trackerValue.(*accountTestTimingTracker); ok {
+			tracker.observe(event, time.Now())
+		}
+	}
 	eventJSON, _ := json.Marshal(event)
 	if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", eventJSON); err != nil {
 		log.Printf("failed to write SSE event: %v", err)
@@ -3031,11 +3079,26 @@ func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) er
 // RunTestBackground executes an account test in-memory (no real HTTP client),
 // capturing SSE output via httptest.NewRecorder, then parses the result.
 func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error) {
+	// Acquire before starting the timing tracker: time spent waiting behind the
+	// per-account probe cap is scheduler delay, not upstream TTFT/latency.
+	s.backgroundProbeLimiterOnce.Do(func() {
+		if s.backgroundProbeLimiter == nil {
+			s.backgroundProbeLimiter = newAccountProbeConcurrencyLimiter(channelMonitorMaxConcurrentModelsPerChannel)
+		}
+	})
+	release, err := s.backgroundProbeLimiter.acquire(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	startedAt := time.Now()
+	timingTracker := &accountTestTimingTracker{startedAt: startedAt}
 
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)
 	ginCtx.Request = (&http.Request{}).WithContext(ctx)
+	ginCtx.Set(accountTestTimingTrackerKey, timingTracker)
 
 	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault)
 
@@ -3055,6 +3118,7 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 		Status:       status,
 		ResponseText: responseText,
 		ErrorMessage: errMsg,
+		TTFTMs:       timingTracker.value(),
 		LatencyMs:    finishedAt.Sub(startedAt).Milliseconds(),
 		StartedAt:    startedAt,
 		FinishedAt:   finishedAt,

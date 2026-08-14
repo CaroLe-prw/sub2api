@@ -284,6 +284,20 @@ func (s *OpenAIGatewayService) RecordOpenAIFirstOutputSlow(account *Account, res
 	return true
 }
 
+// openAIStreamDataInterval returns no local upstream-read deadline for OpenAI.
+// A silent OpenAI request may already be executing and billable, so closing it
+// merely because no bytes arrived creates an ambiguous outcome. Other platform
+// compatibility paths retain the generic stream-idle setting.
+func (s *OpenAIGatewayService) openAIStreamDataInterval(account *Account) time.Duration {
+	if account != nil && account.Platform == PlatformOpenAI {
+		return 0
+	}
+	if s == nil || s.cfg == nil || s.cfg.Gateway.StreamDataIntervalTimeout <= 0 {
+		return 0
+	}
+	return time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
+}
+
 func (s *OpenAIGatewayService) newOpenAIFirstOutputTimeoutError(
 	ctx context.Context,
 	c *gin.Context,

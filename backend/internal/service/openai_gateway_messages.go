@@ -607,7 +607,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponseWithReaso
 		}
 	}
 	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminalWithFirstOutput(
-		resp, "openai messages buffered", requestID, deadline, onTimeout,
+		resp, "openai messages buffered", requestID, account, deadline, onTimeout,
 	)
 	if err != nil {
 		return nil, err
@@ -737,6 +737,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminalWithFirstOutput(
 	resp *http.Response,
 	logPrefix string,
 	requestID string,
+	account *Account,
 	firstOutputDeadline time.Time,
 	onFirstOutputTimeout func() error,
 ) (*apicompat.ResponsesResponse, OpenAIUsage, *apicompat.BufferedResponseAccumulator, error) {
@@ -748,10 +749,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminalWithFirstOutput(
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 
-	streamInterval := time.Duration(0)
-	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
+	streamInterval := s.openAIStreamDataInterval(account)
 	var timeoutCh <-chan time.Time
 	var timeoutTimer *time.Timer
 	resetTimeout := func() {
@@ -973,10 +971,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 
-	streamInterval := time.Duration(0)
-	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
+	streamInterval := s.openAIStreamDataInterval(account)
 	var intervalTicker *time.Ticker
 	if streamInterval > 0 {
 		intervalTicker = time.NewTicker(streamInterval)

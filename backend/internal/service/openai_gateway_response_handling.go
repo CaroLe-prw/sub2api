@@ -123,6 +123,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	var firstTokenMs *int
 	firstOutputProgressObserved := false
 	firstOutputCommitted := false
+	var firstOutputScanGuard atomic.Bool
+	firstOutputScanGuard.Store(guardFirstOutput && firstOutputTimeout > 0)
+	stopFirstOutputTimer := func() {}
 	bufferedWriter := bufio.NewWriterSize(w, 4*1024)
 	var firstOutputStage *openAIFirstOutputStage
 	if guardFirstOutput {
@@ -135,7 +138,23 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	}
 	writePendingString := func(value string) (int, error) {
 		if firstOutputStage != nil && !firstOutputCommitted && !firstOutputStage.closed {
-			return firstOutputStage.WriteString(value)
+			n, err := firstOutputStage.WriteString(value)
+			if !errors.Is(err, errOpenAIFirstOutputStageLimit) {
+				return n, err
+			}
+			// The staging cap is a memory/disk guard, not a reason to terminate a
+			// potentially billable upstream request. Once it is reached, expose the
+			// attempt and continue as a normal pass-through stream. This forfeits
+			// failover for this attempt, but avoids losing paid upstream work.
+			logger.LegacyPrintf("service.openai_gateway", "OpenAI first-output staging limit reached; continuing in pass-through mode: account=%d model=%s buffered=%d", account.ID, originalModel, firstOutputStage.Buffered())
+			applyAttemptResponseHeaders()
+			if commitErr := firstOutputStage.CommitTo(w); commitErr != nil {
+				return 0, commitErr
+			}
+			firstOutputCommitted = true
+			firstOutputScanGuard.Store(false)
+			stopFirstOutputTimer()
+			return bufferedWriter.WriteString(value)
 		}
 		return bufferedWriter.WriteString(value)
 	}
@@ -162,8 +181,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	usage := &OpenAIUsage{}
 	imageCounter := newOpenAIImageOutputCounter()
 	responseID := ""
-	var firstOutputScanGuard atomic.Bool
-	firstOutputScanGuard.Store(guardFirstOutput)
 	scanner := bufio.NewScanner(resp.Body)
 	scanBuf := getSSEScannerBuf64K()
 	scanner.Buffer(scanBuf[:0], maxLineSize)
@@ -172,10 +189,15 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	}
 	documentScanner := newOpenAISSEJSONDocumentScanner(scanner)
 
-	streamInterval := time.Duration(0)
+	configuredStreamInterval := time.Duration(0)
 	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
+		configuredStreamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
 	}
+	streamInterval := s.openAIStreamDataInterval(account)
+	// Keep the upstream reader independent from downstream flush latency when an
+	// operator configured stream-idle monitoring, even if OpenAI billing safety
+	// suppresses the actual read deadline below.
+	scanConcurrently := configuredStreamInterval > 0
 	// Grok: always enforce an upstream-read idle so hung SSE bodies fail over
 	// instead of holding the OAuth slot until the client cancels. Prefer the
 	// global gateway setting when set; otherwise apply a Grok-only default.
@@ -185,6 +207,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			cfgSec = s.cfg.Gateway.StreamDataIntervalTimeout
 		}
 		streamInterval = resolveGrokStreamIdleTimeout(cfgSec)
+		scanConcurrently = streamInterval > 0
 	}
 	// 仅监控上游数据间隔超时，不被下游写入阻塞影响
 	var intervalTicker *time.Ticker
@@ -223,7 +246,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		firstOutputCh = firstOutputTimer.C
 		defer firstOutputTimer.Stop()
 	}
-	stopFirstOutputTimer := func() {
+	stopFirstOutputTimer = func() {
 		if firstOutputTimer == nil {
 			return
 		}
@@ -703,7 +726,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	}
 
 	// 无超时/无 keepalive 的常见路径走同步扫描，减少 goroutine 与 channel 开销。
-	if streamInterval <= 0 && keepaliveInterval <= 0 && firstOutputTimeout <= 0 {
+	if !scanConcurrently && keepaliveInterval <= 0 && firstOutputTimeout <= 0 {
 		defer putSSEScannerBuf64K(scanBuf)
 		for documentScanner.Scan() {
 			processSSELine(documentScanner.Text(), true)

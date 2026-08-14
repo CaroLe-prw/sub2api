@@ -26,9 +26,9 @@ func TestResolveGroupOpenAISchedulerPresets(t *testing.T) {
 		previousResponse float64
 		sessionSticky    float64
 	}{
-		{profile: GroupOpenAISchedulerProfileSLA, topK: 2, priority: 1, load: 1.5, queue: 1.5, errorRate: 3, ttft: 2.5, reset: 0, quotaHeadroom: 0.5, upstreamCost: 0, previousResponse: 0.5, sessionSticky: 0.15},
-		{profile: GroupOpenAISchedulerProfileBalanced, topK: 3, priority: 1, load: 1.2, queue: 1, errorRate: 2, ttft: 1.2, reset: 0.3, quotaHeadroom: 0.8, upstreamCost: 1.5, previousResponse: 0.35, sessionSticky: 0.15},
-		{profile: GroupOpenAISchedulerProfileCost, topK: 2, priority: 0.3, load: 0.8, queue: 0.7, errorRate: 2, ttft: 0.8, reset: 0.5, quotaHeadroom: 1.2, upstreamCost: 5, previousResponse: 0.25, sessionSticky: 0.1},
+		{profile: GroupOpenAISchedulerProfileSLA, topK: 2, priority: 0.5, load: 1.5, queue: 1.5, errorRate: 5, ttft: 3.5, reset: 0, quotaHeadroom: 0.5, upstreamCost: 0.5, previousResponse: 0.3, sessionSticky: 0.1},
+		{profile: GroupOpenAISchedulerProfileBalanced, topK: 3, priority: 0.5, load: 1.5, queue: 1.5, errorRate: 4, ttft: 2.5, reset: 0.2, quotaHeadroom: 0.8, upstreamCost: 1.5, previousResponse: 0.3, sessionSticky: 0.1},
+		{profile: GroupOpenAISchedulerProfileCost, topK: 3, priority: 0.3, load: 1.2, queue: 1.2, errorRate: 5, ttft: 1.5, reset: 0.3, quotaHeadroom: 1, upstreamCost: 4, previousResponse: 0.2, sessionSticky: 0.1},
 	}
 	for _, test := range tests {
 		t.Run(test.profile, func(t *testing.T) {

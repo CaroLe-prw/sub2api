@@ -100,12 +100,14 @@ func (s *OpenAIGatewayService) ForwardAlphaSearch(ctx context.Context, c *gin.Co
 			if shouldApplyOpenAIAlphaSearchAccountErrorSideEffects(resp.StatusCode) {
 				shouldDisable = s.handleFailoverSideEffects(ctx, resp, account, respBody, upstreamModel)
 			}
-			return nil, &UpstreamFailoverError{
+			failoverErr := &UpstreamFailoverError{
 				StatusCode:                             resp.StatusCode,
 				ResponseBody:                           respBody,
+				ExplicitUpstreamResponse:               true,
 				RetryableOnSameAccount:                 !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 				RetryableOnSameAccountIfNoOtherAccount: !shouldDisable && shouldRetryOpenAIOAuthCapacityOnSameAccount(account, resp.StatusCode, upstreamMessage, respBody),
 			}
+			return nil, failoverErr
 		}
 	}
 
@@ -176,12 +178,14 @@ func (s *OpenAIGatewayService) forwardAlphaSearchViaResponsesWebSearch(
 			if shouldApplyOpenAIAlphaSearchAccountErrorSideEffects(resp.StatusCode) {
 				shouldDisable = s.handleFailoverSideEffects(ctx, resp, account, respBody, upstreamModel)
 			}
-			return nil, &UpstreamFailoverError{
+			failoverErr := &UpstreamFailoverError{
 				StatusCode:                             resp.StatusCode,
 				ResponseBody:                           respBody,
+				ExplicitUpstreamResponse:               true,
 				RetryableOnSameAccount:                 !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 				RetryableOnSameAccountIfNoOtherAccount: !shouldDisable && shouldRetryOpenAIOAuthCapacityOnSameAccount(account, resp.StatusCode, upstreamMessage, respBody),
 			}
+			return nil, failoverErr
 		}
 	}
 

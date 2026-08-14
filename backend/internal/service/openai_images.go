@@ -661,6 +661,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			return nil, &UpstreamFailoverError{
 				StatusCode:                             resp.StatusCode,
 				ResponseBody:                           respBody,
+				ExplicitUpstreamResponse:               true,
 				RetryableOnSameAccount:                 !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 				RetryableOnSameAccountIfNoOtherAccount: !shouldDisable && shouldRetryOpenAIOAuthCapacityOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody),
 			}

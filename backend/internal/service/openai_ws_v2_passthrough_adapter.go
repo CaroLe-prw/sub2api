@@ -909,6 +909,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				reasoningEffort = *current
 			}
 			timeout := s.openAIFirstOutputTimeout(reasoningEffort)
+			// HTTP and WS first-output deadlines are independently configurable.
+			// When both are zero, the passthrough relay remains unbounded too.
 			if timeout <= 0 {
 				timeout = s.openAIWSFirstOutputTimeout()
 			}

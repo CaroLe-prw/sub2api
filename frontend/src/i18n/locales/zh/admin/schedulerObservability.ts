@@ -1,7 +1,12 @@
 export default {
   schedulerObservability: {
       title: '调度观测',
-      description: '把每次选号、粘性命中、同号重试、切号原因和会话缓存表现串成一条可解释链路。',
+      description: '统一查看上游主动探测、选号、粘性命中、同号重试、切号原因和会话缓存表现。',
+      pageTabs: {
+        label: '调度观测视图',
+        traces: '调度轨迹',
+        probes: '渠道探测',
+      },
       prototypeBadge: '交互原型',
       prototypeTitle: '当前展示设计预览数据',
       prototypeDescription: '页面交互和字段结构已经可用，但尚未接入调度轨迹接口；所有会话指纹和账号路径均为演示数据。',

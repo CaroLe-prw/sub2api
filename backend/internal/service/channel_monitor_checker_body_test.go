@@ -5,6 +5,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -131,6 +133,79 @@ func answerFromOpenAIRequest(body map[string]any) string {
 		}
 	}
 	return answerFromChallengePrompt(prompt)
+}
+
+func challengePromptFromMonitorRequest(body map[string]any) string {
+	if prompt := responsesInputText(body["input"]); prompt != "" {
+		return prompt
+	}
+	messages, ok := body["messages"].([]any)
+	if !ok || len(messages) == 0 {
+		return ""
+	}
+	message, ok := messages[0].(map[string]any)
+	if !ok {
+		return ""
+	}
+	if prompt, ok := message["content"].(string); ok {
+		return prompt
+	}
+	content, ok := message["content"].([]any)
+	if !ok {
+		return ""
+	}
+	for _, rawBlock := range content {
+		block, ok := rawBlock.(map[string]any)
+		if !ok || block["type"] != "text" {
+			continue
+		}
+		if prompt, ok := block["text"].(string); ok {
+			return prompt
+		}
+	}
+	return ""
+}
+
+func setupStreamingMonitorEndpoint(t *testing.T, provider, apiMode string, bodySeen *map[string]any) string {
+	t.Helper()
+	swapMonitorHTTPClient(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() { _ = r.Body.Close() }()
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode streaming monitor request: %v", err)
+			return
+		}
+		*bodySeen = body
+		if body["stream"] != true {
+			t.Errorf("streaming monitor must force stream=true, got %#v", body["stream"])
+		}
+		if r.Header.Get("Accept") != "text/event-stream" {
+			t.Errorf("streaming monitor Accept header = %q", r.Header.Get("Accept"))
+		}
+
+		answer := answerFromChallengePrompt(challengePromptFromMonitorRequest(body))
+		var event string
+		switch {
+		case provider == MonitorProviderAnthropic:
+			event = fmt.Sprintf("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":%q}}\n\n", answer)
+		case apiMode == MonitorAPIModeResponses:
+			event = fmt.Sprintf("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":%q}\n\n", answer)
+		default:
+			event = fmt.Sprintf("data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", answer)
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		splitAt := len(event) / 2
+		_, _ = io.WriteString(w, event[:splitAt])
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		_, _ = io.WriteString(w, event[splitAt:]+"data: [DONE]\n\n")
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }
 
 func responsesInputText(input any) string {
@@ -421,6 +496,82 @@ func TestRunCheckForModel_OpenAIResponses_SkipsLeadingReasoningItem(t *testing.T
 	}
 	if h.lastPath != providerOpenAIResponsesPath {
 		t.Fatalf("expected responses path %q, got %q", providerOpenAIResponsesPath, h.lastPath)
+	}
+}
+
+func TestRunCheckForModel_StreamingProviders(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		apiMode  string
+	}{
+		{name: "openai_chat", provider: MonitorProviderOpenAI, apiMode: MonitorAPIModeChatCompletions},
+		{name: "openai_responses", provider: MonitorProviderOpenAI, apiMode: MonitorAPIModeResponses},
+		{name: "grok_chat", provider: MonitorProviderGrok, apiMode: MonitorAPIModeChatCompletions},
+		{name: "anthropic", provider: MonitorProviderAnthropic, apiMode: MonitorAPIModeChatCompletions},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body map[string]any
+			endpoint := setupStreamingMonitorEndpoint(t, tt.provider, tt.apiMode, &body)
+			res := runCheckForModel(context.Background(), tt.provider, endpoint, "test-key", "test-model", &CheckOptions{
+				APIMode:   tt.apiMode,
+				Streaming: true,
+			})
+			if res.Status != MonitorStatusOperational {
+				t.Fatalf("streaming probe should be operational, got status=%s message=%q", res.Status, res.Message)
+			}
+			if res.LatencyMs == nil {
+				t.Fatal("streaming probe should record answer latency")
+			}
+			if tt.apiMode == MonitorAPIModeResponses && responsesInputText(body["input"]) == "" {
+				t.Fatalf("responses streaming request must use structured input_text, got %#v", body["input"])
+			}
+		})
+	}
+}
+
+func TestRunCheckForModel_StreamingOverridesReplaceBodyFlag(t *testing.T) {
+	var body map[string]any
+	endpoint := setupStreamingMonitorEndpoint(t, MonitorProviderOpenAI, MonitorAPIModeChatCompletions, &body)
+	res := runCheckForModel(context.Background(), MonitorProviderOpenAI, endpoint, "test-key", "test-model", &CheckOptions{
+		Streaming:        true,
+		BodyOverrideMode: MonitorBodyOverrideModeReplace,
+		BodyOverride: map[string]any{
+			"model":    "test-model",
+			"messages": []map[string]any{{"role": "user", "content": "health check"}},
+			"stream":   false,
+		},
+	})
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("replace streaming probe should be operational, got status=%s message=%q", res.Status, res.Message)
+	}
+	if body["stream"] != true {
+		t.Fatalf("monitor streaming switch must override replace body, got %#v", body["stream"])
+	}
+}
+
+func TestRunCheckForModel_StreamingRejectsNonSSE(t *testing.T) {
+	swapMonitorHTTPClient(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"1"}}]}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenAI, srv.URL, "test-key", "test-model", &CheckOptions{Streaming: true})
+	if res.Status != MonitorStatusError || !strings.Contains(res.Message, "text/event-stream") {
+		t.Fatalf("non-SSE streaming response should fail clearly, got status=%s message=%q", res.Status, res.Message)
+	}
+}
+
+func TestRunCheckForModel_StreamingRejectsUnsupportedProvider(t *testing.T) {
+	res := runCheckForModel(
+		context.Background(), MonitorProviderGemini, "https://generativelanguage.googleapis.com", "test-key", "test-model",
+		&CheckOptions{Streaming: true},
+	)
+	if res.Status != MonitorStatusError || !strings.Contains(res.Message, "supported only") {
+		t.Fatalf("unsupported streaming provider should fail locally, got status=%s message=%q", res.Status, res.Message)
 	}
 }
 

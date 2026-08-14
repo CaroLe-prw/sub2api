@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ChannelMonitor } from '@/api/admin/channelMonitor'
+import AdminMonitorCardGrid from '@/components/admin/monitor/AdminMonitorCardGrid.vue'
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
 import ChannelMonitorView from '@/views/admin/ChannelMonitorView.vue'
 
@@ -35,6 +36,8 @@ vi.mock('@/api/admin', () => ({
       list: listMonitors,
       duplicate: duplicateMonitor,
       update: vi.fn(),
+      publish: vi.fn(),
+      unpublish: vi.fn(),
       runNow: vi.fn(),
       del: vi.fn(),
     },
@@ -58,7 +61,7 @@ const AppLayoutStub = defineComponent({
 })
 
 const TablePageLayoutStub = defineComponent({
-  template: '<section><slot name="filters" /><slot name="table" /><slot name="pagination" /></section>',
+  template: '<section><slot name="actions" /><slot name="filters" /><slot name="table" /><slot name="pagination" /></section>',
 })
 
 const DataTableStub = defineComponent({
@@ -82,6 +85,8 @@ function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
     extra_models: [],
     group_name: '',
     enabled: true,
+    public_visible: false,
+    streaming: false,
     interval_seconds: 60,
     jitter_seconds: 0,
     last_checked_at: null,
@@ -118,6 +123,8 @@ function mountView() {
         MonitorFormDialog: true,
         MonitorTemplateManagerDialog: true,
         MonitorRunResultDialog: true,
+        MonitorPublishDialog: true,
+        MonitorAutoModelsPanel: true,
         MonitorPrimaryModelCell: true,
       },
     },
@@ -223,6 +230,23 @@ describe('ChannelMonitorView duplicate action', () => {
 
     expect(duplicateMonitor).not.toHaveBeenCalled()
     expect(showError).toHaveBeenCalledWith('admin.channelMonitor.duplicateKeyUnavailable')
+    wrapper.unmount()
+  })
+
+  it('shows private monitors in the admin card preview', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const previewButton = wrapper
+      .findAll('button')
+      .find(button => button.text() === 'admin.channelMonitor.cardPreview.cards')
+    expect(previewButton).toBeDefined()
+    await previewButton!.trigger('click')
+
+    const preview = wrapper.findComponent(AdminMonitorCardGrid)
+    expect(preview.exists()).toBe(true)
+    expect(preview.props('items')).toEqual([monitor])
+    expect((preview.props('items') as ChannelMonitor[])[0].public_visible).toBe(false)
     wrapper.unmount()
   })
 })

@@ -3362,6 +3362,49 @@ func TestOpenAIAccountRuntimeStats_ReportConcurrent(t *testing.T) {
 	}
 }
 
+func TestOpenAIAccountRuntimeStats_FusesTrafficProbeAndHistoryByModel(t *testing.T) {
+	stats := newOpenAIAccountRuntimeStats()
+	fastTTFT := 800
+	stats.reportTraffic(1001, "gpt-5.6-sol", true, &fastTTFT)
+	slowProbeTTFT := 4000
+	stats.reportProbe(1001, "gpt-5.6-sol", false, &slowProbeTTFT)
+	historyTTFT := 1000.0
+	stats.replaceHistory([]OpenAISchedulerHealthSnapshot{{
+		AccountID: 1001, Model: "gpt-5.6-sol", SuccessCount: 18, FailureCount: 2, AvgTTFTMs: &historyTTFT,
+	}})
+
+	errorRate, ttft, hasTTFT := stats.snapshotForRequest(1001, "gpt-5.6-sol")
+	require.True(t, hasTTFT)
+	require.Greater(t, errorRate, 0.1)
+	require.Less(t, errorRate, 0.2)
+	require.Greater(t, ttft, 1100.0)
+	require.Less(t, ttft, 1500.0)
+}
+
+func TestOpenAIAccountRuntimeStats_ModelHealthDoesNotLeakAcrossModels(t *testing.T) {
+	stats := newOpenAIAccountRuntimeStats()
+	stats.reportProbe(1001, "gpt-5.6-sol", false, nil)
+	stats.reportProbe(1001, "gpt-5.6-terra", true, nil)
+
+	solErrorRate, _, _ := stats.snapshotForRequest(1001, "gpt-5.6-sol")
+	terraErrorRate, _, _ := stats.snapshotForRequest(1001, "gpt-5.6-terra")
+	require.Equal(t, 1.0, solErrorRate)
+	require.Equal(t, 0.0, terraErrorRate)
+}
+
+func TestOpenAIAccountRuntimeStats_EmptyHistoryRefreshClearsOldWindow(t *testing.T) {
+	stats := newOpenAIAccountRuntimeStats()
+	stats.replaceHistory([]OpenAISchedulerHealthSnapshot{{
+		AccountID: 1001, Model: "gpt-5.6-sol", SuccessCount: 1, FailureCount: 9,
+	}})
+	errorRate, _, _ := stats.snapshotForRequest(1001, "gpt-5.6-sol")
+	require.InDelta(t, 0.9, errorRate, 1e-9)
+
+	stats.replaceHistory(nil)
+	errorRate, _, _ = stats.snapshotForRequest(1001, "gpt-5.6-sol")
+	require.Zero(t, errorRate)
+}
+
 func TestSelectTopKOpenAICandidates(t *testing.T) {
 	candidates := []openAIAccountCandidateScore{
 		{
@@ -3661,7 +3704,7 @@ func TestDefaultOpenAIAccountScheduler_ReportSwitchAndSnapshot(t *testing.T) {
 	require.True(t, ok)
 
 	ttft := 100
-	scheduler.ReportResult(1001, true, &ttft)
+	scheduler.ReportResult(1001, "gpt-5.5", true, &ttft)
 	scheduler.ReportSwitch()
 	scheduler.metrics.recordSelect(OpenAIAccountScheduleDecision{
 		Layer:             openAIAccountScheduleLayerLoadBalance,
@@ -3696,15 +3739,20 @@ func TestOpenAIGatewayService_SchedulerWrappersAndDefaults(t *testing.T) {
 	svc.RecordOpenAIAccountSwitch()
 	snapshot := svc.SnapshotOpenAIAccountSchedulerMetrics()
 	require.Equal(t, OpenAIAccountSchedulerMetricsSnapshot{}, snapshot)
-	require.Equal(t, 7, svc.openAIWSLBTopK())
+	require.Equal(t, 4, svc.openAIWSLBTopK())
 	require.Equal(t, openaiStickySessionTTL, svc.openAIWSSessionStickyTTL())
 
 	defaultWeights := svc.openAIWSSchedulerWeights()
-	require.Equal(t, 1.0, defaultWeights.Priority)
-	require.Equal(t, 1.0, defaultWeights.Load)
-	require.Equal(t, 0.7, defaultWeights.Queue)
-	require.Equal(t, 0.8, defaultWeights.ErrorRate)
-	require.Equal(t, 0.5, defaultWeights.TTFT)
+	require.Equal(t, 0.5, defaultWeights.Priority)
+	require.Equal(t, 1.5, defaultWeights.Load)
+	require.Equal(t, 1.5, defaultWeights.Queue)
+	require.Equal(t, 4.0, defaultWeights.ErrorRate)
+	require.Equal(t, 2.5, defaultWeights.TTFT)
+	require.Equal(t, 0.2, defaultWeights.Reset)
+	require.Equal(t, 0.8, defaultWeights.QuotaHeadroom)
+	require.Equal(t, 1.5, defaultWeights.UpstreamCost)
+	require.Equal(t, 0.3, defaultWeights.Previous)
+	require.Equal(t, 0.1, defaultWeights.SessionSticky)
 
 	cfg := &config.Config{}
 	cfg.Gateway.OpenAIWS.LBTopK = 9

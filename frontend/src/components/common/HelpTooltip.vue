@@ -69,8 +69,11 @@ function updatePosition() {
   if (!el) return
   const rect = el.getBoundingClientRect()
   tooltipStyle.value = {
-    top: `${rect.top + window.scrollY}px`,
-    left: `${rect.left + rect.width / 2 + window.scrollX}px`,
+    // The tooltip itself is position:fixed, so getBoundingClientRect already
+    // uses the correct viewport coordinate space. Adding page scroll offsets
+    // makes the tooltip drift away from its trigger after scrolling.
+    top: `${rect.top}px`,
+    left: `${rect.left + rect.width / 2}px`,
   }
 }
 

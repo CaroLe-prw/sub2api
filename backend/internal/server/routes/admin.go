@@ -131,6 +131,20 @@ func registerSchedulerObservabilityRoutes(admin *gin.RouterGroup, h *handler.Han
 	scheduler := admin.Group("/scheduler-observability")
 	{
 		scheduler.GET("/snapshot", h.Admin.SchedulerObservability.GetSnapshot)
+
+		// Scheduler probes are an internal scheduling signal. They deliberately
+		// live outside channelMonitorAdminFeatureGuard: disabling the public/manual
+		// channel-monitor feature must not blind the scheduler.
+		probes := scheduler.Group("/probes")
+		{
+			probes.GET("/policy", h.Admin.ChannelMonitor.GetAutoModelPolicy)
+			probes.PUT("/policy", h.Admin.ChannelMonitor.UpdateAutoModelPolicy)
+			probes.GET("/overview", h.Admin.ScheduledTest.ListChannelMonitorPool)
+			probes.GET("/accounts/:account_id/model-policy", h.Admin.ChannelMonitor.GetAccountModelPolicy)
+			probes.PUT("/accounts/:account_id/model-policy", h.Admin.ChannelMonitor.UpdateAccountModelPolicy)
+			probes.GET("/plans/:id/results", h.Admin.ScheduledTest.ListProbeResults)
+			probes.POST("/plans/:id/run", h.Admin.ScheduledTest.RunNow)
+		}
 	}
 }
 
@@ -726,6 +740,7 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		plans.PUT("/:id", h.Admin.ScheduledTest.Update)
 		plans.DELETE("/:id", h.Admin.ScheduledTest.Delete)
 		plans.GET("/:id/results", h.Admin.ScheduledTest.ListResults)
+		plans.POST("/:id/run", h.Admin.ScheduledTest.RunNow)
 	}
 	// Nested under accounts
 	admin.GET("/accounts/:id/scheduled-test-plans", h.Admin.ScheduledTest.ListByAccount)
@@ -773,8 +788,15 @@ func registerChannelMonitorRoutes(admin *gin.RouterGroup, h *handler.Handlers, s
 	{
 		monitors.GET("", h.Admin.ChannelMonitor.List)
 		monitors.POST("", h.Admin.ChannelMonitor.Create)
+		monitors.GET("/auto-model-policy", h.Admin.ChannelMonitor.GetAutoModelPolicy)
+		monitors.PUT("/auto-model-policy", h.Admin.ChannelMonitor.UpdateAutoModelPolicy)
+		monitors.GET("/pool-overview", h.Admin.ScheduledTest.ListChannelMonitorPool)
+		monitors.GET("/pool-accounts/:account_id/model-policy", h.Admin.ChannelMonitor.GetAccountModelPolicy)
+		monitors.PUT("/pool-accounts/:account_id/model-policy", h.Admin.ChannelMonitor.UpdateAccountModelPolicy)
 		monitors.GET("/:id", h.Admin.ChannelMonitor.Get)
 		monitors.POST("/:id/duplicate", h.Admin.ChannelMonitor.Duplicate)
+		monitors.POST("/:id/publish", h.Admin.ChannelMonitor.Publish)
+		monitors.POST("/:id/unpublish", h.Admin.ChannelMonitor.Unpublish)
 		monitors.PUT("/:id", h.Admin.ChannelMonitor.Update)
 		monitors.DELETE("/:id", h.Admin.ChannelMonitor.Delete)
 		monitors.POST("/:id/run", h.Admin.ChannelMonitor.Run)

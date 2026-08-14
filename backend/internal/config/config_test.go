@@ -482,11 +482,23 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	if cfg.Gateway.OpenAIWS.PayloadLogSampleRate != 0.2 {
 		t.Fatalf("Gateway.OpenAIWS.PayloadLogSampleRate = %v, want 0.2", cfg.Gateway.OpenAIWS.PayloadLogSampleRate)
 	}
-	if cfg.Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom != 0 {
-		t.Fatalf("Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom = %v, want 0", cfg.Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom)
+	if cfg.Gateway.OpenAIWS.LBTopK != 4 {
+		t.Fatalf("Gateway.OpenAIWS.LBTopK = %d, want 4", cfg.Gateway.OpenAIWS.LBTopK)
 	}
-	if cfg.Gateway.OpenAIWS.SchedulerScoreWeights.UpstreamCost != 0 {
-		t.Fatalf("Gateway.OpenAIWS.SchedulerScoreWeights.UpstreamCost = %v, want 0", cfg.Gateway.OpenAIWS.SchedulerScoreWeights.UpstreamCost)
+	wantSchedulerWeights := GatewayOpenAIWSSchedulerScoreWeights{
+		Priority:         0.5,
+		Load:             1.5,
+		Queue:            1.5,
+		ErrorRate:        4,
+		TTFT:             2.5,
+		Reset:            0.2,
+		QuotaHeadroom:    0.8,
+		UpstreamCost:     1.5,
+		PreviousResponse: 0.3,
+		SessionSticky:    0.1,
+	}
+	if cfg.Gateway.OpenAIWS.SchedulerScoreWeights != wantSchedulerWeights {
+		t.Fatalf("Gateway.OpenAIWS.SchedulerScoreWeights = %+v, want %+v", cfg.Gateway.OpenAIWS.SchedulerScoreWeights, wantSchedulerWeights)
 	}
 	if !cfg.Gateway.OpenAIWS.StoreDisabledForceNewConn {
 		t.Fatalf("Gateway.OpenAIWS.StoreDisabledForceNewConn = false, want true")
@@ -2202,8 +2214,8 @@ func TestValidateConfig_OpenAIWSRules(t *testing.T) {
 			wantErr: "gateway.openai_ws.dial_timeout_seconds",
 		},
 		{
-			name:    "read_timeout_seconds 必须为正数",
-			mutate:  func(c *Config) { c.Gateway.OpenAIWS.ReadTimeoutSeconds = 0 },
+			name:    "read_timeout_seconds 不能为负数",
+			mutate:  func(c *Config) { c.Gateway.OpenAIWS.ReadTimeoutSeconds = -1 },
 			wantErr: "gateway.openai_ws.read_timeout_seconds",
 		},
 		{
@@ -2323,6 +2335,9 @@ func TestValidateConfig_OpenAIWSRules(t *testing.T) {
 				c.Gateway.OpenAIWS.SchedulerScoreWeights.Queue = 0
 				c.Gateway.OpenAIWS.SchedulerScoreWeights.ErrorRate = 0
 				c.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT = 0
+				c.Gateway.OpenAIWS.SchedulerScoreWeights.Reset = 0
+				c.Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom = 0
+				c.Gateway.OpenAIWS.SchedulerScoreWeights.UpstreamCost = 0
 			},
 			wantErr: "gateway.openai_ws.scheduler_score_weights must not all be zero",
 		},
@@ -2547,8 +2562,8 @@ func TestLoad_DefaultGatewayImageStreamConfig(t *testing.T) {
 	if cfg.Gateway.StreamKeepaliveInterval != 10 {
 		t.Fatalf("stream_keepalive_interval = %d, want 10", cfg.Gateway.StreamKeepaliveInterval)
 	}
-	if cfg.Gateway.ImageStreamDataIntervalTimeout != 900 {
-		t.Fatalf("image_stream_data_interval_timeout = %d, want 900", cfg.Gateway.ImageStreamDataIntervalTimeout)
+	if cfg.Gateway.ImageStreamDataIntervalTimeout != 0 {
+		t.Fatalf("image_stream_data_interval_timeout = %d, want 0", cfg.Gateway.ImageStreamDataIntervalTimeout)
 	}
 	if cfg.Gateway.ImageStreamKeepaliveInterval != 10 {
 		t.Fatalf("image_stream_keepalive_interval = %d, want 10", cfg.Gateway.ImageStreamKeepaliveInterval)
@@ -2570,8 +2585,5 @@ func TestLoad_DefaultGatewayImageStreamConfig(t *testing.T) {
 	}
 	if cfg.Gateway.ImageConcurrency.MaxWaitingRequests != 100 {
 		t.Fatalf("image_concurrency.max_waiting_requests = %d, want 100", cfg.Gateway.ImageConcurrency.MaxWaitingRequests)
-	}
-	if cfg.Gateway.ImageStreamDataIntervalTimeout <= cfg.Gateway.StreamDataIntervalTimeout {
-		t.Fatalf("image stream timeout = %d, want greater than ordinary stream timeout %d", cfg.Gateway.ImageStreamDataIntervalTimeout, cfg.Gateway.StreamDataIntervalTimeout)
 	}
 }

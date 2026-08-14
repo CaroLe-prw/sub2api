@@ -20,6 +20,8 @@ function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
     extra_models: [],
     group_name: '',
     enabled: true,
+    public_visible: false,
+    streaming: false,
     interval_seconds: 60,
     jitter_seconds: 0,
     last_checked_at: null,

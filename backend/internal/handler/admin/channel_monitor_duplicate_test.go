@@ -81,6 +81,8 @@ func setupDuplicateChannelMonitorRouter(t *testing.T) (*gin.Engine, *duplicateCh
 			PrimaryModel:     "gpt-5.4-mini",
 			ExtraModels:      []string{"gpt-5.4"},
 			Enabled:          true,
+			PublicVisible:    true,
+			Streaming:        true,
 			IntervalSeconds:  60,
 			BodyOverrideMode: service.MonitorBodyOverrideModeOff,
 		},
@@ -112,6 +114,8 @@ func TestDuplicateChannelMonitorHandlerRedactsKeyAndReplaysRetry(t *testing.T) {
 	require.Contains(t, first.Body.String(), `"api_key_masked":"top-***"`)
 	require.Contains(t, first.Body.String(), `"created_by":77`)
 	require.Contains(t, first.Body.String(), `"enabled":false`)
+	require.Contains(t, first.Body.String(), `"public_visible":false`)
+	require.Contains(t, first.Body.String(), `"streaming":true`)
 	require.NotContains(t, first.Body.String(), "top-secret")
 
 	retryRequest := httptest.NewRequest(http.MethodPost, "/api/v1/admin/channel-monitors/42/duplicate", nil)

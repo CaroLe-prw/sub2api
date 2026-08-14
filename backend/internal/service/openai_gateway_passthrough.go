@@ -1602,12 +1602,24 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverError(
 		StatusCode:                             statusCode,
 		ResponseBody:                           body,
 		ResponseHeaders:                        headers,
+		ExplicitUpstreamResponse:               len(bytes.TrimSpace(payload)) > 0,
 		RetryableOnSameAccount:                 retryableOnSameAccount,
 		RequestScopedTransient:                 isOpenAIStreamRequestScopedCapacityError(payload, message),
 		RetryableOnSameAccountIfNoOtherAccount: retryableIfNoOtherAccount,
 	}
+	// A missing structured upstream error means the request may have been
+	// accepted and charged before the stream disconnected or was rejected by
+	// local staging. Replaying that ambiguous attempt can double-charge us.
+	if len(bytes.TrimSpace(payload)) == 0 {
+		failoverErr.RetryableOnSameAccount = false
+		failoverErr.RetryableOnSameAccountIfNoOtherAccount = false
+		failoverErr.BillingExposurePossible = true
+		failoverErr.NextAccountAction = NextAccountStop
+		failoverErr.Reason = GatewayFailureReason("stream_outcome_unknown")
+	}
 	if usage, ok := extractOpenAIUsageFromJSONBytes(payload); ok && usage.HasBillableUnits() {
 		failoverErr.BillingExposurePossible = true
+		failoverErr.NextAccountAction = NextAccountStop
 	}
 	if isOpenAIResponsesItemNotPersistedError(payload, message) {
 		failoverErr.RetryableOnSameAccount = true
