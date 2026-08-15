@@ -934,15 +934,30 @@ func (s *UsageLogRepoSuite) TestGetAccountTodayStats() {
 		CreatedAt:             createdAt,
 	})
 	s.Require().NoError(err)
+	probeMultiplier := 2.0
+	_, err = s.repo.Create(s.ctx, &service.UsageLog{
+		AccountID:             account.ID,
+		RequestID:             uuid.New().String(),
+		Model:                 "claude-3",
+		InputTokens:           7,
+		OutputTokens:          3,
+		CacheReadTokens:       5,
+		TotalCost:             0.2,
+		ActualCost:            0,
+		AccountRateMultiplier: &probeMultiplier,
+		RequestType:           service.RequestTypeProbe,
+		CreatedAt:             createdAt,
+	})
+	s.Require().NoError(err)
 
 	stats, err := s.repo.GetAccountTodayStats(s.ctx, account.ID)
 	s.Require().NoError(err, "GetAccountTodayStats")
-	s.Require().Equal(int64(2), stats.Requests)
-	s.Require().Equal(int64(40), stats.Tokens)
+	s.Require().Equal(int64(3), stats.Requests)
+	s.Require().Equal(int64(55), stats.Tokens)
 	// account cost = SUM(total_cost * account_rate_multiplier)
-	s.Require().InEpsilon(1.5, stats.Cost, 0.0001)
+	s.Require().InEpsilon(1.9, stats.Cost, 0.0001)
 	// standard cost = SUM(total_cost)
-	s.Require().InEpsilon(1.5, stats.StandardCost, 0.0001)
+	s.Require().InEpsilon(1.7, stats.StandardCost, 0.0001)
 	// user cost = SUM(actual_cost)
 	s.Require().InEpsilon(3.0, stats.UserCost, 0.0001)
 }

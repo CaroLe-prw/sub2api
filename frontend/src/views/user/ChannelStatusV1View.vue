@@ -1,5 +1,5 @@
 <template>
-  <AppLayout>
+  <component :is="pageShell">
     <MonitorHero
       :overall-status="overallStatus"
       :interval-seconds="DEFAULT_INTERVAL_SECONDS"
@@ -25,13 +25,14 @@
       :title="detailTitle"
       @close="closeDetail"
     />
-  </AppLayout>
+  </component>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import {
   list as listChannelMonitorViews,
@@ -40,6 +41,7 @@ import {
   type UserMonitorDetail,
 } from '@/api/channelMonitor'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import PublicStatusLayout from '@/components/layout/PublicStatusLayout.vue'
 import MonitorHero, {
   type MonitorWindow,
   type OverallStatus,
@@ -51,6 +53,9 @@ import { useAutoRefresh } from '@/composables/useAutoRefresh'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
+const isAuthenticated = computed(() => authStore.isAuthenticated)
+const pageShell = computed(() => (isAuthenticated.value ? AppLayout : PublicStatusLayout))
 
 // ── State ──
 const items = ref<UserMonitorView[]>([])
@@ -160,6 +165,7 @@ watch(
 )
 
 onMounted(() => {
+  if (!isAuthenticated.value) void appStore.fetchPublicSettings()
   void reload(false)
   if (appStore.cachedPublicSettings?.channel_monitor_enabled !== false) {
     autoRefresh.setEnabled(true)

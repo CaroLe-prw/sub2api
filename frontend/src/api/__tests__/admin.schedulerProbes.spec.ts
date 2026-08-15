@@ -28,6 +28,8 @@ describe('admin scheduler probe API', () => {
   it('uses scheduler-observability routes instead of channel-monitor routes', async () => {
     await getPolicy()
     await updatePolicy({ enabled: false, whitelist: [] })
+    await updatePolicy({ enabled: true, mode: 'adaptive', whitelist: [] })
+    await updatePolicy({ enabled: true, mode: 'fixed', fixed_interval_minutes: 15, whitelist: [] })
     await listOverview()
     await listOverview([35, 31])
     await getAccountModelPolicy(35)
@@ -37,6 +39,13 @@ describe('admin scheduler probe API', () => {
 
     expect(get).toHaveBeenCalledWith('/admin/scheduler-observability/probes/policy')
     expect(put).toHaveBeenCalledWith('/admin/scheduler-observability/probes/policy', { enabled: false, whitelist: [] })
+    expect(put).toHaveBeenCalledWith('/admin/scheduler-observability/probes/policy', { enabled: true, mode: 'adaptive', whitelist: [] })
+    expect(put).toHaveBeenCalledWith('/admin/scheduler-observability/probes/policy', {
+      enabled: true,
+      mode: 'fixed',
+      fixed_interval_minutes: 15,
+      whitelist: [],
+    })
     expect(get).toHaveBeenCalledWith('/admin/scheduler-observability/probes/overview')
     expect(get).toHaveBeenCalledWith('/admin/scheduler-observability/probes/overview', {
       params: { account_ids: '35,31' },

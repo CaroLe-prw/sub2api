@@ -1,5 +1,5 @@
 <template>
-  <AppLayout>
+  <component :is="pageShell">
     <div class="space-y-6 pb-12">
       <!-- Ops-style elevated shell: title toolbar + filters (mirrors OpsDashboardHeader) -->
       <section
@@ -271,13 +271,13 @@
 
       <section class="card flex min-h-0 flex-col overflow-hidden !rounded-3xl !border-0 shadow-sm ring-1 ring-gray-900/5 dark:!bg-dark-800 dark:ring-dark-700">
         <div class="border-b border-gray-100 px-5 pt-4 dark:border-dark-700 sm:px-6">
-          <nav class="tabs w-full max-w-md sm:w-auto" role="tablist" :aria-label="t('channelMonitorV2.tabs.aria')">
+          <nav class="tabs inline-flex max-w-full" role="tablist" :aria-label="t('channelMonitorV2.tabs.aria')">
             <button
               v-for="item in tabs"
               :key="item.value"
               type="button"
               role="tab"
-              class="tab flex-1 sm:flex-none"
+              class="tab shrink-0"
               :aria-selected="activeTab === item.value"
               :class="activeTab === item.value ? 'tab-active' : ''"
               @click="activeTab = item.value"
@@ -454,7 +454,7 @@
         </div>
       </section>
     </div>
-  </AppLayout>
+  </component>
 </template>
 
 <script setup lang="ts">
@@ -462,6 +462,7 @@ import { useI18n } from 'vue-i18n'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import PublicStatusLayout from '@/components/layout/PublicStatusLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Select from '@/components/common/Select.vue'
@@ -509,6 +510,8 @@ const router = useRouter()
 const authStore = useAuthStore()
 const appStore = useAppStore()
 const { t, te, locale } = useI18n()
+const isAuthenticated = computed(() => authStore.isAuthenticated)
+const pageShell = computed(() => (isAuthenticated.value ? AppLayout : PublicStatusLayout))
 const isAdmin = computed(() => authStore.isAdmin)
 /** Admins always see RPM/TPM; users honor the hide-throughput system setting. */
 const showThroughput = computed(() => isAdmin.value || !isChannelMonitorThroughputHidden())
@@ -519,11 +522,16 @@ const ranges = computed(() => [
   { value: '7d' as MonitorRange, label: t('channelMonitorV2.ranges.7d') },
   { value: '30d' as MonitorRange, label: t('channelMonitorV2.ranges.30d') },
 ])
-const tabs = computed(() => [
-  { value: 'models' as Tab, label: t('channelMonitorV2.tabs.models') },
-  { value: 'errors' as Tab, label: t('channelMonitorV2.tabs.errors') },
-  { value: 'users' as Tab, label: t('channelMonitorV2.tabs.users') },
-])
+const tabs = computed(() => {
+  const items = [
+    { value: 'models' as Tab, label: t('channelMonitorV2.tabs.models') },
+    { value: 'errors' as Tab, label: t('channelMonitorV2.tabs.errors') },
+  ]
+  if (isAuthenticated.value) {
+    items.push({ value: 'users' as Tab, label: t('channelMonitorV2.tabs.users') })
+  }
+  return items
+})
 const matrixGroupOptions = computed(() => [
   { value: 'platform' as MonitorMatrixGroupBy, label: t('channelMonitorV2.groupBy.platform') },
   { value: 'platform_group' as MonitorMatrixGroupBy, label: t('channelMonitorV2.groupBy.platformGroup') },
@@ -773,8 +781,10 @@ async function loadTab(signal?: AbortSignal, id = sequence) {
       modelRows.value = (await api.getModels(filter.value, isAdmin.value, signal)).items || []
     } else if (activeTab.value === 'errors') {
       errorRows.value = (await api.getErrors(filter.value, isAdmin.value, signal)).items || []
-    } else {
+    } else if (isAuthenticated.value) {
       userRows.value = (await api.getUsers(filter.value, isAdmin.value, signal)).items || []
+    } else {
+      userRows.value = []
     }
   } catch (error) {
     const e = error as { name?: string; code?: string }
@@ -900,11 +910,21 @@ watch(matrixGroupBy, () => {
 })
 watch(healthMode, syncQuery)
 watch(trendView, syncQuery)
+watch(
+  isAuthenticated,
+  (authenticated) => {
+    if (!authenticated && activeTab.value === 'users') activeTab.value = 'models'
+  },
+  { immediate: true },
+)
 watch(activeTab, () => {
   syncQuery()
   void loadTab()
 })
-onMounted(() => void reload(false))
+onMounted(() => {
+  if (!isAuthenticated.value) void appStore.fetchPublicSettings()
+  void reload(false)
+})
 onBeforeUnmount(() => {
   controller?.abort()
   if (autoRefreshTimer) window.clearInterval(autoRefreshTimer)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -33,10 +34,25 @@ type channelMonitorAutoModelSettingStore interface {
 // legacy name is retained for storage and handler compatibility.
 type ChannelMonitorAutoModelPolicy struct {
 	Enabled              bool                `json:"enabled"`
+	Mode                 string              `json:"mode"`
+	FixedIntervalMinutes int                 `json:"fixed_interval_minutes"`
 	Whitelist            []string            `json:"whitelist"`
 	DiscoveredByProvider map[string][]string `json:"discovered_by_provider,omitempty"`
 	EligibleByProvider   map[string][]string `json:"eligible_by_provider,omitempty"`
 }
+
+const (
+	defaultChannelMonitorProbeFixedIntervalMinutes = 5
+	minChannelMonitorProbeFixedIntervalMinutes     = 1
+	maxChannelMonitorProbeFixedIntervalMinutes     = 1440
+
+	// ChannelMonitorProbeModeFixed preserves the original five-minute probe
+	// cadence for existing installations.
+	ChannelMonitorProbeModeFixed = "fixed"
+	// ChannelMonitorProbeModeAdaptive probes successful accounts less often and
+	// keeps failed accounts on a five-minute recovery probe.
+	ChannelMonitorProbeModeAdaptive = "adaptive"
+)
 
 type ChannelMonitorAccountModelPolicy struct {
 	AccountID        int64    `json:"account_id"`
@@ -46,7 +62,12 @@ type ChannelMonitorAccountModelPolicy struct {
 }
 
 func defaultChannelMonitorAutoModelPolicy() ChannelMonitorAutoModelPolicy {
-	return ChannelMonitorAutoModelPolicy{Enabled: true, Whitelist: []string{}}
+	return ChannelMonitorAutoModelPolicy{
+		Enabled:              true,
+		Mode:                 ChannelMonitorProbeModeFixed,
+		FixedIntervalMinutes: defaultChannelMonitorProbeFixedIntervalMinutes,
+		Whitelist:            []string{},
+	}
 }
 
 func (s *ChannelMonitorService) GetAutoModelPolicy(ctx context.Context, includeInventory bool) (*ChannelMonitorAutoModelPolicy, error) {
@@ -78,13 +99,23 @@ func (s *ChannelMonitorService) UpdateAutoModelPolicy(ctx context.Context, input
 	if err != nil {
 		return nil, err
 	}
+	mode, err := normalizeChannelMonitorProbeMode(input.Mode)
+	if err != nil {
+		return nil, err
+	}
+	fixedIntervalMinutes, err := normalizeChannelMonitorProbeFixedInterval(input.FixedIntervalMinutes)
+	if err != nil {
+		return nil, err
+	}
 	rawWhitelist, err := json.Marshal(whitelist)
 	if err != nil {
 		return nil, fmt.Errorf("marshal scheduler probe model whitelist: %w", err)
 	}
 	if err := s.settings.SetMultiple(ctx, map[string]string{
-		SettingKeySchedulerProbesEnabled:   fmt.Sprintf("%t", input.Enabled),
-		SettingKeySchedulerProbesWhitelist: string(rawWhitelist),
+		SettingKeySchedulerProbesEnabled:              fmt.Sprintf("%t", input.Enabled),
+		SettingKeySchedulerProbesMode:                 mode,
+		SettingKeySchedulerProbesFixedIntervalMinutes: strconv.Itoa(fixedIntervalMinutes),
+		SettingKeySchedulerProbesWhitelist:            string(rawWhitelist),
 	}); err != nil {
 		return nil, fmt.Errorf("save scheduler probe policy: %w", err)
 	}
@@ -168,12 +199,21 @@ func loadAutoModelPolicyFromStore(ctx context.Context, settings channelMonitorAu
 	}
 	values, err := settings.GetMultiple(ctx, []string{
 		SettingKeySchedulerProbesEnabled,
+		SettingKeySchedulerProbesMode,
+		SettingKeySchedulerProbesFixedIntervalMinutes,
 		SettingKeySchedulerProbesWhitelist,
 	})
 	if err != nil {
 		return policy, fmt.Errorf("load scheduler probe policy: %w", err)
 	}
 	policy.Enabled = !isFalseSettingValue(values[SettingKeySchedulerProbesEnabled])
+	policy.Mode, err = normalizeChannelMonitorProbeMode(values[SettingKeySchedulerProbesMode])
+	if err != nil {
+		// A bad persisted value must not disable scheduler probes. Fall back to
+		// the legacy mode so existing installations remain operational.
+		policy.Mode = ChannelMonitorProbeModeFixed
+	}
+	policy.FixedIntervalMinutes = parseChannelMonitorProbeFixedInterval(values[SettingKeySchedulerProbesFixedIntervalMinutes])
 	if raw := strings.TrimSpace(values[SettingKeySchedulerProbesWhitelist]); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &policy.Whitelist); err != nil {
 			return policy, fmt.Errorf("decode scheduler probe model whitelist: %w", err)
@@ -184,6 +224,41 @@ func loadAutoModelPolicyFromStore(ctx context.Context, settings channelMonitorAu
 		return policy, err
 	}
 	return policy, nil
+}
+
+func normalizeChannelMonitorProbeFixedInterval(minutes int) (int, error) {
+	if minutes == 0 {
+		return defaultChannelMonitorProbeFixedIntervalMinutes, nil
+	}
+	if minutes < minChannelMonitorProbeFixedIntervalMinutes || minutes > maxChannelMonitorProbeFixedIntervalMinutes {
+		return 0, ErrChannelMonitorInvalidAutoModelInterval
+	}
+	return minutes, nil
+}
+
+func parseChannelMonitorProbeFixedInterval(raw string) int {
+	minutes, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return defaultChannelMonitorProbeFixedIntervalMinutes
+	}
+	minutes, err = normalizeChannelMonitorProbeFixedInterval(minutes)
+	if err != nil {
+		return defaultChannelMonitorProbeFixedIntervalMinutes
+	}
+	return minutes
+}
+
+func normalizeChannelMonitorProbeMode(mode string) (string, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		return ChannelMonitorProbeModeFixed, nil
+	}
+	switch mode {
+	case ChannelMonitorProbeModeFixed, ChannelMonitorProbeModeAdaptive:
+		return mode, nil
+	default:
+		return "", ErrChannelMonitorInvalidAutoModelMode
+	}
 }
 
 func (s *ChannelMonitorService) resolveMonitorModels(_ context.Context, monitor *ChannelMonitor) []string {

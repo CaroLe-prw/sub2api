@@ -704,15 +704,6 @@ func (s *OpenAISchedulerObservabilityStore) recordOutcomeLocked(trace *OpenAISch
 	if outcome.CacheEligibleTokens >= 0 {
 		trace.CacheEligibleTokens = outcome.CacheEligibleTokens
 	}
-	if outcome.Canceled {
-		trace.Status = "canceled"
-		reason := strings.TrimSpace(outcome.Reason)
-		if reason == "" {
-			reason = "client_disconnected"
-		}
-		trace.appendAttemptLocked("request_canceled", outcome.AccountID, outcome.AccountName, now, 0, reason)
-		return
-	}
 	if outcome.Success {
 		trace.Status = "success"
 		if trace.SwitchCount > 0 {
@@ -722,6 +713,15 @@ func (s *OpenAISchedulerObservabilityStore) recordOutcomeLocked(trace *OpenAISch
 			}
 		}
 		trace.appendAttemptLocked("request_success", outcome.AccountID, outcome.AccountName, now, 0, strings.TrimSpace(outcome.Reason))
+		return
+	}
+	if outcome.Canceled {
+		trace.Status = "canceled"
+		reason := strings.TrimSpace(outcome.Reason)
+		if reason == "" {
+			reason = "client_disconnected"
+		}
+		trace.appendAttemptLocked("request_canceled", outcome.AccountID, outcome.AccountName, now, 0, reason)
 		return
 	}
 	trace.Status = "failed"

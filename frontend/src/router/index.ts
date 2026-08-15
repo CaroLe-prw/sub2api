@@ -532,7 +532,7 @@ const routes: RouteRecordRaw[] = [
     name: 'ChannelStatus',
     component: () => import('@/views/user/ChannelStatusView.vue'),
     meta: {
-      requiresAuth: true,
+      requiresAuth: false,
       requiresAdmin: false,
       title: 'Channel Status',
       titleKey: 'nav.channelStatus'
@@ -788,7 +788,7 @@ let authInitialized = false
 const navigationLoading = useNavigationLoadingState()
 // 延迟初始化预加载，传入 router 实例
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
-const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/payment/result', '/payment/airwallex', '/legal']
+const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/monitor', '/setup', '/payment/result', '/payment/airwallex', '/legal']
 const BACKEND_MODE_CALLBACK_PATHS = [
   '/auth/callback',
   '/auth/linuxdo/callback',
@@ -897,6 +897,23 @@ router.beforeEach(async (to, _from, next) => {
         next('/login')
         return
       }
+    }
+    // 服务状态页同样依赖公共设置中的版本开关；首次直达时先加载，
+    // 避免默认按 V2 渲染后再切换造成一次无效请求。
+    if (to.path === '/monitor' && !appStore.publicSettingsLoaded) {
+      try {
+        await appStore.fetchPublicSettings()
+      } catch (error) {
+        console.warn('Failed to load public settings for service status', error)
+      }
+    }
+    if (
+      to.path === '/monitor' &&
+      appStore.cachedPublicSettings?.channel_monitor_require_auth !== false &&
+      !authStore.isAuthenticated
+    ) {
+      next({ path: '/login', query: { redirect: to.fullPath } })
+      return
     }
     // Backend mode: block public pages for unauthenticated users (except login, key-usage, setup)
     if (appStore.backendModeEnabled && !authStore.isAuthenticated) {

@@ -336,6 +336,7 @@ func (s *AntigravityGatewayService) IsModelSupported(requestedModel string) bool
 type TestConnectionResult struct {
 	Text        string // 响应文本
 	MappedModel string // 实际使用的模型
+	Usage       UsageTokens
 }
 
 // TestConnection 测试 Antigravity 账号连接。
@@ -423,7 +424,8 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 	}
 
 	text := extractTextFromSSEResponse(respBody)
-	return &TestConnectionResult{Text: text, MappedModel: mappedModel}, nil
+	usage := extractUsageFromAntigravitySSEResponse(respBody)
+	return &TestConnectionResult{Text: text, MappedModel: mappedModel, Usage: usage}, nil
 }
 
 // testConnectionHandleError 是 TestConnection 使用的轻量 handleError 回调。
@@ -557,6 +559,40 @@ func extractTextFromSSEResponse(respBody []byte) string {
 	}
 
 	return strings.Join(texts, "")
+}
+
+func extractUsageFromAntigravitySSEResponse(respBody []byte) UsageTokens {
+	var usage UsageTokens
+	lines := bytes.Split(respBody, []byte("\n"))
+	for _, line := range lines {
+		line = bytes.TrimSpace(line)
+		line = bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+
+		var envelope antigravity.V1InternalResponse
+		if err := json.Unmarshal(line, &envelope); err != nil {
+			continue
+		}
+		metadata := envelope.Response.UsageMetadata
+		if metadata == nil {
+			var response antigravity.GeminiResponse
+			if err := json.Unmarshal(line, &response); err == nil {
+				metadata = response.UsageMetadata
+			}
+		}
+		if metadata == nil {
+			continue
+		}
+
+		cached := metadata.CachedContentTokenCount
+		usage.InputTokens = max(usage.InputTokens, max(0, metadata.PromptTokenCount-cached))
+		usage.OutputTokens = max(usage.OutputTokens, metadata.CandidatesTokenCount+metadata.ThoughtsTokenCount)
+		usage.CacheReadTokens = max(usage.CacheReadTokens, cached)
+		usage.ImageOutputTokens = max(usage.ImageOutputTokens, metadata.ImageOutputTokens())
+	}
+	return usage
 }
 
 // injectIdentityPatchToGeminiRequest 为 Gemini 格式请求注入身份提示词

@@ -418,6 +418,11 @@ const (
 	// When false: runner skips scheduling and user-facing endpoints return an empty list.
 	SettingKeyChannelMonitorEnabled = "channel_monitor_enabled"
 
+	// SettingKeyChannelMonitorRequireAuth controls whether user-facing status APIs
+	// require a valid login. Default true keeps status data private unless an
+	// administrator explicitly allows anonymous access.
+	SettingKeyChannelMonitorRequireAuth = "channel_monitor_require_auth"
+
 	// SettingKeyChannelMonitorMode selects exclusive implementation:
 	// "v1" active probes, "v2" passive aggregation. Default "v1" (opt-in to v2).
 	SettingKeyChannelMonitorMode = "channel_monitor_mode"
@@ -444,6 +449,15 @@ const (
 	// SettingKeySchedulerProbesWhitelist stores a JSON array of exact model IDs
 	// or suffix-wildcard patterns. Empty means all discovered models.
 	SettingKeySchedulerProbesWhitelist = "channel_monitor_auto_models_whitelist"
+
+	// SettingKeySchedulerProbesMode controls how scheduler account-pool probes
+	// advance their next run. Empty and unknown values retain the legacy fixed
+	// five-minute behavior.
+	SettingKeySchedulerProbesMode = "channel_monitor_auto_models_mode"
+
+	// SettingKeySchedulerProbesFixedIntervalMinutes controls the fixed probe
+	// cadence. The default is five minutes; accepted values are 1..1440.
+	SettingKeySchedulerProbesFixedIntervalMinutes = "channel_monitor_auto_models_fixed_interval_minutes"
 
 	// Compatibility aliases for callers compiled against the former naming.
 	SettingKeyChannelMonitorAutoModelsEnabled   = SettingKeySchedulerProbesEnabled

@@ -648,10 +648,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				submitAttemptUsage(result)
 				if canceledAttempt {
 					failoverClientGone(c)
-					h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
-						AccountID: account.ID, AccountName: account.Name, Canceled: true, Reason: "client_disconnected",
-						DurationMs: time.Since(routingStart).Milliseconds(),
-					})
+					outcome := openAIClientDisconnectOutcome(result, time.Since(routingStart).Milliseconds())
+					outcome.AccountID, outcome.AccountName = account.ID, account.Name
+					h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), outcome)
 					reqLog.Info("openai.client_disconnected_usage_settled", zap.Int64("account_id", account.ID), zap.Error(err))
 					return
 				}
@@ -793,10 +792,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				}
 				if openAIForwardClientCanceled(c, result, err) {
 					failoverClientGone(c)
-					h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
-						AccountID: account.ID, AccountName: account.Name, Canceled: true, Reason: "client_disconnected",
-						DurationMs: time.Since(routingStart).Milliseconds(),
-					})
+					outcome := openAIClientDisconnectOutcome(result, time.Since(routingStart).Milliseconds())
+					outcome.AccountID, outcome.AccountName = account.ID, account.Name
+					h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), outcome)
 					reqLog.Info("openai.client_disconnected", zap.Int64("account_id", account.ID), zap.Error(err))
 					return
 				}
@@ -1334,10 +1332,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				submitMessagesAttemptUsage(result)
 				if canceledAttempt {
 					failoverClientGone(c)
-					h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
-						AccountID: account.ID, AccountName: account.Name, Canceled: true, Reason: "client_disconnected",
-						DurationMs: time.Since(routingStart).Milliseconds(),
-					})
+					outcome := openAIClientDisconnectOutcome(result, time.Since(routingStart).Milliseconds())
+					outcome.AccountID, outcome.AccountName = account.ID, account.Name
+					h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), outcome)
 					reqLog.Info("openai_messages.client_disconnected_usage_settled", zap.Int64("account_id", account.ID), zap.Error(err))
 					return
 				}
@@ -1461,10 +1458,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				}
 				if openAIForwardClientCanceled(c, result, err) {
 					failoverClientGone(c)
-					h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
-						AccountID: account.ID, AccountName: account.Name, Canceled: true, Reason: "client_disconnected",
-						DurationMs: time.Since(routingStart).Milliseconds(),
-					})
+					outcome := openAIClientDisconnectOutcome(result, time.Since(routingStart).Milliseconds())
+					outcome.AccountID, outcome.AccountName = account.ID, account.Name
+					h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), outcome)
 					reqLog.Info("openai_messages.client_disconnected",
 						zap.Int64("account_id", account.ID),
 						zap.Error(err),
@@ -3061,6 +3057,34 @@ func openAIClientDisconnectReason(result *service.OpenAIForwardResult) string {
 		return "client_disconnected"
 	}
 	return ""
+}
+
+// openAIClientDisconnectOutcome separates a successful upstream response from
+// a client that stopped reading it. A first semantic event (or a completed WS
+// response) proves the selected account produced a valid response; the
+// downstream disconnect must not make that account look unhealthy.
+func openAIClientDisconnectOutcome(result *service.OpenAIForwardResult, durationMs int64) service.OpenAISchedulerObservabilityOutcome {
+	outcome := service.OpenAISchedulerObservabilityOutcome{
+		Canceled:   true,
+		Reason:     "client_disconnected",
+		DurationMs: durationMs,
+	}
+	if result == nil {
+		return outcome
+	}
+
+	outcome.FirstTokenMs = result.FirstTokenMs
+	outcome.CacheReadTokens = int64(result.Usage.CacheReadInputTokens)
+	outcome.CacheEligibleTokens = openAISchedulerCacheEligibleTokens(result.Usage)
+	responseStarted := result.FirstTokenMs != nil ||
+		(result.OpenAIWSMode && result.UpstreamTerminalEvent != "" && result.SucceededForScheduling()) ||
+		result.ImageCount > 0 || result.VideoCount > 0
+	if responseStarted {
+		// Success takes precedence over Canceled in the observability store. The
+		// latter remains useful for billing/drain behavior and request logs.
+		outcome.Success = true
+	}
+	return outcome
 }
 
 // openAIForwardErrorAlreadyCommunicated reports whether Forward returned an

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -74,6 +75,50 @@ func newChannelMonitorModeSettings(enabled bool, mode string) *service.SettingSe
 			service.SettingKeyChannelMonitorMode:    mode,
 		},
 	}, &config.Config{})
+}
+
+func newChannelMonitorAuthSettings(requireAuth bool) *service.SettingService {
+	value := "false"
+	if requireAuth {
+		value = "true"
+	}
+	return service.NewSettingService(&channelMonitorRouteSettingRepoStub{
+		values: map[string]string{
+			service.SettingKeyChannelMonitorRequireAuth: value,
+		},
+	}, &config.Config{})
+}
+
+func TestChannelMonitorViewerAuthGuard(t *testing.T) {
+	tests := []struct {
+		name       string
+		svc        *service.SettingService
+		setSubject bool
+		wantStatus int
+	}{
+		{name: "anonymous allowed when disabled", svc: newChannelMonitorAuthSettings(false), wantStatus: http.StatusOK},
+		{name: "anonymous rejected when enabled", svc: newChannelMonitorAuthSettings(true), wantStatus: http.StatusUnauthorized},
+		{name: "authenticated allowed when enabled", svc: newChannelMonitorAuthSettings(true), setSubject: true, wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				if tt.setSubject {
+					c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1})
+				}
+				c.Next()
+			})
+			router.Use(channelMonitorViewerAuthGuard(tt.svc))
+			router.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/test", nil)
+			router.ServeHTTP(rec, req)
+			require.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
 
 func TestChannelMonitorAdminFeatureGuard(t *testing.T) {

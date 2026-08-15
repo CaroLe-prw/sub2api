@@ -7069,6 +7069,18 @@
             </div>
 
             <div v-if="form.channel_monitor_enabled" class="space-y-5">
+              <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('admin.settings.features.channelMonitor.allowAnonymous') }}
+                  </p>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.features.channelMonitor.allowAnonymousHint') }}
+                  </p>
+                </div>
+                <Toggle v-model="channelMonitorAnonymousEnabled" />
+              </div>
+
               <div>
                 <label class="input-label">
                   {{ t('admin.settings.features.channelMonitor.mode') }}
@@ -9844,6 +9856,7 @@ const form = reactive<SettingsForm>({
   account_quota_notify_emails: [] as NotifyEmailEntry[],
   // Channel Monitor feature switch
   channel_monitor_enabled: true,
+  channel_monitor_require_auth: true,
   channel_monitor_mode: 'v1' as 'v1' | 'v2',
   channel_monitor_default_interval_seconds: 60,
   channel_monitor_hide_throughput: false,
@@ -9861,6 +9874,13 @@ const form = reactive<SettingsForm>({
   check_in_reward_max: 0.15,
   // Allow user view error requests
   allow_user_view_error_requests: false,
+});
+
+const channelMonitorAnonymousEnabled = computed({
+  get: () => !form.channel_monitor_require_auth,
+  set: (enabled: boolean) => {
+    form.channel_monitor_require_auth = !enabled;
+  },
 });
 
 // 人机验证 UI 状态：单卡片「总开关 + 服务商单选」，落库仍是三个独立
@@ -11518,6 +11538,7 @@ async function saveSettings() {
       ).filter((e) => e.email.trim() !== ""),
       // Channel Monitor feature switch
       channel_monitor_enabled: form.channel_monitor_enabled,
+      channel_monitor_require_auth: form.channel_monitor_require_auth,
       channel_monitor_mode: form.channel_monitor_mode === 'v1' ? 'v1' : 'v2',
       channel_monitor_default_interval_seconds:
         Number(form.channel_monitor_default_interval_seconds) || 60,

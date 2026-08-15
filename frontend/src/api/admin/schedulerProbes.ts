@@ -8,6 +8,7 @@
 import { apiClient } from '../client'
 
 export type SchedulerProbeProvider = 'openai' | 'anthropic' | 'gemini' | 'grok'
+export type SchedulerProbeMode = 'fixed' | 'adaptive'
 
 export interface PoolProbeHeartbeat {
   id: number
@@ -62,6 +63,8 @@ export interface PoolProbeResult extends PoolProbeHeartbeat {
 
 export interface SchedulerProbePolicy {
   enabled: boolean
+  mode: SchedulerProbeMode
+  fixed_interval_minutes: number
   whitelist: string[]
   discovered_by_provider: Partial<Record<SchedulerProbeProvider, string[]>>
   eligible_by_provider: Partial<Record<SchedulerProbeProvider, string[]>>
@@ -73,7 +76,7 @@ export async function getPolicy(): Promise<SchedulerProbePolicy> {
 }
 
 export async function updatePolicy(
-  input: Pick<SchedulerProbePolicy, 'enabled' | 'whitelist'>
+  input: Pick<SchedulerProbePolicy, 'enabled' | 'whitelist'> & Partial<Pick<SchedulerProbePolicy, 'mode' | 'fixed_interval_minutes'>>
 ): Promise<SchedulerProbePolicy> {
   const { data } = await apiClient.put<SchedulerProbePolicy>('/admin/scheduler-observability/probes/policy', input)
   return data

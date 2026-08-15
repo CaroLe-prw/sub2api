@@ -132,6 +132,12 @@ var (
 	ErrChannelMonitorInvalidAutoModelWhitelist = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_AUTO_MODEL_WHITELIST", "auto model whitelist only supports exact model IDs or a single trailing wildcard",
 	)
+	ErrChannelMonitorInvalidAutoModelMode = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_INVALID_AUTO_MODEL_MODE", "auto model mode must be fixed or adaptive",
+	)
+	ErrChannelMonitorInvalidAutoModelInterval = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_INVALID_AUTO_MODEL_INTERVAL", "fixed auto model interval must be between 1 and 1440 minutes",
+	)
 	ErrChannelMonitorPublishNameMismatch = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_PUBLISH_NAME_MISMATCH", "type the exact monitor name to publish it",
 	)

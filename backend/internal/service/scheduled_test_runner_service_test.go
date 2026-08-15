@@ -3,10 +3,107 @@
 package service
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+type scheduledTestAccountTesterStub struct {
+	ordinaryCalls int
+	probeCalls    int
+}
+
+func (s *scheduledTestAccountTesterStub) RunTestBackground(_ context.Context, _ int64, _ string) (*ScheduledTestResult, error) {
+	s.ordinaryCalls++
+	return scheduledTestRunnerResult(), nil
+}
+
+func (s *scheduledTestAccountTesterStub) RunChannelMonitorProbeBackground(_ context.Context, _ int64, _ string) (*ScheduledTestResult, error) {
+	s.probeCalls++
+	return scheduledTestRunnerResult(), nil
+}
+
+func scheduledTestRunnerResult() *ScheduledTestResult {
+	now := time.Now()
+	return &ScheduledTestResult{Status: "failed", StartedAt: now, FinishedAt: now}
+}
+
+type scheduledTestRunnerPlanRepoStub struct {
+	ScheduledTestPlanRepository
+}
+
+func (s *scheduledTestRunnerPlanRepoStub) UpdateAfterRun(_ context.Context, _ int64, _ time.Time, _ time.Time) error {
+	return nil
+}
+
+type scheduledTestRunnerResultRepoStub struct {
+	ScheduledTestResultRepository
+}
+
+func (s *scheduledTestRunnerResultRepoStub) Create(_ context.Context, result *ScheduledTestResult) (*ScheduledTestResult, error) {
+	return result, nil
+}
+
+func (s *scheduledTestRunnerResultRepoStub) PruneOldResults(_ context.Context, _ int64, _ int) error {
+	return nil
+}
+
+func TestScheduledTestRunnerUsesProbeEntryPointOnlyForManagedPlans(t *testing.T) {
+	tester := &scheduledTestAccountTesterStub{}
+	planRepo := &scheduledTestRunnerPlanRepoStub{}
+	runner := &ScheduledTestRunnerService{
+		planRepo:       planRepo,
+		scheduledSvc:   NewScheduledTestService(planRepo, &scheduledTestRunnerResultRepoStub{}),
+		accountTestSvc: tester,
+	}
+
+	runner.runOnePlan(context.Background(), &ScheduledTestPlan{ID: 1, AccountID: 42, CronExpression: "* * * * *"})
+	require.Equal(t, 1, tester.ordinaryCalls)
+	require.Zero(t, tester.probeCalls)
+
+	runner.runOnePlan(context.Background(), &ScheduledTestPlan{ID: 2, AccountID: 42, CronExpression: "* * * * *", ManagedBy: ScheduledTestManagedBySchedulerProbe})
+	require.Equal(t, 1, tester.ordinaryCalls)
+	require.Equal(t, 1, tester.probeCalls)
+}
+
+func TestAdaptiveChannelProbeSchedulesSuccessAndFailureSeparately(t *testing.T) {
+	runner := &ScheduledTestRunnerService{}
+	runner.setChannelMonitorProbeMode(ChannelMonitorProbeModeAdaptive)
+	plan := &ScheduledTestPlan{ManagedBy: ScheduledTestManagedBySchedulerProbe, CronExpression: "*/5 * * * *"}
+	now := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+
+	successNext, err := runner.nextRunAfterPlan(plan, &ScheduledTestResult{Status: "success"}, now)
+	require.NoError(t, err)
+	require.Equal(t, now.Add(adaptiveChannelProbeSuccessInterval), successNext)
+
+	failureNext, err := runner.nextRunAfterPlan(plan, &ScheduledTestResult{Status: "failed"}, now)
+	require.NoError(t, err)
+	require.Equal(t, now.Add(adaptiveChannelProbeFailureInterval), failureNext)
+}
+
+func TestFixedChannelProbeKeepsCronSchedule(t *testing.T) {
+	runner := &ScheduledTestRunnerService{}
+	runner.setChannelMonitorProbeMode(ChannelMonitorProbeModeFixed)
+	plan := &ScheduledTestPlan{ManagedBy: ScheduledTestManagedBySchedulerProbe, CronExpression: "*/5 * * * *"}
+	now := time.Date(2026, time.August, 16, 12, 2, 0, 0, time.UTC)
+
+	next, err := runner.nextRunAfterPlan(plan, &ScheduledTestResult{Status: "success"}, now)
+	require.NoError(t, err)
+	require.Equal(t, now.Add(3*time.Minute), next)
+}
+
+func TestFixedChannelProbeUsesCustomInterval(t *testing.T) {
+	runner := &ScheduledTestRunnerService{}
+	runner.setChannelMonitorProbeSettings(ChannelMonitorProbeModeFixed, 15)
+	plan := &ScheduledTestPlan{ManagedBy: ScheduledTestManagedBySchedulerProbe, CronExpression: "*/5 * * * *"}
+	now := time.Date(2026, time.August, 16, 12, 2, 0, 0, time.UTC)
+
+	next, err := runner.nextRunAfterPlan(plan, &ScheduledTestResult{Status: "success"}, now)
+	require.NoError(t, err)
+	require.Equal(t, now.Add(15*time.Minute), next)
+}
 
 func TestChannelMonitorPoolAccountEligibleRequiresEnabledNonOAuthAccount(t *testing.T) {
 	platforms := []string{PlatformOpenAI, PlatformAnthropic}

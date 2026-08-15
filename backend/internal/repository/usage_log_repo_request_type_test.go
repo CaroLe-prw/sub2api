@@ -796,6 +796,19 @@ func (s usageLogScannerStub) Scan(dest ...any) error {
 		if dv.Kind() != reflect.Ptr {
 			return fmt.Errorf("dest[%d] is not pointer", i)
 		}
+		if nullable, ok := dest[i].(*sql.NullInt64); ok {
+			switch value := s.values[i].(type) {
+			case nil:
+				*nullable = sql.NullInt64{}
+			case int64:
+				*nullable = sql.NullInt64{Int64: value, Valid: true}
+			case sql.NullInt64:
+				*nullable = value
+			default:
+				return fmt.Errorf("dest[%d] cannot scan %T into sql.NullInt64", i, value)
+			}
+			continue
+		}
 		dv.Elem().Set(reflect.ValueOf(s.values[i]))
 	}
 	return nil
@@ -806,8 +819,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 		now := time.Now().UTC()
 		log, err := scanUsageLog(usageLogScannerStub{values: []any{
 			int64(4),
-			int64(13),
-			int64(23),
+			nil,
+			nil,
 			int64(33),
 			sql.NullString{Valid: true, String: "req-image-metadata"},
 			"gpt-image-2",
@@ -855,6 +868,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			now,
 		}})
 		require.NoError(t, err)
+		require.Zero(t, log.UserID)
+		require.Zero(t, log.APIKeyID)
 		require.Equal(t, 2, log.ImageCount)
 		require.NotNil(t, log.ImageSize)
 		require.Equal(t, "4K", *log.ImageSize)

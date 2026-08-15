@@ -346,10 +346,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				submitChatAttemptUsage(result)
 				if canceledAttempt {
 					failoverClientGone(c)
-					recordObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
-						AccountID: account.ID, AccountName: account.Name, Canceled: true, Reason: "client_disconnected",
-						DurationMs: time.Since(requestStart).Milliseconds(),
-					})
+					outcome := openAIClientDisconnectOutcome(result, time.Since(requestStart).Milliseconds())
+					outcome.AccountID, outcome.AccountName = account.ID, account.Name
+					recordObservabilityOutcome(c.Request.Context(), outcome)
 					reqLog.Info("openai_chat_completions.client_disconnected_usage_settled", zap.Int64("account_id", account.ID), zap.Error(err))
 					return
 				}
@@ -473,10 +472,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				}
 				if openAIForwardClientCanceled(c, result, err) {
 					failoverClientGone(c)
-					recordObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
-						AccountID: account.ID, AccountName: account.Name, Canceled: true, Reason: "client_disconnected",
-						DurationMs: time.Since(requestStart).Milliseconds(),
-					})
+					outcome := openAIClientDisconnectOutcome(result, time.Since(requestStart).Milliseconds())
+					outcome.AccountID, outcome.AccountName = account.ID, account.Name
+					recordObservabilityOutcome(c.Request.Context(), outcome)
 					reqLog.Info("openai_chat_completions.client_disconnected", zap.Int64("account_id", account.ID), zap.Error(err))
 					return
 				}

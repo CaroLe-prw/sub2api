@@ -21,6 +21,8 @@ export default {
           configureLink: 'Configure monitors in Channel Management > Channel Monitor',
           enabled: 'Enable Channel Monitor',
           enabledHint: 'Disabling stops both the V1 scheduler and V2 aggregation; existing config and history are kept.',
+          allowAnonymous: 'Allow viewing service status without sign-in',
+          allowAnonymousHint: 'Off by default. When on, anyone can view the status page; when off, anonymous visitors are redirected to sign in and status APIs require authentication.',
           mode: 'Monitor mode',
           modeHint: 'Default is V1 (active probes). Switch to V2 only when you want passive aggregation; only one implementation can be active at a time.',
           modeV2: 'V2 passive monitoring',

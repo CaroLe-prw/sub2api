@@ -345,6 +345,7 @@ export default {
     sync: '同步',
     cyber: '安全策略',
     live: 'Live',
+    probe: '探测',
     unknown: '未知',
     in: '输入',
     out: '输出',
