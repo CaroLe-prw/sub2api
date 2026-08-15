@@ -133,7 +133,7 @@ func (r *checkInRepository) Overview(ctx context.Context, userID int64, monthSta
 	if err != nil {
 		return result, fmt.Errorf("list check-in dates: %w", err)
 	}
-	defer dateRows.Close()
+	defer func() { _ = dateRows.Close() }()
 	for dateRows.Next() {
 		var date string
 		if err := dateRows.Scan(&date); err != nil {

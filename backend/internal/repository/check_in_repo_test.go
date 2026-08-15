@@ -13,7 +13,7 @@ import (
 func TestCheckInRepositoryClaimCreditsBalanceInSameTransaction(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	repo := &checkInRepository{db: db}
 	now := time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
 
@@ -37,7 +37,7 @@ func TestCheckInRepositoryClaimCreditsBalanceInSameTransaction(t *testing.T) {
 func TestCheckInRepositoryClaimReturnsExistingWithoutSecondCredit(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	repo := &checkInRepository{db: db}
 	now := time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
 
@@ -61,7 +61,7 @@ func TestCheckInRepositoryClaimReturnsExistingWithoutSecondCredit(t *testing.T) 
 func TestCheckInRepositoryOverviewLoadsTodayOutsideSelectedMonth(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	repo := &checkInRepository{db: db}
 	monthStart := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	monthEnd := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
