@@ -58,6 +58,9 @@ declare module 'vue-router' {
     /** Whether daily check-in is enabled. */
     requiresCheckIn?: boolean
 
+    /** Whether the lucky draw feature is enabled. */
+    requiresLottery?: boolean
+
     /**
      * i18n key for the page title
      */

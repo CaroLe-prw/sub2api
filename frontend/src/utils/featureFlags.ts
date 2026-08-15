@@ -129,6 +129,11 @@ export const FeatureFlags = {
     mode: 'opt-out',
     label: 'Daily Check-in',
   }),
+  lottery: defineFlag({
+    key: 'lottery_enabled',
+    mode: 'opt-out',
+    label: 'Lottery',
+  }),
 } as const
 
 export type RegisteredFeatureFlag = keyof typeof FeatureFlags

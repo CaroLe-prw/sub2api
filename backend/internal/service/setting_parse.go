@@ -216,6 +216,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyCheckInEnabled:   "true",
 		SettingKeyCheckInRewardMin: strconv.FormatFloat(CheckInRewardMinDefault, 'f', 8, 64),
 		SettingKeyCheckInRewardMax: strconv.FormatFloat(CheckInRewardMaxDefault, 'f', 8, 64),
+		SettingKeyLotteryEnabled:   "true",
 
 		// 风控中心功能（默认关闭，显式启用）
 		SettingKeyRiskControlEnabled: "false",

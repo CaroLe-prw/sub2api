@@ -99,6 +99,27 @@ func (s *SettingService) IsCheckInEnabled(ctx context.Context) bool {
 	return !isFalseSettingValue(value)
 }
 
+// IsLotteryEnabled reports whether users may see and enter lottery rounds.
+// Existing rounds are still settled when this switch is off so accepted entries
+// can never lose their promised reward.
+func (s *SettingService) IsLotteryEnabled(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil {
+		return true
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyLotteryEnabled)
+	if err != nil {
+		return true
+	}
+	return !isFalseSettingValue(value)
+}
+
+func (s *SettingService) SetLotteryEnabled(ctx context.Context, enabled bool) error {
+	if s == nil || s.settingRepo == nil {
+		return errors.New("setting repository is unavailable")
+	}
+	return s.settingRepo.Set(ctx, SettingKeyLotteryEnabled, strconv.FormatBool(enabled))
+}
+
 func (s *SettingService) GetCheckInRewardRange(ctx context.Context) (float64, float64) {
 	if s == nil || s.settingRepo == nil {
 		return CheckInRewardMinDefault, CheckInRewardMaxDefault

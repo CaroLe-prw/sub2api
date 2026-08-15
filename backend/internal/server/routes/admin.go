@@ -122,8 +122,30 @@ func RegisterAdminRoutes(
 		// 邀请返利（专属用户管理）
 		registerAffiliateRoutes(admin, h)
 
+		// 幸运抽奖活动配置
+		registerLotteryRoutes(admin, h)
+
+		// 每日签到记录
+		registerAdminCheckInRoutes(admin, h)
+
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
+	}
+}
+
+func registerLotteryRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	lottery := admin.Group("/lottery")
+	{
+		lottery.GET("/config", h.Admin.Lottery.GetConfig)
+		lottery.PUT("/config", h.Admin.Lottery.UpdateConfig)
+		lottery.GET("/results", h.Admin.Lottery.ListResults)
+	}
+}
+
+func registerAdminCheckInRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	checkIn := admin.Group("/check-in")
+	{
+		checkIn.GET("/records", h.Admin.CheckIn.ListRecords)
 	}
 }
 

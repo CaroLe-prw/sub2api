@@ -217,6 +217,19 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/lottery',
+    name: 'Lottery',
+    component: () => import('@/views/user/LotteryView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      requiresLottery: true,
+      title: 'Lucky Draw',
+      titleKey: 'lottery.title',
+      descriptionKey: 'lottery.subtitle'
+    }
+  },
+  {
     path: '/keys',
     name: 'Keys',
     component: () => import('@/views/user/KeysView.vue'),
@@ -932,7 +945,7 @@ router.beforeEach(async (to, _from, next) => {
   // 公共设置可能尚未加载（App.vue 的 onMounted 异步拉取晚于首次导航，且纯静态部署
   // 无 __APP_CONFIG__ 注入）。此时 cachedPublicSettings 为空会把 payment/risk_control
   // 误判为“未启用”而错误拦截，故这里先确保设置加载完成。
-  if ((to.meta.requiresPayment || to.meta.requiresRiskControl || to.meta.requiresCheckIn) && !appStore.publicSettingsLoaded) {
+  if ((to.meta.requiresPayment || to.meta.requiresRiskControl || to.meta.requiresCheckIn || to.meta.requiresLottery) && !appStore.publicSettingsLoaded) {
     try {
       await appStore.fetchPublicSettings()
     } catch (error) {
@@ -964,6 +977,15 @@ router.beforeEach(async (to, _from, next) => {
     to.meta.requiresCheckIn &&
     appStore.publicSettingsLoaded &&
     appStore.cachedPublicSettings?.check_in_enabled === false
+  ) {
+    next('/dashboard')
+    return
+  }
+
+  if (
+    to.meta.requiresLottery &&
+    appStore.publicSettingsLoaded &&
+    appStore.cachedPublicSettings?.lottery_enabled === false
   ) {
     next('/dashboard')
     return

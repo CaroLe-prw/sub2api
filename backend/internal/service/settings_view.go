@@ -412,6 +412,9 @@ type PublicSettings struct {
 	// Daily check-in feature toggle
 	CheckInEnabled bool `json:"check_in_enabled"`
 
+	// Lottery feature toggle
+	LotteryEnabled bool `json:"lottery_enabled"`
+
 	// 风控中心功能开关
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 

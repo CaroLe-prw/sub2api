@@ -38,5 +38,18 @@ export default {
     loadFailed: 'Unable to load check-in data. Please try again later.',
     claimFailed: 'Check-in failed. Please try again later.',
     retry: 'Try again',
+    admin: {
+      recordsTitle: 'Check-in records',
+      recordsDescription: 'Review every user check-in and the actual balance reward credited.',
+      user: 'User',
+      date: 'Business date',
+      reward: 'Balance credited',
+      time: 'Checked in at',
+      noRecords: 'No user check-in records yet.',
+      previous: 'Previous',
+      next: 'Next',
+      pageSummary: 'Page {page} of {pages} · {total} records',
+      loadFailed: 'Unable to load check-in records',
+    },
   },
 }

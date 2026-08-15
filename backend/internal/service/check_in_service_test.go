@@ -58,6 +58,10 @@ func (s *checkInRepoStub) Overview(context.Context, int64, time.Time, time.Time,
 	return s.overview, nil
 }
 
+func (s *checkInRepoStub) AdminListRecords(context.Context, int, int) ([]CheckInAdminRecord, int64, error) {
+	return nil, 0, nil
+}
+
 func newCheckInTestService(repo CheckInRepository, values map[string]string, now time.Time) *CheckInService {
 	settings := NewSettingService(&checkInSettingsRepoStub{values: values}, &config.Config{})
 	service := NewCheckInService(repo, settings)

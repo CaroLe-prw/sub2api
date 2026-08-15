@@ -92,3 +92,26 @@ func TestCheckInRepositoryOverviewLoadsTodayOutsideSelectedMonth(t *testing.T) {
 	require.InDelta(t, 0.08, overview.TotalReward, 1e-9)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestCheckInRepositoryAdminListRecordsIncludesUserAndReward(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	repo := &checkInRepository{db: db}
+	createdAt := time.Date(2026, 8, 15, 8, 30, 0, 0, time.UTC)
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM user_check_ins")).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT c.id, c.user_id, COALESCE(u.email, ''), COALESCE(u.username, ''),")).
+		WithArgs(20, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "email", "username", "date", "reward", "created_at"}).
+			AddRow(9, 7, "winner@example.com", "winner", "2026-08-15", 0.0123, createdAt))
+
+	records, total, err := repo.AdminListRecords(context.Background(), 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, records, 1)
+	require.Equal(t, "winner@example.com", records[0].Email)
+	require.InDelta(t, 0.0123, records[0].Reward, 1e-9)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

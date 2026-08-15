@@ -159,6 +159,7 @@ export default {
   nav: {
     dashboard: 'Dashboard',
     checkIn: 'Daily Check-in',
+    lottery: 'Lucky Draw',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     batchImage: 'Batch Images',

@@ -277,6 +277,7 @@ export interface PublicSettings {
   service_quota_enabled: boolean
   affiliate_enabled: boolean
   check_in_enabled?: boolean
+  lottery_enabled?: boolean
   allow_user_view_error_requests?: boolean
 }
 

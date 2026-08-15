@@ -118,6 +118,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 
 		AffiliateEnabled: settings.AffiliateEnabled,
 		CheckInEnabled:   settings.CheckInEnabled,
+		LotteryEnabled:   settings.LotteryEnabled,
 
 		RiskControlEnabled: settings.RiskControlEnabled,
 

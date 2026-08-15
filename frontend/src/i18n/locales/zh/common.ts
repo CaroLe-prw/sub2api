@@ -159,6 +159,7 @@ export default {
   nav: {
     dashboard: '仪表盘',
     checkIn: '每日签到',
+    lottery: '幸运抽奖',
     announcements: '公告',
     apiKeys: 'API 密钥',
     batchImage: '批量生图',

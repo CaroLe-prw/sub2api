@@ -23,6 +23,7 @@ export { passkeyAPI, type PasskeyCredentialSummary } from './passkey'
 export { default as announcementsAPI } from './announcements'
 export { channelMonitorUserAPI } from './channelMonitor'
 export { checkInAPI, type CheckInOverview, type CheckInRecord, type CheckInClaimResult } from './checkIn'
+export { lotteryAPI, type LotteryOverview, type LotteryRound, type LotteryEntry, type LotteryPrize } from './lottery'
 
 // Admin APIs
 export { adminAPI } from './admin'

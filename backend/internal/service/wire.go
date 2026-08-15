@@ -732,6 +732,12 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 	return svc
 }
 
+func ProvideLotteryService(repo LotteryRepository, settings *SettingService) *LotteryService {
+	service := NewLotteryService(repo, settings)
+	service.Start()
+	return service
+}
+
 // ProvideBillingCacheService wires BillingCacheService with its RPM dependencies.
 func ProvideBillingCacheService(
 	cache BillingCache,
@@ -912,6 +918,7 @@ var ProviderSet = wire.NewSet(
 	NewContentModerationService,
 	NewAffiliateService,
 	NewCheckInService,
+	ProvideLotteryService,
 	ProvidePaymentConfigService,
 	ProvidePaymentService,
 	ProvidePaymentOrderExpiryService,

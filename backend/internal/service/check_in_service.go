@@ -40,6 +40,17 @@ type CheckInRepositoryOverview struct {
 type CheckInRepository interface {
 	Claim(ctx context.Context, userID int64, businessDate time.Time, reward float64) (record CheckInRecord, balance float64, created bool, err error)
 	Overview(ctx context.Context, userID int64, monthStart, monthEnd, today time.Time) (CheckInRepositoryOverview, error)
+	AdminListRecords(ctx context.Context, page, pageSize int) ([]CheckInAdminRecord, int64, error)
+}
+
+type CheckInAdminRecord struct {
+	ID        int64     `json:"id"`
+	UserID    int64     `json:"user_id"`
+	Email     string    `json:"email"`
+	Username  string    `json:"username"`
+	Date      string    `json:"date"`
+	Reward    float64   `json:"reward"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type CheckInOverview struct {
@@ -150,6 +161,10 @@ func (s *CheckInService) GetOverview(ctx context.Context, userID int64, year int
 		RewardMax:      maxReward,
 		Records:        records,
 	}, nil
+}
+
+func (s *CheckInService) AdminListRecords(ctx context.Context, page, pageSize int) ([]CheckInAdminRecord, int64, error) {
+	return s.repo.AdminListRecords(ctx, page, pageSize)
 }
 
 func secureCheckInReward(minUnits, maxUnits int64) (int64, error) {

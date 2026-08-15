@@ -438,6 +438,7 @@ type PublicSettings struct {
 
 	AffiliateEnabled bool `json:"affiliate_enabled"`
 	CheckInEnabled   bool `json:"check_in_enabled"`
+	LotteryEnabled   bool `json:"lottery_enabled"`
 
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 

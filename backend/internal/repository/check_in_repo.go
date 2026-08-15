@@ -146,3 +146,40 @@ func (r *checkInRepository) Overview(ctx context.Context, userID int64, monthSta
 	}
 	return result, nil
 }
+
+func (r *checkInRepository) AdminListRecords(ctx context.Context, page, pageSize int) ([]service.CheckInAdminRecord, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	var total int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM user_check_ins`).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count admin check-in records: %w", err)
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT c.id, c.user_id, COALESCE(u.email, ''), COALESCE(u.username, ''),
+		       c.business_date::text, c.reward_amount, c.created_at
+		FROM user_check_ins c
+		LEFT JOIN users u ON u.id = c.user_id
+		ORDER BY c.created_at DESC, c.id DESC
+		LIMIT $1 OFFSET $2
+	`, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list admin check-in records: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	records := make([]service.CheckInAdminRecord, 0)
+	for rows.Next() {
+		var record service.CheckInAdminRecord
+		if err := rows.Scan(&record.ID, &record.UserID, &record.Email, &record.Username, &record.Date, &record.Reward, &record.CreatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scan admin check-in record: %w", err)
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return records, total, nil
+}

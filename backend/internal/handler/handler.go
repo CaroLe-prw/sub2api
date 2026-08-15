@@ -40,6 +40,8 @@ type AdminHandlers struct {
 	PromptAudit            *securityaudit.PromptAdminHandler
 	Payment                *admin.PaymentHandler
 	Affiliate              *admin.AffiliateHandler
+	CheckIn                *admin.CheckInHandler
+	Lottery                *admin.LotteryHandler
 	Compliance             *admin.ComplianceHandler
 	AuditLog               *admin.AuditLogHandler
 }
@@ -68,6 +70,7 @@ type Handlers struct {
 	AsyncImage       *AsyncImageHandler
 	BatchImage       *BatchImageHandler
 	CheckIn          *CheckInHandler
+	Lottery          *LotteryHandler
 }
 
 // BuildInfo contains build-time information

@@ -158,6 +158,7 @@ const (
 	SettingKeyCheckInEnabled                      = "check_in_enabled"                 // 每日签到功能总开关
 	SettingKeyCheckInRewardMin                    = "check_in_reward_min"              // 单次签到随机奖励下限
 	SettingKeyCheckInRewardMax                    = "check_in_reward_max"              // 单次签到随机奖励上限
+	SettingKeyLotteryEnabled                      = "lottery_enabled"                  // 幸运抽奖功能总开关
 	SettingKeyRiskControlEnabled                  = "risk_control_enabled"             // 是否启用风控中心入口与审计链路
 	SettingKeyContentModerationConfig             = "content_moderation_config"        // 内容审计配置（JSON）
 	SettingKeyCyberSessionBlockEnabled            = "cyber_session_block_enabled"      // cyber 命中后会话级自动屏蔽总开关(默认关)

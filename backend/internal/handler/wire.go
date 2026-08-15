@@ -44,6 +44,8 @@ func ProvideAdminHandlers(
 	promptAuditHandler *securityaudit.PromptAdminHandler,
 	paymentHandler *admin.PaymentHandler,
 	affiliateHandler *admin.AffiliateHandler,
+	checkInHandler *admin.CheckInHandler,
+	lotteryHandler *admin.LotteryHandler,
 	complianceHandler *admin.ComplianceHandler,
 	auditLogHandler *admin.AuditLogHandler,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
@@ -85,6 +87,8 @@ func ProvideAdminHandlers(
 		PromptAudit:            promptAuditHandler,
 		Payment:                paymentHandler,
 		Affiliate:              affiliateHandler,
+		CheckIn:                checkInHandler,
+		Lottery:                lotteryHandler,
 		Compliance:             complianceHandler,
 		AuditLog:               auditLogHandler,
 	}
@@ -198,6 +202,7 @@ func ProvideHandlers(
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
 	checkInHandler *CheckInHandler,
+	lotteryHandler *LotteryHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -224,6 +229,7 @@ func ProvideHandlers(
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
 		CheckIn:          checkInHandler,
+		Lottery:          lotteryHandler,
 	}
 }
 
@@ -251,6 +257,7 @@ var ProviderSet = wire.NewSet(
 	NewAsyncImageHandler,
 	ProvideBatchImageHandler,
 	NewCheckInHandler,
+	NewLotteryHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
@@ -285,6 +292,8 @@ var ProviderSet = wire.NewSet(
 	admin.NewContentModerationHandler,
 	admin.NewPaymentHandler,
 	admin.NewAffiliateHandler,
+	admin.NewCheckInHandler,
+	admin.NewLotteryHandler,
 	admin.NewComplianceHandler,
 	admin.NewAuditLogHandler,
 

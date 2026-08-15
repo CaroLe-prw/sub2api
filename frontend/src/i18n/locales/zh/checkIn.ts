@@ -38,5 +38,18 @@ export default {
     loadFailed: '签到数据加载失败，请稍后重试。',
     claimFailed: '签到失败，请稍后重试。',
     retry: '重新加载',
+    admin: {
+      recordsTitle: '签到记录',
+      recordsDescription: '查看所有用户的签到日期与实际到账余额。',
+      user: '用户',
+      date: '签到日期',
+      reward: '到账余额',
+      time: '签到时间',
+      noRecords: '暂无用户签到记录。',
+      previous: '上一页',
+      next: '下一页',
+      pageSummary: '第 {page} / {pages} 页，共 {total} 条',
+      loadFailed: '签到记录加载失败',
+    },
   },
 }

@@ -41,6 +41,8 @@ func RegisterUserRoutes(
 			user.GET("/platform-quotas", h.User.GetMyPlatformQuotas)
 			user.GET("/check-in", h.CheckIn.GetOverview)
 			user.POST("/check-in", h.CheckIn.Claim)
+			user.GET("/lottery", h.Lottery.GetOverview)
+			user.POST("/lottery/entries", h.Lottery.Enter)
 
 			// 通知邮箱管理
 			notifyEmail := user.Group("/notify-email")
