@@ -70,7 +70,7 @@ func TestScheduledTestRunnerUsesProbeEntryPointOnlyForManagedPlans(t *testing.T)
 
 func TestAdaptiveChannelProbeSchedulesSuccessAndFailureSeparately(t *testing.T) {
 	runner := &ScheduledTestRunnerService{}
-	runner.setChannelMonitorProbeMode(ChannelMonitorProbeModeAdaptive)
+	runner.setChannelMonitorProbeSettings(ChannelMonitorProbeModeAdaptive, defaultChannelMonitorProbeFixedIntervalMinutes)
 	plan := &ScheduledTestPlan{ManagedBy: ScheduledTestManagedBySchedulerProbe, CronExpression: "*/5 * * * *"}
 	now := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
 
@@ -85,7 +85,7 @@ func TestAdaptiveChannelProbeSchedulesSuccessAndFailureSeparately(t *testing.T) 
 
 func TestFixedChannelProbeKeepsCronSchedule(t *testing.T) {
 	runner := &ScheduledTestRunnerService{}
-	runner.setChannelMonitorProbeMode(ChannelMonitorProbeModeFixed)
+	runner.setChannelMonitorProbeSettings(ChannelMonitorProbeModeFixed, defaultChannelMonitorProbeFixedIntervalMinutes)
 	plan := &ScheduledTestPlan{ManagedBy: ScheduledTestManagedBySchedulerProbe, CronExpression: "*/5 * * * *"}
 	now := time.Date(2026, time.August, 16, 12, 2, 0, 0, time.UTC)
 

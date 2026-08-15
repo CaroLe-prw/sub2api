@@ -1,25 +1,59 @@
 package repository
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 type lotteryRepository struct {
-	db *sql.DB
+	db             *sql.DB
+	shuffleEntries func([]lotteryUnsettledEntry) error
 }
+
+type lotteryUnsettledEntry struct{ id, userID int64 }
 
 type lotteryRowScanner interface {
 	Scan(dest ...any) error
 }
 
 func NewLotteryRepository(db *sql.DB) service.LotteryRepository {
-	return &lotteryRepository{db: db}
+	return &lotteryRepository{db: db, shuffleEntries: secureShuffleLotteryEntries}
+}
+
+// secureShuffleLotteryEntries assigns every entrant an independent 256-bit
+// cryptographic random score. Sorting those scores produces a fresh, effectively uniform
+// participant order for every settlement without relying on database PRNG state.
+func secureShuffleLotteryEntries(entries []lotteryUnsettledEntry) error {
+	type scoredEntry struct {
+		entry lotteryUnsettledEntry
+		score [32]byte
+	}
+	scored := make([]scoredEntry, len(entries))
+	for index, entry := range entries {
+		scored[index].entry = entry
+		if _, err := rand.Read(scored[index].score[:]); err != nil {
+			return fmt.Errorf("generate lottery random score: %w", err)
+		}
+	}
+	sort.Slice(scored, func(left, right int) bool {
+		comparison := bytes.Compare(scored[left].score[:], scored[right].score[:])
+		if comparison == 0 {
+			return scored[left].entry.id < scored[right].entry.id
+		}
+		return comparison < 0
+	})
+	for index := range scored {
+		entries[index] = scored[index].entry
+	}
+	return nil
 }
 
 func (r *lotteryRepository) GetCurrentRound(ctx context.Context) (*service.LotteryRound, error) {
@@ -343,16 +377,15 @@ func (r *lotteryRepository) SettleRound(ctx context.Context, roundID int64, now 
 		SELECT id, user_id
 		FROM lottery_entries
 		WHERE round_id = $1 AND settled_at IS NULL
-		ORDER BY random()
+		ORDER BY id
 		FOR UPDATE
 	`, roundID)
 	if err != nil {
 		return result, fmt.Errorf("lock lottery entries: %w", err)
 	}
-	type unsettledEntry struct{ id, userID int64 }
-	entries := make([]unsettledEntry, 0, round.ParticipantCount)
+	entries := make([]lotteryUnsettledEntry, 0, round.ParticipantCount)
 	for rows.Next() {
-		var entry unsettledEntry
+		var entry lotteryUnsettledEntry
 		if err := rows.Scan(&entry.id, &entry.userID); err != nil {
 			_ = rows.Close()
 			return result, fmt.Errorf("scan unsettled lottery entry: %w", err)
@@ -365,6 +398,13 @@ func (r *lotteryRepository) SettleRound(ctx context.Context, roundID int64, now 
 	if err := rows.Err(); err != nil {
 		return result, err
 	}
+	shuffleEntries := r.shuffleEntries
+	if shuffleEntries == nil {
+		shuffleEntries = secureShuffleLotteryEntries
+	}
+	if err := shuffleEntries(entries); err != nil {
+		return result, fmt.Errorf("shuffle lottery entries: %w", err)
+	}
 
 	remaining := make(map[int]int, len(round.Prizes))
 	for _, prize := range round.Prizes {
@@ -372,11 +412,13 @@ func (r *lotteryRepository) SettleRound(ctx context.Context, roundID int64, now 
 	}
 	result.Entrants = len(entries)
 	for _, entry := range entries {
-		prize, pickErr := picker(round.Prizes)
-		if pickErr != nil {
-			return result, fmt.Errorf("pick lottery prize: %w", pickErr)
+		availablePrizes := make([]service.LotteryPrize, 0, len(round.Prizes))
+		for _, prize := range round.Prizes {
+			if remaining[prize.Tier] > 0 {
+				availablePrizes = append(availablePrizes, prize)
+			}
 		}
-		if remaining[prize.Tier] <= 0 {
+		if len(availablePrizes) == 0 {
 			if _, err := tx.ExecContext(ctx, `
 				UPDATE lottery_entries
 				SET settled_at = $1
@@ -385,6 +427,10 @@ func (r *lotteryRepository) SettleRound(ctx context.Context, roundID int64, now 
 				return result, fmt.Errorf("save non-winning lottery result: %w", err)
 			}
 			continue
+		}
+		prize, pickErr := picker(availablePrizes)
+		if pickErr != nil {
+			return result, fmt.Errorf("pick lottery prize: %w", pickErr)
 		}
 		remaining[prize.Tier]--
 		var balance float64

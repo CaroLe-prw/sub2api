@@ -11,6 +11,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSecureShuffleLotteryEntriesPreservesEveryEntrant(t *testing.T) {
+	entries := make([]lotteryUnsettledEntry, 128)
+	want := make(map[int64]int64, len(entries))
+	for index := range entries {
+		entries[index] = lotteryUnsettledEntry{id: int64(index + 1), userID: int64(index + 1001)}
+		want[entries[index].id] = entries[index].userID
+	}
+
+	require.NoError(t, secureShuffleLotteryEntries(entries))
+	require.Len(t, entries, len(want))
+	for _, entry := range entries {
+		require.Equal(t, want[entry.id], entry.userID)
+		delete(want, entry.id)
+	}
+	require.Empty(t, want)
+}
+
 func TestLotterySettlementCreditsSingleEntrantWithThirdPrize(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -59,11 +76,16 @@ func TestLotterySettlementCreditsSingleEntrantWithThirdPrize(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestLotterySettlementRespectsWinnerQuotaAndSettlesNonWinners(t *testing.T) {
+func TestLotterySettlementFillsWinnerQuotasAndSettlesNonWinners(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	repo := &lotteryRepository{db: db}
+	repo := &lotteryRepository{
+		db: db,
+		shuffleEntries: func([]lotteryUnsettledEntry) error {
+			return nil
+		},
+	}
 	now := time.Date(2026, 8, 15, 18, 0, 0, 0, time.UTC)
 	start := now.Add(-2 * time.Hour)
 	end := now.Add(-time.Minute)
@@ -116,14 +138,8 @@ func TestLotterySettlementRespectsWinnerQuotaAndSettlesNonWinners(t *testing.T) 
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	pickIndex := 0
 	result, err := repo.SettleRound(context.Background(), 17, now, func(prizes []service.LotteryPrize) (service.LotteryPrize, error) {
-		index := pickIndex
-		if index >= len(prizes) {
-			index = 0
-		}
-		pickIndex++
-		return prizes[index], nil
+		return prizes[0], nil
 	})
 	require.NoError(t, err)
 	require.True(t, result.Settled)

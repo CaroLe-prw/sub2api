@@ -304,10 +304,6 @@ func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *Sched
 	}
 }
 
-func (s *ScheduledTestRunnerService) setChannelMonitorProbeMode(mode string) {
-	s.setChannelMonitorProbeSettings(mode, defaultChannelMonitorProbeFixedIntervalMinutes)
-}
-
 func (s *ScheduledTestRunnerService) setChannelMonitorProbeSettings(mode string, fixedIntervalMinutes int) {
 	if strings.EqualFold(strings.TrimSpace(mode), ChannelMonitorProbeModeAdaptive) {
 		s.probeMode.Store(channelMonitorProbeModeAdaptiveInt32)
