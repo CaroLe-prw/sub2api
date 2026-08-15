@@ -10,8 +10,8 @@
  *      HTML. `main.ts` calls `appStore.initFromInjectedConfig()` synchronously
  *      before Vue mounts, so `cachedPublicSettings` is populated on first
  *      render.
- *   2. **Async API** — `App.vue` awaits `appStore.fetchPublicSettings()` on
- *      mount as a fallback (used when injection is missing or stale).
+ *   2. **Async API** — `App.vue` force-refreshes public settings on mount to
+ *      revalidate the injected snapshot and recover from stale HTML caches.
  *
  * If the SSR injection struct forgets to include a feature flag field — the
  * exact bug that hid the "可用渠道" menu after every refresh — the frontend

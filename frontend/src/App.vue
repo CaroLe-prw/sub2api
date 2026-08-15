@@ -82,6 +82,10 @@ watch(
 
       // Announcements: new login vs page refresh restore
       if (oldValue === false) {
+        // Re-check feature switches for SPA logins where App.vue is not remounted.
+        appStore.fetchPublicSettings(true).catch((error) => {
+          console.error('Failed to refresh public settings after login:', error)
+        })
         // New login: delay 3s then force fetch
         setTimeout(() => announcementStore.fetchAnnouncements(true), 3000)
       } else {
@@ -128,8 +132,9 @@ onMounted(async () => {
     // If setup endpoint fails, assume normal mode and continue
   }
 
-  // Load public settings into appStore (will be cached for other components)
-  await appStore.fetchPublicSettings()
+  // The injected settings make the first render fast, then this request revalidates
+  // them so a stale HTML cache can never keep a recently changed feature hidden.
+  await appStore.fetchPublicSettings(true)
 
   // Re-resolve document title now that site settings are available
   updateDocumentTitle()
