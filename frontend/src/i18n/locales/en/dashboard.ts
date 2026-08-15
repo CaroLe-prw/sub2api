@@ -340,6 +340,7 @@ export default {
     sync: 'Sync',
     cyber: 'Cyber',
     live: 'Live',
+    probe: 'Probe',
     unknown: 'Unknown',
     in: 'In',
     out: 'Out',

@@ -24,9 +24,9 @@ type UsageLog struct {
 	// ID of the ent.
 	ID int64 `json:"id,omitempty"`
 	// UserID holds the value of the "user_id" field.
-	UserID int64 `json:"user_id,omitempty"`
+	UserID *int64 `json:"user_id,omitempty"`
 	// APIKeyID holds the value of the "api_key_id" field.
-	APIKeyID int64 `json:"api_key_id,omitempty"`
+	APIKeyID *int64 `json:"api_key_id,omitempty"`
 	// AccountID holds the value of the "account_id" field.
 	AccountID int64 `json:"account_id,omitempty"`
 	// RequestID holds the value of the "request_id" field.
@@ -237,13 +237,15 @@ func (_m *UsageLog) assignValues(columns []string, values []any) error {
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field user_id", values[i])
 			} else if value.Valid {
-				_m.UserID = value.Int64
+				_m.UserID = new(int64)
+				*_m.UserID = value.Int64
 			}
 		case usagelog.FieldAPIKeyID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field api_key_id", values[i])
 			} else if value.Valid {
-				_m.APIKeyID = value.Int64
+				_m.APIKeyID = new(int64)
+				*_m.APIKeyID = value.Int64
 			}
 		case usagelog.FieldAccountID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -599,11 +601,15 @@ func (_m *UsageLog) String() string {
 	var builder strings.Builder
 	builder.WriteString("UsageLog(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
-	builder.WriteString("user_id=")
-	builder.WriteString(fmt.Sprintf("%v", _m.UserID))
+	if v := _m.UserID; v != nil {
+		builder.WriteString("user_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
-	builder.WriteString("api_key_id=")
-	builder.WriteString(fmt.Sprintf("%v", _m.APIKeyID))
+	if v := _m.APIKeyID; v != nil {
+		builder.WriteString("api_key_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("account_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.AccountID))

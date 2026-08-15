@@ -341,8 +341,12 @@ func collectUsageLogIDs(logs []service.UsageLog) usageLogIDs {
 	subscriptionIDs := idSet()
 
 	for i := range logs {
-		userIDs[logs[i].UserID] = struct{}{}
-		apiKeyIDs[logs[i].APIKeyID] = struct{}{}
+		if logs[i].UserID > 0 {
+			userIDs[logs[i].UserID] = struct{}{}
+		}
+		if logs[i].APIKeyID > 0 {
+			apiKeyIDs[logs[i].APIKeyID] = struct{}{}
+		}
 		accountIDs[logs[i].AccountID] = struct{}{}
 		if logs[i].GroupID != nil {
 			groupIDs[*logs[i].GroupID] = struct{}{}
@@ -440,8 +444,8 @@ func (r *usageLogRepository) loadSubscriptions(ctx context.Context, ids []int64)
 func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, error) {
 	var (
 		id                        int64
-		userID                    int64
-		apiKeyID                  int64
+		userID                    sql.NullInt64
+		apiKeyID                  sql.NullInt64
 		accountID                 int64
 		requestID                 sql.NullString
 		model                     string
@@ -568,8 +572,8 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 
 	log := &service.UsageLog{
 		ID:                        id,
-		UserID:                    userID,
-		APIKeyID:                  apiKeyID,
+		UserID:                    userID.Int64,
+		APIKeyID:                  apiKeyID.Int64,
 		AccountID:                 accountID,
 		Model:                     model,
 		RequestedModel:            coalesceTrimmedString(requestedModel, model),

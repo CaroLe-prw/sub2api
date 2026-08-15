@@ -1264,6 +1264,16 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	upstreamModel := nullString(log.UpstreamModel)
 	upstreamResponseModel := nullString(log.UpstreamResponseModel)
 	upstreamModelMismatch := nullBool(log.UpstreamModelMismatch)
+	var userIDArg any = log.UserID
+	var apiKeyIDArg any = log.APIKeyID
+	if log.RequestType == service.RequestTypeProbe {
+		if log.UserID == 0 {
+			userIDArg = nil
+		}
+		if log.APIKeyID == 0 {
+			apiKeyIDArg = nil
+		}
+	}
 
 	var requestIDArg any
 	if requestID != "" {
@@ -1276,8 +1286,8 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 		rateMultiplier: rateMultiplier,
 		requestType:    requestType,
 		args: []any{
-			log.UserID,
-			log.APIKeyID,
+			userIDArg,
+			apiKeyIDArg,
 			log.AccountID,
 			requestIDArg,
 			log.Model,

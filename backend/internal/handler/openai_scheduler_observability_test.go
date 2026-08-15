@@ -20,6 +20,28 @@ func TestOpenAISchedulerCacheEligibleTokensDoesNotDoubleCountCache(t *testing.T)
 	require.Equal(t, int64(100), openAISchedulerCacheEligibleTokens(usage))
 }
 
+func TestOpenAIClientDisconnectOutcomeMarksStartedResponseAsSuccess(t *testing.T) {
+	firstTokenMs := 120
+	outcome := openAIClientDisconnectOutcome(&service.OpenAIForwardResult{
+		FirstTokenMs: &firstTokenMs,
+		Usage:        service.OpenAIUsage{InputTokens: 10, OutputTokens: 2},
+	}, 500)
+
+	require.True(t, outcome.Success)
+	require.True(t, outcome.Canceled)
+	require.Equal(t, "client_disconnected", outcome.Reason)
+	require.Equal(t, &firstTokenMs, outcome.FirstTokenMs)
+}
+
+func TestOpenAIClientDisconnectOutcomeKeepsUnstartedResponseCanceled(t *testing.T) {
+	outcome := openAIClientDisconnectOutcome(&service.OpenAIForwardResult{
+		Usage: service.OpenAIUsage{InputTokens: 10},
+	}, 500)
+
+	require.False(t, outcome.Success)
+	require.True(t, outcome.Canceled)
+}
+
 func TestShouldRecordOpenAISchedulerWebSocketTurnOutcome(t *testing.T) {
 	require.False(t, shouldRecordOpenAISchedulerWebSocketTurnOutcome(1, errors.New("first turn failed")), "outer failover records the real HTTP status")
 	require.True(t, shouldRecordOpenAISchedulerWebSocketTurnOutcome(1, nil))

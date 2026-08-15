@@ -72,6 +72,60 @@ type accountTestTimingTracker struct {
 	mu        sync.Mutex
 	startedAt time.Time
 	ttftMs    *int64
+	usage     UsageTokens
+	media     accountTestMediaUsage
+}
+
+type accountTestMediaUsage struct {
+	UpstreamModel        string
+	ImageCount           int
+	ImageSize            string
+	ImageOutputSize      string
+	ImageSizeSource      string
+	ImageSizeBreakdown   map[string]int
+	VideoCount           int
+	VideoResolution      string
+	VideoDurationSeconds int
+}
+
+func (t *accountTestTimingTracker) observeUsage(usage UsageTokens) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.usage.InputTokens = max(t.usage.InputTokens, usage.InputTokens)
+	t.usage.OutputTokens = max(t.usage.OutputTokens, usage.OutputTokens)
+	t.usage.CacheCreationTokens = max(t.usage.CacheCreationTokens, usage.CacheCreationTokens)
+	t.usage.CacheReadTokens = max(t.usage.CacheReadTokens, usage.CacheReadTokens)
+	t.usage.CacheCreation5mTokens = max(t.usage.CacheCreation5mTokens, usage.CacheCreation5mTokens)
+	t.usage.CacheCreation1hTokens = max(t.usage.CacheCreation1hTokens, usage.CacheCreation1hTokens)
+	t.usage.ImageInputTokens = max(t.usage.ImageInputTokens, usage.ImageInputTokens)
+	t.usage.ImageOutputTokens = max(t.usage.ImageOutputTokens, usage.ImageOutputTokens)
+}
+
+func (t *accountTestTimingTracker) observeImages(count int, upstreamModel string, outputSizes []string) {
+	if count <= 0 {
+		return
+	}
+	resolved := ResolveImageBillingSize("", outputSizes)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.media.UpstreamModel = strings.TrimSpace(upstreamModel)
+	t.media.ImageCount = max(t.media.ImageCount, count)
+	t.media.ImageSize = resolved.BillingSize
+	t.media.ImageOutputSize = resolved.OutputSize
+	t.media.ImageSizeSource = resolved.Source
+	t.media.ImageSizeBreakdown = resolved.Breakdown
+}
+
+func (t *accountTestTimingTracker) observeVideo(count int, upstreamModel, resolution string, durationSeconds int) {
+	if count <= 0 {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.media.UpstreamModel = strings.TrimSpace(upstreamModel)
+	t.media.VideoCount = max(t.media.VideoCount, count)
+	t.media.VideoResolution = NormalizeVideoBillingResolutionOrDefault(resolution)
+	t.media.VideoDurationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
 }
 
 func (t *accountTestTimingTracker) observe(event TestEvent, observedAt time.Time) {
@@ -99,6 +153,130 @@ func (t *accountTestTimingTracker) value() *int64 {
 	}
 	value := *t.ttftMs
 	return &value
+}
+
+func (t *accountTestTimingTracker) usageValue() (UsageTokens, accountTestMediaUsage) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.usage, t.media
+}
+
+func observeAccountTestUsage(c *gin.Context, usage UsageTokens) {
+	if trackerValue, ok := c.Get(accountTestTimingTrackerKey); ok {
+		if tracker, ok := trackerValue.(*accountTestTimingTracker); ok {
+			tracker.observeUsage(usage)
+		}
+	}
+}
+
+func observeAccountTestImages(c *gin.Context, count int, upstreamModel string, outputSizes []string) {
+	if trackerValue, ok := c.Get(accountTestTimingTrackerKey); ok {
+		if tracker, ok := trackerValue.(*accountTestTimingTracker); ok {
+			tracker.observeImages(count, upstreamModel, outputSizes)
+		}
+	}
+}
+
+func observeAccountTestVideo(c *gin.Context, count int, upstreamModel, resolution string, durationSeconds int) {
+	if trackerValue, ok := c.Get(accountTestTimingTrackerKey); ok {
+		if tracker, ok := trackerValue.(*accountTestTimingTracker); ok {
+			tracker.observeVideo(count, upstreamModel, resolution, durationSeconds)
+		}
+	}
+}
+
+func accountTestJSONInt(data map[string]any, key string) int {
+	value, ok := data[key]
+	if !ok {
+		return 0
+	}
+	switch number := value.(type) {
+	case float64:
+		return int(number)
+	case json.Number:
+		parsed, _ := number.Int64()
+		return int(parsed)
+	case int:
+		return number
+	case int64:
+		return int(number)
+	default:
+		return 0
+	}
+}
+
+func accountTestJSONMap(data map[string]any, key string) map[string]any {
+	value, _ := data[key].(map[string]any)
+	return value
+}
+
+func accountTestOpenAIUsage(data map[string]any) UsageTokens {
+	input := accountTestJSONInt(data, "input_tokens")
+	if input == 0 {
+		input = accountTestJSONInt(data, "prompt_tokens")
+	}
+	output := accountTestJSONInt(data, "output_tokens")
+	if output == 0 {
+		output = accountTestJSONInt(data, "completion_tokens")
+	}
+	details := accountTestJSONMap(data, "input_tokens_details")
+	if details == nil {
+		details = accountTestJSONMap(data, "prompt_tokens_details")
+	}
+	cacheRead := accountTestJSONInt(details, "cached_tokens")
+	cacheCreation := accountTestJSONInt(data, "cache_creation_input_tokens")
+	if cacheCreation == 0 {
+		cacheCreation = accountTestJSONInt(details, "cache_write_tokens")
+	}
+	input = max(0, input-cacheRead-cacheCreation)
+	outputDetails := accountTestJSONMap(data, "output_tokens_details")
+	return UsageTokens{
+		InputTokens:         input,
+		OutputTokens:        output,
+		CacheCreationTokens: cacheCreation,
+		CacheReadTokens:     cacheRead,
+		ImageInputTokens:    accountTestJSONInt(details, "image_tokens"),
+		ImageOutputTokens:   accountTestJSONInt(outputDetails, "image_tokens"),
+	}
+}
+
+func accountTestClaudeUsage(data map[string]any) UsageTokens {
+	cacheRead := accountTestJSONInt(data, "cache_read_input_tokens")
+	if cacheRead == 0 {
+		cacheRead = accountTestJSONInt(data, "cached_tokens")
+	}
+	cacheCreation := accountTestJSONInt(data, "cache_creation_input_tokens")
+	cacheCreationDetails := accountTestJSONMap(data, "cache_creation")
+	return UsageTokens{
+		InputTokens:           accountTestJSONInt(data, "input_tokens"),
+		OutputTokens:          accountTestJSONInt(data, "output_tokens"),
+		CacheCreationTokens:   cacheCreation,
+		CacheReadTokens:       cacheRead,
+		CacheCreation5mTokens: accountTestJSONInt(cacheCreationDetails, "ephemeral_5m_input_tokens"),
+		CacheCreation1hTokens: accountTestJSONInt(cacheCreationDetails, "ephemeral_1h_input_tokens"),
+	}
+}
+
+func accountTestGeminiUsage(data map[string]any) UsageTokens {
+	input := accountTestJSONInt(data, "promptTokenCount")
+	cacheRead := accountTestJSONInt(data, "cachedContentTokenCount")
+	output := accountTestJSONInt(data, "candidatesTokenCount") + accountTestJSONInt(data, "thoughtsTokenCount")
+	imageOutput := 0
+	if details, ok := data["candidatesTokensDetails"].([]any); ok {
+		for _, detail := range details {
+			detailMap, _ := detail.(map[string]any)
+			modality, _ := detailMap["modality"].(string)
+			if strings.EqualFold(modality, "IMAGE") {
+				imageOutput = max(imageOutput, accountTestJSONInt(detailMap, "tokenCount"))
+			}
+		}
+	}
+	return UsageTokens{
+		InputTokens:       max(0, input-cacheRead),
+		OutputTokens:      output,
+		CacheReadTokens:   cacheRead,
+		ImageOutputTokens: imageOutput,
+	}
 }
 
 // AccountTestOptions carries optional media for admin connectivity tests.
@@ -183,6 +361,8 @@ type AccountTestService struct {
 	cfg                       *config.Config
 	settingService            *SettingService
 	tlsFPProfileService       *TLSFingerprintProfileService
+	usageLogRepo              UsageLogRepository
+	billingService            *BillingService
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
@@ -199,6 +379,14 @@ func (s *AccountTestService) SetSettingService(settingService *SettingService) {
 	if s != nil {
 		s.settingService = settingService
 	}
+}
+
+func (s *AccountTestService) SetProbeUsageDependencies(usageLogRepo UsageLogRepository, billingService *BillingService) {
+	if s == nil {
+		return
+	}
+	s.usageLogRepo = usageLogRepo
+	s.billingService = billingService
 }
 
 // NewAccountTestService creates a new AccountTestService
@@ -623,9 +811,13 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 		Content []struct {
 			Text string `json:"text"`
 		} `json:"content"`
+		Usage map[string]any `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse response: %s", err.Error()))
+	}
+	if result.Usage != nil {
+		observeAccountTestUsage(c, accountTestClaudeUsage(result.Usage))
 	}
 
 	text := ""
@@ -1224,7 +1416,9 @@ func (s *AccountTestService) testGrokImageGeneration(c *gin.Context, ctx context
 			B64JSON       string `json:"b64_json"`
 			RevisedPrompt string `json:"revised_prompt"`
 			MimeType      string `json:"mime_type"`
+			Size          string `json:"size"`
 		} `json:"data"`
+		Usage map[string]any `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse Grok image response: %s", err.Error()))
@@ -1232,6 +1426,14 @@ func (s *AccountTestService) testGrokImageGeneration(c *gin.Context, ctx context
 	if len(result.Data) == 0 {
 		return s.sendErrorAndEnd(c, "No images returned from Grok API")
 	}
+	if result.Usage != nil {
+		observeAccountTestUsage(c, accountTestOpenAIUsage(result.Usage))
+	}
+	outputSizes := make([]string, 0, len(result.Data))
+	for _, item := range result.Data {
+		outputSizes = append(outputSizes, item.Size)
+	}
+	observeAccountTestImages(c, len(result.Data), modelID, outputSizes)
 
 	for _, item := range result.Data {
 		if item.RevisedPrompt != "" {
@@ -1349,6 +1551,7 @@ func (s *AccountTestService) testGrokVideoGeneration(c *gin.Context, ctx context
 		}
 		switch st {
 		case "done", "completed", "succeeded", "success":
+			observeAccountTestVideo(c, 1, modelID, VideoBillingResolution480P, 6)
 			return s.emitGrokVideoResult(c, ctx, account, authToken, requestID, statusBody)
 		case "failed", "error", "canceled", "cancelled":
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Grok video failed: %s", string(statusBody)))
@@ -2314,6 +2517,7 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}
+	observeAccountTestUsage(c, result.Usage)
 
 	// 发送响应内容
 	if result.Text != "" {
@@ -2540,6 +2744,9 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 		if resp, ok := data["response"].(map[string]any); ok && resp != nil {
 			data = resp
 		}
+		if usageMetadata := accountTestJSONMap(data, "usageMetadata"); usageMetadata != nil {
+			observeAccountTestUsage(c, accountTestGeminiUsage(usageMetadata))
+		}
 		if candidates, ok := data["candidates"].([]any); ok && len(candidates) > 0 {
 			if candidate, ok := candidates[0].(map[string]any); ok {
 				// Extract content first (before checking completion)
@@ -2628,7 +2835,8 @@ func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[s
 				"content": testPrompt,
 			},
 		},
-		"stream": true,
+		"stream":         true,
+		"stream_options": map[string]any{"include_usage": true},
 	}
 }
 
@@ -2665,11 +2873,21 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 		eventType, _ := data["type"].(string)
 
 		switch eventType {
+		case "message_start":
+			if message := accountTestJSONMap(data, "message"); message != nil {
+				if usage := accountTestJSONMap(message, "usage"); usage != nil {
+					observeAccountTestUsage(c, accountTestClaudeUsage(usage))
+				}
+			}
 		case "content_block_delta":
 			if delta, ok := data["delta"].(map[string]any); ok {
 				if text, ok := delta["text"].(string); ok {
 					s.sendEvent(c, TestEvent{Type: "content", Text: text})
 				}
+			}
+		case "message_delta":
+			if usage := accountTestJSONMap(data, "usage"); usage != nil {
+				observeAccountTestUsage(c, accountTestClaudeUsage(usage))
 			}
 		case "message_stop":
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
@@ -2727,6 +2945,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 			return s.sendErrorAndEnd(c, "Invalid Chat Completions response from /v1/chat/completions: expected JSON data")
 		}
 		seenJSON = true
+		if usage := accountTestJSONMap(data, "usage"); usage != nil {
+			observeAccountTestUsage(c, accountTestOpenAIUsage(usage))
+		}
 
 		if errData, ok := data["error"].(map[string]any); ok {
 			errorMsg := "Chat Completions API (/v1/chat/completions) returned an error"
@@ -2808,6 +3029,13 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
+			if responseData := accountTestJSONMap(data, "response"); responseData != nil {
+				if usage := accountTestJSONMap(responseData, "usage"); usage != nil {
+					observeAccountTestUsage(c, accountTestOpenAIUsage(usage))
+				}
+			} else if usage := accountTestJSONMap(data, "usage"); usage != nil {
+				observeAccountTestUsage(c, accountTestOpenAIUsage(usage))
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "response.failed":
@@ -2902,7 +3130,9 @@ func (s *AccountTestService) testOpenAIImageAPIKey(c *gin.Context, ctx context.C
 		Data []struct {
 			B64JSON       string `json:"b64_json"`
 			RevisedPrompt string `json:"revised_prompt"`
+			Size          string `json:"size"`
 		} `json:"data"`
+		Usage map[string]any `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse response: %s", err.Error()))
@@ -2911,6 +3141,14 @@ func (s *AccountTestService) testOpenAIImageAPIKey(c *gin.Context, ctx context.C
 	if len(result.Data) == 0 {
 		return s.sendErrorAndEnd(c, "No images returned from API")
 	}
+	if result.Usage != nil {
+		observeAccountTestUsage(c, accountTestOpenAIUsage(result.Usage))
+	}
+	outputSizes := make([]string, 0, len(result.Data))
+	for _, item := range result.Data {
+		outputSizes = append(outputSizes, item.Size)
+	}
+	observeAccountTestImages(c, len(result.Data), modelID, outputSizes)
 
 	for _, item := range result.Data {
 		if item.RevisedPrompt != "" {
@@ -3031,13 +3269,25 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	}
 	body = redactAgentIdentitySensitiveBodyForAccount(ctx, s.accountRepo, credentialAccount, body)
 
-	results, _, _, _, _, err := collectOpenAIImagesFromResponsesBody(body)
+	results, _, usageRaw, firstMeta, _, err := collectOpenAIImagesFromResponsesBody(body)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse image response: %s", err.Error()))
 	}
 	if len(results) == 0 {
 		return s.sendErrorAndEnd(c, "No images returned from responses API")
 	}
+	if len(usageRaw) > 0 {
+		var usage map[string]any
+		if json.Unmarshal(usageRaw, &usage) == nil {
+			observeAccountTestUsage(c, accountTestOpenAIUsage(usage))
+		}
+	}
+	outputSizes := make([]string, 0, len(results))
+	for _, item := range results {
+		outputSizes = append(outputSizes, item.Size)
+	}
+	upstreamModel := firstNonEmpty(firstMeta.Model, modelID)
+	observeAccountTestImages(c, len(results), upstreamModel, outputSizes)
 
 	for _, item := range results {
 		if item.RevisedPrompt != "" {
@@ -3079,6 +3329,16 @@ func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) er
 // RunTestBackground executes an account test in-memory (no real HTTP client),
 // capturing SSE output via httptest.NewRecorder, then parses the result.
 func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error) {
+	return s.runTestBackground(ctx, accountID, modelID, false)
+}
+
+// RunChannelMonitorProbeBackground executes an automatically managed channel
+// monitor probe and records its upstream usage for account reconciliation.
+func (s *AccountTestService) RunChannelMonitorProbeBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error) {
+	return s.runTestBackground(ctx, accountID, modelID, true)
+}
+
+func (s *AccountTestService) runTestBackground(ctx context.Context, accountID int64, modelID string, recordProbe bool) (*ScheduledTestResult, error) {
 	// Acquire before starting the timing tracker: time spent waiting behind the
 	// per-account probe cap is scheduler delay, not upstream TTFT/latency.
 	s.backgroundProbeLimiterOnce.Do(func() {
@@ -3114,7 +3374,7 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 		}
 	}
 
-	return &ScheduledTestResult{
+	result := &ScheduledTestResult{
 		Status:       status,
 		ResponseText: responseText,
 		ErrorMessage: errMsg,
@@ -3122,7 +3382,140 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 		LatencyMs:    finishedAt.Sub(startedAt).Milliseconds(),
 		StartedAt:    startedAt,
 		FinishedAt:   finishedAt,
-	}, nil
+	}
+	if recordProbe {
+		tokens, media := timingTracker.usageValue()
+		s.recordChannelProbeUsage(ctx, accountID, modelID, result, tokens, media)
+	}
+	return result, nil
+}
+
+func (s *AccountTestService) recordChannelProbeUsage(ctx context.Context, accountID int64, modelID string, result *ScheduledTestResult, tokens UsageTokens, media accountTestMediaUsage) {
+	if s.usageLogRepo == nil || result == nil {
+		return
+	}
+	lookupCtx, cancel := detachedBillingContext(ctx)
+	defer cancel()
+	account, err := s.accountRepo.GetByID(lookupCtx, accountID)
+	if err != nil {
+		log.Printf("failed to load account %d for channel probe usage: %v", accountID, err)
+		return
+	}
+	if account == nil || account.IsSyntheticUITest() {
+		return
+	}
+
+	requestedModel := strings.TrimSpace(modelID)
+	if requestedModel == "" {
+		switch account.Platform {
+		case PlatformOpenAI, PlatformGrok:
+			requestedModel = openai.DefaultTestModel
+		case PlatformGemini:
+			requestedModel = geminicli.DefaultTestModel
+		default:
+			requestedModel = claude.DefaultTestModel
+		}
+	}
+	upstreamModel := account.GetMappedModel(requestedModel)
+	if strings.TrimSpace(media.UpstreamModel) != "" {
+		upstreamModel = strings.TrimSpace(media.UpstreamModel)
+	}
+	durationMs := int(result.FinishedAt.Sub(result.StartedAt).Milliseconds())
+	var firstTokenMs *int
+	if result.TTFTMs != nil {
+		value := int(*result.TTFTMs)
+		firstTokenMs = &value
+	}
+	accountRateMultiplier := account.BillingRateMultiplier()
+	billingMode := string(BillingModeToken)
+	if media.VideoCount > 0 {
+		billingMode = string(BillingModeVideo)
+	} else if media.ImageCount > 0 {
+		billingMode = string(BillingModeImage)
+	}
+	probeAgent := "sub2api-channel-monitor"
+	inboundEndpoint := "/internal/channel-monitor/probe"
+	usageLog := &UsageLog{
+		AccountID:             accountID,
+		RequestID:             "probe-" + uuid.NewString(),
+		Model:                 requestedModel,
+		RequestedModel:        requestedModel,
+		InputTokens:           tokens.InputTokens,
+		OutputTokens:          tokens.OutputTokens,
+		CacheCreationTokens:   tokens.CacheCreationTokens,
+		CacheReadTokens:       tokens.CacheReadTokens,
+		CacheCreation5mTokens: tokens.CacheCreation5mTokens,
+		CacheCreation1hTokens: tokens.CacheCreation1hTokens,
+		ImageInputTokens:      tokens.ImageInputTokens,
+		ImageOutputTokens:     tokens.ImageOutputTokens,
+		ImageCount:            media.ImageCount,
+		ImageSizeBreakdown:    media.ImageSizeBreakdown,
+		VideoCount:            media.VideoCount,
+		ActualCost:            0,
+		RateMultiplier:        0,
+		AccountRateMultiplier: &accountRateMultiplier,
+		RequestType:           RequestTypeProbe,
+		Stream:                true,
+		DurationMs:            &durationMs,
+		FirstTokenMs:          firstTokenMs,
+		UserAgent:             &probeAgent,
+		InboundEndpoint:       &inboundEndpoint,
+		BillingMode:           &billingMode,
+		CreatedAt:             result.StartedAt,
+	}
+	if media.ImageCount > 0 {
+		imageSize := NormalizeImageBillingTierOrDefault(media.ImageSize)
+		usageLog.ImageSize = &imageSize
+		if media.ImageOutputSize != "" {
+			usageLog.ImageOutputSize = &media.ImageOutputSize
+		}
+		if media.ImageSizeSource != "" {
+			usageLog.ImageSizeSource = &media.ImageSizeSource
+		}
+	}
+	if media.VideoCount > 0 {
+		videoResolution := NormalizeVideoBillingResolutionOrDefault(media.VideoResolution)
+		videoDurationSeconds := NormalizeVideoBillingDurationSecondsOrDefault(media.VideoDurationSeconds)
+		usageLog.VideoResolution = &videoResolution
+		usageLog.VideoDurationSeconds = &videoDurationSeconds
+	}
+	if upstreamModel != "" && upstreamModel != requestedModel {
+		usageLog.UpstreamModel = &upstreamModel
+	}
+	if s.billingService != nil {
+		var (
+			cost    *CostBreakdown
+			costErr error
+		)
+		switch {
+		case media.VideoCount > 0:
+			cost = s.billingService.CalculateVideoCost(
+				upstreamModel,
+				media.VideoResolution,
+				media.VideoCount,
+				media.VideoDurationSeconds,
+				nil,
+				1,
+			)
+		case media.ImageCount > 0:
+			cost = s.billingService.CalculateImageCost(upstreamModel, media.ImageSize, media.ImageCount, nil, 1)
+		default:
+			cost, costErr = s.billingService.CalculateCost(upstreamModel, tokens, 1)
+		}
+		if costErr != nil {
+			log.Printf("failed to calculate channel probe cost for account %d model %s: %v", accountID, upstreamModel, costErr)
+		} else if cost != nil {
+			usageLog.InputCost = cost.InputCost
+			usageLog.OutputCost = cost.OutputCost
+			usageLog.ImageInputCost = cost.ImageInputCost
+			usageLog.ImageOutputCost = cost.ImageOutputCost
+			usageLog.CacheCreationCost = cost.CacheCreationCost
+			usageLog.CacheReadCost = cost.CacheReadCost
+			usageLog.TotalCost = cost.TotalCost
+			usageLog.LongContextBillingApplied = cost.LongContextBillingApplied
+		}
+	}
+	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.account_test")
 }
 
 // parseTestSSEOutput extracts response text and error message from captured SSE output.

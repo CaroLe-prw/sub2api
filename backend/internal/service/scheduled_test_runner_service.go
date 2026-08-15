@@ -19,7 +19,7 @@ const scheduledTestDefaultMaxWorkers = 10
 type ScheduledTestRunnerService struct {
 	planRepo       ScheduledTestPlanRepository
 	scheduledSvc   *ScheduledTestService
-	accountTestSvc *AccountTestService
+	accountTestSvc scheduledTestAccountTester
 	rateLimitSvc   *RateLimitService
 	cfg            *config.Config
 	accounts       AccountRepository
@@ -29,6 +29,11 @@ type ScheduledTestRunnerService struct {
 	cron      *cron.Cron
 	startOnce sync.Once
 	stopOnce  sync.Once
+}
+
+type scheduledTestAccountTester interface {
+	RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error)
+	RunChannelMonitorProbeBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error)
 }
 
 type channelMonitorProbeOutcomeReporter interface {
@@ -229,7 +234,15 @@ func channelMonitorModelsForAccount(account *Account) []string {
 }
 
 func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) {
-	result, err := s.accountTestSvc.RunTestBackground(ctx, plan.AccountID, plan.ModelID)
+	var (
+		result *ScheduledTestResult
+		err    error
+	)
+	if plan.ManagedBy == ScheduledTestManagedBySchedulerProbe {
+		result, err = s.accountTestSvc.RunChannelMonitorProbeBackground(ctx, plan.AccountID, plan.ModelID)
+	} else {
+		result, err = s.accountTestSvc.RunTestBackground(ctx, plan.AccountID, plan.ModelID)
+	}
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d RunTestBackground error: %v", plan.ID, err)
 		return

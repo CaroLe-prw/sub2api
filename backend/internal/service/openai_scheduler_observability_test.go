@@ -242,6 +242,24 @@ func TestOpenAISchedulerObservabilityClientCancellationDoesNotMarkAccountFailed(
 	require.NotContains(t, schedulerObservabilityAttemptKinds(trace.Attempts), "upstream_failure")
 }
 
+func TestOpenAISchedulerObservabilitySuccessfulResponseWithClientDisconnectIsSuccess(t *testing.T) {
+	store := NewOpenAISchedulerObservabilityStore()
+	ctx := schedulerObservabilityTestContext("request-success-then-client-disconnect", nil)
+	decision := OpenAIAccountScheduleDecision{Layer: openAIAccountScheduleLayerLoadBalance, Candidates: []OpenAISchedulerObservabilityCandidate{
+		{AccountID: 32, AccountName: "account-32", Rank: 1, State: "selected"},
+	}}
+	store.RecordSelection(ctx, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.6"}, decision, &AccountSelectionResult{Account: &Account{ID: 32, Name: "account-32"}}, nil)
+	store.RecordOutcome(ctx, OpenAISchedulerObservabilityOutcome{
+		AccountID: 32, AccountName: "account-32", Success: true, Canceled: true,
+		Reason: "client_disconnected",
+	})
+
+	trace := store.Snapshot(OpenAISchedulerObservabilityQuery{TimeRange: "1h", View: "requests"}).Traces[0]
+	require.Equal(t, "success", trace.Status)
+	require.Contains(t, schedulerObservabilityAttemptKinds(trace.Attempts), "request_success")
+	require.NotContains(t, schedulerObservabilityAttemptKinds(trace.Attempts), "request_canceled")
+}
+
 func TestOpenAISchedulerObservabilitySeparatesLocalAdmissionRejectionFromUpstreamSwitch(t *testing.T) {
 	store := NewOpenAISchedulerObservabilityStore()
 	groupID := int64(5)

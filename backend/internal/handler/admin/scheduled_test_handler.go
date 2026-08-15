@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -14,8 +15,12 @@ import (
 // ScheduledTestHandler handles admin scheduled-test-plan management.
 type ScheduledTestHandler struct {
 	scheduledTestSvc *service.ScheduledTestService
-	accountTestSvc   *service.AccountTestService
+	accountTestSvc   scheduledTestProbeRunner
 	probeReporter    *service.OpenAIGatewayService
+}
+
+type scheduledTestProbeRunner interface {
+	RunChannelMonitorProbeBackground(ctx context.Context, accountID int64, modelID string) (*service.ScheduledTestResult, error)
 }
 
 // NewScheduledTestHandler creates a new ScheduledTestHandler.
@@ -117,7 +122,7 @@ func (h *ScheduledTestHandler) RunNow(c *gin.Context) {
 		response.NotFound(c, "scheduler probe plan not found")
 		return
 	}
-	result, err := h.accountTestSvc.RunTestBackground(c.Request.Context(), plan.AccountID, plan.ModelID)
+	result, err := h.accountTestSvc.RunChannelMonitorProbeBackground(c.Request.Context(), plan.AccountID, plan.ModelID)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
