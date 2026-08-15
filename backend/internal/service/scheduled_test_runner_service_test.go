@@ -68,6 +68,43 @@ func TestScheduledTestRunnerUsesProbeEntryPointOnlyForManagedPlans(t *testing.T)
 	require.Equal(t, 1, tester.probeCalls)
 }
 
+func TestAdaptiveChannelProbeSchedulesSuccessAndFailureSeparately(t *testing.T) {
+	runner := &ScheduledTestRunnerService{}
+	runner.setChannelMonitorProbeMode(ChannelMonitorProbeModeAdaptive)
+	plan := &ScheduledTestPlan{ManagedBy: ScheduledTestManagedBySchedulerProbe, CronExpression: "*/5 * * * *"}
+	now := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+
+	successNext, err := runner.nextRunAfterPlan(plan, &ScheduledTestResult{Status: "success"}, now)
+	require.NoError(t, err)
+	require.Equal(t, now.Add(adaptiveChannelProbeSuccessInterval), successNext)
+
+	failureNext, err := runner.nextRunAfterPlan(plan, &ScheduledTestResult{Status: "failed"}, now)
+	require.NoError(t, err)
+	require.Equal(t, now.Add(adaptiveChannelProbeFailureInterval), failureNext)
+}
+
+func TestFixedChannelProbeKeepsCronSchedule(t *testing.T) {
+	runner := &ScheduledTestRunnerService{}
+	runner.setChannelMonitorProbeMode(ChannelMonitorProbeModeFixed)
+	plan := &ScheduledTestPlan{ManagedBy: ScheduledTestManagedBySchedulerProbe, CronExpression: "*/5 * * * *"}
+	now := time.Date(2026, time.August, 16, 12, 2, 0, 0, time.UTC)
+
+	next, err := runner.nextRunAfterPlan(plan, &ScheduledTestResult{Status: "success"}, now)
+	require.NoError(t, err)
+	require.Equal(t, now.Add(3*time.Minute), next)
+}
+
+func TestFixedChannelProbeUsesCustomInterval(t *testing.T) {
+	runner := &ScheduledTestRunnerService{}
+	runner.setChannelMonitorProbeSettings(ChannelMonitorProbeModeFixed, 15)
+	plan := &ScheduledTestPlan{ManagedBy: ScheduledTestManagedBySchedulerProbe, CronExpression: "*/5 * * * *"}
+	now := time.Date(2026, time.August, 16, 12, 2, 0, 0, time.UTC)
+
+	next, err := runner.nextRunAfterPlan(plan, &ScheduledTestResult{Status: "success"}, now)
+	require.NoError(t, err)
+	require.Equal(t, now.Add(15*time.Minute), next)
+}
+
 func TestChannelMonitorPoolAccountEligibleRequiresEnabledNonOAuthAccount(t *testing.T) {
 	platforms := []string{PlatformOpenAI, PlatformAnthropic}
 	tests := []struct {

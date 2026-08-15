@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -104,7 +105,23 @@ func TestRecordChannelProbeUsageCapturesContextCostAndAccountAttribution(t *test
 	require.NotNil(t, log.InboundEndpoint)
 	require.Equal(t, "/internal/channel-monitor/probe", *log.InboundEndpoint)
 	require.NotNil(t, log.UserAgent)
-	require.Equal(t, "sub2api-channel-monitor", *log.UserAgent)
+	require.Equal(t, claude.DefaultHeaders["User-Agent"], *log.UserAgent)
+}
+
+func TestChannelProbeUserAgentUsesCodexForOpenAI(t *testing.T) {
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	require.Equal(t, codexCLIUserAgent, channelProbeUserAgent(account))
+}
+
+func TestChannelProbeUserAgentPreservesOpenAICustomUA(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"user_agent": "codex_cli_rs/0.200.1 (Mac OS X 15.1.0; arm64) iTerm",
+		},
+	}
+	require.Equal(t, account.GetOpenAIUserAgent(), channelProbeUserAgent(account))
 }
 
 func TestAccountTestUsageParsers(t *testing.T) {

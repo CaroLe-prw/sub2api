@@ -149,8 +149,10 @@ type channelMonitorHistoryItemResponse struct {
 }
 
 type channelMonitorAutoModelPolicyRequest struct {
-	Enabled   bool     `json:"enabled"`
-	Whitelist []string `json:"whitelist"`
+	Enabled              bool     `json:"enabled"`
+	Mode                 string   `json:"mode"`
+	FixedIntervalMinutes int      `json:"fixed_interval_minutes"`
+	Whitelist            []string `json:"whitelist"`
 }
 
 type channelMonitorAccountModelPolicyRequest struct {
@@ -409,8 +411,10 @@ func (h *ChannelMonitorHandler) UpdateAutoModelPolicy(c *gin.Context) {
 		return
 	}
 	policy, err := h.monitorService.UpdateAutoModelPolicy(c.Request.Context(), service.ChannelMonitorAutoModelPolicy{
-		Enabled:   req.Enabled,
-		Whitelist: req.Whitelist,
+		Enabled:              req.Enabled,
+		Mode:                 req.Mode,
+		FixedIntervalMinutes: req.FixedIntervalMinutes,
+		Whitelist:            req.Whitelist,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

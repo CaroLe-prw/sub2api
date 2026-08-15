@@ -442,6 +442,15 @@ const (
 	// or suffix-wildcard patterns. Empty means all discovered models.
 	SettingKeySchedulerProbesWhitelist = "channel_monitor_auto_models_whitelist"
 
+	// SettingKeySchedulerProbesMode controls how scheduler account-pool probes
+	// advance their next run. Empty and unknown values retain the legacy fixed
+	// five-minute behavior.
+	SettingKeySchedulerProbesMode = "channel_monitor_auto_models_mode"
+
+	// SettingKeySchedulerProbesFixedIntervalMinutes controls the fixed probe
+	// cadence. The default is five minutes; accepted values are 1..1440.
+	SettingKeySchedulerProbesFixedIntervalMinutes = "channel_monitor_auto_models_fixed_interval_minutes"
+
 	// Compatibility aliases for callers compiled against the former naming.
 	SettingKeyChannelMonitorAutoModelsEnabled   = SettingKeySchedulerProbesEnabled
 	SettingKeyChannelMonitorAutoModelsWhitelist = SettingKeySchedulerProbesWhitelist

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
-import type { SchedulerProbePolicy, SchedulerProbeProvider } from '@/api/admin/schedulerProbes'
+import type { SchedulerProbeMode, SchedulerProbePolicy, SchedulerProbeProvider } from '@/api/admin/schedulerProbes'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import Toggle from '@/components/common/Toggle.vue'
@@ -23,7 +23,11 @@ const whitelist = computed(() => whitelistText.value
   .filter(Boolean))
 
 function hydrate(next: SchedulerProbePolicy) {
-  policy.value = next
+  policy.value = {
+    ...next,
+    mode: next.mode || 'fixed',
+    fixed_interval_minutes: next.fixed_interval_minutes || 5,
+  }
   whitelistText.value = (next.whitelist || []).join('\n')
 }
 
@@ -49,6 +53,8 @@ async function save() {
   try {
     hydrate(await adminAPI.schedulerProbes.updatePolicy({
       enabled: policy.value.enabled,
+      mode: policy.value.mode,
+      fixed_interval_minutes: Math.min(1440, Math.max(1, Math.round(policy.value.fixed_interval_minutes || 5))),
       whitelist: whitelist.value,
     }))
     appStore.showSuccess(t('admin.channelMonitor.autoModels.saved'))
@@ -58,6 +64,19 @@ async function save() {
     saving.value = false
   }
 }
+
+const probeModes: Array<{ value: SchedulerProbeMode; labelKey: string; hintKey: string }> = [
+  {
+    value: 'fixed',
+    labelKey: 'admin.channelMonitor.autoModels.modeFixed',
+    hintKey: 'admin.channelMonitor.autoModels.modeFixedHint',
+  },
+  {
+    value: 'adaptive',
+    labelKey: 'admin.channelMonitor.autoModels.modeAdaptive',
+    hintKey: 'admin.channelMonitor.autoModels.modeAdaptiveHint',
+  },
+]
 
 onMounted(load)
 </script>
@@ -89,6 +108,50 @@ onMounted(load)
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channelMonitor.autoModels.enabledHint') }}</p>
         </div>
         <Toggle v-model="policy.enabled" />
+      </div>
+
+      <div v-if="policy.mode === 'fixed'" class="max-w-sm">
+        <label class="input-label" for="scheduler-probe-fixed-interval">
+          {{ t('admin.channelMonitor.autoModels.fixedInterval') }}
+        </label>
+        <div class="flex items-center gap-2">
+          <input
+            id="scheduler-probe-fixed-interval"
+            v-model.number="policy.fixed_interval_minutes"
+            type="number"
+            min="1"
+            max="1440"
+            step="1"
+            class="input"
+          >
+          <span class="text-sm text-gray-500 dark:text-gray-400">
+            {{ t('admin.channelMonitor.autoModels.minutes') }}
+          </span>
+        </div>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.channelMonitor.autoModels.fixedIntervalHint') }}
+        </p>
+      </div>
+
+      <div>
+        <p class="input-label">{{ t('admin.channelMonitor.autoModels.mode') }}</p>
+        <div class="grid gap-2 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.channelMonitor.autoModels.mode')">
+          <button
+            v-for="option in probeModes"
+            :key="option.value"
+            type="button"
+            class="rounded-xl border px-3 py-2 text-left transition-colors"
+            :class="policy.mode === option.value
+              ? 'border-primary-500 bg-primary-50 text-primary-900 dark:border-primary-400 dark:bg-primary-900/20 dark:text-primary-100'
+              : 'border-gray-200 text-gray-700 hover:border-gray-300 dark:border-dark-700 dark:text-gray-300 dark:hover:border-dark-600'"
+            :aria-checked="policy.mode === option.value"
+            role="radio"
+            @click="policy.mode = option.value"
+          >
+            <span class="block text-sm font-medium">{{ t(option.labelKey) }}</span>
+            <span class="mt-1 block text-xs opacity-75">{{ t(option.hintKey) }}</span>
+          </button>
+        </div>
       </div>
 
       <div>

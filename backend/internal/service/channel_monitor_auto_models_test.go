@@ -88,7 +88,47 @@ func TestAutoMonitorPolicyDefaultsToEnabledAndEmptyWhitelist(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, policy.Enabled)
+	require.Equal(t, ChannelMonitorProbeModeFixed, policy.Mode)
+	require.Equal(t, defaultChannelMonitorProbeFixedIntervalMinutes, policy.FixedIntervalMinutes)
 	require.Empty(t, policy.Whitelist)
+}
+
+func TestUpdateAutoMonitorPolicySupportsAdaptiveMode(t *testing.T) {
+	settings := &autoMonitorSettingStoreStub{}
+	svc := NewChannelMonitorService(nil, nil)
+	svc.SetAutoModelDependencies(autoMonitorAccountReaderStub{}, settings)
+
+	policy, err := svc.UpdateAutoModelPolicy(context.Background(), ChannelMonitorAutoModelPolicy{
+		Enabled:              true,
+		Mode:                 ChannelMonitorProbeModeAdaptive,
+		FixedIntervalMinutes: 15,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, ChannelMonitorProbeModeAdaptive, policy.Mode)
+	require.Equal(t, 15, policy.FixedIntervalMinutes)
+	require.Equal(t, ChannelMonitorProbeModeAdaptive, settings.values[SettingKeySchedulerProbesMode])
+	require.Equal(t, "15", settings.values[SettingKeySchedulerProbesFixedIntervalMinutes])
+}
+
+func TestUpdateAutoMonitorPolicyRejectsUnknownMode(t *testing.T) {
+	svc := NewChannelMonitorService(nil, nil)
+	svc.SetAutoModelDependencies(autoMonitorAccountReaderStub{}, &autoMonitorSettingStoreStub{})
+
+	policy, err := svc.UpdateAutoModelPolicy(context.Background(), ChannelMonitorAutoModelPolicy{Mode: "burst"})
+
+	require.Nil(t, policy)
+	require.ErrorIs(t, err, ErrChannelMonitorInvalidAutoModelMode)
+}
+
+func TestUpdateAutoMonitorPolicyRejectsInvalidFixedInterval(t *testing.T) {
+	svc := NewChannelMonitorService(nil, nil)
+	svc.SetAutoModelDependencies(autoMonitorAccountReaderStub{}, &autoMonitorSettingStoreStub{})
+
+	policy, err := svc.UpdateAutoModelPolicy(context.Background(), ChannelMonitorAutoModelPolicy{FixedIntervalMinutes: 1441})
+
+	require.Nil(t, policy)
+	require.ErrorIs(t, err, ErrChannelMonitorInvalidAutoModelInterval)
 }
 
 func TestUpdateAutoMonitorPolicyRejectsMidPatternWildcard(t *testing.T) {

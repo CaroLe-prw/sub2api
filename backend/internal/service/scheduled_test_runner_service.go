@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -14,6 +15,16 @@ import (
 )
 
 const scheduledTestDefaultMaxWorkers = 10
+
+const (
+	channelMonitorProbeModeFixedInt32 int32 = iota
+	channelMonitorProbeModeAdaptiveInt32
+)
+
+const (
+	adaptiveChannelProbeSuccessInterval = 60 * time.Minute
+	adaptiveChannelProbeFailureInterval = 5 * time.Minute
+)
 
 // ScheduledTestRunnerService periodically scans due test plans and executes them.
 type ScheduledTestRunnerService struct {
@@ -26,9 +37,11 @@ type ScheduledTestRunnerService struct {
 	settings       channelMonitorAutoModelSettingStore
 	probeReporter  channelMonitorProbeOutcomeReporter
 
-	cron      *cron.Cron
-	startOnce sync.Once
-	stopOnce  sync.Once
+	cron                      *cron.Cron
+	startOnce                 sync.Once
+	stopOnce                  sync.Once
+	probeMode                 atomic.Int32
+	fixedProbeIntervalMinutes atomic.Int64
 }
 
 type scheduledTestAccountTester interface {
@@ -168,6 +181,7 @@ func (s *ScheduledTestRunnerService) reconcileChannelMonitorPlans(ctx context.Co
 	if err != nil {
 		return err
 	}
+	s.setChannelMonitorProbeSettings(policy.Mode, policy.FixedIntervalMinutes)
 	if !policy.Enabled {
 		return s.planRepo.ReconcileChannelMonitorPlans(ctx, nil)
 	}
@@ -245,6 +259,19 @@ func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *Sched
 	}
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d RunTestBackground error: %v", plan.ID, err)
+		if plan.ManagedBy == ScheduledTestManagedBySchedulerProbe && s.channelMonitorProbeMode() == channelMonitorProbeModeAdaptiveInt32 {
+			nextRun := time.Now().Add(adaptiveChannelProbeFailureInterval)
+			if updateErr := s.planRepo.UpdateAfterRun(ctx, plan.ID, time.Now(), nextRun); updateErr != nil {
+				logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d adaptive failure reschedule error: %v", plan.ID, updateErr)
+			}
+		} else if plan.ManagedBy == ScheduledTestManagedBySchedulerProbe {
+			if interval := s.fixedProbeInterval(); interval != defaultChannelMonitorProbeFixedIntervalMinutes*time.Minute {
+				now := time.Now()
+				if updateErr := s.planRepo.UpdateAfterRun(ctx, plan.ID, now, now.Add(interval)); updateErr != nil {
+					logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d fixed failure reschedule error: %v", plan.ID, updateErr)
+				}
+			}
+		}
 		return
 	}
 
@@ -265,15 +292,69 @@ func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *Sched
 		s.tryRecoverAccount(ctx, plan.AccountID, plan.ID)
 	}
 
-	nextRun, err := computeNextRun(plan.CronExpression, time.Now())
+	now := time.Now()
+	nextRun, err := s.nextRunAfterPlan(plan, result, now)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d computeNextRun error: %v", plan.ID, err)
 		return
 	}
 
-	if err := s.planRepo.UpdateAfterRun(ctx, plan.ID, time.Now(), nextRun); err != nil {
+	if err := s.planRepo.UpdateAfterRun(ctx, plan.ID, now, nextRun); err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d UpdateAfterRun error: %v", plan.ID, err)
 	}
+}
+
+func (s *ScheduledTestRunnerService) setChannelMonitorProbeMode(mode string) {
+	s.setChannelMonitorProbeSettings(mode, defaultChannelMonitorProbeFixedIntervalMinutes)
+}
+
+func (s *ScheduledTestRunnerService) setChannelMonitorProbeSettings(mode string, fixedIntervalMinutes int) {
+	if strings.EqualFold(strings.TrimSpace(mode), ChannelMonitorProbeModeAdaptive) {
+		s.probeMode.Store(channelMonitorProbeModeAdaptiveInt32)
+	} else {
+		s.probeMode.Store(channelMonitorProbeModeFixedInt32)
+	}
+	if fixedIntervalMinutes <= 0 {
+		fixedIntervalMinutes = defaultChannelMonitorProbeFixedIntervalMinutes
+	}
+	s.fixedProbeIntervalMinutes.Store(int64(fixedIntervalMinutes))
+}
+
+func (s *ScheduledTestRunnerService) channelMonitorProbeMode() int32 {
+	if s == nil {
+		return channelMonitorProbeModeFixedInt32
+	}
+	return s.probeMode.Load()
+}
+
+func (s *ScheduledTestRunnerService) fixedProbeInterval() time.Duration {
+	if s == nil {
+		return defaultChannelMonitorProbeFixedIntervalMinutes * time.Minute
+	}
+	minutes := s.fixedProbeIntervalMinutes.Load()
+	if minutes <= 0 {
+		minutes = defaultChannelMonitorProbeFixedIntervalMinutes
+	}
+	return time.Duration(minutes) * time.Minute
+}
+
+func (s *ScheduledTestRunnerService) nextRunAfterPlan(plan *ScheduledTestPlan, result *ScheduledTestResult, now time.Time) (time.Time, error) {
+	if plan == nil {
+		return time.Time{}, fmt.Errorf("scheduled test plan is nil")
+	}
+	if plan.ManagedBy == ScheduledTestManagedBySchedulerProbe && s.channelMonitorProbeMode() == channelMonitorProbeModeAdaptiveInt32 {
+		if result != nil && result.Status == "success" {
+			return now.Add(adaptiveChannelProbeSuccessInterval), nil
+		}
+		return now.Add(adaptiveChannelProbeFailureInterval), nil
+	}
+	if plan.ManagedBy == ScheduledTestManagedBySchedulerProbe {
+		interval := s.fixedProbeInterval()
+		if interval != defaultChannelMonitorProbeFixedIntervalMinutes*time.Minute {
+			return now.Add(interval), nil
+		}
+	}
+	return computeNextRun(plan.CronExpression, now)
 }
 
 // tryRecoverAccount attempts to recover an account from recoverable runtime state.

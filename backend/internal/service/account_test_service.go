@@ -3390,6 +3390,31 @@ func (s *AccountTestService) runTestBackground(ctx context.Context, accountID in
 	return result, nil
 }
 
+// channelProbeUserAgent returns the client identity represented by an
+// automatically recorded channel probe. Probe usage is an internal request,
+// but its UA should still match the provider client sent upstream so usage
+// analytics do not expose the implementation marker as a client identity.
+func channelProbeUserAgent(account *Account) string {
+	if account == nil {
+		return ""
+	}
+	switch account.Platform {
+	case PlatformOpenAI:
+		if customUA := strings.TrimSpace(account.GetOpenAIUserAgent()); customUA != "" {
+			return customUA
+		}
+		return codexCLIUserAgent
+	case PlatformAnthropic:
+		return claude.DefaultHeaders["User-Agent"]
+	case PlatformGemini:
+		return geminicli.GeminiCLIUserAgent
+	case PlatformGrok:
+		return defaultGrokUpstreamUserAgent()
+	default:
+		return ""
+	}
+}
+
 func (s *AccountTestService) recordChannelProbeUsage(ctx context.Context, accountID int64, modelID string, result *ScheduledTestResult, tokens UsageTokens, media accountTestMediaUsage) {
 	if s.usageLogRepo == nil || result == nil {
 		return
@@ -3433,7 +3458,7 @@ func (s *AccountTestService) recordChannelProbeUsage(ctx context.Context, accoun
 	} else if media.ImageCount > 0 {
 		billingMode = string(BillingModeImage)
 	}
-	probeAgent := "sub2api-channel-monitor"
+	probeAgent := channelProbeUserAgent(account)
 	inboundEndpoint := "/internal/channel-monitor/probe"
 	usageLog := &UsageLog{
 		AccountID:             accountID,
