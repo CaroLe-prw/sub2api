@@ -64,8 +64,12 @@
                     <Icon :name="prize.tier === 1 ? 'trophy' : 'sparkles'" size="sm" />
                   </div>
                   <h4 class="mt-3 font-bold text-gray-950 dark:text-white">{{ prize.name }}</h4>
-                  <p class="mt-2 text-2xl font-bold">+{{ formatReward(prize.reward) }}</p>
-                  <p class="mt-1 text-xs opacity-75">{{ t('lottery.balanceReward') }} · {{ chance(prize) }}%</p>
+                  <p class="mt-3 text-xs font-medium opacity-75">{{ t('lottery.balanceReward') }}</p>
+                  <p class="mt-1 text-2xl font-bold">+{{ formatReward(prize.reward) }}</p>
+                  <div class="mt-3 flex flex-wrap gap-2 text-xs font-medium">
+                    <span class="rounded-full bg-white/70 px-2.5 py-1 dark:bg-dark-900/50">{{ t('lottery.drawChance', { chance: chance(prize) }) }}</span>
+                    <span class="rounded-full bg-white/70 px-2.5 py-1 dark:bg-dark-900/50">{{ t('lottery.winnerQuota', { count: prize.winner_count }) }}</span>
+                  </div>
                 </article>
               </div>
             </div>
@@ -101,6 +105,7 @@
                 <p class="text-xs text-emerald-600 dark:text-emerald-400">{{ t('lottery.credited') }}</p>
               </div>
               <span v-else-if="entry.cancelled_at" class="inline-flex w-fit rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700 dark:bg-dark-700 dark:text-gray-300">{{ t('lottery.cancelled') }}</span>
+              <span v-else-if="entry.settled_at" class="inline-flex w-fit rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600 dark:bg-dark-700 dark:text-gray-300">{{ t('lottery.notWon') }}</span>
               <span v-else class="inline-flex w-fit rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{{ t('lottery.pending') }}</span>
             </article>
           </div>
@@ -179,6 +184,7 @@ function chance(prize: LotteryPrize): string {
 function entryTitle(entry: LotteryEntry): string {
   if (entry.prize_name) return t('lottery.won', { name: entry.prize_name })
   if (entry.cancelled_at) return t('lottery.cancelled')
+  if (entry.settled_at) return t('lottery.notWon')
   return t('lottery.pending')
 }
 function prizeCardClass(tier: number): string {

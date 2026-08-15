@@ -26,9 +26,11 @@ const (
 	LotteryFirstPrizeWeightDefault  = 10
 	LotterySecondPrizeWeightDefault = 30
 	LotteryThirdPrizeWeightDefault  = 60
+	LotteryPrizeWinnerCountDefault  = 1
 
-	lotteryRewardMax = 10_000.0
-	lotteryWeightMax = 1_000_000
+	lotteryRewardMax      = 10_000.0
+	lotteryWeightMax      = 1_000_000
+	lotteryWinnerCountMax = 10_000
 )
 
 var (
@@ -39,10 +41,11 @@ var (
 )
 
 type LotteryPrize struct {
-	Tier   int     `json:"tier"`
-	Name   string  `json:"name"`
-	Reward float64 `json:"reward"`
-	Weight int     `json:"weight"`
+	Tier        int     `json:"tier"`
+	Name        string  `json:"name"`
+	Reward      float64 `json:"reward"`
+	Weight      int     `json:"weight"`
+	WinnerCount int     `json:"winner_count"`
 }
 
 type LotteryRound struct {
@@ -85,15 +88,18 @@ type LotteryEnterResult struct {
 }
 
 type LotteryConfigureInput struct {
-	Enabled           bool
-	StartsAt          time.Time
-	EndsAt            time.Time
-	FirstPrizeReward  float64
-	FirstPrizeWeight  int
-	SecondPrizeReward float64
-	SecondPrizeWeight int
-	ThirdPrizeReward  float64
-	ThirdPrizeWeight  int
+	Enabled                bool
+	StartsAt               time.Time
+	EndsAt                 time.Time
+	FirstPrizeReward       float64
+	FirstPrizeWeight       int
+	FirstPrizeWinnerCount  int
+	SecondPrizeReward      float64
+	SecondPrizeWeight      int
+	SecondPrizeWinnerCount int
+	ThirdPrizeReward       float64
+	ThirdPrizeWeight       int
+	ThirdPrizeWinnerCount  int
 }
 
 type LotteryAdminConfig struct {
@@ -302,7 +308,7 @@ func lotteryConfigMatches(round LotteryRound, input LotteryConfigureInput, prize
 	}
 	for i := range prizes {
 		left, right := round.Prizes[i], prizes[i]
-		if left.Tier != right.Tier || left.Name != right.Name || left.Weight != right.Weight || math.Abs(left.Reward-right.Reward) > 1e-8 {
+		if left.Tier != right.Tier || left.Name != right.Name || left.Weight != right.Weight || left.WinnerCount != right.WinnerCount || math.Abs(left.Reward-right.Reward) > 1e-8 {
 			return false
 		}
 	}
@@ -353,12 +359,12 @@ func validateLotteryConfig(input LotteryConfigureInput, now time.Time) ([]Lotter
 		return nil, ErrLotteryInvalid.WithMetadata(map[string]string{"field": "time_range"})
 	}
 	prizes := []LotteryPrize{
-		{Tier: 1, Name: LotteryFirstPrizeName, Reward: input.FirstPrizeReward, Weight: input.FirstPrizeWeight},
-		{Tier: 2, Name: LotterySecondPrizeName, Reward: input.SecondPrizeReward, Weight: input.SecondPrizeWeight},
-		{Tier: 3, Name: LotteryThirdPrizeName, Reward: input.ThirdPrizeReward, Weight: input.ThirdPrizeWeight},
+		{Tier: 1, Name: LotteryFirstPrizeName, Reward: input.FirstPrizeReward, Weight: input.FirstPrizeWeight, WinnerCount: input.FirstPrizeWinnerCount},
+		{Tier: 2, Name: LotterySecondPrizeName, Reward: input.SecondPrizeReward, Weight: input.SecondPrizeWeight, WinnerCount: input.SecondPrizeWinnerCount},
+		{Tier: 3, Name: LotteryThirdPrizeName, Reward: input.ThirdPrizeReward, Weight: input.ThirdPrizeWeight, WinnerCount: input.ThirdPrizeWinnerCount},
 	}
 	for _, prize := range prizes {
-		if strings.TrimSpace(prize.Name) == "" || math.IsNaN(prize.Reward) || math.IsInf(prize.Reward, 0) || prize.Reward <= 0 || prize.Reward > lotteryRewardMax || prize.Weight <= 0 || prize.Weight > lotteryWeightMax {
+		if strings.TrimSpace(prize.Name) == "" || math.IsNaN(prize.Reward) || math.IsInf(prize.Reward, 0) || prize.Reward <= 0 || prize.Reward > lotteryRewardMax || prize.Weight <= 0 || prize.Weight > lotteryWeightMax || prize.WinnerCount <= 0 || prize.WinnerCount > lotteryWinnerCountMax {
 			return nil, ErrLotteryInvalid.WithMetadata(map[string]string{"field": fmt.Sprintf("prize_%d", prize.Tier)})
 		}
 	}
@@ -417,8 +423,8 @@ func decorateLotteryRound(round *LotteryRound, now time.Time, enabled bool) {
 
 func defaultLotteryPrizes() []LotteryPrize {
 	return []LotteryPrize{
-		{Tier: 1, Name: LotteryFirstPrizeName, Reward: LotteryFirstPrizeRewardDefault, Weight: LotteryFirstPrizeWeightDefault},
-		{Tier: 2, Name: LotterySecondPrizeName, Reward: LotterySecondPrizeRewardDefault, Weight: LotterySecondPrizeWeightDefault},
-		{Tier: 3, Name: LotteryThirdPrizeName, Reward: LotteryThirdPrizeRewardDefault, Weight: LotteryThirdPrizeWeightDefault},
+		{Tier: 1, Name: LotteryFirstPrizeName, Reward: LotteryFirstPrizeRewardDefault, Weight: LotteryFirstPrizeWeightDefault, WinnerCount: LotteryPrizeWinnerCountDefault},
+		{Tier: 2, Name: LotterySecondPrizeName, Reward: LotterySecondPrizeRewardDefault, Weight: LotterySecondPrizeWeightDefault, WinnerCount: LotteryPrizeWinnerCountDefault},
+		{Tier: 3, Name: LotteryThirdPrizeName, Reward: LotteryThirdPrizeRewardDefault, Weight: LotteryThirdPrizeWeightDefault, WinnerCount: LotteryPrizeWinnerCountDefault},
 	}
 }

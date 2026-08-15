@@ -25,9 +25,9 @@ func NewLotteryRepository(db *sql.DB) service.LotteryRepository {
 func (r *lotteryRepository) GetCurrentRound(ctx context.Context) (*service.LotteryRound, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT r.id, r.starts_at, r.ends_at,
-		       r.first_prize_name, r.first_prize_reward, r.first_prize_weight,
-		       r.second_prize_name, r.second_prize_reward, r.second_prize_weight,
-		       r.third_prize_name, r.third_prize_reward, r.third_prize_weight,
+		       r.first_prize_name, r.first_prize_reward, r.first_prize_weight, r.first_prize_winner_count,
+		       r.second_prize_name, r.second_prize_reward, r.second_prize_weight, r.second_prize_winner_count,
+		       r.third_prize_name, r.third_prize_reward, r.third_prize_weight, r.third_prize_winner_count,
 		       r.settled_at, r.created_at,
 		       (SELECT COUNT(*) FROM lottery_entries e WHERE e.round_id = r.id)
 		FROM lottery_rounds r
@@ -58,9 +58,9 @@ func (r *lotteryRepository) ConfigureRound(ctx context.Context, input service.Lo
 
 	existing, scanErr := scanLotteryRound(tx.QueryRowContext(ctx, `
 		SELECT r.id, r.starts_at, r.ends_at,
-		       r.first_prize_name, r.first_prize_reward, r.first_prize_weight,
-		       r.second_prize_name, r.second_prize_reward, r.second_prize_weight,
-		       r.third_prize_name, r.third_prize_reward, r.third_prize_weight,
+		       r.first_prize_name, r.first_prize_reward, r.first_prize_weight, r.first_prize_winner_count,
+		       r.second_prize_name, r.second_prize_reward, r.second_prize_weight, r.second_prize_winner_count,
+		       r.third_prize_name, r.third_prize_reward, r.third_prize_weight, r.third_prize_winner_count,
 		       r.settled_at, r.created_at,
 		       (SELECT COUNT(*) FROM lottery_entries e WHERE e.round_id = r.id)
 		FROM lottery_rounds r
@@ -79,19 +79,19 @@ func (r *lotteryRepository) ConfigureRound(ctx context.Context, input service.Lo
 		round, err = scanLotteryRound(tx.QueryRowContext(ctx, `
 			INSERT INTO lottery_rounds (
 				starts_at, ends_at,
-				first_prize_name, first_prize_reward, first_prize_weight,
-				second_prize_name, second_prize_reward, second_prize_weight,
-				third_prize_name, third_prize_reward, third_prize_weight
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+				first_prize_name, first_prize_reward, first_prize_weight, first_prize_winner_count,
+				second_prize_name, second_prize_reward, second_prize_weight, second_prize_winner_count,
+				third_prize_name, third_prize_reward, third_prize_weight, third_prize_winner_count
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 			RETURNING id, starts_at, ends_at,
-			          first_prize_name, first_prize_reward, first_prize_weight,
-			          second_prize_name, second_prize_reward, second_prize_weight,
-			          third_prize_name, third_prize_reward, third_prize_weight,
+			          first_prize_name, first_prize_reward, first_prize_weight, first_prize_winner_count,
+			          second_prize_name, second_prize_reward, second_prize_weight, second_prize_winner_count,
+			          third_prize_name, third_prize_reward, third_prize_weight, third_prize_winner_count,
 			          settled_at, created_at, 0
 		`, input.StartsAt, input.EndsAt,
-			first.Name, first.Reward, first.Weight,
-			second.Name, second.Reward, second.Weight,
-			third.Name, third.Reward, third.Weight))
+			first.Name, first.Reward, first.Weight, first.WinnerCount,
+			second.Name, second.Reward, second.Weight, second.WinnerCount,
+			third.Name, third.Reward, third.Weight, third.WinnerCount))
 	case scanErr != nil:
 		return round, fmt.Errorf("lock current lottery round: %w", scanErr)
 	case existing.ParticipantCount > 0:
@@ -100,20 +100,20 @@ func (r *lotteryRepository) ConfigureRound(ctx context.Context, input service.Lo
 		round, err = scanLotteryRound(tx.QueryRowContext(ctx, `
 			UPDATE lottery_rounds
 			SET starts_at = $1, ends_at = $2,
-			    first_prize_name = $3, first_prize_reward = $4, first_prize_weight = $5,
-			    second_prize_name = $6, second_prize_reward = $7, second_prize_weight = $8,
-			    third_prize_name = $9, third_prize_reward = $10, third_prize_weight = $11,
+			    first_prize_name = $3, first_prize_reward = $4, first_prize_weight = $5, first_prize_winner_count = $6,
+			    second_prize_name = $7, second_prize_reward = $8, second_prize_weight = $9, second_prize_winner_count = $10,
+			    third_prize_name = $11, third_prize_reward = $12, third_prize_weight = $13, third_prize_winner_count = $14,
 			    updated_at = NOW()
-			WHERE id = $12
+			WHERE id = $15
 			RETURNING id, starts_at, ends_at,
-			          first_prize_name, first_prize_reward, first_prize_weight,
-			          second_prize_name, second_prize_reward, second_prize_weight,
-			          third_prize_name, third_prize_reward, third_prize_weight,
+			          first_prize_name, first_prize_reward, first_prize_weight, first_prize_winner_count,
+			          second_prize_name, second_prize_reward, second_prize_weight, second_prize_winner_count,
+			          third_prize_name, third_prize_reward, third_prize_weight, third_prize_winner_count,
 			          settled_at, created_at, 0
 		`, input.StartsAt, input.EndsAt,
-			first.Name, first.Reward, first.Weight,
-			second.Name, second.Reward, second.Weight,
-			third.Name, third.Reward, third.Weight, existing.ID))
+			first.Name, first.Reward, first.Weight, first.WinnerCount,
+			second.Name, second.Reward, second.Weight, second.WinnerCount,
+			third.Name, third.Reward, third.Weight, third.WinnerCount, existing.ID))
 	}
 	if err != nil {
 		return round, fmt.Errorf("save lottery round: %w", err)
@@ -137,9 +137,9 @@ func (r *lotteryRepository) Enter(ctx context.Context, userID int64, now time.Ti
 
 	round, err = scanLotteryRound(tx.QueryRowContext(ctx, `
 		SELECT r.id, r.starts_at, r.ends_at,
-		       r.first_prize_name, r.first_prize_reward, r.first_prize_weight,
-		       r.second_prize_name, r.second_prize_reward, r.second_prize_weight,
-		       r.third_prize_name, r.third_prize_reward, r.third_prize_weight,
+		       r.first_prize_name, r.first_prize_reward, r.first_prize_weight, r.first_prize_winner_count,
+		       r.second_prize_name, r.second_prize_reward, r.second_prize_weight, r.second_prize_winner_count,
+		       r.third_prize_name, r.third_prize_reward, r.third_prize_weight, r.third_prize_winner_count,
 		       r.settled_at, r.created_at,
 		       (SELECT COUNT(*) FROM lottery_entries e WHERE e.round_id = r.id)
 		FROM lottery_rounds r
@@ -318,9 +318,9 @@ func (r *lotteryRepository) SettleRound(ctx context.Context, roundID int64, now 
 
 	round, err := scanLotteryRound(tx.QueryRowContext(ctx, `
 		SELECT r.id, r.starts_at, r.ends_at,
-		       r.first_prize_name, r.first_prize_reward, r.first_prize_weight,
-		       r.second_prize_name, r.second_prize_reward, r.second_prize_weight,
-		       r.third_prize_name, r.third_prize_reward, r.third_prize_weight,
+		       r.first_prize_name, r.first_prize_reward, r.first_prize_weight, r.first_prize_winner_count,
+		       r.second_prize_name, r.second_prize_reward, r.second_prize_weight, r.second_prize_winner_count,
+		       r.third_prize_name, r.third_prize_reward, r.third_prize_weight, r.third_prize_winner_count,
 		       r.settled_at, r.created_at,
 		       (SELECT COUNT(*) FROM lottery_entries e WHERE e.round_id = r.id)
 		FROM lottery_rounds r
@@ -342,8 +342,8 @@ func (r *lotteryRepository) SettleRound(ctx context.Context, roundID int64, now 
 	rows, err := tx.QueryContext(ctx, `
 		SELECT id, user_id
 		FROM lottery_entries
-		WHERE round_id = $1 AND prize_tier IS NULL
-		ORDER BY id ASC
+		WHERE round_id = $1 AND settled_at IS NULL
+		ORDER BY random()
 		FOR UPDATE
 	`, roundID)
 	if err != nil {
@@ -366,11 +366,27 @@ func (r *lotteryRepository) SettleRound(ctx context.Context, roundID int64, now 
 		return result, err
 	}
 
+	remaining := make(map[int]int, len(round.Prizes))
+	for _, prize := range round.Prizes {
+		remaining[prize.Tier] = prize.WinnerCount
+	}
+	result.Entrants = len(entries)
 	for _, entry := range entries {
 		prize, pickErr := picker(round.Prizes)
 		if pickErr != nil {
 			return result, fmt.Errorf("pick lottery prize: %w", pickErr)
 		}
+		if remaining[prize.Tier] <= 0 {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE lottery_entries
+				SET settled_at = $1
+				WHERE id = $2
+			`, now, entry.id); err != nil {
+				return result, fmt.Errorf("save non-winning lottery result: %w", err)
+			}
+			continue
+		}
+		remaining[prize.Tier]--
 		var balance float64
 		if err := tx.QueryRowContext(ctx, `
 			UPDATE users
@@ -388,7 +404,6 @@ func (r *lotteryRepository) SettleRound(ctx context.Context, roundID int64, now 
 		`, prize.Tier, prize.Name, prize.Reward, balance, now, entry.id); err != nil {
 			return result, fmt.Errorf("save lottery result: %w", err)
 		}
-		result.Entrants++
 		result.TotalAward += prize.Reward
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -412,9 +427,9 @@ func scanLotteryRound(scanner lotteryRowScanner) (service.LotteryRound, error) {
 	first.Tier, second.Tier, third.Tier = 1, 2, 3
 	err := scanner.Scan(
 		&round.ID, &round.StartsAt, &round.EndsAt,
-		&first.Name, &first.Reward, &first.Weight,
-		&second.Name, &second.Reward, &second.Weight,
-		&third.Name, &third.Reward, &third.Weight,
+		&first.Name, &first.Reward, &first.Weight, &first.WinnerCount,
+		&second.Name, &second.Reward, &second.Weight, &second.WinnerCount,
+		&third.Name, &third.Reward, &third.Weight, &third.WinnerCount,
 		&settledAt, &round.CreatedAt, &round.ParticipantCount,
 	)
 	if err != nil {

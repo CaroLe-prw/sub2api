@@ -48,7 +48,7 @@
               <h3 class="font-semibold text-gray-900 dark:text-white">{{ prize.name }}</h3>
               <span class="rounded-full bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">{{ t('lottery.admin.chance', { chance: chance(index) }) }}</span>
             </div>
-            <div class="mt-4 grid grid-cols-2 gap-3">
+            <div class="mt-4 grid grid-cols-3 gap-3">
               <div>
                 <label class="input-label">{{ t('lottery.admin.reward') }}</label>
                 <input v-model.number="prize.reward" type="number" min="0.00000001" max="10000" step="0.00000001" class="input mt-1" :disabled="locked" />
@@ -56,6 +56,10 @@
               <div>
                 <label class="input-label">{{ t('lottery.admin.weight') }}</label>
                 <input v-model.number="prize.weight" type="number" min="1" max="1000000" step="1" class="input mt-1" :disabled="locked" />
+              </div>
+              <div>
+                <label class="input-label">{{ t('lottery.admin.winnerCount') }}</label>
+                <input v-model.number="prize.winner_count" type="number" min="1" max="10000" step="1" class="input mt-1" :disabled="locked" />
               </div>
             </div>
           </article>
@@ -130,6 +134,7 @@ interface PrizeForm {
   name: string
   reward: number
   weight: number
+  winner_count: number
 }
 
 const { t, locale } = useI18n()
@@ -200,10 +205,13 @@ async function save() {
       ends_at: form.endsAt ? new Date(form.endsAt).toISOString() : '',
       first_prize_reward: Number(first?.reward || 0),
       first_prize_weight: Number(first?.weight || 0),
+      first_prize_winner_count: Number(first?.winner_count || 0),
       second_prize_reward: Number(second?.reward || 0),
       second_prize_weight: Number(second?.weight || 0),
+      second_prize_winner_count: Number(second?.winner_count || 0),
       third_prize_reward: Number(third?.reward || 0),
       third_prize_weight: Number(third?.weight || 0),
+      third_prize_winner_count: Number(third?.winner_count || 0),
     })
     applyConfig(updated)
     await appStore.fetchPublicSettings(true)

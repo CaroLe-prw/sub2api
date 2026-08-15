@@ -91,14 +91,17 @@ func TestLotterySingleEntrantCanReceiveThirdPrize(t *testing.T) {
 func TestLotteryConfigValidationRejectsInvalidTimeRange(t *testing.T) {
 	now := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
 	_, err := validateLotteryConfig(LotteryConfigureInput{
-		StartsAt:          now.Add(time.Hour),
-		EndsAt:            now,
-		FirstPrizeReward:  1,
-		FirstPrizeWeight:  10,
-		SecondPrizeReward: 0.5,
-		SecondPrizeWeight: 30,
-		ThirdPrizeReward:  0.2,
-		ThirdPrizeWeight:  60,
+		StartsAt:               now.Add(time.Hour),
+		EndsAt:                 now,
+		FirstPrizeReward:       1,
+		FirstPrizeWeight:       10,
+		FirstPrizeWinnerCount:  1,
+		SecondPrizeReward:      0.5,
+		SecondPrizeWeight:      30,
+		SecondPrizeWinnerCount: 1,
+		ThirdPrizeReward:       0.2,
+		ThirdPrizeWeight:       60,
+		ThirdPrizeWinnerCount:  1,
 	}, now)
 	require.ErrorIs(t, err, ErrLotteryInvalid)
 }
@@ -106,15 +109,18 @@ func TestLotteryConfigValidationRejectsInvalidTimeRange(t *testing.T) {
 func TestLotteryConfigMatchesAllowsReopeningLockedRoundWithoutChanges(t *testing.T) {
 	start := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
 	input := LotteryConfigureInput{
-		Enabled:           true,
-		StartsAt:          start,
-		EndsAt:            start.Add(24 * time.Hour),
-		FirstPrizeReward:  1,
-		FirstPrizeWeight:  10,
-		SecondPrizeReward: 0.5,
-		SecondPrizeWeight: 30,
-		ThirdPrizeReward:  0.2,
-		ThirdPrizeWeight:  60,
+		Enabled:                true,
+		StartsAt:               start,
+		EndsAt:                 start.Add(24 * time.Hour),
+		FirstPrizeReward:       1,
+		FirstPrizeWeight:       10,
+		FirstPrizeWinnerCount:  1,
+		SecondPrizeReward:      0.5,
+		SecondPrizeWeight:      30,
+		SecondPrizeWinnerCount: 1,
+		ThirdPrizeReward:       0.2,
+		ThirdPrizeWeight:       60,
+		ThirdPrizeWinnerCount:  1,
 	}
 	prizes, err := validateLotteryConfig(input, start.Add(-time.Minute))
 	require.NoError(t, err)

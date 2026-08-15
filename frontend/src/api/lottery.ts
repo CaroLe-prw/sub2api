@@ -5,6 +5,7 @@ export interface LotteryPrize {
   name: string
   reward: number
   weight: number
+  winner_count: number
 }
 
 export interface LotteryRound {

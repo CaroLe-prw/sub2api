@@ -16,10 +16,13 @@ export interface UpdateLotteryConfigRequest {
   ends_at: string
   first_prize_reward: number
   first_prize_weight: number
+  first_prize_winner_count: number
   second_prize_reward: number
   second_prize_weight: number
+  second_prize_winner_count: number
   third_prize_reward: number
   third_prize_weight: number
+  third_prize_winner_count: number
 }
 
 export interface LotteryAdminResult {
