@@ -212,6 +212,11 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAffiliateEnabled:              "false",
 		SettingKeyAffiliateAdminRechargeEnabled: strconv.FormatBool(AdminRechargeRebateEnabledDefault),
 
+		// Daily check-in (enabled by default for new and upgraded installations).
+		SettingKeyCheckInEnabled:   "true",
+		SettingKeyCheckInRewardMin: strconv.FormatFloat(CheckInRewardMinDefault, 'f', 8, 64),
+		SettingKeyCheckInRewardMax: strconv.FormatFloat(CheckInRewardMaxDefault, 'f', 8, 64),
+
 		// 风控中心功能（默认关闭，显式启用）
 		SettingKeyRiskControlEnabled: "false",
 
@@ -832,6 +837,12 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"
+
+	result.CheckInEnabled = !isFalseSettingValue(settings[SettingKeyCheckInEnabled])
+	result.CheckInRewardMin, result.CheckInRewardMax = parseCheckInRewardRange(
+		settings[SettingKeyCheckInRewardMin],
+		settings[SettingKeyCheckInRewardMax],
+	)
 
 	// 风控中心功能（默认关闭，严格 true 才启用）
 	result.RiskControlEnabled = settings[SettingKeyRiskControlEnabled] == "true"

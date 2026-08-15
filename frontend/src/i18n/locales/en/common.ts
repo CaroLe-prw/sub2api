@@ -158,6 +158,7 @@ export default {
   // Navigation
   nav: {
     dashboard: 'Dashboard',
+    checkIn: 'Daily Check-in',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     batchImage: 'Batch Images',

@@ -88,6 +88,55 @@ func (s *SettingService) IsAffiliateEnabled(ctx context.Context) bool {
 	return value == "true"
 }
 
+func (s *SettingService) IsCheckInEnabled(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil {
+		return true
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyCheckInEnabled)
+	if err != nil {
+		return true
+	}
+	return !isFalseSettingValue(value)
+}
+
+func (s *SettingService) GetCheckInRewardRange(ctx context.Context) (float64, float64) {
+	if s == nil || s.settingRepo == nil {
+		return CheckInRewardMinDefault, CheckInRewardMaxDefault
+	}
+	values, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyCheckInRewardMin, SettingKeyCheckInRewardMax})
+	if err != nil {
+		return CheckInRewardMinDefault, CheckInRewardMaxDefault
+	}
+	return parseCheckInRewardRange(values[SettingKeyCheckInRewardMin], values[SettingKeyCheckInRewardMax])
+}
+
+func parseCheckInRewardRange(rawMin, rawMax string) (float64, float64) {
+	minReward, minErr := strconv.ParseFloat(strings.TrimSpace(rawMin), 64)
+	maxReward, maxErr := strconv.ParseFloat(strings.TrimSpace(rawMax), 64)
+	if minErr != nil {
+		minReward = CheckInRewardMinDefault
+	}
+	if maxErr != nil {
+		maxReward = CheckInRewardMaxDefault
+	}
+	return normalizeCheckInRewardRange(minReward, maxReward)
+}
+
+func normalizeCheckInRewardRange(minReward, maxReward float64) (float64, float64) {
+	if math.IsNaN(minReward) || math.IsInf(minReward, 0) || minReward <= 0 {
+		minReward = CheckInRewardMinDefault
+	}
+	if math.IsNaN(maxReward) || math.IsInf(maxReward, 0) || maxReward <= 0 {
+		maxReward = CheckInRewardMaxDefault
+	}
+	minReward = math.Min(minReward, CheckInRewardMaxAllowed)
+	maxReward = math.Min(maxReward, CheckInRewardMaxAllowed)
+	if maxReward < minReward {
+		maxReward = minReward
+	}
+	return minReward, maxReward
+}
+
 // IsAffiliateAdminRechargeEnabled reports whether admin balance
 // deposits should participate in the affiliate rebate program.
 func (s *SettingService) IsAffiliateAdminRechargeEnabled(ctx context.Context) bool {

@@ -7284,6 +7284,39 @@
           </div>
         </div>
 
+        <!-- Daily check-in feature card -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.checkIn.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.checkIn.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <label class="input-label">{{ t('admin.settings.features.checkIn.enabled') }}</label>
+                <p class="input-hint">{{ t('admin.settings.features.checkIn.enabledHint') }}</p>
+              </div>
+              <Toggle v-model="form.check_in_enabled" />
+            </div>
+            <div v-if="form.check_in_enabled" class="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label class="input-label">{{ t('admin.settings.features.checkIn.rewardMin') }}</label>
+                <input v-model.number="form.check_in_reward_min" type="number" min="0.00000001" max="100" step="0.00000001" class="input mt-1" />
+                <p class="input-hint">{{ t('admin.settings.features.checkIn.rewardMinHint') }}</p>
+              </div>
+              <div>
+                <label class="input-label">{{ t('admin.settings.features.checkIn.rewardMax') }}</label>
+                <input v-model.number="form.check_in_reward_max" type="number" min="0.00000001" max="100" step="0.00000001" class="input mt-1" />
+                <p class="input-hint">{{ t('admin.settings.features.checkIn.rewardMaxHint') }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Affiliate (邀请返利) feature card -->
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -9815,6 +9848,10 @@ const form = reactive<SettingsForm>({
   model_plaza_description: '',
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: false,
+  // Daily check-in
+  check_in_enabled: true,
+  check_in_reward_min: 0.01,
+  check_in_reward_max: 0.15,
   // Allow user view error requests
   allow_user_view_error_requests: false,
 });
@@ -11486,6 +11523,13 @@ async function saveSettings() {
       model_plaza_description: form.model_plaza_description,
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
+      // Daily check-in
+      check_in_enabled: form.check_in_enabled,
+      check_in_reward_min: Math.max(0.00000001, Math.min(100, Number(form.check_in_reward_min) || 0.01)),
+      check_in_reward_max: Math.max(
+        Math.max(0.00000001, Math.min(100, Number(form.check_in_reward_min) || 0.01)),
+        Math.max(0.00000001, Math.min(100, Number(form.check_in_reward_max) || 0.15)),
+      ),
       allow_user_view_error_requests: form.allow_user_view_error_requests,
     };
 

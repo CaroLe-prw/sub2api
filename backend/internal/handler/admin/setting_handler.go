@@ -394,6 +394,9 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ModelPlazaDescription: settings.ModelPlazaDescription,
 
 		AffiliateEnabled: settings.AffiliateEnabled,
+		CheckInEnabled:   settings.CheckInEnabled,
+		CheckInRewardMin: settings.CheckInRewardMin,
+		CheckInRewardMax: settings.CheckInRewardMax,
 
 		AccountSchedulingThresholds: settings.AccountSchedulingThresholds,
 		AllowUserViewErrorRequests:  settings.AllowUserViewErrorRequests,

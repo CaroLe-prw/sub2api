@@ -473,6 +473,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
 
+	// Daily check-in settings
+	updates[SettingKeyCheckInEnabled] = strconv.FormatBool(settings.CheckInEnabled)
+	minReward, maxReward := normalizeCheckInRewardRange(settings.CheckInRewardMin, settings.CheckInRewardMax)
+	updates[SettingKeyCheckInRewardMin] = strconv.FormatFloat(minReward, 'f', 8, 64)
+	updates[SettingKeyCheckInRewardMax] = strconv.FormatFloat(maxReward, 'f', 8, 64)
+
 	// 风控中心功能开关
 	updates[SettingKeyRiskControlEnabled] = strconv.FormatBool(settings.RiskControlEnabled)
 

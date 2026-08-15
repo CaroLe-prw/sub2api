@@ -55,6 +55,9 @@ declare module 'vue-router' {
      */
     requiresRiskControl?: boolean
 
+    /** Whether daily check-in is enabled. */
+    requiresCheckIn?: boolean
+
     /**
      * i18n key for the page title
      */

@@ -337,6 +337,11 @@ type SystemSettings struct {
 	// Affiliate (邀请返利) feature switch
 	AffiliateEnabled bool `json:"affiliate_enabled"`
 
+	// Daily check-in settings
+	CheckInEnabled   bool    `json:"check_in_enabled"`
+	CheckInRewardMin float64 `json:"check_in_reward_min"`
+	CheckInRewardMax float64 `json:"check_in_reward_max"`
+
 	// OpenAI fast/flex policy
 	OpenAIFastPolicySettings *OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
 
@@ -432,6 +437,7 @@ type PublicSettings struct {
 	ModelPlazaRequireAuth bool `json:"model_plaza_require_auth"`
 
 	AffiliateEnabled bool `json:"affiliate_enabled"`
+	CheckInEnabled   bool `json:"check_in_enabled"`
 
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 

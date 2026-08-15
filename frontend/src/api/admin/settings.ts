@@ -819,6 +819,11 @@ export interface SystemSettings {
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: boolean;
 
+  // Daily check-in
+  check_in_enabled: boolean;
+  check_in_reward_min: number;
+  check_in_reward_max: number;
+
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
 
@@ -1124,6 +1129,11 @@ export interface UpdateSettingsRequest {
 
   // Affiliate (邀请返利) feature switch
   affiliate_enabled?: boolean;
+
+  // Daily check-in
+  check_in_enabled?: boolean;
+  check_in_reward_min?: number;
+  check_in_reward_max?: number;
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
