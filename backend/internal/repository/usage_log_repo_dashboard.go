@@ -24,6 +24,9 @@ func (r *usageLogRepository) getPerformanceStats(ctx context.Context, userID int
 	if userID > 0 {
 		query += " AND user_id = $2"
 		args = append(args, userID)
+	} else {
+		query += " AND request_type <> $2"
+		args = append(args, int16(service.RequestTypeProbe))
 	}
 
 	var requestCount int64
@@ -203,10 +206,19 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(SUM(account_cost), 0) as total_account_cost,
+			COALESCE(SUM(probe_requests), 0) as total_probe_requests,
+			COALESCE(SUM(probe_input_tokens), 0) as total_probe_input_tokens,
+			COALESCE(SUM(probe_output_tokens), 0) as total_probe_output_tokens,
+			COALESCE(SUM(probe_cache_creation_tokens), 0) as total_probe_cache_creation_tokens,
+			COALESCE(SUM(probe_cache_read_tokens), 0) as total_probe_cache_read_tokens,
+			COALESCE(SUM(probe_total_cost), 0) as total_probe_standard_cost,
+			COALESCE(SUM(probe_account_cost), 0) as total_probe_account_cost,
+			COALESCE(SUM(probe_duration_ms), 0) as total_probe_duration_ms,
 			COALESCE(SUM(total_duration_ms), 0) as total_duration_ms
 		FROM usage_dashboard_daily
 	`
-	var totalDurationMs int64
+	var totalDurationMs, totalProbeDurationMs int64
+	var totalProbeInputTokens, totalProbeOutputTokens, totalProbeCacheCreationTokens, totalProbeCacheReadTokens int64
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -220,13 +232,25 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.TotalAccountCost,
+		&stats.TotalProbeRequests,
+		&totalProbeInputTokens,
+		&totalProbeOutputTokens,
+		&totalProbeCacheCreationTokens,
+		&totalProbeCacheReadTokens,
+		&stats.TotalProbeStandardCost,
+		&stats.TotalProbeAccountCost,
+		&totalProbeDurationMs,
 		&totalDurationMs,
 	); err != nil {
 		return err
 	}
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
-	if stats.TotalRequests > 0 {
-		stats.AverageDurationMs = float64(totalDurationMs) / float64(stats.TotalRequests)
+	stats.TotalProbeTokens = totalProbeInputTokens + totalProbeOutputTokens + totalProbeCacheCreationTokens + totalProbeCacheReadTokens
+	stats.TotalUserRequests = max(stats.TotalRequests-stats.TotalProbeRequests, 0)
+	stats.TotalUserTokens = max(stats.TotalTokens-stats.TotalProbeTokens, 0)
+	stats.TotalUserAccountCost = nonNegativeDashboardCost(stats.TotalAccountCost - stats.TotalProbeAccountCost)
+	if stats.TotalUserRequests > 0 {
+		stats.AverageDurationMs = float64(max(totalDurationMs-totalProbeDurationMs, 0)) / float64(stats.TotalUserRequests)
 	}
 
 	todayStatsQuery := `
@@ -239,10 +263,19 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 			total_cost as today_cost,
 			actual_cost as today_actual_cost,
 			account_cost as today_account_cost,
+			probe_requests as today_probe_requests,
+			probe_input_tokens as today_probe_input_tokens,
+			probe_output_tokens as today_probe_output_tokens,
+			probe_cache_creation_tokens as today_probe_cache_creation_tokens,
+			probe_cache_read_tokens as today_probe_cache_read_tokens,
+			probe_total_cost as today_probe_standard_cost,
+			probe_account_cost as today_probe_account_cost,
+			probe_duration_ms as today_probe_duration_ms,
 			active_users as active_users
 		FROM usage_dashboard_daily
 		WHERE bucket_date = $1::date
 	`
+	var todayProbeInputTokens, todayProbeOutputTokens, todayProbeCacheCreationTokens, todayProbeCacheReadTokens, todayProbeDurationMs int64
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -256,6 +289,14 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		&stats.TodayCost,
 		&stats.TodayActualCost,
 		&stats.TodayAccountCost,
+		&stats.TodayProbeRequests,
+		&todayProbeInputTokens,
+		&todayProbeOutputTokens,
+		&todayProbeCacheCreationTokens,
+		&todayProbeCacheReadTokens,
+		&stats.TodayProbeStandardCost,
+		&stats.TodayProbeAccountCost,
+		&todayProbeDurationMs,
 		&stats.ActiveUsers,
 	); err != nil {
 		if err != sql.ErrNoRows {
@@ -263,6 +304,10 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		}
 	}
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
+	stats.TodayProbeTokens = todayProbeInputTokens + todayProbeOutputTokens + todayProbeCacheCreationTokens + todayProbeCacheReadTokens
+	stats.TodayUserRequests = max(stats.TodayRequests-stats.TodayProbeRequests, 0)
+	stats.TodayUserTokens = max(stats.TodayTokens-stats.TodayProbeTokens, 0)
+	stats.TodayUserAccountCost = nonNegativeDashboardCost(stats.TodayAccountCost - stats.TodayProbeAccountCost)
 
 	hourlyActiveQuery := `
 		SELECT active_users
@@ -285,6 +330,7 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 		WITH scoped AS (
 			SELECT
 				created_at,
+				request_type,
 				input_tokens,
 				output_tokens,
 				cache_creation_tokens,
@@ -314,15 +360,32 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 			COALESCE(SUM(cache_read_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_cache_read_tokens,
 			COALESCE(SUM(total_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_cost,
 			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_actual_cost,
-			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_account_cost
+			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_account_cost,
+			COUNT(*) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND request_type = $5) AS total_probe_requests,
+			COALESCE(SUM(input_tokens) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND request_type = $5), 0) AS total_probe_input_tokens,
+			COALESCE(SUM(output_tokens) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND request_type = $5), 0) AS total_probe_output_tokens,
+			COALESCE(SUM(cache_creation_tokens) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND request_type = $5), 0) AS total_probe_cache_creation_tokens,
+			COALESCE(SUM(cache_read_tokens) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND request_type = $5), 0) AS total_probe_cache_read_tokens,
+			COALESCE(SUM(total_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND request_type = $5), 0) AS total_probe_standard_cost,
+			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND request_type = $5), 0) AS total_probe_account_cost,
+			COALESCE(SUM(duration_ms) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND request_type = $5), 0) AS total_probe_duration_ms,
+			COUNT(*) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz AND request_type = $5) AS today_probe_requests,
+			COALESCE(SUM(input_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz AND request_type = $5), 0) AS today_probe_input_tokens,
+			COALESCE(SUM(output_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz AND request_type = $5), 0) AS today_probe_output_tokens,
+			COALESCE(SUM(cache_creation_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz AND request_type = $5), 0) AS today_probe_cache_creation_tokens,
+			COALESCE(SUM(cache_read_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz AND request_type = $5), 0) AS today_probe_cache_read_tokens,
+			COALESCE(SUM(total_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz AND request_type = $5), 0) AS today_probe_standard_cost,
+			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz AND request_type = $5), 0) AS today_probe_account_cost
 		FROM scoped
 	`
-	var totalDurationMs int64
+	var totalDurationMs, totalProbeDurationMs int64
+	var totalProbeInputTokens, totalProbeOutputTokens, totalProbeCacheCreationTokens, totalProbeCacheReadTokens int64
+	var todayProbeInputTokens, todayProbeOutputTokens, todayProbeCacheCreationTokens, todayProbeCacheReadTokens int64
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
 		combinedStatsQuery,
-		[]any{startUTC, endUTC, todayUTC, todayEnd},
+		[]any{startUTC, endUTC, todayUTC, todayEnd, int16(service.RequestTypeProbe)},
 		&stats.TotalRequests,
 		&stats.TotalInputTokens,
 		&stats.TotalOutputTokens,
@@ -340,15 +403,38 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 		&stats.TodayCost,
 		&stats.TodayActualCost,
 		&stats.TodayAccountCost,
+		&stats.TotalProbeRequests,
+		&totalProbeInputTokens,
+		&totalProbeOutputTokens,
+		&totalProbeCacheCreationTokens,
+		&totalProbeCacheReadTokens,
+		&stats.TotalProbeStandardCost,
+		&stats.TotalProbeAccountCost,
+		&totalProbeDurationMs,
+		&stats.TodayProbeRequests,
+		&todayProbeInputTokens,
+		&todayProbeOutputTokens,
+		&todayProbeCacheCreationTokens,
+		&todayProbeCacheReadTokens,
+		&stats.TodayProbeStandardCost,
+		&stats.TodayProbeAccountCost,
 	); err != nil {
 		return err
 	}
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
-	if stats.TotalRequests > 0 {
-		stats.AverageDurationMs = float64(totalDurationMs) / float64(stats.TotalRequests)
+	stats.TotalProbeTokens = totalProbeInputTokens + totalProbeOutputTokens + totalProbeCacheCreationTokens + totalProbeCacheReadTokens
+	stats.TotalUserRequests = max(stats.TotalRequests-stats.TotalProbeRequests, 0)
+	stats.TotalUserTokens = max(stats.TotalTokens-stats.TotalProbeTokens, 0)
+	stats.TotalUserAccountCost = nonNegativeDashboardCost(stats.TotalAccountCost - stats.TotalProbeAccountCost)
+	if stats.TotalUserRequests > 0 {
+		stats.AverageDurationMs = float64(max(totalDurationMs-totalProbeDurationMs, 0)) / float64(stats.TotalUserRequests)
 	}
 
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
+	stats.TodayProbeTokens = todayProbeInputTokens + todayProbeOutputTokens + todayProbeCacheCreationTokens + todayProbeCacheReadTokens
+	stats.TodayUserRequests = max(stats.TodayRequests-stats.TodayProbeRequests, 0)
+	stats.TodayUserTokens = max(stats.TodayTokens-stats.TodayProbeTokens, 0)
+	stats.TodayUserAccountCost = nonNegativeDashboardCost(stats.TodayAccountCost - stats.TodayProbeAccountCost)
 
 	hourStart := now.UTC().Truncate(time.Hour)
 	hourEnd := hourStart.Add(time.Hour)
@@ -369,6 +455,13 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 	}
 
 	return nil
+}
+
+func nonNegativeDashboardCost(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	return value
 }
 
 // UserDashboardStats 用户仪表盘统计

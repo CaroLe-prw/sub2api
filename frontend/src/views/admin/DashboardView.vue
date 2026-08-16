@@ -15,7 +15,7 @@
               <div class="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/30">
                 <Icon name="key" size="md" class="text-blue-600 dark:text-blue-400" :stroke-width="2" />
               </div>
-              <div>
+              <div class="min-w-0">
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.apiKeys') }}
                 </p>
@@ -35,7 +35,7 @@
               <div class="rounded-lg bg-purple-100 p-2 dark:bg-purple-900/30">
                 <Icon name="server" size="md" class="text-purple-600 dark:text-purple-400" :stroke-width="2" />
               </div>
-              <div>
+              <div class="min-w-0">
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.accounts') }}
                 </p>
@@ -60,16 +60,17 @@
               <div class="rounded-lg bg-green-100 p-2 dark:bg-green-900/30">
                 <Icon name="chart" size="md" class="text-green-600 dark:text-green-400" :stroke-width="2" />
               </div>
-              <div>
+              <div class="min-w-0">
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.todayRequests') }}
                 </p>
                 <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ stats.today_requests }}
+                  {{ formatNumber(stats.today_user_requests ?? stats.today_requests) }}
                 </p>
-                <p class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('common.total') }}: {{ formatNumber(stats.total_requests) }}
-                </p>
+                <div class="space-y-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                  <p>{{ t('admin.dashboard.automaticProbes') }}: {{ formatNumber(stats.today_probe_requests ?? 0) }}</p>
+                  <p>{{ t('admin.dashboard.combinedTotal') }}: {{ formatNumber(stats.today_requests) }}</p>
+                </div>
               </div>
             </div>
           </div>
@@ -80,7 +81,7 @@
               <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30">
                 <Icon name="userPlus" size="md" class="text-emerald-600 dark:text-emerald-400" :stroke-width="2" />
               </div>
-              <div>
+              <div class="min-w-0">
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.users') }}
                 </p>
@@ -103,32 +104,32 @@
               <div class="rounded-lg bg-amber-100 p-2 dark:bg-amber-900/30">
                 <Icon name="cube" size="md" class="text-amber-600 dark:text-amber-400" :stroke-width="2" />
               </div>
-              <div>
+              <div class="min-w-0">
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.todayTokens') }}
                 </p>
                 <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ formatTokens(stats.today_tokens) }}
+                  {{ formatTokens(stats.today_user_tokens ?? stats.today_tokens) }}
                 </p>
-                <p class="text-xs">
-                  <span
-                    class="text-green-600 dark:text-green-400"
-                    :title="t('admin.dashboard.actual')"
-                    >${{ formatCost(stats.today_actual_cost) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span
-                    class="text-orange-500 dark:text-orange-400"
-                    :title="t('admin.dashboard.accountCost')"
-                    >${{ formatCost(stats.today_account_cost) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span
-                    class="text-gray-400 dark:text-gray-500"
-                    :title="t('admin.dashboard.standard')"
-                    >${{ formatCost(stats.today_cost) }}</span
-                  >
-                </p>
+                <div class="space-y-0.5 text-[10px] leading-tight">
+                  <p class="text-gray-500 dark:text-gray-400">
+                    {{ t('admin.dashboard.probeTokens') }}: {{ formatTokens(stats.today_probe_tokens ?? 0) }} ·
+                    {{ t('admin.dashboard.combinedTotal') }}: {{ formatTokens(stats.today_tokens) }}
+                  </p>
+                  <p class="text-green-600 dark:text-green-400">
+                    {{ t('admin.dashboard.userRevenue') }}: ${{ formatCost(stats.today_actual_cost) }}
+                  </p>
+                  <p class="text-orange-500 dark:text-orange-400">
+                    {{ t('admin.dashboard.userRequestCost') }}: ${{ formatCost(stats.today_user_account_cost ?? stats.today_account_cost) }}
+                  </p>
+                  <p class="text-fuchsia-500 dark:text-fuchsia-400">
+                    {{ t('admin.dashboard.probeCost') }}: ${{ formatCost(stats.today_probe_account_cost ?? 0) }}
+                  </p>
+                  <p class="text-gray-500 dark:text-gray-400">
+                    {{ t('admin.dashboard.totalAccountCost') }}: ${{ formatCost(stats.today_account_cost) }} ·
+                    {{ t('admin.dashboard.standardListCost') }}: ${{ formatCost(stats.today_cost) }}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -139,32 +140,32 @@
               <div class="rounded-lg bg-indigo-100 p-2 dark:bg-indigo-900/30">
                 <Icon name="database" size="md" class="text-indigo-600 dark:text-indigo-400" :stroke-width="2" />
               </div>
-              <div>
+              <div class="min-w-0">
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.totalTokens') }}
                 </p>
                 <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ formatTokens(stats.total_tokens) }}
+                  {{ formatTokens(stats.total_user_tokens ?? stats.total_tokens) }}
                 </p>
-                <p class="text-xs">
-                  <span
-                    class="text-green-600 dark:text-green-400"
-                    :title="t('admin.dashboard.actual')"
-                    >${{ formatCost(stats.total_actual_cost) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span
-                    class="text-orange-500 dark:text-orange-400"
-                    :title="t('admin.dashboard.accountCost')"
-                    >${{ formatCost(stats.total_account_cost) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span
-                    class="text-gray-400 dark:text-gray-500"
-                    :title="t('admin.dashboard.standard')"
-                    >${{ formatCost(stats.total_cost) }}</span
-                  >
-                </p>
+                <div class="space-y-0.5 text-[10px] leading-tight">
+                  <p class="text-gray-500 dark:text-gray-400">
+                    {{ t('admin.dashboard.probeTokens') }}: {{ formatTokens(stats.total_probe_tokens ?? 0) }} ·
+                    {{ t('admin.dashboard.combinedTotal') }}: {{ formatTokens(stats.total_tokens) }}
+                  </p>
+                  <p class="text-green-600 dark:text-green-400">
+                    {{ t('admin.dashboard.userRevenue') }}: ${{ formatCost(stats.total_actual_cost) }}
+                  </p>
+                  <p class="text-orange-500 dark:text-orange-400">
+                    {{ t('admin.dashboard.userRequestCost') }}: ${{ formatCost(stats.total_user_account_cost ?? stats.total_account_cost) }}
+                  </p>
+                  <p class="text-fuchsia-500 dark:text-fuchsia-400">
+                    {{ t('admin.dashboard.probeCost') }}: ${{ formatCost(stats.total_probe_account_cost ?? 0) }}
+                  </p>
+                  <p class="text-gray-500 dark:text-gray-400">
+                    {{ t('admin.dashboard.totalAccountCost') }}: ${{ formatCost(stats.total_account_cost) }} ·
+                    {{ t('admin.dashboard.standardListCost') }}: ${{ formatCost(stats.total_cost) }}
+                  </p>
+                </div>
               </div>
             </div>
           </div>

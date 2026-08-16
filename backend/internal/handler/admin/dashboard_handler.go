@@ -114,6 +114,14 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"total_tokens":                stats.TotalTokens,
 		"total_cost":                  stats.TotalCost,       // 标准计费
 		"total_actual_cost":           stats.TotalActualCost, // 实际扣除
+		"total_account_cost":          stats.TotalAccountCost,
+		"total_user_requests":         stats.TotalUserRequests,
+		"total_probe_requests":        stats.TotalProbeRequests,
+		"total_user_tokens":           stats.TotalUserTokens,
+		"total_probe_tokens":          stats.TotalProbeTokens,
+		"total_user_account_cost":     stats.TotalUserAccountCost,
+		"total_probe_account_cost":    stats.TotalProbeAccountCost,
+		"total_probe_standard_cost":   stats.TotalProbeStandardCost,
 
 		// 今日 Token 使用统计
 		"today_requests":              stats.TodayRequests,
@@ -124,6 +132,14 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"today_tokens":                stats.TodayTokens,
 		"today_cost":                  stats.TodayCost,       // 今日标准计费
 		"today_actual_cost":           stats.TodayActualCost, // 今日实际扣除
+		"today_account_cost":          stats.TodayAccountCost,
+		"today_user_requests":         stats.TodayUserRequests,
+		"today_probe_requests":        stats.TodayProbeRequests,
+		"today_user_tokens":           stats.TodayUserTokens,
+		"today_probe_tokens":          stats.TodayProbeTokens,
+		"today_user_account_cost":     stats.TodayUserAccountCost,
+		"today_probe_account_cost":    stats.TodayProbeAccountCost,
+		"today_probe_standard_cost":   stats.TodayProbeStandardCost,
 
 		// 系统运行统计
 		"average_duration_ms": stats.AverageDurationMs,

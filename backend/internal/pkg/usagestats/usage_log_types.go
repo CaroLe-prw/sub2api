@@ -59,6 +59,13 @@ type DashboardStats struct {
 	TotalCost                float64 `json:"total_cost"`         // 累计标准计费
 	TotalActualCost          float64 `json:"total_actual_cost"`  // 累计实际扣除
 	TotalAccountCost         float64 `json:"total_account_cost"` // 累计账号成本
+	TotalUserRequests        int64   `json:"total_user_requests"`
+	TotalProbeRequests       int64   `json:"total_probe_requests"`
+	TotalUserTokens          int64   `json:"total_user_tokens"`
+	TotalProbeTokens         int64   `json:"total_probe_tokens"`
+	TotalUserAccountCost     float64 `json:"total_user_account_cost"`
+	TotalProbeAccountCost    float64 `json:"total_probe_account_cost"`
+	TotalProbeStandardCost   float64 `json:"total_probe_standard_cost"`
 
 	// 今日 Token 使用统计
 	TodayRequests            int64   `json:"today_requests"`
@@ -70,6 +77,13 @@ type DashboardStats struct {
 	TodayCost                float64 `json:"today_cost"`         // 今日标准计费
 	TodayActualCost          float64 `json:"today_actual_cost"`  // 今日实际扣除
 	TodayAccountCost         float64 `json:"today_account_cost"` // 今日账号成本
+	TodayUserRequests        int64   `json:"today_user_requests"`
+	TodayProbeRequests       int64   `json:"today_probe_requests"`
+	TodayUserTokens          int64   `json:"today_user_tokens"`
+	TodayProbeTokens         int64   `json:"today_probe_tokens"`
+	TodayUserAccountCost     float64 `json:"today_user_account_cost"`
+	TodayProbeAccountCost    float64 `json:"today_probe_account_cost"`
+	TodayProbeStandardCost   float64 `json:"today_probe_standard_cost"`
 
 	// 系统运行统计
 	AverageDurationMs float64 `json:"average_duration_ms"` // 平均响应时间

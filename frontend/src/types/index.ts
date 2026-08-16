@@ -1972,6 +1972,13 @@ export interface DashboardStats {
   total_cost: number // 累计标准计费
   total_actual_cost: number // 累计实际扣除
   total_account_cost: number // 累计账号成本
+  total_user_requests: number // 累计用户请求数（不含系统探测）
+  total_probe_requests: number // 累计系统探测请求数
+  total_user_tokens: number // 累计用户 Token（不含系统探测）
+  total_probe_tokens: number // 累计系统探测 Token
+  total_user_account_cost: number // 累计用户请求账号成本
+  total_probe_account_cost: number // 累计系统探测账号成本
+  total_probe_standard_cost: number // 累计系统探测标准价格
 
   // 今日 Token 使用统计
   today_requests: number
@@ -1983,6 +1990,13 @@ export interface DashboardStats {
   today_cost: number // 今日标准计费
   today_actual_cost: number // 今日实际扣除
   today_account_cost: number // 今日账号成本
+  today_user_requests: number // 今日用户请求数（不含系统探测）
+  today_probe_requests: number // 今日系统探测请求数
+  today_user_tokens: number // 今日用户 Token（不含系统探测）
+  today_probe_tokens: number // 今日系统探测 Token
+  today_user_account_cost: number // 今日用户请求账号成本
+  today_probe_account_cost: number // 今日系统探测账号成本
+  today_probe_standard_cost: number // 今日系统探测标准价格
 
   // 系统运行统计
   average_duration_ms: number // 平均响应时间

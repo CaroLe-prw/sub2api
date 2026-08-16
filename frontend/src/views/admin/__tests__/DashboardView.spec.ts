@@ -72,6 +72,14 @@ const createDashboardStats = (): DashboardStats => ({
   total_tokens: 0,
   total_cost: 0,
   total_actual_cost: 0,
+  total_account_cost: 0,
+  total_user_requests: 0,
+  total_probe_requests: 0,
+  total_user_tokens: 0,
+  total_probe_tokens: 0,
+  total_user_account_cost: 0,
+  total_probe_account_cost: 0,
+  total_probe_standard_cost: 0,
   today_requests: 0,
   today_input_tokens: 0,
   today_output_tokens: 0,
@@ -80,6 +88,14 @@ const createDashboardStats = (): DashboardStats => ({
   today_tokens: 0,
   today_cost: 0,
   today_actual_cost: 0,
+  today_account_cost: 0,
+  today_user_requests: 0,
+  today_probe_requests: 0,
+  today_user_tokens: 0,
+  today_probe_tokens: 0,
+  today_user_account_cost: 0,
+  today_probe_account_cost: 0,
+  today_probe_standard_cost: 0,
   average_duration_ms: 0,
   uptime: 0,
   rpm: 0,
@@ -142,5 +158,53 @@ describe('admin DashboardView', () => {
       end_date: formatLocalDate(now),
       granularity: 'hour'
     }))
+  })
+
+  it('shows user usage, probe usage, and combined account cost separately', async () => {
+    getSnapshotV2.mockResolvedValue({
+      stats: {
+        ...createDashboardStats(),
+        today_requests: 13,
+        today_user_requests: 10,
+        today_probe_requests: 3,
+        today_tokens: 1300,
+        today_user_tokens: 1000,
+        today_probe_tokens: 300,
+        today_actual_cost: 2,
+        today_account_cost: 1.25,
+        today_user_account_cost: 1,
+        today_probe_account_cost: 0.25,
+        total_tokens: 2600,
+        total_user_tokens: 2000,
+        total_probe_tokens: 600,
+        total_actual_cost: 4,
+        total_account_cost: 2.5,
+        total_user_account_cost: 2,
+        total_probe_account_cost: 0.5
+      },
+      trend: [],
+      models: []
+    })
+
+    const wrapper = mount(DashboardView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          LoadingSpinner: true,
+          Icon: true,
+          DateRangePicker: true,
+          Select: true,
+          ModelDistributionChart: true,
+          TokenUsageTrend: true,
+          Line: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.dashboard.automaticProbes: 3')
+    expect(wrapper.text()).toContain('admin.dashboard.probeCost: $0.250')
+    expect(wrapper.text()).toContain('admin.dashboard.totalAccountCost: $1.25')
   })
 })
