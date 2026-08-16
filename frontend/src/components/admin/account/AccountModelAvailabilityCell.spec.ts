@@ -54,6 +54,38 @@ function mountCell(value: PoolMonitorAccount | null) {
 }
 
 describe('AccountModelAvailabilityCell', () => {
+  it('uses the newest embedded heartbeat and shows a slow success as available but degraded', () => {
+    const staleModel = model(1, 'failed')
+    staleModel.recent_results = [
+      {
+        id: 1,
+        plan_id: 1,
+        status: 'failed',
+        ttft_ms: null,
+        latency_ms: 178,
+        started_at: '2026-08-16T03:35:00Z',
+        finished_at: '2026-08-16T03:35:00Z',
+        created_at: '2026-08-16T03:35:00Z',
+      },
+      {
+        id: 2,
+        plan_id: 1,
+        status: 'success',
+        ttft_ms: 12_000,
+        latency_ms: 12_500,
+        started_at: '2026-08-16T03:36:00Z',
+        finished_at: '2026-08-16T03:36:00Z',
+        created_at: '2026-08-16T03:36:00Z',
+      },
+    ]
+
+    const wrapper = mountCell(monitor([staleModel]))
+
+    expect(wrapper.text()).toContain('1/1')
+    expect(wrapper.text()).toContain('admin.accounts.modelAvailability.states.degraded')
+    expect(wrapper.get('span.font-mono').classes()).toContain('text-amber-600')
+  })
+
   it('shows an amber partial state and opens the monitor detail', async () => {
     const value = monitor([model(1, 'success'), model(2, 'failed')])
     const wrapper = mountCell(value)

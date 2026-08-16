@@ -134,6 +134,7 @@ export default {
         loadError: '加载模型可用性失败',
         states: {
           healthy: '全部可用',
+          degraded: '响应偏慢',
           partial: '部分可用',
           failed: '全部异常',
           pending: '待探测',

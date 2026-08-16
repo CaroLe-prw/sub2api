@@ -13,7 +13,7 @@ const props = defineProps<{
 const { t } = useI18n()
 
 const visibleSamples = computed(() => [...props.samples]
-  .sort((left, right) => Date.parse(left.finished_at) - Date.parse(right.finished_at))
+  .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
   .slice(-VISIBLE_SAMPLE_LIMIT))
 
 const firstSample = computed(() => visibleSamples.value[0] ?? null)

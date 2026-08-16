@@ -54,6 +54,8 @@ describe('MonitorAutoModelsPanel', () => {
 
     expect(updatePolicy).toHaveBeenCalledWith({
       enabled: true,
+      mode: 'fixed',
+      fixed_interval_minutes: 5,
       whitelist: ['gpt-5.*', 'claude-*', 'gemini-3-*'],
     })
     expect(showSuccess).toHaveBeenCalled()

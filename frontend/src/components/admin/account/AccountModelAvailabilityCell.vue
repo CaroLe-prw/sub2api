@@ -2,10 +2,12 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { PoolMonitorAccount } from '@/api/admin/schedulerProbes'
+import type { PoolMonitorAccount, PoolMonitorModel } from '@/api/admin/schedulerProbes'
 import MonitorCompactHeartbeatStrip from '@/components/admin/monitor/MonitorCompactHeartbeatStrip.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { HeartbeatSource } from '@/components/admin/monitor/monitorHeartbeatAggregation'
+import { resolveCurrentProbe } from '@/components/admin/monitor/monitorCurrentProbeState'
+import type { CurrentProbeState } from '@/components/admin/monitor/monitorCurrentProbeState'
 
 const props = defineProps<{
   monitor: PoolMonitorAccount | null
@@ -18,12 +20,20 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+function currentModelState(model: PoolMonitorModel): CurrentProbeState {
+  return resolveCurrentProbe(model, model.recent_results ?? []).state
+}
+
 const totalModels = computed(() => props.monitor?.models.length ?? 0)
-const availableModels = computed(() => props.monitor?.models.filter((model) => model.status === 'success').length ?? 0)
-const hasFailure = computed(() => props.monitor?.models.some((model) => model.status === 'failed') ?? false)
-const state = computed<'healthy' | 'partial' | 'failed' | 'pending' | 'unmonitored'>(() => {
+const availableModels = computed(() => props.monitor?.models.filter((model) => {
+  const status = currentModelState(model)
+  return status === 'success' || status === 'degraded'
+}).length ?? 0)
+const hasFailure = computed(() => props.monitor?.models.some((model) => currentModelState(model) === 'failed') ?? false)
+const hasDegraded = computed(() => props.monitor?.models.some((model) => currentModelState(model) === 'degraded') ?? false)
+const state = computed<'healthy' | 'degraded' | 'partial' | 'failed' | 'pending' | 'unmonitored'>(() => {
   if (!props.monitor || totalModels.value === 0) return 'unmonitored'
-  if (availableModels.value === totalModels.value) return 'healthy'
+  if (availableModels.value === totalModels.value) return hasDegraded.value ? 'degraded' : 'healthy'
   if (availableModels.value > 0) return 'partial'
   if (hasFailure.value) return 'failed'
   return 'pending'
@@ -64,7 +74,7 @@ function openDetail() {
         class="font-mono text-sm font-semibold tabular-nums"
         :class="{
           'text-emerald-600 dark:text-emerald-400': state === 'healthy',
-          'text-amber-600 dark:text-amber-400': state === 'partial',
+          'text-amber-600 dark:text-amber-400': state === 'degraded' || state === 'partial',
           'text-red-600 dark:text-red-400': state === 'failed',
           'text-gray-500 dark:text-gray-400': state === 'pending',
         }"

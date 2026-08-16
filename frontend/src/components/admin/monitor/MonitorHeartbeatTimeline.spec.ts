@@ -82,6 +82,33 @@ describe('MonitorHeartbeatTimeline', () => {
     expect(wrapper.text()).toContain('上次 刚刚')
   })
 
+  it('orders heartbeats by persisted result time so the rightmost bar matches current status', () => {
+    const olderPersistedFailure = {
+      ...sample(1, '2026-08-13T11:59:58Z'),
+      status: 'failed' as const,
+      created_at: '2026-08-13T11:59:58Z',
+    }
+    const latestPersistedSuccess = {
+      ...sample(2, '2026-08-13T11:59:57Z'),
+      created_at: '2026-08-13T11:59:59Z',
+    }
+
+    const wrapper = mount(MonitorHeartbeatTimeline, {
+      props: { samples: [latestPersistedSuccess, olderPersistedFailure] },
+      global: {
+        stubs: {
+          MonitorHeartbeatTooltip: {
+            props: ['sample'],
+            template: '<button class="heartbeat" :data-sample-id="sample.id" />',
+          },
+        },
+      },
+    })
+
+    const heartbeats = wrapper.findAll('.heartbeat')
+    expect(heartbeats.map((item) => item.attributes('data-sample-id'))).toEqual(['1', '2'])
+  })
+
   it('shows the empty state without range labels before the first probe', () => {
     const wrapper = mount(MonitorHeartbeatTimeline, { props: { samples: [] } })
 

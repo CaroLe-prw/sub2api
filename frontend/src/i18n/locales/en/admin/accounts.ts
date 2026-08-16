@@ -188,6 +188,7 @@ export default {
         loadError: 'Failed to load model availability',
         states: {
           healthy: 'All available',
+          degraded: 'Slow response',
           partial: 'Partially available',
           failed: 'All failed',
           pending: 'Pending probe',

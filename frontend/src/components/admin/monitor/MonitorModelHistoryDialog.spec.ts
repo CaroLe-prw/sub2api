@@ -1,0 +1,141 @@
+import { mount } from '@vue/test-utils'
+import { describe, expect, it, vi } from 'vitest'
+
+import type { PoolMonitorAccount, PoolProbeResult } from '@/api/admin/schedulerProbes'
+import MonitorModelHistoryDialog from './MonitorModelHistoryDialog.vue'
+
+vi.mock('vue-i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('vue-i18n')>()
+  return {
+    ...actual,
+    useI18n: () => ({
+      t: (key: string) => ({
+        'admin.channelMonitor.dataPanel.channelDetailTitle': '渠道监控详情',
+        'admin.channelMonitor.dataPanel.streaming': '流式',
+        'admin.channelMonitor.dataPanel.probeState': '探测状态',
+        'admin.channelMonitor.dataPanel.healthy': '正常',
+        'admin.channelMonitor.dataPanel.hasIssues': '存在异常',
+        'admin.channelMonitor.dataPanel.scheduling': '调度',
+        'admin.channelMonitor.dataPanel.automatic': '自动',
+        'admin.channelMonitor.dataPanel.detectedModels': '模型数',
+        'admin.channelMonitor.dataPanel.concurrency': '并发',
+        'admin.channelMonitor.dataPanel.avgLatency': '平均延迟',
+        'admin.channelMonitor.dataPanel.validSamples': '有效样本',
+        'admin.channelMonitor.dataPanel.availability': '可用率',
+        'admin.channelMonitor.dataPanel.totalSamples': '总样本',
+        'admin.channelMonitor.dataPanel.abnormalSamples': '失败样本（红色）',
+        'admin.channelMonitor.dataPanel.retainedSamples': '保留样本',
+        'admin.channelMonitor.dataPanel.modelPerformance': '各模型表现',
+        'admin.channelMonitor.dataPanel.historyScope': '历史',
+        'admin.channelMonitor.dataPanel.modelCount': '1 个模型',
+        'admin.channelMonitor.dataPanel.probeStatus.success': '在线',
+        'admin.channelMonitor.dataPanel.probeStatus.failed': '异常',
+        'admin.channelMonitor.dataPanel.probeStatus.degraded': '响应偏慢',
+        'admin.channelMonitor.runNow': '立即检测',
+        'common.close': '关闭',
+      })[key] ?? key,
+    }),
+  }
+})
+
+const account: PoolMonitorAccount = {
+  account_id: 347,
+  name: 'tkapi-福利',
+  platform: 'openai',
+  type: 'apikey',
+  status: 'active',
+  schedulable: true,
+  concurrency: 100,
+  models: [{
+    plan_id: 81,
+    model: 'gpt-5.6-terra',
+    enabled: true,
+    status: 'failed',
+    latency_ms: 178,
+    availability: 99,
+    sample_count: 100,
+    failure_count: 2,
+    last_checked_at: '2026-08-16T03:35:00Z',
+    recent_results: [],
+  }],
+}
+
+function result(id: number, status: PoolProbeResult['status'], createdAt: string, ttftMs: number | null): PoolProbeResult {
+  return {
+    id,
+    plan_id: 81,
+    status,
+    response_text: status === 'success' ? 'ok' : '',
+    error_message: status === 'failed' ? 'upstream error' : '',
+    ttft_ms: ttftMs,
+    latency_ms: status === 'success' ? 12_500 : 178,
+    started_at: createdAt,
+    finished_at: createdAt,
+    created_at: createdAt,
+  }
+}
+
+describe('MonitorModelHistoryDialog', () => {
+  it('does not count successful yellow slow-response samples as abnormal', () => {
+    const wrapper = mount(MonitorModelHistoryDialog, {
+      props: {
+        show: true,
+        account: {
+          ...account,
+          models: [{ ...account.models[0], status: 'success', failure_count: 0 }],
+        },
+        histories: {
+          81: [result(1, 'success', '2026-08-16T03:36:00Z', 12_000)],
+        },
+        loading: false,
+        runningPlanId: null,
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            props: ['show'],
+            template: '<div v-if="show"><slot /><slot name="footer" /></div>',
+          },
+          Icon: true,
+          MonitorHeartbeatTimeline: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('失败样本（红色）0')
+    expect(wrapper.text()).toContain('响应偏慢')
+  })
+
+  it('shows the latest slow success as degraded even when older history contains failures', () => {
+    const wrapper = mount(MonitorModelHistoryDialog, {
+      props: {
+        show: true,
+        account,
+        histories: {
+          81: [
+            result(2, 'success', '2026-08-16T03:36:00Z', 12_000),
+            result(1, 'failed', '2026-08-16T03:35:00Z', null),
+          ],
+        },
+        loading: false,
+        runningPlanId: null,
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            props: ['show'],
+            template: '<div v-if="show"><slot /><slot name="footer" /></div>',
+          },
+          Icon: true,
+          MonitorHeartbeatTimeline: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('响应偏慢')
+    expect(wrapper.text()).not.toContain('存在异常')
+    expect(wrapper.findAll('.bg-red-500')).toHaveLength(0)
+    expect(wrapper.findAll('.bg-amber-500').length).toBeGreaterThan(0)
+    expect(wrapper.text()).toContain('1')
+  })
+})
