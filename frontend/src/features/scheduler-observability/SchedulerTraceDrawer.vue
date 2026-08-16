@@ -26,6 +26,14 @@ const cacheRate = computed(() => {
   return props.trace.cacheReadTokens / props.trace.cacheEligibleTokens;
 });
 
+const lastSelectionFailure = computed(() => {
+  const attempts = props.trace?.attempts ?? [];
+  for (let index = attempts.length - 1; index >= 0; index--) {
+    if (attempts[index].kind === "selection_failed") return attempts[index];
+  }
+  return null;
+});
+
 const stateClasses: Record<SchedulerCandidateState, string> = {
   selected: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/20",
   tried: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/20",
@@ -63,18 +71,26 @@ function reasonLabel(reason?: string): string {
 }
 
 function attemptTitle(attempt: SchedulerAttempt): string {
+  if (attempt.kind === "upstream_failure" && !attempt.upstreamStatus) {
+    return t("admin.schedulerObservability.attempts.upstream_failure_without_status", {
+      account: attempt.accountId ? `#${attempt.accountId}` : "",
+    });
+  }
   if (attempt.kind === "same_account_retry" && !attempt.retryLimit) {
     return t("admin.schedulerObservability.attempts.same_account_retry_without_limit", {
       account: attempt.accountId ? `#${attempt.accountId}` : "",
       retry: attempt.retryCount ?? "",
     });
   }
+  if (attempt.kind === "retry_stopped" && attempt.reason === "request_error_not_retryable") {
+    return t("admin.schedulerObservability.attempts.retry_stopped_request_error");
+  }
   if (attempt.kind === "retry_continued") {
     return t("admin.schedulerObservability.attempts.retry_continued", {
       elapsed: formatCompactDuration(attempt.offsetMs),
       budget: formatCompactDuration(attempt.budgetMs ?? 0),
       remaining: attempt.remainingCandidates == null || attempt.remainingCandidates < 0
-        ? "—"
+        ? t("admin.schedulerObservability.attempts.remainingUnknown")
         : attempt.remainingCandidates,
     });
   }
@@ -96,7 +112,7 @@ function attemptTone(attempt: SchedulerAttempt): string {
   if (attempt.kind === "request_success") return "bg-emerald-500 text-white";
   if (attempt.kind === "retry_stopped") return "bg-rose-500 text-white";
   if (attempt.kind === "retry_continued") return "bg-sky-500 text-white";
-  if (["upstream_failure", "sticky_escape", "admission_rejected"].includes(attempt.kind)) {
+  if (["upstream_failure", "sticky_escape", "admission_rejected", "selection_failed"].includes(attempt.kind)) {
     return "bg-amber-500 text-white";
   }
   return "bg-gray-200 text-gray-600 dark:bg-dark-700 dark:text-dark-200";
@@ -104,7 +120,7 @@ function attemptTone(attempt: SchedulerAttempt): string {
 
 function attemptIcon(attempt: SchedulerAttempt): "check" | "exclamationCircle" | "swap" | "refresh" | "link" {
   if (attempt.kind === "request_success") return "check";
-  if (["upstream_failure", "admission_rejected", "retry_stopped"].includes(attempt.kind)) {
+  if (["upstream_failure", "admission_rejected", "retry_stopped", "selection_failed"].includes(attempt.kind)) {
     return "exclamationCircle";
   }
   if (["account_switch", "account_reselected"].includes(attempt.kind)) return "swap";
@@ -113,9 +129,38 @@ function attemptIcon(attempt: SchedulerAttempt): "check" | "exclamationCircle" |
 }
 
 function attemptDescription(attempt: SchedulerAttempt): string {
+  if (attempt.kind === "selection_failed") return selectionFailureDescription(attempt);
   if (attempt.reason) return reasonLabel(attempt.reason);
   if (attempt.accountName) return attempt.accountName;
   return t("admin.schedulerObservability.attempts.noExtraDetail");
+}
+
+function diagnosticLabel(scope: "filterReasons" | "selectionConstraints", value: string): string {
+  const key = `admin.schedulerObservability.${scope}.${value}`;
+  const translated = t(key);
+  return translated === key ? value : translated;
+}
+
+function selectionFailureDescription(attempt: SchedulerAttempt): string {
+  const filters = Object.entries(attempt.filteredReasons ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([reason, count]) => `${diagnosticLabel("filterReasons", reason)} ${count}`)
+    .join(locale.value.toLowerCase().startsWith("zh") ? "、" : ", ");
+  const constraint = attempt.selectionConstraint
+    ? diagnosticLabel("selectionConstraints", attempt.selectionConstraint)
+    : "";
+
+  if ((attempt.poolSize ?? 0) > 0 || filters) {
+    return t("admin.schedulerObservability.attempts.selection_failed_detail", {
+      pool: attempt.poolSize ?? 0,
+      filters: filters || t("admin.schedulerObservability.attempts.noFilterBreakdown"),
+      constraint: constraint
+        ? `${locale.value.toLowerCase().startsWith("zh") ? "；" : "; "}${constraint}`
+        : "",
+    });
+  }
+  if (constraint) return constraint;
+  return reasonLabel(attempt.reason);
 }
 
 function candidateStateLabel(candidate: SchedulerCandidate): string {
@@ -124,6 +169,23 @@ function candidateStateLabel(candidate: SchedulerCandidate): string {
 
 function percent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function outcomeTitle(trace: SchedulerTrace): string {
+  if (trace.status === "failed") return t("admin.schedulerObservability.drawer.failureTitle");
+  if (trace.status === "canceled") return t("admin.schedulerObservability.drawer.canceledTitle");
+  if (trace.status === "pending") return t("admin.schedulerObservability.drawer.pendingTitle");
+  return t("admin.schedulerObservability.drawer.whyTitle");
+}
+
+function outcomeExplanation(trace: SchedulerTrace): string {
+  if (["failed", "canceled", "pending"].includes(trace.status)) {
+    return t(`admin.schedulerObservability.outcomeDetails.${trace.status}`);
+  }
+  return t(`admin.schedulerObservability.summaryDetails.${trace.summary}`, {
+    first: trace.accountPath[0]?.id ? `#${trace.accountPath[0].id}` : "—",
+    final: trace.accountPath.at(-1)?.id ? `#${trace.accountPath.at(-1)?.id}` : "—",
+  });
 }
 </script>
 
@@ -213,12 +275,9 @@ function percent(value: number): string {
                   <Icon name="lightbulb" size="sm" />
                 </span>
                 <div>
-                  <h3 class="text-xs font-semibold text-primary-950 dark:text-primary-100">{{ t("admin.schedulerObservability.drawer.whyTitle") }}</h3>
+                  <h3 class="text-xs font-semibold text-primary-950 dark:text-primary-100">{{ outcomeTitle(trace) }}</h3>
                   <p class="mt-1.5 text-xs leading-5 text-primary-900/75 dark:text-primary-100/75">
-                    {{ t(`admin.schedulerObservability.summaryDetails.${trace.summary}`, {
-                      first: trace.accountPath[0]?.id ? `#${trace.accountPath[0].id}` : "—",
-                      final: trace.accountPath.at(-1)?.id ? `#${trace.accountPath.at(-1)?.id}` : "—",
-                    }) }}
+                    {{ outcomeExplanation(trace) }}
                   </p>
                 </div>
               </div>
@@ -259,11 +318,16 @@ function percent(value: number): string {
                 <span class="text-[11px] text-gray-500 dark:text-dark-400">
                   {{ trace.candidateScope === 'sticky_short_circuit'
                     ? t('admin.schedulerObservability.drawer.stickyShortCircuit')
-                    : `Top ${trace.candidates.length}` }}
+                    : lastSelectionFailure?.poolSize
+                      ? t('admin.schedulerObservability.drawer.checkedCandidatePool', { count: lastSelectionFailure.poolSize })
+                      : `Top ${trace.candidates.length}` }}
                 </span>
               </div>
               <p v-if="trace.candidateScope === 'sticky_short_circuit'" class="mt-2 text-[11px] leading-4 text-gray-500 dark:text-dark-400">
                 {{ t('admin.schedulerObservability.drawer.stickyShortCircuitHint') }}
+              </p>
+              <p v-else-if="lastSelectionFailure?.poolSize" class="mt-2 text-[11px] leading-4 text-gray-500 dark:text-dark-400">
+                {{ t('admin.schedulerObservability.drawer.selectionFailureHint', { count: lastSelectionFailure.poolSize }) }}
               </p>
               <div class="mt-3 overflow-x-auto rounded-xl border border-gray-200 dark:border-dark-700">
                 <table class="min-w-[560px] w-full text-left">

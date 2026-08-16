@@ -38,8 +38,9 @@ func TestForwardAsAnthropic_TransportError_ReturnsFailoverError(t *testing.T) {
 	var failoverErr *UpstreamFailoverError
 	require.True(t, errors.As(err, &failoverErr), "transport error should return UpstreamFailoverError for handler failover, got: %T", err)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
-	require.True(t, failoverErr.BillingExposurePossible)
-	require.False(t, failoverErr.ShouldRetryNextAccount())
+	require.False(t, failoverErr.BillingExposurePossible)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.False(t, failoverErr.RetryableOnSameAccount)
 }
 
 func TestForwardAsAnthropic_TransportError_DoesNotWriteResponse(t *testing.T) {

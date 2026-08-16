@@ -798,14 +798,24 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					reqLog.Info("openai.client_disconnected", zap.Int64("account_id", account.ID), zap.Error(err))
 					return
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
+				upstreamStatus := openAIForwardFailureUpstreamStatus(c, err)
+				observabilityReason := openAIForwardFailureObservabilityReason(upstreamStatus)
+				if observabilityReason != "request_error_not_retryable" {
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
+				}
 				h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
 					AccountID:      account.ID,
 					AccountName:    account.Name,
-					UpstreamStatus: openAIForwardFailureUpstreamStatus(c, err),
-					Reason:         "upstream_error",
+					UpstreamStatus: upstreamStatus,
+					Reason:         observabilityReason,
 					DurationMs:     time.Since(routingStart).Milliseconds(),
 				})
+				if observabilityReason == "request_error_not_retryable" {
+					h.gatewayService.RecordOpenAISchedulerObservabilityRetryDecision(c.Request.Context(), service.OpenAISchedulerObservabilityRetryDecision{
+						Continue: false, Reason: observabilityReason, ElapsedMs: time.Since(routingStart).Milliseconds(),
+						SwitchCount: switchCount, SwitchLimit: maxAccountSwitches, RemainingCandidates: -1,
+					})
+				}
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
@@ -1467,11 +1477,21 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					)
 					return
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(currentRoutingModel), false, nil)
+				upstreamStatus := openAIForwardFailureUpstreamStatus(c, err)
+				observabilityReason := openAIForwardFailureObservabilityReason(upstreamStatus)
+				if observabilityReason != "request_error_not_retryable" {
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(currentRoutingModel), false, nil)
+				}
 				h.gatewayService.RecordOpenAISchedulerObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
-					AccountID: account.ID, AccountName: account.Name, Reason: "upstream_error",
+					AccountID: account.ID, AccountName: account.Name, UpstreamStatus: upstreamStatus, Reason: observabilityReason,
 					DurationMs: time.Since(routingStart).Milliseconds(),
 				})
+				if observabilityReason == "request_error_not_retryable" {
+					h.gatewayService.RecordOpenAISchedulerObservabilityRetryDecision(c.Request.Context(), service.OpenAISchedulerObservabilityRetryDecision{
+						Continue: false, Reason: observabilityReason, ElapsedMs: time.Since(routingStart).Milliseconds(),
+						SwitchCount: switchCount, SwitchLimit: maxAccountSwitches, RemainingCandidates: -1,
+					})
+				}
 				wroteFallback := h.ensureAnthropicErrorResponse(c, streamStarted)
 				reqLog.Warn("openai_messages.forward_failed",
 					zap.Int64("account_id", account.ID),
@@ -3149,6 +3169,13 @@ func openAIForwardFailureUpstreamStatus(c *gin.Context, err error) int {
 		return 0
 	}
 	return int(status)
+}
+
+func openAIForwardFailureObservabilityReason(upstreamStatus int) string {
+	if upstreamStatus == http.StatusBadRequest {
+		return "request_error_not_retryable"
+	}
+	return "upstream_error"
 }
 
 func openAIRequestAllowsFailoverReplay(c *gin.Context) bool {

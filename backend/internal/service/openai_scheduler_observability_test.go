@@ -219,6 +219,41 @@ func TestOpenAISchedulerObservabilityExplainsDirectSessionStickyWithoutScoreComp
 	require.Contains(t, schedulerObservabilityAttemptKinds(trace.Attempts), "sticky_selected")
 }
 
+func TestOpenAISchedulerObservabilityExplainsWhyStickyFailoverSelectionWasExhausted(t *testing.T) {
+	store := NewOpenAISchedulerObservabilityStore()
+	ctx := schedulerObservabilityTestContext("request-sticky-selection-exhausted", nil)
+	req := OpenAIAccountScheduleRequest{
+		SessionHash: "session-selection-exhausted", StickyAccountID: 356, RequestedModel: "gpt-5.6-sol",
+	}
+	stickyDecision := OpenAIAccountScheduleDecision{
+		Layer: openAIAccountScheduleLayerSessionSticky, StickySessionHit: true,
+		Candidates: []OpenAISchedulerObservabilityCandidate{{AccountID: 356, AccountName: "sticky-356", Rank: 1, State: "selected"}},
+	}
+	store.RecordSelection(ctx, req, stickyDecision, &AccountSelectionResult{Account: &Account{ID: 356, Name: "sticky-356"}}, nil)
+	store.RecordOutcome(ctx, OpenAISchedulerObservabilityOutcome{
+		AccountID: 356, AccountName: "sticky-356", UpstreamStatus: 502, Reason: "upstream_error",
+	})
+
+	stats := openAISelectionFilterStats{pool: 12, reasons: map[string]int{
+		"excluded":            1,
+		"model_not_supported": 7,
+		"runtime_blocked":     4,
+	}}
+	selectionErr := noAvailableOpenAISelectionError("gpt-5.6-sol", false, stats, "")
+	store.RecordSelection(ctx, req, OpenAIAccountScheduleDecision{Layer: openAIAccountScheduleLayerLoadBalance}, nil, selectionErr)
+
+	trace := store.Snapshot(OpenAISchedulerObservabilityQuery{TimeRange: "1h", View: "requests"}).Traces[0]
+	require.Equal(t, "failed", trace.Status)
+	require.Equal(t, "scored", trace.CandidateScope)
+	require.Equal(t, "selection_failed", trace.Attempts[len(trace.Attempts)-1].Kind)
+	require.Equal(t, 12, trace.Attempts[len(trace.Attempts)-1].PoolSize)
+	require.Equal(t, map[string]int{
+		"excluded":            1,
+		"model_not_supported": 7,
+		"runtime_blocked":     4,
+	}, trace.Attempts[len(trace.Attempts)-1].FilteredReasons)
+}
+
 func TestOpenAISchedulerObservabilityExplainsStickyUpstreamFailover(t *testing.T) {
 	store := NewOpenAISchedulerObservabilityStore()
 	ctx := schedulerObservabilityTestContext("request-sticky-upstream-failover", nil)

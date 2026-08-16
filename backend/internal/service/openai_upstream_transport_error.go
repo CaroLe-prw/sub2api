@@ -98,11 +98,11 @@ func classifyOpenAITransportError(err error) openAITransportErrorClass {
 //     temporarily unschedules the account (DB + in-memory) and logs a stable
 //     warn event that alert rules can key on;
 //  3. returns the inbound cancellation unchanged when the client is already
-//     gone; otherwise it returns an *UpstreamFailoverError for protocol-correct
-//     downstream handling, but marks the attempt as potentially billable so it
-//     cannot be replayed on either the same account or another account. Without
-//     an HTTP response there is no reliable proof that the provider rejected the
-//     request before accepting work.
+//     gone; otherwise it returns a next-account *UpstreamFailoverError. This
+//     function is called only when the HTTP round trip failed before a response
+//     exists, so there are no response bytes or usage fields to settle. Do not
+//     retry the same account: exclude it for this request and let the handler
+//     select a different candidate.
 //
 // It deliberately does NOT write to the response: the handler owns the response
 // (failover, or a protocol-correct error once failover is exhausted).
@@ -123,8 +123,8 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 
 	// context.Canceled can originate either from the inbound client or from the
 	// upstream/proxy round trip itself. Return the inbound cancellation unchanged
-	// when the client is gone. Otherwise treat the status-less outcome as
-	// potentially billable and stop rather than replaying it.
+	// when the client is gone. Other status-less transport failures happened
+	// before a response existed, so the handler may safely try another account.
 	if errors.Is(err, context.Canceled) && openAIInboundRequestDone(ctx, c) {
 		return err
 	}
@@ -139,11 +139,12 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 	}
 
 	return &UpstreamFailoverError{
-		StatusCode:              http.StatusBadGateway,
-		ResponseBody:            openAITransportFailoverBody,
-		BillingExposurePossible: true,
-		NextAccountAction:       NextAccountStop,
-		Reason:                  GatewayFailureReason("transport_outcome_unknown"),
+		StatusCode:        http.StatusBadGateway,
+		ResponseBody:      openAITransportFailoverBody,
+		Stage:             GatewayFailureStageInference,
+		Scope:             GatewayFailureScopeAccount,
+		NextAccountAction: NextAccountRetry,
+		Reason:            GatewayFailureReason("upstream_transport_error"),
 	}
 }
 

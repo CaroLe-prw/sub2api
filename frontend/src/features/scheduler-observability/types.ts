@@ -33,6 +33,7 @@ export type SchedulerAttemptKind =
   | "sticky_match"
   | "sticky_selected"
   | "candidate_selected"
+  | "selection_failed"
   | "upstream_failure"
   | "same_account_retry"
   | "sticky_escape"
@@ -56,6 +57,9 @@ export interface SchedulerAttempt {
   budgetMs?: number;
   remainingCandidates?: number;
   reason?: string;
+  poolSize?: number;
+  filteredReasons?: Record<string, number>;
+  selectionConstraint?: string;
 }
 
 export type SchedulerCandidateState = "selected" | "tried" | "eligible" | "excluded" | "rejected";

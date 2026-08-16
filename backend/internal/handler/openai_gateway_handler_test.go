@@ -3182,4 +3182,7 @@ func TestOpenAIForwardFailureUpstreamStatus(t *testing.T) {
 		StatusCode: http.StatusBadGateway,
 	}))
 	require.Zero(t, openAIForwardFailureUpstreamStatus(nil, errors.New("upstream error")))
+	require.Equal(t, "request_error_not_retryable", openAIForwardFailureObservabilityReason(http.StatusBadRequest))
+	require.Equal(t, "upstream_error", openAIForwardFailureObservabilityReason(http.StatusBadGateway))
+	require.Equal(t, "upstream_error", openAIForwardFailureObservabilityReason(0))
 }

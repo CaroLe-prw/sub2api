@@ -131,13 +131,16 @@ func TestHandleErrorResponse_Deterministic400WithoutUpstreamMetadata(t *testing.
 
 func TestShouldFailoverOpenAIUpstreamResponse_GenericUpstreamFailure400(t *testing.T) {
 	svc := &OpenAIGatewayService{}
-	body := []byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"}}`)
-
-	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
-		http.StatusBadRequest,
-		"Upstream request failed",
-		body,
-	), "generic provider failure must switch accounts instead of being treated as a client error")
+	for _, body := range [][]byte{
+		[]byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"}}`),
+		[]byte(`{"error":{"message":"Upstream request failed"}}`),
+	} {
+		require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+			http.StatusBadRequest,
+			"Upstream request failed",
+			body,
+		), "generic provider failure must switch accounts instead of being treated as a client error")
+	}
 }
 
 func TestForward_GenericUpstreamFailure400ReturnsFailoverError(t *testing.T) {
@@ -186,6 +189,11 @@ func TestShouldFailoverOpenAIUpstreamResponse_Deterministic400StillStops(t *test
 		"Upstream request failed",
 		[]byte(`{"error":{"message":"Upstream request failed","type":"invalid_request_error"}}`),
 	), "the generic message alone must not override explicit client-error semantics")
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusBadRequest,
+		"Upstream request failed",
+		[]byte(`{"error":{"message":"Upstream request failed","code":"invalid_request","param":"input"}}`),
+	), "request-specific code/param evidence must stop account replay")
 }
 
 // 上游回非 JSON（反代的 HTML 错误页等）时不得 panic，也不得回空 message。

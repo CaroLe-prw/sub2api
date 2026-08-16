@@ -195,8 +195,12 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 // isOpenAIGenericUpstreamFailure400 identifies providers that incorrectly wrap
 // an account-side gateway failure in HTTP 400. A real client request error
 // carries request-specific evidence such as invalid_request_error, code, or
-// param; the generic upstream_error payload does not, so another account may
-// succeed with the same request.
+// param; the generic gateway payload does not, so another account may succeed
+// with the same request. Some compatible gateways omit error.type entirely,
+// therefore an exact generic message with no code/param is also treated as an
+// account-side failure. We deliberately do not broaden this to arbitrary 400
+// messages: validation errors must still stop instead of being replayed across
+// the whole account pool.
 func isOpenAIGenericUpstreamFailure400(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	if upstreamStatusCode != http.StatusBadRequest || len(upstreamBody) == 0 {
 		return false
@@ -215,7 +219,7 @@ func isOpenAIGenericUpstreamFailure400(upstreamStatusCode int, upstreamMsg strin
 		errorParam = strings.TrimSpace(gjson.GetBytes(upstreamBody, "response.error.param").String())
 	}
 
-	if errorType != "upstream_error" || errorCode != "" || errorParam != "" {
+	if (errorType != "" && errorType != "upstream_error") || errorCode != "" || errorParam != "" {
 		return false
 	}
 	message := strings.ToLower(strings.TrimSpace(upstreamMsg))

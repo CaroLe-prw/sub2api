@@ -3911,6 +3911,80 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedFallbackS
 	require.Positive(t, cache.deletedSessions["openai:session_weighted_out_of_group"])
 }
 
+// A sticky short-circuit only observes the bound account on the first attempt.
+// If that account fails upstream, excluding it must force a full-pool selection
+// and return another eligible account instead of reporting an empty pool.
+func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyFailureSelectsNextAccount(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	ctx := context.Background()
+	groupID := int64(101083)
+	accounts := []Account{
+		{
+			ID:          38021,
+			Name:        "sticky-first",
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 1,
+			Priority:    0,
+			GroupIDs:    []int64{groupID},
+		},
+		{
+			ID:          38022,
+			Name:        "fallback-second",
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 1,
+			Priority:    1,
+			GroupIDs:    []int64{groupID},
+		},
+	}
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.LBTopK = 2
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Priority = 1
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Load = 1
+	cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{
+		"openai:sticky-upstream-failure": 38021,
+	}}
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerGroupAwareOpenAIAccountRepo{schedulerTestOpenAIAccountRepo{accounts: accounts}},
+		cache:              cache,
+		cfg:                cfg,
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+
+	first, firstDecision, err := svc.SelectAccountWithScheduler(
+		ctx, &groupID, "", "sticky-upstream-failure", "gpt-5.6-sol", nil,
+		OpenAIUpstreamTransportAny, false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	require.Equal(t, int64(38021), first.Account.ID)
+	require.Equal(t, openAIAccountScheduleLayerSessionSticky, firstDecision.Layer)
+	if first.ReleaseFunc != nil {
+		first.ReleaseFunc()
+	}
+
+	second, secondDecision, err := svc.SelectAccountWithScheduler(
+		ctx, &groupID, "", "sticky-upstream-failure", "gpt-5.6-sol",
+		map[int64]struct{}{38021: {}}, OpenAIUpstreamTransportAny, false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	require.Equal(t, int64(38022), second.Account.ID)
+	require.Equal(t, openAIAccountScheduleLayerLoadBalance, secondDecision.Layer)
+	require.Equal(t, 1, secondDecision.CandidateCount)
+	if second.ReleaseFunc != nil {
+		second.ReleaseFunc()
+	}
+}
+
 func TestOpenAIGatewayService_SelectAccountWithScheduler_SubscriptionPriorityWaitsOnBusySubscriptionWhenRegularUnusable(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 

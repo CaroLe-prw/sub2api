@@ -5,11 +5,13 @@ package handler
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -23,9 +25,21 @@ import (
 // 触发回调（用于模拟“上游在途期间客户端断开”）。
 type openAIResponsesFailoverCancelUpstream struct {
 	service.HTTPUpstream
-	mu         sync.Mutex
-	accountIDs []int64
-	onFirstDo  func()
+	mu                sync.Mutex
+	accountIDs        []int64
+	onFirstDo         func()
+	firstErr          error
+	firstStatusCode   int
+	firstResponseBody string
+	succeedAfterFirst bool
+}
+
+type openAIResponsesFailoverAccountRepo struct {
+	openAIImagesFailoverAccountRepo
+}
+
+func (openAIResponsesFailoverAccountRepo) SetTempUnschedulable(context.Context, int64, time.Time, string) error {
+	return nil
 }
 
 func (u *openAIResponsesFailoverCancelUpstream) Do(_ *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
@@ -36,10 +50,30 @@ func (u *openAIResponsesFailoverCancelUpstream) Do(_ *http.Request, _ string, ac
 	if first && u.onFirstDo != nil {
 		u.onFirstDo()
 	}
+	if first && u.firstErr != nil {
+		return nil, u.firstErr
+	}
+	if !first && u.succeedAfterFirst {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(bytes.NewBufferString(
+				`{"id":"resp_failover_ok","object":"response","model":"gpt-5.1","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`,
+			)),
+		}, nil
+	}
+	statusCode := 520
+	responseBody := "<html>520: unknown error</html>"
+	contentType := "text/html"
+	if first && u.firstStatusCode > 0 {
+		statusCode = u.firstStatusCode
+		responseBody = u.firstResponseBody
+		contentType = "application/json"
+	}
 	return &http.Response{
-		StatusCode: 520,
-		Header:     http.Header{"Content-Type": []string{"text/html"}},
-		Body:       io.NopCloser(bytes.NewBufferString("<html>520: unknown error</html>")),
+		StatusCode: statusCode,
+		Header:     http.Header{"Content-Type": []string{contentType}},
+		Body:       io.NopCloser(bytes.NewBufferString(responseBody)),
 	}, nil
 }
 
@@ -75,7 +109,9 @@ func newOpenAIResponsesFailoverTestHandler(t *testing.T, upstream service.HTTPUp
 			Credentials: map[string]any{"access_token": "token-2"},
 		},
 	}
-	accountRepo := openAIImagesFailoverAccountRepo{accounts: accounts}
+	accountRepo := openAIResponsesFailoverAccountRepo{
+		openAIImagesFailoverAccountRepo: openAIImagesFailoverAccountRepo{accounts: accounts},
+	}
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	gatewayService := service.NewOpenAIGatewayService(
 		accountRepo,
@@ -120,9 +156,16 @@ func newOpenAIResponsesFailoverTestHandler(t *testing.T, upstream service.HTTPUp
 }
 
 func newOpenAIResponsesFailoverTestContext(t *testing.T, ctx context.Context) (*gin.Context, *httptest.ResponseRecorder) {
+	return newOpenAIResponsesFailoverTestContextWithStream(t, ctx, false)
+}
+
+func newOpenAIResponsesFailoverTestContextWithStream(t *testing.T, ctx context.Context, stream bool) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	groupID := int64(3131)
 	body := []byte(`{"model":"gpt-5.1","stream":false,"input":"hello"}`)
+	if stream {
+		body = []byte(`{"model":"gpt-5.1","stream":true,"input":"hello"}`)
+	}
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	if ctx != nil {
 		req = req.WithContext(ctx)
@@ -182,13 +225,73 @@ func TestOpenAIGatewayHandlerResponses_FailoverAbortsWhenClientDisconnected(t *t
 func TestOpenAIGatewayHandlerResponses_FailoverContinuesForConnectedClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	upstream := &openAIResponsesFailoverCancelUpstream{}
+	for _, stream := range []bool{false, true} {
+		name := "sync"
+		if stream {
+			name = "stream"
+		}
+		t.Run(name, func(t *testing.T) {
+			upstream := &openAIResponsesFailoverCancelUpstream{}
+			handler := newOpenAIResponsesFailoverTestHandler(t, upstream)
+			c, rec := newOpenAIResponsesFailoverTestContextWithStream(t, nil, stream)
+
+			handler.Responses(c)
+
+			require.Equal(t, []int64{1, 2}, upstream.calls(), "在线客户端应正常切换账号")
+			require.Equal(t, http.StatusBadGateway, rec.Code)
+			require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+		})
+	}
+}
+
+// A status-less upstream transport failure happens before an HTTP response is
+// available (proxy/DNS/TCP/TLS/EOF). While the inbound client is still alive
+// and no response bytes or billable usage were observed, the handler must
+// exclude the failed account and continue with the next candidate.
+func TestOpenAIGatewayHandlerResponses_StatuslessTransportErrorSwitchesAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, tc := range []struct {
+		name   string
+		err    error
+		stream bool
+	}{
+		{name: "sync transient EOF", err: errors.New("unexpected EOF")},
+		{name: "sync persistent proxy rejection", err: errors.New("proxyconnect tcp: connection refused")},
+		{name: "stream transient EOF", err: errors.New("unexpected EOF"), stream: true},
+		{name: "stream persistent proxy rejection", err: errors.New("proxyconnect tcp: connection refused"), stream: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := &openAIResponsesFailoverCancelUpstream{firstErr: tc.err}
+			handler := newOpenAIResponsesFailoverTestHandler(t, upstream)
+			c, rec := newOpenAIResponsesFailoverTestContextWithStream(t, nil, tc.stream)
+
+			handler.Responses(c)
+
+			require.Equal(t, []int64{1, 2}, upstream.calls(), "status-less transport failure must switch to the next account")
+			require.Equal(t, http.StatusBadGateway, rec.Code)
+			require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+		})
+	}
+}
+
+// Compatible gateways sometimes return an account-side failure as HTTP 400
+// without error.type. The exact generic message and absence of request-specific
+// code/param distinguish it from a deterministic validation error. It must
+// therefore leave the sticky account and try the next eligible candidate.
+func TestOpenAIGatewayHandlerResponses_Generic400WithoutTypeSwitchesAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &openAIResponsesFailoverCancelUpstream{
+		firstStatusCode:   http.StatusBadRequest,
+		firstResponseBody: `{"error":{"message":"Upstream request failed"}}`,
+		succeedAfterFirst: true,
+	}
 	handler := newOpenAIResponsesFailoverTestHandler(t, upstream)
 	c, rec := newOpenAIResponsesFailoverTestContext(t, nil)
 
 	handler.Responses(c)
 
-	require.Equal(t, []int64{1, 2}, upstream.calls(), "在线客户端应正常切换账号")
-	require.Equal(t, http.StatusBadGateway, rec.Code)
-	require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	require.Equal(t, []int64{1, 2}, upstream.calls())
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "resp_failover_ok", gjson.GetBytes(rec.Body.Bytes(), "id").String())
 }

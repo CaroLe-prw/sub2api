@@ -259,7 +259,7 @@ func normalizeOpenAICompatiblePlatform(platform string) string {
 // never forward this error text to OpenAI-platform clients (they respond with
 // the generic classification message). Callers that must preserve the legacy
 // message pass "".
-func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, details string) error {
+func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, stats openAISelectionFilterStats, constraint string) error {
 	if compactBlocked {
 		return ErrNoAvailableCompactAccounts
 	}
@@ -267,14 +267,23 @@ func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool,
 	if requestedModel != "" {
 		message = fmt.Sprintf("no available OpenAI accounts supporting model: %s", requestedModel)
 	}
+	details := stats.summary(constraint)
 	if details != "" {
 		message += " (" + details + ")"
 	}
-	return openAINoAvailableSelectionError{message: message}
+	return openAINoAvailableSelectionError{
+		message:         message,
+		poolSize:        stats.pool,
+		filteredReasons: cloneOpenAISelectionFilterReasons(stats.reasons),
+		constraint:      constraint,
+	}
 }
 
 type openAINoAvailableSelectionError struct {
-	message string
+	message         string
+	poolSize        int
+	filteredReasons map[string]int
+	constraint      string
 }
 
 func (e openAINoAvailableSelectionError) Error() string {
@@ -283,6 +292,17 @@ func (e openAINoAvailableSelectionError) Error() string {
 
 func (e openAINoAvailableSelectionError) Unwrap() error {
 	return ErrNoAvailableAccounts
+}
+
+func cloneOpenAISelectionFilterReasons(reasons map[string]int) map[string]int {
+	if len(reasons) == 0 {
+		return nil
+	}
+	cloned := make(map[string]int, len(reasons))
+	for reason, count := range reasons {
+		cloned[reason] = count
+	}
+	return cloned
 }
 
 // openAICompactSupportTier classifies an OpenAI-compatible account by compact capability.
@@ -730,7 +750,7 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 	selected, compactBlocked, filterStats := s.selectBestAccount(ctx, groupID, platform, accounts, requestedModel, excludedIDs, requireCompact, requiredCapability, preferLowUpstreamRate)
 
 	if selected == nil {
-		return nil, noAvailableOpenAISelectionError(requestedModel, compactBlocked, filterStats.summary(""))
+		return nil, noAvailableOpenAISelectionError(requestedModel, compactBlocked, filterStats, "")
 	}
 
 	hydrated, err := s.hydrateSelectedAccount(ctx, selected)

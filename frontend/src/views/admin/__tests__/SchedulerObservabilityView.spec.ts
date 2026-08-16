@@ -41,13 +41,29 @@ const messages = vi.hoisted<Record<string, string>>(() => ({
   "admin.schedulerObservability.sessions.howToReadDescription":
     "每个圆点是一轮请求，颜色代表账号。颜色变化说明会话发生了账号漂移。",
   "admin.schedulerObservability.drawer.whyTitle": "为什么最终选择这个账号？",
+  "admin.schedulerObservability.drawer.failureTitle": "这次请求为什么失败？",
+  "admin.schedulerObservability.outcomeDetails.failed":
+    "本次请求最终失败，并未完成。请结合下方时间线查看实际尝试过的账号、切号过程和最终失败原因。",
   "admin.schedulerObservability.summaryDetails.sticky_escaped_consecutive_errors":
     "账号 {first} 命中 session_hash，但连续两次失败触发粘性逃逸；排除故障账号后，{final} 在剩余候选中评分最高并完成请求。",
   "admin.schedulerObservability.drawer.candidates": "候选评分",
+  "admin.schedulerObservability.drawer.checkedCandidatePool": "已检查 {count} 个候选",
+  "admin.schedulerObservability.drawer.selectionFailureHint":
+    "最后一次选号检查了 {count} 个账号但未选出可用账号；具体过滤数量见上方时间线，下表仅保留本次轨迹已记录的账号。",
+  "admin.schedulerObservability.attempts.selection_failed": "没有选出可用账号",
+  "admin.schedulerObservability.attempts.selection_failed_detail": "检查候选池 {pool} 个：{filters}{constraint}",
+  "admin.schedulerObservability.attempts.upstream_failure_without_status":
+    "账号 {account} 连接上游失败（未收到 HTTP 响应）",
+  "admin.schedulerObservability.attempts.retry_stopped_request_error": "停止切号：请求本身需要修正",
   "admin.schedulerObservability.attempts.account_reselected": "本地重新选择账号 {account}",
   "admin.schedulerObservability.attempts.admission_rejected": "账号 {account} 本地准入未通过",
   "admin.schedulerObservability.attempts.request_success": "账号 {account} 请求成功",
+  "admin.schedulerObservability.reasons.upstream_transport_error":
+    "上游网络或代理连接失败，未收到 HTTP 响应，将尝试下一账号",
   "admin.schedulerObservability.reasons.profit_veto": "当前定价下未达到分组利润准入要求，未发起上游请求",
+  "admin.schedulerObservability.filterReasons.excluded": "本次请求已尝试并排除",
+  "admin.schedulerObservability.filterReasons.model_not_supported": "模型不支持或不在白名单",
+  "admin.schedulerObservability.filterReasons.runtime_blocked": "运行时熔断",
   "admin.schedulerObservability.candidateStates.rejected": "本地否决",
 }));
 
@@ -225,8 +241,36 @@ describe("SchedulerObservabilityView", () => {
   });
 
   it("uses outcome colors before latency colors and does not present pending zero as duration", async () => {
-    const failedTrace = schedulerTraces.find((trace) => trace.status === "failed");
-    expect(failedTrace).toBeDefined();
+    const failedTraceSource = schedulerTraces.find((trace) => trace.status === "failed");
+    expect(failedTraceSource).toBeDefined();
+    const failedTrace = {
+      ...failedTraceSource!,
+      attempts: [
+        ...failedTraceSource!.attempts,
+        {
+          id: "statusless-upstream-failure",
+          kind: "upstream_failure" as const,
+          accountId: 29,
+          accountName: "statusless-account",
+          offsetMs: 208,
+          reason: "upstream_transport_error",
+        },
+        {
+          id: "request-error-stop",
+          kind: "retry_stopped" as const,
+          offsetMs: 210,
+          reason: "request_error_not_retryable",
+        },
+        {
+          id: "selection-exhausted",
+          kind: "selection_failed" as const,
+          offsetMs: 214,
+          reason: "no_available_account",
+          poolSize: 12,
+          filteredReasons: { excluded: 1, model_not_supported: 7, runtime_blocked: 4 },
+        },
+      ],
+    };
     const pendingTrace = {
       ...schedulerTraces[0],
       id: "trace-pending",
@@ -251,7 +295,7 @@ describe("SchedulerObservabilityView", () => {
       },
       switchReasons: [],
       groups: [],
-      traces: [failedTrace!, pendingTrace],
+      traces: [failedTrace, pendingTrace],
       sessions: [],
     });
 
@@ -263,6 +307,22 @@ describe("SchedulerObservabilityView", () => {
     expect(mobileRows[1].text()).toContain("请求中");
     expect(mobileRows[1].text()).not.toContain("0ms");
     expect(mobileRows[1].find(".bg-sky-500").exists()).toBe(true);
+
+    await mobileRows[0].trigger("click");
+    const failedDialogText = document.body.querySelector<HTMLElement>('[role="dialog"]')?.textContent ?? "";
+    expect(failedDialogText).toContain("这次请求为什么失败");
+    expect(failedDialogText).toContain("本次请求最终失败，并未完成");
+    expect(failedDialogText).toContain("没有选出可用账号");
+    expect(failedDialogText).toContain("检查候选池 12 个");
+    expect(failedDialogText).toContain("模型不支持或不在白名单 7");
+    expect(failedDialogText).toContain("运行时熔断 4");
+    expect(failedDialogText).toContain("已检查 12 个候选");
+    expect(failedDialogText).toContain("最后一次选号检查了 12 个账号");
+    expect(failedDialogText).toContain("账号 #29 连接上游失败（未收到 HTTP 响应）");
+    expect(failedDialogText).toContain("将尝试下一账号");
+    expect(failedDialogText).toContain("停止切号：请求本身需要修正");
+    expect(failedDialogText).not.toContain("评分最高并完成请求");
+    expect(failedDialogText).not.toContain("HTTP ）");
 
     const desktopAccountPath = wrapper
       .get('[data-testid="scheduler-trace-desktop-table"]')

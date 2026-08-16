@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -34,17 +35,20 @@ type OpenAISchedulerObservabilityCandidate struct {
 }
 
 type OpenAISchedulerObservabilityAttempt struct {
-	ID                  string `json:"id"`
-	Kind                string `json:"kind"`
-	AccountID           int64  `json:"accountId,omitempty"`
-	AccountName         string `json:"accountName,omitempty"`
-	OffsetMs            int64  `json:"offsetMs"`
-	UpstreamStatus      int    `json:"upstreamStatus,omitempty"`
-	RetryCount          int    `json:"retryCount,omitempty"`
-	RetryLimit          int    `json:"retryLimit,omitempty"`
-	BudgetMs            int64  `json:"budgetMs,omitempty"`
-	RemainingCandidates int    `json:"remainingCandidates,omitempty"`
-	Reason              string `json:"reason,omitempty"`
+	ID                  string         `json:"id"`
+	Kind                string         `json:"kind"`
+	AccountID           int64          `json:"accountId,omitempty"`
+	AccountName         string         `json:"accountName,omitempty"`
+	OffsetMs            int64          `json:"offsetMs"`
+	UpstreamStatus      int            `json:"upstreamStatus,omitempty"`
+	RetryCount          int            `json:"retryCount,omitempty"`
+	RetryLimit          int            `json:"retryLimit,omitempty"`
+	BudgetMs            int64          `json:"budgetMs,omitempty"`
+	RemainingCandidates int            `json:"remainingCandidates,omitempty"`
+	Reason              string         `json:"reason,omitempty"`
+	PoolSize            int            `json:"poolSize,omitempty"`
+	FilteredReasons     map[string]int `json:"filteredReasons,omitempty"`
+	SelectionConstraint string         `json:"selectionConstraint,omitempty"`
 }
 
 type OpenAISchedulerObservabilityAccount struct {
@@ -409,7 +413,7 @@ func (s *OpenAISchedulerObservabilityStore) RecordSelection(
 	}
 	if decision.Layer == openAIAccountScheduleLayerSessionSticky && decision.StickySessionHit {
 		trace.CandidateScope = "sticky_short_circuit"
-	} else if len(decision.Candidates) > 0 {
+	} else if decision.Layer == openAIAccountScheduleLayerLoadBalance || len(decision.Candidates) > 0 {
 		trace.CandidateScope = "scored"
 	}
 	if decision.StickyEscapeReason != "" {
@@ -440,7 +444,9 @@ func (s *OpenAISchedulerObservabilityStore) RecordSelection(
 	if selectionErr != nil || selection == nil || selection.Account == nil {
 		trace.Status = "failed"
 		trace.Summary = "no_available_account"
-		trace.appendAttemptLocked("upstream_failure", 0, "", now, 0, "no_available_account")
+		trace.appendAttemptLocked("selection_failed", 0, "", now, 0, "no_available_account")
+		attempt := &trace.Attempts[len(trace.Attempts)-1]
+		attempt.PoolSize, attempt.FilteredReasons, attempt.SelectionConstraint = schedulerObservabilitySelectionFailureDiagnostics(selectionErr)
 		s.publishLocked(trace)
 		return
 	}
@@ -477,6 +483,17 @@ func (s *OpenAISchedulerObservabilityStore) RecordSelection(
 	}
 	markSchedulerCandidateStates(trace.Candidates, trace.AccountPath, account.ID)
 	s.publishLocked(trace)
+}
+
+func schedulerObservabilitySelectionFailureDiagnostics(selectionErr error) (int, map[string]int, string) {
+	if selectionErr == nil {
+		return 0, nil, ""
+	}
+	var noAvailable openAINoAvailableSelectionError
+	if !errors.As(selectionErr, &noAvailable) {
+		return 0, nil, ""
+	}
+	return noAvailable.poolSize, cloneOpenAISelectionFilterReasons(noAvailable.filteredReasons), noAvailable.constraint
 }
 
 // RecordAdmissionRejection records a local post-slot admission decision. No
