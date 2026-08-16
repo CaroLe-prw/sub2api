@@ -49,8 +49,8 @@ const (
 	// ChannelMonitorProbeModeFixed preserves the original five-minute probe
 	// cadence for existing installations.
 	ChannelMonitorProbeModeFixed = "fixed"
-	// ChannelMonitorProbeModeAdaptive probes successful accounts less often and
-	// keeps failed accounts on a five-minute recovery probe.
+	// ChannelMonitorProbeModeAdaptive uses recent real traffic, cold-account
+	// confirmation, stable-account quiet periods, and bounded failure backoff.
 	ChannelMonitorProbeModeAdaptive = "adaptive"
 )
 
@@ -64,7 +64,7 @@ type ChannelMonitorAccountModelPolicy struct {
 func defaultChannelMonitorAutoModelPolicy() ChannelMonitorAutoModelPolicy {
 	return ChannelMonitorAutoModelPolicy{
 		Enabled:              true,
-		Mode:                 ChannelMonitorProbeModeFixed,
+		Mode:                 ChannelMonitorProbeModeAdaptive,
 		FixedIntervalMinutes: defaultChannelMonitorProbeFixedIntervalMinutes,
 		Whitelist:            []string{},
 	}
@@ -138,6 +138,7 @@ func (s *ChannelMonitorService) GetAccountModelPolicy(ctx context.Context, accou
 	whitelist := channelMonitorAccountModelWhitelist(account)
 	effective := filterAutoMonitorModels(discovered, global.Whitelist)
 	effective = filterAutoMonitorModels(effective, whitelist)
+	effective = selectChannelMonitorProbeModels(account, effective, whitelist)
 	return &ChannelMonitorAccountModelPolicy{
 		AccountID: account.ID, Whitelist: whitelist, DiscoveredModels: discovered, EffectiveModels: effective,
 	}, nil
@@ -209,9 +210,9 @@ func loadAutoModelPolicyFromStore(ctx context.Context, settings channelMonitorAu
 	policy.Enabled = !isFalseSettingValue(values[SettingKeySchedulerProbesEnabled])
 	policy.Mode, err = normalizeChannelMonitorProbeMode(values[SettingKeySchedulerProbesMode])
 	if err != nil {
-		// A bad persisted value must not disable scheduler probes. Fall back to
-		// the legacy mode so existing installations remain operational.
-		policy.Mode = ChannelMonitorProbeModeFixed
+		// A bad persisted value must not disable scheduler probes or silently
+		// restore the expensive legacy five-minute cadence.
+		policy.Mode = ChannelMonitorProbeModeAdaptive
 	}
 	policy.FixedIntervalMinutes = parseChannelMonitorProbeFixedInterval(values[SettingKeySchedulerProbesFixedIntervalMinutes])
 	if raw := strings.TrimSpace(values[SettingKeySchedulerProbesWhitelist]); raw != "" {
@@ -251,7 +252,7 @@ func parseChannelMonitorProbeFixedInterval(raw string) int {
 func normalizeChannelMonitorProbeMode(mode string) (string, error) {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode == "" {
-		return ChannelMonitorProbeModeFixed, nil
+		return ChannelMonitorProbeModeAdaptive, nil
 	}
 	switch mode {
 	case ChannelMonitorProbeModeFixed, ChannelMonitorProbeModeAdaptive:

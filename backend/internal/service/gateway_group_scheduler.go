@@ -17,6 +17,8 @@ type gatewayGroupSchedulerPolicyContextValue struct {
 	policy  openAIGroupSchedulerPolicy
 }
 
+type gatewaySchedulerHealthContextKey struct{}
+
 type gatewayScheduleObservationContextKey struct{}
 
 type gatewayScheduleObservation struct {
@@ -88,6 +90,9 @@ func (s *GatewayService) withGatewayGroupSchedulerPolicyContext(
 	groupID *int64,
 	group *Group,
 ) context.Context {
+	if s != nil && s.schedulerSnapshot != nil {
+		ctx = withGatewaySchedulerHealthStats(ctx, s.schedulerSnapshot.schedulerHealthStats())
+	}
 	if value, ok := ctx.Value(gatewayGroupSchedulerPolicyContextKey{}).(gatewayGroupSchedulerPolicyContextValue); ok {
 		if groupID != nil && value.groupID == *groupID {
 			return ctx
@@ -137,6 +142,27 @@ func (s *GatewayService) withGatewayGroupSchedulerPolicyContext(
 		groupID: group.ID,
 		policy:  policy,
 	})
+}
+
+func withGatewaySchedulerHealthStats(ctx context.Context, stats *openAIAccountRuntimeStats) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if stats == nil {
+		return ctx
+	}
+	if existing, ok := ctx.Value(gatewaySchedulerHealthContextKey{}).(*openAIAccountRuntimeStats); ok && existing != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, gatewaySchedulerHealthContextKey{}, stats)
+}
+
+func gatewaySchedulerHealthStatsFromContext(ctx context.Context) *openAIAccountRuntimeStats {
+	if ctx == nil {
+		return nil
+	}
+	stats, _ := ctx.Value(gatewaySchedulerHealthContextKey{}).(*openAIAccountRuntimeStats)
+	return stats
 }
 
 func gatewayGroupSchedulerUsesWeightedSticky(ctx context.Context) bool {
@@ -249,9 +275,9 @@ func gatewaySchedulingCostFactors(accounts []*Account) map[int64]float64 {
 }
 
 // buildGatewayGroupSelectionOrder applies the active group policy to generic
-// gateway candidates. Platform-common signals are scored here; OpenAI-only
-// runtime signals (TTFT/error/quota snapshots/previous_response) stay on the
-// specialized OpenAI scheduler and are neutral for other platforms.
+// gateway candidates. Account/model error rate and TTFT come from the shared
+// scheduler health store, so CC, Gemini and Antigravity use the same signals as
+// OpenAI/Grok while keeping their existing compatibility and quota filters.
 func buildGatewayGroupSelectionOrder(
 	ctx context.Context,
 	groupID *int64,
@@ -272,6 +298,7 @@ func buildGatewayGroupSelectionOrder(
 	scored := make([]openAIAccountCandidateScore, 0, len(candidates))
 	byID := make(map[int64]accountWithLoad, len(candidates))
 	accounts := make([]*Account, 0, len(candidates))
+	healthStats := gatewaySchedulerHealthStatsFromContext(ctx)
 	for _, candidate := range candidates {
 		if candidate.account == nil {
 			continue
@@ -283,11 +310,19 @@ func buildGatewayGroupSelectionOrder(
 		item := accountWithLoad{account: candidate.account, loadInfo: loadInfo}
 		byID[candidate.account.ID] = item
 		accounts = append(accounts, candidate.account)
-		scored = append(scored, openAIAccountCandidateScore{
+		scoreCandidate := openAIAccountCandidateScore{
 			account:  candidate.account,
 			loadInfo: loadInfo,
 			priority: openAIAccountSchedulingPriority(candidate.account, groupID),
-		})
+		}
+		if healthStats != nil {
+			scoreCandidate.errorRate, scoreCandidate.ttft, scoreCandidate.hasTTFT = healthStats.snapshotForRequest(
+				candidate.account.ID,
+				requestedModel,
+				candidate.account.GetMappedModel(requestedModel),
+			)
+		}
+		scored = append(scored, scoreCandidate)
 	}
 	if len(scored) == 0 {
 		return nil, false
@@ -295,6 +330,8 @@ func buildGatewayGroupSelectionOrder(
 
 	minPriority, maxPriority := scored[0].priority, scored[0].priority
 	maxWaiting := 1
+	minTTFT, maxTTFT := 0.0, 0.0
+	hasTTFTSample := false
 	for i := range scored {
 		if scored[i].priority < minPriority {
 			minPriority = scored[i].priority
@@ -304,6 +341,19 @@ func buildGatewayGroupSelectionOrder(
 		}
 		if scored[i].loadInfo.WaitingCount > maxWaiting {
 			maxWaiting = scored[i].loadInfo.WaitingCount
+		}
+		if scored[i].hasTTFT {
+			if !hasTTFTSample {
+				minTTFT, maxTTFT = scored[i].ttft, scored[i].ttft
+				hasTTFTSample = true
+			} else {
+				if scored[i].ttft < minTTFT {
+					minTTFT = scored[i].ttft
+				}
+				if scored[i].ttft > maxTTFT {
+					maxTTFT = scored[i].ttft
+				}
+			}
 		}
 	}
 
@@ -342,6 +392,11 @@ func buildGatewayGroupSelectionOrder(
 		}
 		loadFactor := 1 - clamp01(float64(candidate.loadInfo.LoadRate)/100)
 		queueFactor := 1 - clamp01(float64(candidate.loadInfo.WaitingCount)/float64(maxWaiting))
+		errorFactor := 1 - clamp01(candidate.errorRate)
+		ttftFactor := 0.5
+		if candidate.hasTTFT && hasTTFTSample && maxTTFT > minTTFT {
+			ttftFactor = 1 - clamp01((candidate.ttft-minTTFT)/(maxTTFT-minTTFT))
+		}
 
 		resetFactor := 0.0
 		if weights.Reset > 0 && hasResetSample {
@@ -361,14 +416,14 @@ func buildGatewayGroupSelectionOrder(
 		if factor, exists := costFactors[candidate.account.ID]; exists {
 			costFactor = factor
 		}
-		// Error rate, TTFT and quota headroom are deliberately neutral here:
-		// the generic gateway does not currently collect equivalent snapshots.
+		// Quota headroom remains neutral for the generic gateway until every
+		// provider exposes equivalent reset-window data.
 		candidate.score =
 			weights.Priority*priorityFactor +
 				weights.Load*loadFactor +
 				weights.Queue*queueFactor +
-				weights.ErrorRate*1 +
-				weights.TTFT*0.5 +
+				weights.ErrorRate*errorFactor +
+				weights.TTFT*ttftFactor +
 				weights.Reset*resetFactor +
 				weights.QuotaHeadroom*0.5 +
 				weights.UpstreamCost*(costFactor-openAIUpstreamCostNeutralFactor)

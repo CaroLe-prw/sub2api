@@ -15,6 +15,9 @@ const messages: Record<string, string> = {
   'usage.cacheReadTokensLabel': 'Cache Read',
   'usage.totalCost': 'Total Cost',
   'usage.accountCost': 'Cost',
+  'usage.userRequestCost': 'User request cost',
+  'usage.probeCost': 'Automatic probe cost',
+  'usage.totalAccountCost': 'Total account cost',
   'usage.standardCost': 'Standard',
   'usage.avgDuration': 'Avg Duration',
 }
@@ -40,6 +43,8 @@ const stats = {
   total_cost: 0.001,
   total_actual_cost: 0.001,
   total_account_cost: 0.001,
+  total_user_account_cost: 0.0008,
+  total_probe_account_cost: 0.0002,
   average_duration_ms: 250,
 }
 
@@ -63,5 +68,18 @@ describe('UsageStatsCards', () => {
     expect(text).toContain('12')
     expect(text).toContain('Cache Read')
     expect(text).toContain('22')
+  })
+
+  it('separates user request, automatic probe, and total account costs', () => {
+    const wrapper = mount(UsageStatsCards, {
+      props: { stats },
+      global: { stubs: { Icon: true } },
+    })
+
+    const text = wrapper.text()
+    expect(text).toContain('User request cost$0.0008')
+    expect(text).toContain('Automatic probe cost$0.0002')
+    expect(text).toContain('Total account cost$0.0010')
+    expect(text).toContain('Standard$0.0010')
   })
 })

@@ -67,7 +67,28 @@
         <p class="text-xl font-bold text-green-600">
           ${{ (stats?.total_actual_cost || 0).toFixed(4) }}
         </p>
-        <p class="text-xs text-gray-400">
+        <div
+          v-if="showAccountCost && hasAccountCostBreakdown"
+          class="mt-1 space-y-0.5 text-[11px] leading-tight text-gray-500 dark:text-gray-400"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span>{{ t('usage.userRequestCost') }}</span>
+            <span class="tabular-nums text-orange-500">${{ totalUserAccountCost?.toFixed(4) }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span>{{ t('usage.probeCost') }}</span>
+            <span class="tabular-nums text-cyan-600 dark:text-cyan-400">${{ totalProbeAccountCost?.toFixed(4) }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-2 border-t border-gray-100 pt-0.5 font-medium dark:border-dark-700">
+            <span>{{ t('usage.totalAccountCost') }}</span>
+            <span class="tabular-nums text-gray-700 dark:text-gray-200">${{ totalAccountCost?.toFixed(4) }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-2 text-gray-400">
+            <span>{{ t('usage.standardCost') }}</span>
+            <span class="tabular-nums" :class="{ 'line-through': strikeStandardCost }">${{ (stats?.total_cost || 0).toFixed(4) }}</span>
+          </div>
+        </div>
+        <p v-else class="text-xs text-gray-400">
           <template v-if="showAccountCost && totalAccountCost != null">
             <span class="text-orange-500">{{ t('usage.accountCost') }} ${{ totalAccountCost.toFixed(4) }}</span>
             <span> · </span>
@@ -110,6 +131,19 @@ const totalAccountCost = computed(() => {
   const stats = props.stats as (AdminUsageStatsResponse & { total_account_cost?: number }) | null
   return stats?.total_account_cost ?? null
 })
+const totalUserAccountCost = computed(() => {
+  const stats = props.stats as (AdminUsageStatsResponse & { total_user_account_cost?: number }) | null
+  return stats?.total_user_account_cost ?? null
+})
+const totalProbeAccountCost = computed(() => {
+  const stats = props.stats as (AdminUsageStatsResponse & { total_probe_account_cost?: number }) | null
+  return stats?.total_probe_account_cost ?? null
+})
+const hasAccountCostBreakdown = computed(() =>
+  totalAccountCost.value != null
+  && totalUserAccountCost.value != null
+  && totalProbeAccountCost.value != null
+)
 const showAccountCost = computed(() => props.showAccountCost)
 const strikeStandardCost = computed(() => props.strikeStandardCost)
 

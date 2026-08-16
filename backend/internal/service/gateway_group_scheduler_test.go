@@ -94,6 +94,35 @@ func TestBuildGatewayGroupSelectionOrderHonorsLoadPolicy(t *testing.T) {
 	require.Equal(t, idle.ID, order[0].account.ID)
 }
 
+func TestBuildGatewayGroupSelectionOrderUsesSharedProbeHealth(t *testing.T) {
+	groupID := int64(16)
+	unhealthy := &Account{ID: 1, Platform: PlatformAnthropic, Priority: 1}
+	healthy := &Account{ID: 2, Platform: PlatformAnthropic, Priority: 1}
+	stats := newOpenAIAccountRuntimeStats()
+	stats.reportProbe(unhealthy.ID, "claude-sonnet-4-6", false, nil)
+	stats.reportProbe(healthy.ID, "claude-sonnet-4-6", true, nil)
+	ctx := gatewaySchedulerTestPolicy(resolvedGroupOpenAISchedulerConfig{
+		TopK:      1,
+		ErrorRate: 10,
+	})
+	ctx = withGatewaySchedulerHealthStats(ctx, stats)
+
+	order, ok := buildGatewayGroupSelectionOrder(
+		ctx,
+		&groupID,
+		[]accountWithLoad{
+			{account: unhealthy, loadInfo: &AccountLoadInfo{AccountID: unhealthy.ID}},
+			{account: healthy, loadInfo: &AccountLoadInfo{AccountID: healthy.ID}},
+		},
+		0,
+		"",
+		"claude-sonnet-4-6",
+	)
+
+	require.True(t, ok)
+	require.Equal(t, healthy.ID, order[0].account.ID)
+}
+
 func TestBuildGatewayGroupSelectionOrderCapturesObservableScores(t *testing.T) {
 	groupID := int64(10)
 	first := &Account{ID: 1, Name: "first", Platform: PlatformGemini, Priority: 1}

@@ -80,7 +80,7 @@ func TestResolveMonitorModelsIgnoresSchedulerProbeDiscovery(t *testing.T) {
 	require.Equal(t, []string{"manual-primary", "manual-extra"}, models)
 }
 
-func TestAutoMonitorPolicyDefaultsToEnabledAndEmptyWhitelist(t *testing.T) {
+func TestAutoMonitorPolicyDefaultsToAdaptiveAndEmptyWhitelist(t *testing.T) {
 	svc := NewChannelMonitorService(nil, nil)
 	svc.SetAutoModelDependencies(autoMonitorAccountReaderStub{}, &autoMonitorSettingStoreStub{values: map[string]string{}})
 
@@ -88,7 +88,7 @@ func TestAutoMonitorPolicyDefaultsToEnabledAndEmptyWhitelist(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, policy.Enabled)
-	require.Equal(t, ChannelMonitorProbeModeFixed, policy.Mode)
+	require.Equal(t, ChannelMonitorProbeModeAdaptive, policy.Mode)
 	require.Equal(t, defaultChannelMonitorProbeFixedIntervalMinutes, policy.FixedIntervalMinutes)
 	require.Empty(t, policy.Whitelist)
 }

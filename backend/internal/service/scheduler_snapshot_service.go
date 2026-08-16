@@ -124,6 +124,8 @@ type SchedulerSnapshotService struct {
 	accountRepo                  AccountRepository
 	groupRepo                    GroupRepository
 	cfg                          *config.Config
+	healthOnce                   sync.Once
+	healthStats                  *openAIAccountRuntimeStats
 	stopCh                       chan struct{}
 	stopOnce                     sync.Once
 	wg                           sync.WaitGroup
@@ -143,6 +145,20 @@ type SchedulerSnapshotService struct {
 	fullRebuildRequested uint64
 	fullRebuildCompleted uint64
 	fullRebuildLastErr   error
+}
+
+// schedulerHealthStats returns the process-local account/model health store
+// shared by every platform scheduler. Keeping it on SchedulerSnapshotService
+// avoids parallel, platform-specific health caches while preserving lazy
+// allocation for tests and deployments without scheduler snapshots.
+func (s *SchedulerSnapshotService) schedulerHealthStats() *openAIAccountRuntimeStats {
+	if s == nil {
+		return nil
+	}
+	s.healthOnce.Do(func() {
+		s.healthStats = newOpenAIAccountRuntimeStats()
+	})
+	return s.healthStats
 }
 
 func NewSchedulerSnapshotService(

@@ -879,6 +879,37 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_PreferL
 	require.Equal(t, int64(2), acc.ID)
 }
 
+func TestGeminiMessagesCompatService_SelectAccountPrefersSharedHealthySignal(t *testing.T) {
+	ctx := context.Background()
+	older := time.Now().Add(-2 * time.Hour)
+	newer := time.Now().Add(-time.Hour)
+	repo := &mockAccountRepoForGemini{
+		accounts: []Account{
+			{ID: 1, Platform: PlatformGemini, Priority: 1, Status: StatusActive, Schedulable: true, LastUsedAt: &older},
+			{ID: 2, Platform: PlatformGemini, Priority: 1, Status: StatusActive, Schedulable: true, LastUsedAt: &newer},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	for i := range repo.accounts {
+		repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+	}
+
+	stats := newOpenAIAccountRuntimeStats()
+	stats.reportProbe(1, "gemini-2.5-pro", false, nil)
+	stats.reportProbe(2, "gemini-2.5-pro", true, nil)
+	svc := &GeminiMessagesCompatService{
+		accountRepo:     repo,
+		groupRepo:       &mockGroupRepoForGemini{groups: map[int64]*Group{}},
+		cache:           &mockGatewayCacheForGemini{},
+		schedulerHealth: stats,
+	}
+
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-2.5-pro", nil)
+	require.NoError(t, err)
+	require.NotNil(t, acc)
+	require.Equal(t, int64(2), acc.ID, "shared health must override LRU within the same priority tier")
+}
+
 func TestGeminiMessagesCompatService_SelectAccountForAIStudioEndpoints_RequireOAuthOnlySkipsAPIKey(t *testing.T) {
 	groupID := int64(902)
 	apiKey := Account{

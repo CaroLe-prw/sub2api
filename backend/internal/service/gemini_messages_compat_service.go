@@ -49,6 +49,7 @@ type GeminiMessagesCompatService struct {
 	groupRepo                 GroupRepository
 	cache                     GatewayCache
 	schedulerSnapshot         *SchedulerSnapshotService
+	schedulerHealth           *openAIAccountRuntimeStats
 	tokenProvider             *GeminiTokenProvider
 	rateLimitService          *RateLimitService
 	httpUpstream              HTTPUpstream
@@ -80,7 +81,7 @@ func NewGeminiMessagesCompatService(
 	antigravityGatewayService *AntigravityGatewayService,
 	cfg *config.Config,
 ) *GeminiMessagesCompatService {
-	return &GeminiMessagesCompatService{
+	service := &GeminiMessagesCompatService{
 		accountRepo:               accountRepo,
 		groupRepo:                 groupRepo,
 		cache:                     cache,
@@ -92,6 +93,10 @@ func NewGeminiMessagesCompatService(
 		cfg:                       cfg,
 		responseHeaderFilter:      compileResponseHeaderFilter(cfg),
 	}
+	if schedulerSnapshot != nil {
+		service.schedulerHealth = schedulerSnapshot.schedulerHealthStats()
+	}
+	return service
 }
 
 // GetTokenProvider returns the token provider for OAuth accounts
@@ -356,7 +361,7 @@ func (s *GeminiMessagesCompatService) selectBestGeminiAccount(
 			continue
 		}
 
-		if s.isBetterGeminiAccount(acc, selected) {
+		if s.isBetterGeminiAccountForModel(acc, selected, requestedModel) {
 			selected = acc
 		}
 	}
@@ -379,6 +384,46 @@ func (s *GeminiMessagesCompatService) buildPreCheckUsageResultMap(ctx context.Co
 		logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini PreCheckBatch] failed: %v", err)
 	}
 	return result
+}
+
+func (s *GeminiMessagesCompatService) isBetterGeminiAccountForModel(candidate, current *Account, requestedModel string) bool {
+	if candidate == nil {
+		return false
+	}
+	if current == nil {
+		return true
+	}
+	// Preserve the existing hard account priority boundary. Within one priority
+	// tier, prefer the lower shared health error rate and then faster TTFT before
+	// falling back to OAuth/LRU ordering.
+	if candidate.Priority != current.Priority {
+		return candidate.Priority < current.Priority
+	}
+	if s != nil {
+		stats := s.schedulerHealth
+		if stats == nil && s.schedulerSnapshot != nil {
+			stats = s.schedulerSnapshot.schedulerHealthStats()
+		}
+		if stats != nil {
+			candidateError, candidateTTFT, candidateHasTTFT := stats.snapshotForRequest(
+				candidate.ID,
+				requestedModel,
+				candidate.GetMappedModel(requestedModel),
+			)
+			currentError, currentTTFT, currentHasTTFT := stats.snapshotForRequest(
+				current.ID,
+				requestedModel,
+				current.GetMappedModel(requestedModel),
+			)
+			if candidateError != currentError {
+				return candidateError < currentError
+			}
+			if candidateHasTTFT && currentHasTTFT && candidateTTFT != currentTTFT {
+				return candidateTTFT < currentTTFT
+			}
+		}
+	}
+	return s.isBetterGeminiAccount(candidate, current)
 }
 
 // isBetterGeminiAccount 判断 candidate 是否比 current 更优。

@@ -114,3 +114,41 @@ func TestUsageLog_GetStatsWithFilters_AggregatesAndEndpoints(t *testing.T) {
 	require.NotEmpty(t, stats.UpstreamEndpoints)
 	require.NotEmpty(t, stats.EndpointPaths)
 }
+
+func TestUsageLog_GetStatsWithFilters_SplitsUserAndProbeAccountCosts(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	client := tx.Client()
+	repo := newUsageLogRepositoryWithSQL(client, tx)
+
+	user := mustCreateUser(t, client, &service.User{Email: "cost-split@test.com"})
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, Key: "sk-cost-split", Name: "cost-split"})
+	account := mustCreateAccount(t, client, &service.Account{Name: "cost-split-account"})
+	accountRate := 2.0
+	now := time.Now().UTC()
+
+	_, err := repo.Create(ctx, &service.UsageLog{
+		UserID: user.ID, APIKeyID: apiKey.ID, AccountID: account.ID,
+		Model: "claude-3", TotalCost: 0.5, ActualCost: 0.8,
+		AccountRateMultiplier: &accountRate, RequestType: service.RequestTypeSync, CreatedAt: now,
+	})
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, &service.UsageLog{
+		AccountID: account.ID, Model: "claude-3", TotalCost: 0.2, ActualCost: 0,
+		AccountRateMultiplier: &accountRate, RequestType: service.RequestTypeProbe, CreatedAt: now,
+	})
+	require.NoError(t, err)
+
+	start := now.Add(-time.Hour)
+	end := now.Add(time.Hour)
+	stats, err := repo.GetStatsWithFilters(ctx, usagestats.UsageLogFilters{
+		AccountID: account.ID, StartTime: &start, EndTime: &end,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, stats.TotalUserAccountCost)
+	require.InDelta(t, 1.0, *stats.TotalUserAccountCost, 1e-9)
+	require.NotNil(t, stats.TotalProbeAccountCost)
+	require.InDelta(t, 0.4, *stats.TotalProbeAccountCost, 1e-9)
+	require.NotNil(t, stats.TotalAccountCost)
+	require.InDelta(t, 1.4, *stats.TotalAccountCost, 1e-9)
+}

@@ -298,6 +298,8 @@ type UsageStats struct {
 	TotalCost                float64        `json:"total_cost"`
 	TotalActualCost          float64        `json:"total_actual_cost"`
 	TotalAccountCost         *float64       `json:"total_account_cost,omitempty"`
+	TotalUserAccountCost     *float64       `json:"total_user_account_cost,omitempty"`
+	TotalProbeAccountCost    *float64       `json:"total_probe_account_cost,omitempty"`
 	AverageDurationMs        float64        `json:"average_duration_ms"`
 	Endpoints                []EndpointStat `json:"endpoints,omitempty"`
 	UpstreamEndpoints        []EndpointStat `json:"upstream_endpoints,omitempty"`

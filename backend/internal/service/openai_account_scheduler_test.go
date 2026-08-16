@@ -3392,6 +3392,33 @@ func TestOpenAIAccountRuntimeStats_ModelHealthDoesNotLeakAcrossModels(t *testing
 	require.Equal(t, 0.0, terraErrorRate)
 }
 
+func TestOpenAIAccountRuntimeStats_ProbeSignalsExpireAfterTwoHours(t *testing.T) {
+	stats := newOpenAIAccountRuntimeStats()
+	ttft := 1200
+	stats.reportProbe(1001, "gpt-5.6-sol", false, &ttft)
+	stale := time.Now().Add(-openAISchedulerProbeSignalTTL - time.Second).UnixNano()
+	stats.loadOrCreate(1001).probeObservedAt.Store(stale)
+	stats.loadOrCreateModel(1001, "gpt-5.6-sol").probeObservedAt.Store(stale)
+
+	errorRate, _, hasTTFT := stats.snapshotForRequest(1001, "gpt-5.6-sol")
+	require.Zero(t, errorRate)
+	require.False(t, hasTTFT)
+}
+
+func TestOpenAIProbeReportsIntoSharedSchedulerHealthStore(t *testing.T) {
+	snapshot := &SchedulerSnapshotService{}
+	svc := &OpenAIGatewayService{schedulerSnapshot: snapshot}
+	ttft := 900
+
+	svc.ReportChannelMonitorProbe(1001, "gpt-5.4", true, &ttft)
+
+	require.Same(t, snapshot.schedulerHealthStats(), svc.openaiAccountStats)
+	errorRate, gotTTFT, hasTTFT := snapshot.schedulerHealthStats().snapshotForRequest(1001, "gpt-5.4")
+	require.Zero(t, errorRate)
+	require.True(t, hasTTFT)
+	require.Equal(t, float64(ttft), gotTTFT)
+}
+
 func TestOpenAIAccountRuntimeStats_EmptyHistoryRefreshClearsOldWindow(t *testing.T) {
 	stats := newOpenAIAccountRuntimeStats()
 	stats.replaceHistory([]OpenAISchedulerHealthSnapshot{{

@@ -1292,15 +1292,15 @@ export default {
         sourceRequiredError: 'Select a payment source before enabling {title}.'
       },
       openaiExperimentalScheduler: {
-        title: 'OpenAI experimental scheduler policy',
-        description: "Disabled by default. When enabled, this only changes the gateway's experimental account-selection policy for OpenAI traffic; it does not indicate an upstream OpenAI capability.",
+        title: 'Multi-platform experimental scheduler policy',
+        description: 'Disabled by default. When enabled, OpenAI, Grok, CC, Gemini, and Antigravity share account/model health signals while retaining provider-specific compatibility, quota, and rate-limit filters.',
         lowRatePriorityTitle: 'Prefer lower rates',
         lowRatePriorityDescription: 'When enabled, accounts with lower billing rates are preferred. If rates are equal, account priority, current load, and other scheduling factors are considered. This switch is ignored when the experimental scheduler is enabled.',
         oauthRateTitle: 'OAuth scheduling reference rate',
         oauthRatePriorityDescription: 'When a group contains both API Key and OAuth accounts, this rate is used to order OAuth accounts alongside probed API Key billing rates.',
         oauthRateWeightedDescription: 'When a group contains both API Key and OAuth accounts, this rate is used for OAuth accounts when calculating the billing-rate score.',
         stickyWeightedTitle: 'Sticky weighting',
-        stickyWeightedDescription: 'When enabled, previous_response_id and session_hash affinity are scored by the advanced scheduler. When disabled, sticky accounts keep the legacy hard-hit behavior.',
+        stickyWeightedDescription: 'When enabled, session_hash affinity is scored across platforms; OpenAI/Grok also score previous_response_id. When disabled, sticky accounts keep the legacy hard-hit behavior.',
         subscriptionPriorityTitle: 'Subscription priority',
         subscriptionPriorityDescription: 'When enabled, the scheduler scores ChatGPT subscription accounts first and falls back to non-subscription accounts only if no subscription slot can be acquired.',
         weightsTitle: 'Scheduler weight overrides',

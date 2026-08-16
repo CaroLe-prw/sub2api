@@ -44,6 +44,7 @@ const (
 	defaultOpenAIOAuthSchedulingRateMultiplier = 1.0
 	openAISchedulerHealthHistoryWindow         = 30 * time.Minute
 	openAISchedulerHealthRefreshInterval       = 5 * time.Minute
+	openAISchedulerProbeSignalTTL              = 2 * time.Hour
 )
 
 type cachedOpenAIAdvancedSchedulerSetting struct {
@@ -233,6 +234,7 @@ type openAIAccountRuntimeStat struct {
 	probeErrorBits    atomic.Uint64
 	probeTTFTBits     atomic.Uint64
 	probeSamples      atomic.Int64
+	probeObservedAt   atomic.Int64
 	historyErrorBits  atomic.Uint64
 	historyTTFTBits   atomic.Uint64
 	historySamples    atomic.Int64
@@ -337,6 +339,7 @@ func (s *openAIAccountRuntimeStats) reportProbe(accountID int64, model string, s
 			continue
 		}
 		const alpha = 0.35
+		stat.probeObservedAt.Store(time.Now().UnixNano())
 		samples := stat.probeSamples.Add(1)
 		errorSample := 1.0
 		if success {
@@ -449,7 +452,7 @@ func (s *openAIAccountRuntimeStats) signalsForStat(stat *openAIAccountRuntimeSta
 			weight: math.Min(float64(samples), 10),
 		})
 	}
-	if samples := stat.probeSamples.Load(); samples > 0 {
+	if samples := stat.probeSamples.Load(); samples > 0 && openAIProbeSignalIsFresh(stat, time.Now()) {
 		signals = append(signals, openAIHealthSignal{
 			errorRate: clamp01(math.Float64frombits(stat.probeErrorBits.Load())),
 			ttft:      math.Float64frombits(stat.probeTTFTBits.Load()), hasTTFT: !math.IsNaN(math.Float64frombits(stat.probeTTFTBits.Load())),
@@ -464,6 +467,18 @@ func (s *openAIAccountRuntimeStats) signalsForStat(stat *openAIAccountRuntimeSta
 		})
 	}
 	return signals
+}
+
+func openAIProbeSignalIsFresh(stat *openAIAccountRuntimeStat, now time.Time) bool {
+	if stat == nil {
+		return false
+	}
+	observedAt := stat.probeObservedAt.Load()
+	if observedAt <= 0 {
+		return false
+	}
+	age := now.Sub(time.Unix(0, observedAt))
+	return age >= 0 && age <= openAISchedulerProbeSignalTTL
 }
 
 func combineOpenAIHealthSignals(signals []openAIHealthSignal) (errorRate float64, ttft float64, hasTTFT bool) {
@@ -2702,13 +2717,22 @@ func (s *OpenAIGatewayService) getOpenAIAccountScheduler(ctx context.Context) Op
 	}
 	s.openaiSchedulerOnce.Do(func() {
 		if s.openaiAccountStats == nil {
-			s.openaiAccountStats = newOpenAIAccountRuntimeStats()
+			s.openaiAccountStats = s.sharedSchedulerHealthStats()
 		}
 		if s.openaiScheduler == nil {
 			s.openaiScheduler = newDefaultOpenAIAccountScheduler(s, s.openaiAccountStats)
 		}
 	})
 	return s.openaiScheduler
+}
+
+func (s *OpenAIGatewayService) sharedSchedulerHealthStats() *openAIAccountRuntimeStats {
+	if s != nil && s.schedulerSnapshot != nil {
+		if stats := s.schedulerSnapshot.schedulerHealthStats(); stats != nil {
+			return stats
+		}
+	}
+	return newOpenAIAccountRuntimeStats()
 }
 
 // ReportChannelMonitorProbe adds an active account/model signal. Its streaming
@@ -2720,7 +2744,7 @@ func (s *OpenAIGatewayService) ReportChannelMonitorProbe(accountID int64, model 
 	}
 	s.openaiSchedulerOnce.Do(func() {
 		if s.openaiAccountStats == nil {
-			s.openaiAccountStats = newOpenAIAccountRuntimeStats()
+			s.openaiAccountStats = s.sharedSchedulerHealthStats()
 		}
 		if s.openaiScheduler == nil {
 			s.openaiScheduler = newDefaultOpenAIAccountScheduler(s, s.openaiAccountStats)
@@ -2733,6 +2757,25 @@ func (s *OpenAIGatewayService) ReportChannelMonitorProbe(accountID int64, model 
 	} else {
 		modelState.recordFailure(accountID, model, time.Now())
 	}
+}
+
+type channelMonitorRecentTrafficRepository interface {
+	GetLatestSuccessfulRealTrafficAt(ctx context.Context, accountID int64) (*time.Time, error)
+}
+
+// LatestSuccessfulRealTrafficAt lets the probe scheduler avoid synthetic
+// traffic when a real user request has already proved the account healthy.
+// The narrow type assertion keeps UsageLogRepository backward compatible for
+// tests and alternate storage implementations.
+func (s *OpenAIGatewayService) LatestSuccessfulRealTrafficAt(ctx context.Context, accountID int64) (*time.Time, error) {
+	if s == nil || s.usageLogRepo == nil || accountID <= 0 {
+		return nil, nil
+	}
+	repo, ok := s.usageLogRepo.(channelMonitorRecentTrafficRepository)
+	if !ok {
+		return nil, nil
+	}
+	return repo.GetLatestSuccessfulRealTrafficAt(ctx, accountID)
 }
 
 func (s *OpenAIGatewayService) RefreshOpenAISchedulerHealth(ctx context.Context) {
@@ -2761,7 +2804,7 @@ func (s *OpenAIGatewayService) RefreshOpenAISchedulerHealth(ctx context.Context)
 	}
 	s.openaiSchedulerOnce.Do(func() {
 		if s.openaiAccountStats == nil {
-			s.openaiAccountStats = newOpenAIAccountRuntimeStats()
+			s.openaiAccountStats = s.sharedSchedulerHealthStats()
 		}
 		if s.openaiScheduler == nil {
 			s.openaiScheduler = newDefaultOpenAIAccountScheduler(s, s.openaiAccountStats)

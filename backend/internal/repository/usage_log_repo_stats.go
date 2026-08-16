@@ -706,13 +706,15 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as total_account_cost,
+			COALESCE(SUM(CASE WHEN request_type = %d THEN 0 ELSE COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) END), 0) as total_user_account_cost,
+			COALESCE(SUM(CASE WHEN request_type = %d THEN COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) ELSE 0 END), 0) as total_probe_account_cost,
 			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
 		FROM usage_logs
 		%s
-	`, buildWhere(conditions))
+	`, int16(service.RequestTypeProbe), int16(service.RequestTypeProbe), buildWhere(conditions))
 
 	stats := &UsageStats{}
-	var totalAccountCost float64
+	var totalAccountCost, totalUserAccountCost, totalProbeAccountCost float64
 
 	start := time.Unix(0, 0).UTC()
 	if filters.StartTime != nil {
@@ -738,6 +740,8 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			&stats.TotalCost,
 			&stats.TotalActualCost,
 			&totalAccountCost,
+			&totalUserAccountCost,
+			&totalProbeAccountCost,
 			&stats.AverageDurationMs,
 		)
 	}
@@ -794,6 +798,8 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 	}
 
 	stats.TotalAccountCost = &totalAccountCost
+	stats.TotalUserAccountCost = &totalUserAccountCost
+	stats.TotalProbeAccountCost = &totalProbeAccountCost
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheTokens
 	stats.Endpoints = endpoints
 	stats.UpstreamEndpoints = upstreamEndpoints
