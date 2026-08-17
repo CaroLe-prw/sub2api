@@ -637,30 +637,46 @@ func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 	_ = s.cache.SetUpdateInfo(ctx, string(data), time.Duration(updateCacheTTL)*time.Second)
 }
 
-// compareVersions compares two semantic versions
+// compareVersions compares dotted numeric release versions. The project historically
+// used three parts (0.1.147) and now also uses four parts (0.3.7.12), so comparison
+// must include every numeric component instead of truncating after patch.
 func compareVersions(current, latest string) int {
 	currentParts := parseVersion(current)
 	latestParts := parseVersion(latest)
+	partCount := max(len(currentParts), len(latestParts))
 
-	for i := 0; i < 3; i++ {
-		if currentParts[i] < latestParts[i] {
+	for i := 0; i < partCount; i++ {
+		currentPart := versionPart(currentParts, i)
+		latestPart := versionPart(latestParts, i)
+		if currentPart < latestPart {
 			return -1
 		}
-		if currentParts[i] > latestParts[i] {
+		if currentPart > latestPart {
 			return 1
 		}
 	}
 	return 0
 }
 
-func parseVersion(v string) [3]int {
-	v = strings.TrimPrefix(v, "v")
+func parseVersion(v string) []int {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
 	parts := strings.Split(v, ".")
-	result := [3]int{0, 0, 0}
-	for i := 0; i < len(parts) && i < 3; i++ {
-		if parsed, err := strconv.Atoi(parts[i]); err == nil {
+	result := make([]int, len(parts))
+	for i := range parts {
+		numeric := parts[i]
+		if suffix := strings.IndexFunc(numeric, func(r rune) bool { return r < '0' || r > '9' }); suffix >= 0 {
+			numeric = numeric[:suffix]
+		}
+		if parsed, err := strconv.Atoi(numeric); err == nil {
 			result[i] = parsed
 		}
 	}
 	return result
+}
+
+func versionPart(parts []int, index int) int {
+	if index >= len(parts) {
+		return 0
+	}
+	return parts[index]
 }

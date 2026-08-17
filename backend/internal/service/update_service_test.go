@@ -69,6 +69,34 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
 }
 
+func TestUpdateServiceCheckUpdateDetectsFourPartIncrement(t *testing.T) {
+	cache := &updateServiceCacheStub{}
+	svc := NewUpdateService(
+		cache,
+		&updateServiceGitHubClientStub{
+			release: &GitHubRelease{
+				TagName: "v0.3.7.11",
+				Name:    "v0.3.7.11",
+			},
+		},
+		"0.3.7.10",
+		"release",
+	)
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, "0.3.7.10", info.CurrentVersion)
+	require.Equal(t, "0.3.7.11", info.LatestVersion)
+	require.True(t, info.HasUpdate, "四段版本只增加最后一段时也必须提示更新")
+
+	// 普通页面加载会读取 20 分钟缓存，缓存路径也必须使用完整版本号比较。
+	cachedInfo, err := svc.CheckUpdate(context.Background(), false)
+	require.NoError(t, err)
+	require.True(t, cachedInfo.Cached)
+	require.True(t, cachedInfo.HasUpdate)
+}
+
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {
 	return NewUpdateService(
 		&updateServiceCacheStub{},
@@ -116,6 +144,47 @@ func TestUpdateServiceListRollbackVersionsSortsUnorderedInput(t *testing.T) {
 	require.Equal(t, "0.1.146", versions[0].Version)
 	require.Equal(t, "0.1.145", versions[1].Version)
 	require.Equal(t, "0.1.144", versions[2].Version)
+}
+
+func TestUpdateServiceListRollbackVersionsSupportsFourPartVersions(t *testing.T) {
+	releases := []*GitHubRelease{
+		{TagName: "v0.3.7.12"},
+		{TagName: "v0.3.7.11"},
+		{TagName: "v0.3.7.10"},
+		{TagName: "v0.3.7.9"},
+		{TagName: "v0.3.7.8"},
+		{TagName: "v0.3.6.9"},
+	}
+	svc := newRollbackTestService("0.3.7.12", releases)
+
+	versions, err := svc.ListRollbackVersions(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, versions, 3)
+	require.Equal(t, "0.3.7.11", versions[0].Version)
+	require.Equal(t, "0.3.7.10", versions[1].Version)
+	require.Equal(t, "0.3.7.9", versions[2].Version)
+}
+
+func TestCompareVersionsUsesAllNumericParts(t *testing.T) {
+	tests := []struct {
+		name  string
+		left  string
+		right string
+		want  int
+	}{
+		{name: "fourth part greater", left: "0.3.7.10", right: "0.3.7.9", want: 1},
+		{name: "fourth part smaller", left: "0.3.7.9", right: "0.3.7.10", want: -1},
+		{name: "legacy three parts", left: "0.3.8", right: "0.3.7.99", want: 1},
+		{name: "missing trailing zero", left: "0.3.7", right: "0.3.7.0", want: 0},
+		{name: "v prefix", left: "v0.3.7.11", right: "0.3.7.10", want: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, compareVersions(tt.left, tt.right))
+		})
+	}
 }
 
 func TestUpdateServiceListRollbackVersionsEmptyWhenNoneOlder(t *testing.T) {
