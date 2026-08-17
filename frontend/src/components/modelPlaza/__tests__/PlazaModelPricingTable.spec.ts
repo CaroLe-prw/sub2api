@@ -75,6 +75,50 @@ describe('PlazaModelPricingTable', () => {
     expect(text).toContain('0.5x')
   })
 
+  it('模型行展示上海时间分时价格,并按用户生效倍率折算', () => {
+    const model = tokenModel({
+      pricing: {
+        ...tokenModel().pricing!,
+        time_pricing: [
+          {
+            start: '09:00',
+            end: '12:00',
+            input_price: 4e-6,
+            output_price: 2e-5,
+            cache_write_price: null,
+            cache_read_price: 1e-6,
+            image_input_price: null,
+            image_output_price: null,
+            per_request_price: null
+          },
+          {
+            start: '14:00',
+            end: '16:00',
+            input_price: 6e-6,
+            output_price: 3e-5,
+            cache_write_price: null,
+            cache_read_price: null,
+            image_input_price: null,
+            image_output_price: null,
+            per_request_price: null
+          }
+        ]
+      }
+    })
+
+    const wrapper = mountTable([model], 0.5)
+    const timePricing = wrapper.get('[data-testid="time-pricing"]')
+    const text = timePricing.text()
+    expect(text).toContain('modelPlaza.table.timePricing')
+    expect(text).toContain('modelPlaza.table.inheritsDefault')
+    expect(text).toContain('09:00–12:00')
+    expect(text).toContain('14:00–16:00')
+    expect(text).toContain('$2.00')
+    expect(text).toContain('$10.00')
+    expect(text).toContain('$3.00')
+    expect(text).toContain('$15.00')
+  })
+
   it('用户专属倍率覆盖分组倍率,并划线展示原倍率', () => {
     const wrapper = mountTable([tokenModel()], 1, 0.8)
     const text = wrapper.text()

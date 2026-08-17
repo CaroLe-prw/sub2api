@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -264,6 +265,36 @@ func TestResolve_WithChannelOverride_TokenFlat(t *testing.T) {
 	require.InDelta(t, 10e-6, resolved.BasePricing.InputPricePerTokenPriority, 1e-12)
 	require.InDelta(t, 50e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
 	require.InDelta(t, 50e-6, resolved.BasePricing.OutputPricePerTokenPriority, 1e-12)
+}
+
+func TestResolve_WithChannelTimePricing(t *testing.T) {
+	r := newResolverWithChannel(t, []ChannelModelPricing{{
+		Platform:    "anthropic",
+		Models:      []string{"claude-sonnet-4"},
+		BillingMode: BillingModeToken,
+		InputPrice:  testPtrFloat64(10e-6),
+		OutputPrice: testPtrFloat64(50e-6),
+		Intervals: []PricingInterval{{
+			MinTokens:  0,
+			MaxTokens:  testPtrInt(200000),
+			InputPrice: testPtrFloat64(20e-6),
+		}},
+		TimePricing: []TimePricingPeriod{{
+			Start:       "09:00",
+			End:         "12:00",
+			InputPrice:  testPtrFloat64(3e-6),
+			OutputPrice: testPtrFloat64(7e-6),
+		}},
+	}})
+	r.now = func() time.Time { return time.Date(2026, 8, 17, 1, 30, 0, 0, time.UTC) } // 09:30 Shanghai
+
+	resolved := r.Resolve(context.Background(), PricingInput{Model: "claude-sonnet-4", GroupID: groupIDPtr()})
+	require.Equal(t, PricingSourceChannel, resolved.Source)
+	require.InDelta(t, 3e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 7e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
+	interval := r.GetIntervalPricing(resolved, 100000)
+	require.InDelta(t, 3e-6, interval.InputPricePerToken, 1e-12)
+	require.InDelta(t, 7e-6, interval.OutputPricePerToken, 1e-12)
 }
 
 func TestResolve_WithChannelOverride_TokenPartialOverride(t *testing.T) {

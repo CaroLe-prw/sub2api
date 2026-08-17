@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateIntervals, type IntervalFormEntry } from '../types'
+import { validateIntervals, validateTimePricing, formTimePricingToAPI, type IntervalFormEntry, type TimePricingFormEntry } from '../types'
 
 function makeInterval(over: Partial<IntervalFormEntry>): IntervalFormEntry {
   return {
@@ -79,5 +79,33 @@ describe('validateIntervals', () => {
       ]
       expect(validateIntervals(intervals, 'image', t)).toContain('maxGreaterThanMin')
     })
+  })
+})
+
+describe('time pricing', () => {
+  const period = (start: string, end: string, input: number | null = 1): TimePricingFormEntry => ({
+    start,
+    end,
+    input_price: input,
+    output_price: null,
+    cache_write_price: null,
+    cache_read_price: null,
+    image_input_price: null,
+    image_output_price: null,
+    per_request_price: null,
+  })
+
+  it('accepts multiple non-overlapping Shanghai periods', () => {
+    expect(validateTimePricing([period('09:00', '12:00'), period('14:00', '16:00')], t)).toBeNull()
+  })
+
+  it('rejects overlaps and periods without a price', () => {
+    expect(validateTimePricing([period('09:00', '12:00'), period('11:00', '16:00')], t)).toContain('overlap')
+    expect(validateTimePricing([period('09:00', '12:00', null)], t)).toContain('missingPrice')
+  })
+
+  it('converts token prices from MTok to per-token', () => {
+    const [converted] = formTimePricingToAPI([period('09:00', '12:00', 2.5)])
+    expect(converted.input_price).toBe(2.5e-6)
   })
 })

@@ -4,9 +4,46 @@ package service
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestChannelModelPricingEffectiveAtUsesShanghaiTime(t *testing.T) {
+	baseInput := 1e-6
+	baseOutput := 2e-6
+	peakInput := 3e-6
+	peakCacheRead := 0.5e-6
+	pricing := ChannelModelPricing{
+		InputPrice:  &baseInput,
+		OutputPrice: &baseOutput,
+		Intervals: []PricingInterval{{
+			MinTokens:   0,
+			InputPrice:  &baseInput,
+			OutputPrice: &baseOutput,
+		}},
+		TimePricing: []TimePricingPeriod{
+			{Start: "09:00", End: "12:00", InputPrice: &peakInput, CacheReadPrice: &peakCacheRead},
+			{Start: "14:00", End: "16:00", OutputPrice: testPtrFloat64(4e-6)},
+		},
+	}
+
+	// 01:00 UTC is 09:00 in Shanghai and must include the left boundary.
+	effective := pricing.EffectiveAt(time.Date(2026, 8, 17, 1, 0, 0, 0, time.UTC))
+	require.InDelta(t, peakInput, *effective.InputPrice, 1e-12)
+	require.InDelta(t, baseOutput, *effective.OutputPrice, 1e-12)
+	require.InDelta(t, peakInput, *effective.Intervals[0].InputPrice, 1e-12)
+	require.InDelta(t, peakCacheRead, *effective.Intervals[0].CacheReadPrice, 1e-12)
+
+	// 04:00 UTC is 12:00 in Shanghai and must exclude the right boundary.
+	offPeak := pricing.EffectiveAt(time.Date(2026, 8, 17, 4, 0, 0, 0, time.UTC))
+	require.InDelta(t, baseInput, *offPeak.InputPrice, 1e-12)
+	require.Nil(t, offPeak.Intervals[0].CacheReadPrice)
+
+	// Resolving a price must not mutate the cached source value.
+	require.InDelta(t, baseInput, *pricing.InputPrice, 1e-12)
+	require.Nil(t, pricing.Intervals[0].CacheReadPrice)
+}
 
 func TestGetModelPricing(t *testing.T) {
 	ch := &Channel{

@@ -1,4 +1,4 @@
-import type { BillingMode, PricingInterval } from '@/api/admin/channels'
+import type { BillingMode, PricingInterval, TimePricingPeriod } from '@/api/admin/channels'
 
 type TranslateFn = (key: string, params?: Record<string, unknown>) => string
 
@@ -25,6 +25,19 @@ export interface PricingFormEntry {
   image_output_price: number | string | null
   per_request_price: number | string | null
   intervals: IntervalFormEntry[]
+  time_pricing: TimePricingFormEntry[]
+}
+
+export interface TimePricingFormEntry {
+  start: string
+  end: string
+  input_price: number | string | null
+  output_price: number | string | null
+  cache_write_price: number | string | null
+  cache_read_price: number | string | null
+  image_input_price: number | string | null
+  image_output_price: number | string | null
+  per_request_price: number | string | null
 }
 
 // 价格转换：后端存 per-token，前端显示 per-MTok ($/1M tokens)
@@ -75,6 +88,69 @@ export function formIntervalsToAPI(intervals: IntervalFormEntry[]): PricingInter
     per_request_price: toNullableNumber(iv.per_request_price),
     sort_order: iv.sort_order
   }))
+}
+
+export function apiTimePricingToForm(periods: TimePricingPeriod[]): TimePricingFormEntry[] {
+  return (periods || []).map(period => ({
+    start: period.start,
+    end: period.end,
+    input_price: perTokenToMTok(period.input_price),
+    output_price: perTokenToMTok(period.output_price),
+    cache_write_price: perTokenToMTok(period.cache_write_price),
+    cache_read_price: perTokenToMTok(period.cache_read_price),
+    image_input_price: perTokenToMTok(period.image_input_price),
+    image_output_price: perTokenToMTok(period.image_output_price),
+    per_request_price: period.per_request_price,
+  }))
+}
+
+export function formTimePricingToAPI(periods: TimePricingFormEntry[]): TimePricingPeriod[] {
+  return (periods || []).map(period => ({
+    start: period.start,
+    end: period.end,
+    input_price: mTokToPerToken(period.input_price),
+    output_price: mTokToPerToken(period.output_price),
+    cache_write_price: mTokToPerToken(period.cache_write_price),
+    cache_read_price: mTokToPerToken(period.cache_read_price),
+    image_input_price: mTokToPerToken(period.image_input_price),
+    image_output_price: mTokToPerToken(period.image_output_price),
+    per_request_price: toNullableNumber(period.per_request_price),
+  }))
+}
+
+export function validateTimePricing(periods: TimePricingFormEntry[], t: TranslateFn): string | null {
+  if (!periods || periods.length === 0) return null
+  const clock = (value: string): number | null => {
+    if (!/^\d{2}:\d{2}$/.test(value)) return null
+    const [hour, minute] = value.split(':').map(Number)
+    if (hour > 23 || minute > 59) return null
+    return hour * 60 + minute
+  }
+  const windows: Array<{ start: number; end: number }> = []
+  for (let i = 0; i < periods.length; i++) {
+    const period = periods[i]
+    const start = clock(period.start)
+    const end = clock(period.end)
+    if (start == null || end == null || start >= end) {
+      return t('admin.channels.timePricingValidation.invalidPeriod', { index: i + 1 })
+    }
+    if (windows.some(window => start < window.end && window.start < end)) {
+      return t('admin.channels.timePricingValidation.overlap', { index: i + 1 })
+    }
+    const values = [
+      period.input_price, period.output_price, period.cache_write_price,
+      period.cache_read_price, period.image_input_price, period.image_output_price,
+      period.per_request_price,
+    ]
+    if (!values.some(value => value !== null && value !== '')) {
+      return t('admin.channels.timePricingValidation.missingPrice', { index: i + 1 })
+    }
+    if (values.some(value => value !== null && value !== '' && (!Number.isFinite(Number(value)) || Number(value) < 0))) {
+      return t('admin.channels.timePricingValidation.invalidPrice', { index: i + 1 })
+    }
+    windows.push({ start, end })
+  }
+  return null
 }
 
 // ── 模型模式冲突检测 ──────────────────────────────────────

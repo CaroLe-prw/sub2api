@@ -34,6 +34,7 @@ export default {
         imageOutputPrice: '图片输出',
         perRequestPrice: '每次请求',
         intervals: '阶梯定价',
+        timePricing: '分时定价（上海时间）',
         unitPerMillion: '/ 1M token',
         unitPerRequest: '/ 次'
       }
@@ -80,6 +81,12 @@ export default {
           perRequestPrice: '单次价格'
         }
       },
+      timePricingValidation: {
+        invalidPeriod: '分时价格 #{index}：时间格式无效，结束时间必须晚于开始时间（暂不支持跨天）',
+        overlap: '分时价格 #{index}：与其他时间段重叠',
+        missingPrice: '分时价格 #{index}：至少填写一个价格',
+        invalidPrice: '分时价格 #{index}：价格必须是大于或等于 0 的数字'
+      },
       deleteConfirm: '确定要删除渠道「{name}」吗？此操作不可撤销。',
       columns: {
         name: '名称',
@@ -111,6 +118,12 @@ export default {
         modelInputHint: '按回车添加，支持粘贴批量导入',
         billingMode: '计费模式',
         defaultPrices: '默认价格（未命中区间时使用）',
+        timePricing: '分时定价',
+        timePricingHint: '按上海时间生效；可添加多个不重叠时段，填写项覆盖默认价和阶梯价，用户实付仍乘关联分组倍率（$/MTok）',
+        addTimePricing: '添加时段价格',
+        startTime: '开始',
+        endTime: '结束',
+        inheritPrice: '继承',
         inputPrice: '输入',
         outputPrice: '输出',
         cacheWritePrice: '缓存写入',

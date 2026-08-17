@@ -2,6 +2,7 @@ package handler
 
 import (
 	"sort"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -75,6 +76,19 @@ type userSupportedModelPricing struct {
 	ImageOutputPrice *float64                 `json:"image_output_price"`
 	PerRequestPrice  *float64                 `json:"per_request_price"`
 	Intervals        []userPricingIntervalDTO `json:"intervals"`
+	TimePricing      []userTimePricingDTO     `json:"time_pricing"`
+}
+
+type userTimePricingDTO struct {
+	Start            string   `json:"start"`
+	End              string   `json:"end"`
+	InputPrice       *float64 `json:"input_price"`
+	OutputPrice      *float64 `json:"output_price"`
+	CacheWritePrice  *float64 `json:"cache_write_price"`
+	CacheReadPrice   *float64 `json:"cache_read_price"`
+	ImageInputPrice  *float64 `json:"image_input_price"`
+	ImageOutputPrice *float64 `json:"image_output_price"`
+	PerRequestPrice  *float64 `json:"per_request_price"`
 }
 
 // userPricingIntervalDTO 定价区间白名单（去掉内部 ID、SortOrder 等前端不渲染的字段）。
@@ -289,8 +303,9 @@ func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
 	if p == nil {
 		return nil
 	}
-	intervals := make([]userPricingIntervalDTO, 0, len(p.Intervals))
-	for _, iv := range p.Intervals {
+	effective := p.EffectiveAt(time.Now())
+	intervals := make([]userPricingIntervalDTO, 0, len(effective.Intervals))
+	for _, iv := range effective.Intervals {
 		intervals = append(intervals, userPricingIntervalDTO{
 			MinTokens:       iv.MinTokens,
 			MaxTokens:       iv.MaxTokens,
@@ -302,19 +317,34 @@ func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
 			PerRequestPrice: iv.PerRequestPrice,
 		})
 	}
-	billingMode := string(p.BillingMode)
+	timePricing := make([]userTimePricingDTO, 0, len(p.TimePricing))
+	for _, period := range p.TimePricing {
+		timePricing = append(timePricing, userTimePricingDTO{
+			Start:            period.Start,
+			End:              period.End,
+			InputPrice:       period.InputPrice,
+			OutputPrice:      period.OutputPrice,
+			CacheWritePrice:  period.CacheWritePrice,
+			CacheReadPrice:   period.CacheReadPrice,
+			ImageInputPrice:  period.ImageInputPrice,
+			ImageOutputPrice: period.ImageOutputPrice,
+			PerRequestPrice:  period.PerRequestPrice,
+		})
+	}
+	billingMode := string(effective.BillingMode)
 	if billingMode == "" {
 		billingMode = string(service.BillingModeToken)
 	}
 	return &userSupportedModelPricing{
 		BillingMode:      billingMode,
-		InputPrice:       p.InputPrice,
-		OutputPrice:      p.OutputPrice,
-		CacheWritePrice:  p.CacheWritePrice,
-		CacheReadPrice:   p.CacheReadPrice,
-		ImageInputPrice:  p.ImageInputPrice,
-		ImageOutputPrice: p.ImageOutputPrice,
-		PerRequestPrice:  p.PerRequestPrice,
+		InputPrice:       effective.InputPrice,
+		OutputPrice:      effective.OutputPrice,
+		CacheWritePrice:  effective.CacheWritePrice,
+		CacheReadPrice:   effective.CacheReadPrice,
+		ImageInputPrice:  effective.ImageInputPrice,
+		ImageOutputPrice: effective.ImageOutputPrice,
+		PerRequestPrice:  effective.PerRequestPrice,
 		Intervals:        intervals,
+		TimePricing:      timePricing,
 	}
 }

@@ -2460,6 +2460,43 @@ func TestValidatePricingBillingMode(t *testing.T) {
 	}
 }
 
+func TestValidateTimePricing(t *testing.T) {
+	valid := []ChannelModelPricing{{
+		Platform: "openai",
+		Models:   []string{"deepseek-v4-pro"},
+		TimePricing: []TimePricingPeriod{
+			{Start: "09:00", End: "12:00", InputPrice: testPtrFloat64(1e-6)},
+			{Start: "14:00", End: "16:00", OutputPrice: testPtrFloat64(2e-6)},
+		},
+	}}
+	require.NoError(t, validateTimePricing(valid))
+
+	tests := []struct {
+		name    string
+		periods []TimePricingPeriod
+		message string
+	}{
+		{
+			name: "overlap",
+			periods: []TimePricingPeriod{
+				{Start: "09:00", End: "12:00", InputPrice: testPtrFloat64(1)},
+				{Start: "11:00", End: "14:00", InputPrice: testPtrFloat64(1)},
+			},
+			message: "overlap",
+		},
+		{name: "overnight", periods: []TimePricingPeriod{{Start: "22:00", End: "02:00", InputPrice: testPtrFloat64(1)}}, message: "end after start"},
+		{name: "missing price", periods: []TimePricingPeriod{{Start: "09:00", End: "12:00"}}, message: "no price fields"},
+		{name: "negative price", periods: []TimePricingPeriod{{Start: "09:00", End: "12:00", InputPrice: testPtrFloat64(-1)}}, message: "finite number >= 0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateTimePricing([]ChannelModelPricing{{Platform: "openai", Models: []string{"deepseek"}, TimePricing: tt.periods}})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.message)
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // 12. Antigravity wildcard mapping isolation
 // ---------------------------------------------------------------------------

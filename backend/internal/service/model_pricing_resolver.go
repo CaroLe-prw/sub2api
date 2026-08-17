@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"time"
 )
 
 // PricingSource 定价来源标识
@@ -48,6 +49,7 @@ type ResolvedPricing struct {
 type ModelPricingResolver struct {
 	channelService *ChannelService
 	billingService *BillingService
+	now            func() time.Time
 }
 
 // NewModelPricingResolver 创建定价解析器实例
@@ -55,7 +57,15 @@ func NewModelPricingResolver(channelService *ChannelService, billingService *Bil
 	return &ModelPricingResolver{
 		channelService: channelService,
 		billingService: billingService,
+		now:            time.Now,
 	}
+}
+
+func (r *ModelPricingResolver) currentTime() time.Time {
+	if r != nil && r.now != nil {
+		return r.now()
+	}
+	return time.Now()
 }
 
 // PricingInput 定价解析输入
@@ -87,6 +97,8 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	if input.GroupID != nil && r.channelService != nil {
 		chPricing = r.channelService.GetChannelModelPricing(ctx, *input.GroupID, input.Model)
 		if chPricing != nil {
+			effective := chPricing.EffectiveAt(r.currentTime())
+			chPricing = &effective
 			mode := chPricing.BillingMode
 			if mode == "" {
 				mode = BillingModeToken
@@ -203,6 +215,8 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 	if chPricing == nil {
 		return
 	}
+	effective := chPricing.EffectiveAt(r.currentTime())
+	chPricing = &effective
 
 	resolved.Source = PricingSourceChannel
 	resolved.channelPricing = chPricing
@@ -235,13 +249,9 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 			cloned := *resolved.BasePricing
 			resolved.BasePricing = &cloned
 		}
-		if chPricing.ImageOutputPrice != nil {
-			resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
-		} else {
-			resolved.BasePricing.ImageOutputPricePerToken = 0
-		}
-		resolved.BasePricing.ImageOutputPriceExplicit = true
-		applyChannelImageInputPrice(chPricing, resolved.BasePricing)
+		// Flat fields are the fallback when no interval matches. This also makes
+		// active time-pricing fields override both the interval and fallback paths.
+		applyChannelFlatTokenOverrides(chPricing, resolved.BasePricing)
 		return
 	}
 
@@ -254,33 +264,37 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 		resolved.BasePricing = &cloned
 	}
 
+	applyChannelFlatTokenOverrides(chPricing, resolved.BasePricing)
+}
+
+func applyChannelFlatTokenOverrides(chPricing *ChannelModelPricing, pricing *ModelPricing) {
 	if chPricing.InputPrice != nil {
-		resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice
-		resolved.BasePricing.InputPricePerTokenPriority = *chPricing.InputPrice
+		pricing.InputPricePerToken = *chPricing.InputPrice
+		pricing.InputPricePerTokenPriority = *chPricing.InputPrice
 	}
 	if chPricing.OutputPrice != nil {
-		resolved.BasePricing.OutputPricePerToken = *chPricing.OutputPrice
-		resolved.BasePricing.OutputPricePerTokenPriority = *chPricing.OutputPrice
+		pricing.OutputPricePerToken = *chPricing.OutputPrice
+		pricing.OutputPricePerTokenPriority = *chPricing.OutputPrice
 	}
 	if chPricing.CacheWritePrice != nil {
-		resolved.BasePricing.CacheCreationPricePerToken = *chPricing.CacheWritePrice
-		resolved.BasePricing.CacheCreationPricePerTokenPriority = *chPricing.CacheWritePrice
-		resolved.BasePricing.CacheCreationPriceExplicit = true
-		resolved.BasePricing.CacheCreation5mPrice = *chPricing.CacheWritePrice
-		resolved.BasePricing.CacheCreation1hPrice = *chPricing.CacheWritePrice
+		pricing.CacheCreationPricePerToken = *chPricing.CacheWritePrice
+		pricing.CacheCreationPricePerTokenPriority = *chPricing.CacheWritePrice
+		pricing.CacheCreationPriceExplicit = true
+		pricing.CacheCreation5mPrice = *chPricing.CacheWritePrice
+		pricing.CacheCreation1hPrice = *chPricing.CacheWritePrice
 	}
 	if chPricing.CacheReadPrice != nil {
-		resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice
-		resolved.BasePricing.CacheReadPricePerTokenPriority = *chPricing.CacheReadPrice
+		pricing.CacheReadPricePerToken = *chPricing.CacheReadPrice
+		pricing.CacheReadPricePerTokenPriority = *chPricing.CacheReadPrice
 	}
 	// 渠道定价覆盖一切：显式配置则用配置值，未配置则归零（不回退到 LiteLLM）
 	if chPricing.ImageOutputPrice != nil {
-		resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
+		pricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
 	} else {
-		resolved.BasePricing.ImageOutputPricePerToken = 0
+		pricing.ImageOutputPricePerToken = 0
 	}
-	resolved.BasePricing.ImageOutputPriceExplicit = true
-	applyChannelImageInputPrice(chPricing, resolved.BasePricing)
+	pricing.ImageOutputPriceExplicit = true
+	applyChannelImageInputPrice(chPricing, pricing)
 }
 
 // applyChannelImageInputPrice 应用渠道图片输入价：显式配置则用配置值；

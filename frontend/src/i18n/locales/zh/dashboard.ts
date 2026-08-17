@@ -546,6 +546,7 @@ export default {
       imageOutputPrice: '图片输出',
       perRequestPrice: '每次请求',
       intervals: '阶梯定价',
+      timePricing: '分时定价（上海时间）',
       unitPerMillion: '/ 1M token',
       unitPerRequest: '/ 次'
     }
@@ -591,7 +592,13 @@ export default {
       perUnitRequest: '/ 次',
       perUnitImage: '/ 张',
       perRequest: '按次计费',
-      perImage: '按图片计费'
+      perImage: '按图片计费',
+      timePricing: '分时价格（上海时间，已折后）',
+      inheritsDefault: '未列价格继承基础价',
+      current: '当前时段',
+      imageInput: '图片输入',
+      imageOutput: '图片输出',
+      perRequestShort: '单次'
     },
     nav: {
       login: '登录',

@@ -87,22 +87,40 @@ type AccountStatsPricingRule struct {
 
 // ChannelModelPricing 渠道模型定价条目
 type ChannelModelPricing struct {
-	ID               int64             `json:"id,omitempty"`
-	ChannelID        int64             `json:"channel_id,omitempty"`
-	Platform         string            `json:"platform"` // 所属平台（anthropic/openai/gemini/...）
-	Models           []string          `json:"models"`
-	BillingMode      BillingMode       `json:"billing_mode"`
-	InputPrice       *float64          `json:"input_price"`
-	OutputPrice      *float64          `json:"output_price"`
-	CacheWritePrice  *float64          `json:"cache_write_price"`
-	CacheReadPrice   *float64          `json:"cache_read_price"`
-	ImageInputPrice  *float64          `json:"image_input_price"`
-	ImageOutputPrice *float64          `json:"image_output_price"`
-	PerRequestPrice  *float64          `json:"per_request_price"`
-	Intervals        []PricingInterval `json:"intervals"`
-	CreatedAt        time.Time         `json:"created_at,omitempty"`
-	UpdatedAt        time.Time         `json:"updated_at,omitempty"`
+	ID               int64               `json:"id,omitempty"`
+	ChannelID        int64               `json:"channel_id,omitempty"`
+	Platform         string              `json:"platform"` // 所属平台（anthropic/openai/gemini/...）
+	Models           []string            `json:"models"`
+	BillingMode      BillingMode         `json:"billing_mode"`
+	InputPrice       *float64            `json:"input_price"`
+	OutputPrice      *float64            `json:"output_price"`
+	CacheWritePrice  *float64            `json:"cache_write_price"`
+	CacheReadPrice   *float64            `json:"cache_read_price"`
+	ImageInputPrice  *float64            `json:"image_input_price"`
+	ImageOutputPrice *float64            `json:"image_output_price"`
+	PerRequestPrice  *float64            `json:"per_request_price"`
+	Intervals        []PricingInterval   `json:"intervals"`
+	TimePricing      []TimePricingPeriod `json:"time_pricing,omitempty"`
+	CreatedAt        time.Time           `json:"created_at,omitempty"`
+	UpdatedAt        time.Time           `json:"updated_at,omitempty"`
 }
+
+// TimePricingPeriod 渠道模型的分时价格覆盖。
+// 时间按 Asia/Shanghai 判断，区间采用左闭右开 [Start, End)。未填写的价格字段
+// 继续使用该模型的默认价或上下文区间价；填写的字段拥有最高优先级。
+type TimePricingPeriod struct {
+	Start            string   `json:"start"`
+	End              string   `json:"end"`
+	InputPrice       *float64 `json:"input_price"`
+	OutputPrice      *float64 `json:"output_price"`
+	CacheWritePrice  *float64 `json:"cache_write_price"`
+	CacheReadPrice   *float64 `json:"cache_read_price"`
+	ImageInputPrice  *float64 `json:"image_input_price"`
+	ImageOutputPrice *float64 `json:"image_output_price"`
+	PerRequestPrice  *float64 `json:"per_request_price"`
+}
+
+var channelPricingShanghaiLocation = time.FixedZone("Asia/Shanghai", 8*60*60)
 
 // PricingInterval 定价区间（token 区间 / 按次分层 / 图片分辨率分层）
 type PricingInterval struct {
@@ -195,7 +213,80 @@ func (p ChannelModelPricing) Clone() ChannelModelPricing {
 		cp.Intervals = make([]PricingInterval, len(p.Intervals))
 		copy(cp.Intervals, p.Intervals)
 	}
+	if p.TimePricing != nil {
+		cp.TimePricing = make([]TimePricingPeriod, len(p.TimePricing))
+		copy(cp.TimePricing, p.TimePricing)
+	}
 	return cp
+}
+
+// EffectiveAt 返回指定时刻实际生效的渠道模型定价。
+// 分时字段覆盖默认价，并同步覆盖上下文/分层区间中的同名字段，因此分时价优先于
+// 长上下文阶梯价；未配置的字段仍从原定价继承。
+func (p ChannelModelPricing) EffectiveAt(now time.Time) ChannelModelPricing {
+	effective := p.Clone()
+	period := p.TimePricingAt(now)
+	if period == nil {
+		return effective
+	}
+	effective.applyTimePricing(period)
+	return effective
+}
+
+// TimePricingAt 返回上海时间下命中的分时价格区间。
+func (p *ChannelModelPricing) TimePricingAt(now time.Time) *TimePricingPeriod {
+	if p == nil || len(p.TimePricing) == 0 {
+		return nil
+	}
+	local := now.In(channelPricingShanghaiLocation)
+	current := local.Hour()*60 + local.Minute()
+	for i := range p.TimePricing {
+		start, startOK := parsePricingClock(p.TimePricing[i].Start)
+		end, endOK := parsePricingClock(p.TimePricing[i].End)
+		if startOK && endOK && start < end && current >= start && current < end {
+			return &p.TimePricing[i]
+		}
+	}
+	return nil
+}
+
+func (p *ChannelModelPricing) applyTimePricing(period *TimePricingPeriod) {
+	if p == nil || period == nil {
+		return
+	}
+	copyPrice := func(dst **float64, src *float64) {
+		if src != nil {
+			*dst = src
+		}
+	}
+	copyPrice(&p.InputPrice, period.InputPrice)
+	copyPrice(&p.OutputPrice, period.OutputPrice)
+	copyPrice(&p.CacheWritePrice, period.CacheWritePrice)
+	copyPrice(&p.CacheReadPrice, period.CacheReadPrice)
+	copyPrice(&p.ImageInputPrice, period.ImageInputPrice)
+	copyPrice(&p.ImageOutputPrice, period.ImageOutputPrice)
+	copyPrice(&p.PerRequestPrice, period.PerRequestPrice)
+	for i := range p.Intervals {
+		copyPrice(&p.Intervals[i].InputPrice, period.InputPrice)
+		copyPrice(&p.Intervals[i].OutputPrice, period.OutputPrice)
+		copyPrice(&p.Intervals[i].CacheWritePrice, period.CacheWritePrice)
+		copyPrice(&p.Intervals[i].CacheReadPrice, period.CacheReadPrice)
+		copyPrice(&p.Intervals[i].PerRequestPrice, period.PerRequestPrice)
+	}
+}
+
+func parsePricingClock(value string) (int, bool) {
+	if len(value) != 5 || value[2] != ':' {
+		return 0, false
+	}
+	hour, minute := 0, 0
+	if _, err := fmt.Sscanf(value, "%02d:%02d", &hour, &minute); err != nil {
+		return 0, false
+	}
+	if hour < 0 || hour > 23 || minute < 0 || minute > 59 {
+		return 0, false
+	}
+	return hour*60 + minute, true
 }
 
 // Clone 返回 Channel 的深拷贝

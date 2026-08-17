@@ -72,6 +72,10 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 			Pricing: &service.ChannelModelPricing{
 				BillingMode: service.BillingModeToken,
 				InputPrice:  testPtr(3e-6),
+				TimePricing: []service.TimePricingPeriod{
+					{Start: "09:00", End: "12:00", InputPrice: testPtr(4e-6)},
+					{Start: "14:00", End: "16:00", InputPrice: testPtr(5e-6)},
+				},
 			},
 			OfficialPricing: &service.PlazaOfficialPricing{
 				InputPrice:     testPtr(3e-6),
@@ -104,6 +108,12 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 	model := models[0].(map[string]any)
 	require.Contains(t, model, "pricing")
 	require.Contains(t, model, "official_pricing")
+	pricing := model["pricing"].(map[string]any)
+	require.Contains(t, pricing, "time_pricing")
+	periods := pricing["time_pricing"].([]any)
+	require.Len(t, periods, 2)
+	require.Equal(t, "09:00", periods[0].(map[string]any)["start"])
+	require.Equal(t, "16:00", periods[1].(map[string]any)["end"])
 	official := model["official_pricing"].(map[string]any)
 	require.Contains(t, official, "input_price")
 	require.Contains(t, official, "cache_read_price")

@@ -150,6 +150,28 @@
                 </div>
               </div>
             </div>
+
+            <div
+              v-if="model.pricing.time_pricing && model.pricing.time_pricing.length > 0"
+              class="mt-2 border-t pt-2"
+              :class="[popoverBorderClass]"
+            >
+              <div class="mb-1 font-medium text-gray-600 dark:text-gray-400">
+                {{ t(prefixKey('timePricing')) }}
+              </div>
+              <div class="space-y-1">
+                <div
+                  v-for="(period, idx) in model.pricing.time_pricing"
+                  :key="idx"
+                  class="flex justify-between gap-3 text-[11px]"
+                >
+                  <span class="shrink-0 text-gray-500 dark:text-gray-400">
+                    {{ period.start }}–{{ period.end }}
+                  </span>
+                  <span class="text-right">{{ formatTimePricing(period) }}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -170,7 +192,7 @@ import {
 } from '@/constants/channel'
 // 复用 api/channels.ts 的用户侧最小形态 DTO。
 // admin 侧 ChannelModelPricing 字段更多，但结构上是用户 DTO 的超集，admin 视图传入可直接通过结构化子类型检查。
-import type { UserPricingInterval, UserSupportedModel } from '@/api/channels'
+import type { UserPricingInterval, UserSupportedModel, UserTimePricingPeriod } from '@/api/channels'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import type { GroupPlatform } from '@/types'
 import { platformBadgeClass, platformBorderClass, platformBadgeLightClass } from '@/utils/platformColors'
@@ -245,6 +267,12 @@ function formatInterval(iv: UserPricingInterval, mode: BillingMode): string {
   }
   const input = formatScaled(iv.input_price, perMillionScale)
   const output = formatScaled(iv.output_price, perMillionScale)
+  return `${input} / ${output}`
+}
+
+function formatTimePricing(period: UserTimePricingPeriod): string {
+  const input = formatScaled(period.input_price, perMillionScale)
+  const output = formatScaled(period.output_price, perMillionScale)
   return `${input} / ${output}`
 }
 

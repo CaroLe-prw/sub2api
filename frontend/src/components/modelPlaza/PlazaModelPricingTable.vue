@@ -1,14 +1,14 @@
 <template>
   <div class="plaza-pricing-table overflow-x-auto" :style="accentStyle">
-    <table class="w-full min-w-[860px] table-fixed border-collapse text-sm tabular-nums">
+    <table class="w-full min-w-[1000px] table-fixed border-collapse text-sm tabular-nums">
       <colgroup>
-        <col class="w-[22%]" />
-        <col class="w-[10%]" />
-        <col class="w-[10%]" />
-        <col class="w-[14%]" />
-        <col class="w-[10%]" />
-        <col class="w-[10%]" />
-        <col class="w-[14%]" />
+        <col class="w-[30%]" />
+        <col class="w-[9%]" />
+        <col class="w-[9%]" />
+        <col class="w-[12%]" />
+        <col class="w-[9%]" />
+        <col class="w-[9%]" />
+        <col class="w-[12%]" />
         <col class="w-[10%]" />
       </colgroup>
       <thead>
@@ -81,6 +81,43 @@
               >
                 {{ billingModeLabel(m) }}
               </span>
+            </div>
+            <div
+              v-if="timePricing(m).length"
+              class="mt-2 space-y-1.5"
+              data-testid="time-pricing"
+            >
+              <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] leading-4 text-gray-400 dark:text-dark-500">
+                <span>{{ t('modelPlaza.table.timePricing') }}</span>
+                <span>·</span>
+                <span>{{ t('modelPlaza.table.inheritsDefault') }}</span>
+              </div>
+              <div
+                v-for="(period, idx) in timePricing(m)"
+                :key="`${period.start}-${period.end}-${idx}`"
+                :class="[
+                  'rounded-md border px-2 py-1 text-[10px] leading-4',
+                  isActiveTimePeriod(period)
+                    ? 'border-primary-300 bg-primary-50 text-primary-800 dark:border-primary-700/70 dark:bg-primary-900/20 dark:text-primary-200'
+                    : 'border-gray-200 bg-gray-50/80 text-gray-600 dark:border-dark-600 dark:bg-dark-700/40 dark:text-dark-300'
+                ]"
+              >
+                <div class="flex flex-wrap items-center gap-x-1.5">
+                  <span class="font-mono font-semibold">{{ period.start }}–{{ period.end }}</span>
+                  <span
+                    v-if="isActiveTimePeriod(period)"
+                    class="rounded bg-primary-100 px-1 font-medium text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"
+                  >
+                    {{ t('modelPlaza.table.current') }}
+                  </span>
+                </div>
+                <div class="mt-0.5 flex flex-wrap gap-x-2 gap-y-0 font-mono">
+                  <span v-for="item in timePricingItems(m, period)" :key="item.label">
+                    <span class="font-sans text-gray-400 dark:text-dark-500">{{ item.label }}</span>
+                    {{ item.value }}
+                  </span>
+                </div>
+              </div>
             </div>
           </td>
 
@@ -219,7 +256,7 @@ import {
   type BillingMode
 } from '@/constants/channel'
 import type { PlazaModel } from '@/api/modelPlaza'
-import type { UserPricingInterval } from '@/api/channels'
+import type { UserPricingInterval, UserTimePricingPeriod } from '@/api/channels'
 
 const props = defineProps<{
   models: PlazaModel[]
@@ -240,6 +277,7 @@ const { t } = useI18n()
 const accentStyle = computed(() => ({ '--plaza-accent': platformAccentColor(props.platform ?? '') }))
 
 const PER_MILLION = 1_000_000
+const shanghaiMinute = currentShanghaiMinute()
 
 /**
  * 展示顺序:
@@ -320,6 +358,62 @@ function hasCachePricing(m: PlazaModel): boolean {
 
 function hasOfficialCache(o: NonNullable<PlazaModel['official_pricing']>): boolean {
   return o.cache_write_price != null || o.cache_read_price != null || o.cache_write_1h_price != null
+}
+
+function timePricing(m: PlazaModel): UserTimePricingPeriod[] {
+  return m.pricing?.time_pricing ?? []
+}
+
+function timePricingItems(
+  m: PlazaModel,
+  period: UserTimePricingPeriod
+): Array<{ label: string; value: string }> {
+  const tokenItems: Array<[string, number | null]> = [
+    [t('modelPlaza.table.input'), period.input_price],
+    [t('modelPlaza.table.output'), period.output_price],
+    [t('modelPlaza.table.cacheWrite'), period.cache_write_price],
+    [t('modelPlaza.table.cacheRead'), period.cache_read_price],
+    [t('modelPlaza.table.imageInput'), period.image_input_price],
+    [t('modelPlaza.table.imageOutput'), period.image_output_price]
+  ]
+  const items = tokenItems
+    .filter((item): item is [string, number] => item[1] != null)
+    .map(([label, value]) => ({ label, value: paidPerMillion(value) }))
+
+  if (period.per_request_price != null) {
+    items.push({
+      label: t('modelPlaza.table.perRequestShort'),
+      value: `${paidRequestPrice(m, period.per_request_price)}${perUnitSuffix(m)}`
+    })
+  }
+  return items
+}
+
+function isActiveTimePeriod(period: UserTimePricingPeriod): boolean {
+  const start = parseClockMinute(period.start)
+  const end = parseClockMinute(period.end)
+  return start != null && end != null && shanghaiMinute >= start && shanghaiMinute < end
+}
+
+function parseClockMinute(value: string): number | null {
+  const match = /^(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return null
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (hour > 23 || minute > 59) return null
+  return hour * 60 + minute
+}
+
+function currentShanghaiMinute(): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(new Date())
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0) % 24
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? 0)
+  return hour * 60 + minute
 }
 
 /** token 模式的阶梯定价(内联进输入/输出列)。 */

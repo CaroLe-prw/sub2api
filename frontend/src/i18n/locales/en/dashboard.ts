@@ -541,6 +541,7 @@ export default {
       imageOutputPrice: 'Image Output',
       perRequestPrice: 'Per Request',
       intervals: 'Tiered Pricing',
+      timePricing: 'Time Pricing (Shanghai)',
       unitPerMillion: '/ 1M tokens',
       unitPerRequest: '/ request'
     }
@@ -586,7 +587,13 @@ export default {
       perUnitRequest: '/ request',
       perUnitImage: '/ image',
       perRequest: 'Per request',
-      perImage: 'Per image'
+      perImage: 'Per image',
+      timePricing: 'Time pricing (Shanghai, discounted)',
+      inheritsDefault: 'Unlisted prices inherit the base price',
+      current: 'Current',
+      imageInput: 'Image input',
+      imageOutput: 'Image output',
+      perRequestShort: 'Request'
     },
     nav: {
       login: 'Sign In',

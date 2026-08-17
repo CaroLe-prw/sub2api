@@ -34,6 +34,7 @@ export default {
         imageOutputPrice: 'Image Output',
         perRequestPrice: 'Per Request',
         intervals: 'Tiered Pricing',
+        timePricing: 'Time Pricing (Shanghai)',
         unitPerMillion: '/ 1M tokens',
         unitPerRequest: '/ request'
       }
@@ -80,6 +81,12 @@ export default {
           perRequestPrice: 'per-request price'
         }
       },
+      timePricingValidation: {
+        invalidPeriod: 'Time price #{index}: invalid time; end must be later than start (overnight periods are not supported)',
+        overlap: 'Time price #{index}: overlaps another period',
+        missingPrice: 'Time price #{index}: set at least one price',
+        invalidPrice: 'Time price #{index}: prices must be numbers greater than or equal to 0'
+      },
       deleteConfirm: 'Are you sure you want to delete channel "{name}"? This cannot be undone.',
       columns: {
         name: 'Name',
@@ -111,6 +118,12 @@ export default {
         modelInputHint: 'Press Enter to add, supports paste for batch import.',
         billingMode: 'Billing Mode',
         defaultPrices: 'Default prices (fallback when no interval matches)',
+        timePricing: 'Time Pricing',
+        timePricingHint: 'Uses Shanghai time. Add multiple non-overlapping periods; set fields override default and tier prices. The linked group rate still applies ($/MTok).',
+        addTimePricing: 'Add Time Price',
+        startTime: 'Start',
+        endTime: 'End',
+        inheritPrice: 'Inherit',
         inputPrice: 'Input',
         outputPrice: 'Output',
         cacheWritePrice: 'Cache Write',
