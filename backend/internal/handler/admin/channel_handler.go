@@ -68,6 +68,7 @@ type channelModelPricingRequest struct {
 	ImageOutputPrice *float64                 `json:"image_output_price" binding:"omitempty,min=0"`
 	PerRequestPrice  *float64                 `json:"per_request_price" binding:"omitempty,min=0"`
 	Intervals        []pricingIntervalRequest `json:"intervals"`
+	TimePricing      []timePricingPayload     `json:"time_pricing"`
 }
 
 type pricingIntervalRequest struct {
@@ -80,6 +81,18 @@ type pricingIntervalRequest struct {
 	CacheReadPrice  *float64 `json:"cache_read_price"`
 	PerRequestPrice *float64 `json:"per_request_price"`
 	SortOrder       int      `json:"sort_order"`
+}
+
+type timePricingPayload struct {
+	Start            string   `json:"start"`
+	End              string   `json:"end"`
+	InputPrice       *float64 `json:"input_price"`
+	OutputPrice      *float64 `json:"output_price"`
+	CacheWritePrice  *float64 `json:"cache_write_price"`
+	CacheReadPrice   *float64 `json:"cache_read_price"`
+	ImageInputPrice  *float64 `json:"image_input_price"`
+	ImageOutputPrice *float64 `json:"image_output_price"`
+	PerRequestPrice  *float64 `json:"per_request_price"`
 }
 
 type accountStatsPricingRuleRequest struct {
@@ -120,6 +133,7 @@ type channelModelPricingResponse struct {
 	ImageOutputPrice *float64                  `json:"image_output_price"`
 	PerRequestPrice  *float64                  `json:"per_request_price"`
 	Intervals        []pricingIntervalResponse `json:"intervals"`
+	TimePricing      []timePricingPayload      `json:"time_pricing"`
 }
 
 type pricingIntervalResponse struct {
@@ -228,7 +242,26 @@ func pricingToResponse(p *service.ChannelModelPricing) channelModelPricingRespon
 		ImageOutputPrice: p.ImageOutputPrice,
 		PerRequestPrice:  p.PerRequestPrice,
 		Intervals:        intervals,
+		TimePricing:      timePricingToPayload(p.TimePricing),
 	}
+}
+
+func timePricingToPayload(periods []service.TimePricingPeriod) []timePricingPayload {
+	result := make([]timePricingPayload, 0, len(periods))
+	for _, period := range periods {
+		result = append(result, timePricingPayload{
+			Start:            period.Start,
+			End:              period.End,
+			InputPrice:       period.InputPrice,
+			OutputPrice:      period.OutputPrice,
+			CacheWritePrice:  period.CacheWritePrice,
+			CacheReadPrice:   period.CacheReadPrice,
+			ImageInputPrice:  period.ImageInputPrice,
+			ImageOutputPrice: period.ImageOutputPrice,
+			PerRequestPrice:  period.PerRequestPrice,
+		})
+	}
+	return result
 }
 
 func intervalToResponse(iv service.PricingInterval) pricingIntervalResponse {
@@ -280,6 +313,25 @@ func pricingRequestToService(reqs []channelModelPricingRequest) []service.Channe
 			ImageOutputPrice: r.ImageOutputPrice,
 			PerRequestPrice:  r.PerRequestPrice,
 			Intervals:        intervals,
+			TimePricing:      timePricingPayloadToService(r.TimePricing),
+		})
+	}
+	return result
+}
+
+func timePricingPayloadToService(periods []timePricingPayload) []service.TimePricingPeriod {
+	result := make([]service.TimePricingPeriod, 0, len(periods))
+	for _, period := range periods {
+		result = append(result, service.TimePricingPeriod{
+			Start:            period.Start,
+			End:              period.End,
+			InputPrice:       period.InputPrice,
+			OutputPrice:      period.OutputPrice,
+			CacheWritePrice:  period.CacheWritePrice,
+			CacheReadPrice:   period.CacheReadPrice,
+			ImageInputPrice:  period.ImageInputPrice,
+			ImageOutputPrice: period.ImageOutputPrice,
+			PerRequestPrice:  period.PerRequestPrice,
 		})
 	}
 	return result

@@ -218,6 +218,31 @@ func TestChannelToResponse_WithIntervals(t *testing.T) {
 	require.Equal(t, 2, iv1.SortOrder)
 }
 
+func TestChannelToResponse_PreservesTimePricing(t *testing.T) {
+	periodInput := 8e-6
+	resp := pricingToResponse(&service.ChannelModelPricing{
+		Platform:    "openai",
+		Models:      []string{"deepseek-v4-flash"},
+		BillingMode: service.BillingModeToken,
+		TimePricing: []service.TimePricingPeriod{{
+			Start:      "09:00",
+			End:        "12:00",
+			InputPrice: &periodInput,
+		}},
+	})
+
+	raw, err := json.Marshal(resp)
+	require.NoError(t, err)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	periods, ok := decoded["time_pricing"].([]any)
+	require.True(t, ok, "管理端读取渠道时必须返回 time_pricing")
+	require.Len(t, periods, 1)
+	period := periods[0].(map[string]any)
+	require.Equal(t, "09:00", period["start"])
+	require.InDelta(t, periodInput, period["input_price"].(float64), 1e-12)
+}
+
 func TestChannelToResponse_MultipleEntries(t *testing.T) {
 	now := time.Now()
 	ch := &service.Channel{
@@ -393,6 +418,36 @@ func TestPricingRequestToService_WithIntervals(t *testing.T) {
 	require.Nil(t, iv1.MaxTokens)
 	require.Equal(t, "large", iv1.TierLabel)
 	require.Equal(t, 2, iv1.SortOrder)
+}
+
+func TestPricingRequestToService_PreservesTimePricing(t *testing.T) {
+	var req channelModelPricingRequest
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"platform":"openai",
+		"models":["deepseek-v4-flash"],
+		"billing_mode":"token",
+		"time_pricing":[{
+			"start":"09:00",
+			"end":"12:00",
+			"input_price":0.000008,
+			"output_price":0.000024,
+			"cache_write_price":null,
+			"cache_read_price":0.000001,
+			"image_input_price":null,
+			"image_output_price":null,
+			"per_request_price":null
+		}]
+	}`), &req))
+
+	result := pricingRequestToService([]channelModelPricingRequest{req})
+	require.Len(t, result, 1)
+	require.Len(t, result[0].TimePricing, 1, "管理端保存渠道时不能丢失 time_pricing")
+	period := result[0].TimePricing[0]
+	require.Equal(t, "09:00", period.Start)
+	require.Equal(t, "12:00", period.End)
+	require.InDelta(t, 8e-6, *period.InputPrice, 1e-12)
+	require.InDelta(t, 24e-6, *period.OutputPrice, 1e-12)
+	require.InDelta(t, 1e-6, *period.CacheReadPrice, 1e-12)
 }
 
 func TestPricingRequestToService_EmptySlice(t *testing.T) {
