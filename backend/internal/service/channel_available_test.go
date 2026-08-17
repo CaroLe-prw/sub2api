@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
@@ -217,6 +218,33 @@ func TestSynthesizePricingFromLiteLLM_TokenMode(t *testing.T) {
 	require.NotNil(t, got.CacheReadPrice)
 }
 
+func TestSynthesizePricingFromLiteLLM_PreservesTimePricing(t *testing.T) {
+	periodInput := 8e-6
+	existing := &ChannelModelPricing{
+		BillingMode: BillingModeToken,
+		TimePricing: []TimePricingPeriod{{
+			Start:      "09:00",
+			End:        "12:00",
+			InputPrice: &periodInput,
+		}},
+	}
+	lp := &LiteLLMModelPricing{
+		Mode:               "chat",
+		InputCostPerToken:  1.5e-6,
+		OutputCostPerToken: 4.5e-6,
+	}
+
+	got := synthesizePricingFromLiteLLM(lp, existing)
+	require.NotNil(t, got)
+	require.Len(t, got.TimePricing, 1, "补齐基础价时不能丢失渠道分时规则")
+	require.Equal(t, "09:00", got.TimePricing[0].Start)
+	require.InDelta(t, 1.5e-6, *got.InputPrice, 1e-12, "非分时时段继续使用官方基础价")
+
+	effective := got.EffectiveAt(time.Date(2026, 8, 17, 10, 0, 0, 0, channelPricingShanghaiLocation))
+	require.NotNil(t, effective.InputPrice)
+	require.InDelta(t, periodInput, *effective.InputPrice, 1e-12, "分时时段必须覆盖基础回退价")
+}
+
 func TestSynthesizePricingFromLiteLLM_ImageGenerationMode(t *testing.T) {
 	// LiteLLM mode=image_generation 且渠道未声明模式时，按 image 合成。
 	lp := &LiteLLMModelPricing{
@@ -286,6 +314,37 @@ func TestFillGlobalPricingFallback_EmptyPricingFillsFromLiteLLM(t *testing.T) {
 	require.Equal(t, BillingModeImage, models[0].Pricing.BillingMode)
 	require.NotNil(t, models[0].Pricing.ImageOutputPrice)
 	require.InDelta(t, 4e-5, *models[0].Pricing.ImageOutputPrice, 1e-12)
+}
+
+func TestFillGlobalPricingFallback_TimeOnlyPricingKeepsSchedule(t *testing.T) {
+	periodInput := 8e-6
+	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
+		"deepseek-v4-flash": {
+			Mode:               "chat",
+			InputCostPerToken:  1.5e-6,
+			OutputCostPerToken: 4.5e-6,
+		},
+	})
+	svc := &ChannelService{pricingService: pricingSvc}
+	models := []SupportedModel{{
+		Name:     "deepseek-v4-flash",
+		Platform: "openai",
+		Pricing: &ChannelModelPricing{
+			BillingMode: BillingModeToken,
+			TimePricing: []TimePricingPeriod{{
+				Start:      "09:00",
+				End:        "12:00",
+				InputPrice: &periodInput,
+			}},
+		},
+	}}
+
+	svc.fillGlobalPricingFallback(models)
+	require.NotNil(t, models[0].Pricing)
+	require.Len(t, models[0].Pricing.TimePricing, 1)
+	effective := models[0].Pricing.EffectiveAt(time.Date(2026, 8, 17, 10, 0, 0, 0, channelPricingShanghaiLocation))
+	require.NotNil(t, effective.InputPrice)
+	require.InDelta(t, periodInput, *effective.InputPrice, 1e-12)
 }
 
 func TestFillGlobalPricingFallback_KeepsExistingPrice(t *testing.T) {

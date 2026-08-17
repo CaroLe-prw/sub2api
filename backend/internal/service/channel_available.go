@@ -178,22 +178,33 @@ func synthesizePricingFromLiteLLM(lp *LiteLLMModelPricing, existing *ChannelMode
 		mode = BillingModeImage
 	}
 
-	if mode == BillingModeImage || mode == BillingModePerRequest {
-		return &ChannelModelPricing{
-			BillingMode:      mode,
-			PerRequestPrice:  nonZeroPtr(lp.OutputCostPerImage),
-			ImageOutputPrice: nonZeroPtr(lp.OutputCostPerImageToken),
-			InputPrice:       nonZeroPtr(lp.InputCostPerToken),
-			OutputPrice:      nonZeroPtr(lp.OutputCostPerToken),
-		}
+	// 回退价只负责补齐渠道没有填写的基础字段。必须保留渠道条目中的分时规则、
+	// 阶梯、模型列表等配置，否则“仅配置分时价、基础价留空”的渠道会在可用渠道
+	// 和模型广场中退化成纯 LiteLLM 价格，当前时段也无法切换。
+	pricing := ChannelModelPricing{BillingMode: mode}
+	if existing != nil {
+		pricing = existing.Clone()
+		pricing.BillingMode = mode
 	}
-	return &ChannelModelPricing{
-		BillingMode:      mode,
-		InputPrice:       nonZeroPtr(lp.InputCostPerToken),
-		OutputPrice:      nonZeroPtr(lp.OutputCostPerToken),
-		CacheWritePrice:  nonZeroPtr(lp.CacheCreationInputTokenCost),
-		CacheReadPrice:   nonZeroPtr(lp.CacheReadInputTokenCost),
-		ImageOutputPrice: nonZeroPtr(lp.OutputCostPerImageToken),
+
+	if mode == BillingModeImage || mode == BillingModePerRequest {
+		fillMissingPrice(&pricing.PerRequestPrice, lp.OutputCostPerImage)
+		fillMissingPrice(&pricing.ImageOutputPrice, lp.OutputCostPerImageToken)
+		fillMissingPrice(&pricing.InputPrice, lp.InputCostPerToken)
+		fillMissingPrice(&pricing.OutputPrice, lp.OutputCostPerToken)
+		return &pricing
+	}
+	fillMissingPrice(&pricing.InputPrice, lp.InputCostPerToken)
+	fillMissingPrice(&pricing.OutputPrice, lp.OutputCostPerToken)
+	fillMissingPrice(&pricing.CacheWritePrice, lp.CacheCreationInputTokenCost)
+	fillMissingPrice(&pricing.CacheReadPrice, lp.CacheReadInputTokenCost)
+	fillMissingPrice(&pricing.ImageOutputPrice, lp.OutputCostPerImageToken)
+	return &pricing
+}
+
+func fillMissingPrice(target **float64, fallback float64) {
+	if *target == nil {
+		*target = nonZeroPtr(fallback)
 	}
 }
 
