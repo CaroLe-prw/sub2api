@@ -1151,7 +1151,7 @@
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <UpstreamBillingSourceField
             v-model:mode="upstreamBillingMode"
-            :allow-new-api="form.platform === 'openai'"
+            :allow-new-api="supportsNewAPISyncPlatform(form.platform)"
           />
         </div>
         <NewAPISyncConfigFields
@@ -3639,7 +3639,10 @@ import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import UpstreamBalanceAlertFields from '@/components/account/UpstreamBalanceAlertFields.vue'
 import UpstreamBillingSourceField from '@/components/account/UpstreamBillingSourceField.vue'
 import NewAPISyncConfigFields from '@/components/account/NewAPISyncConfigFields.vue'
-import type { UpstreamBillingMode } from '@/components/account/upstreamBilling'
+import {
+  supportsNewAPISyncPlatform,
+  type UpstreamBillingMode
+} from '@/components/account/upstreamBilling'
 import {
   DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED,
   DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD
@@ -4203,7 +4206,7 @@ const form = reactive({
 })
 
 watch(() => form.platform, (platform) => {
-  if (platform !== 'openai' && upstreamBillingMode.value === 'newapi') {
+  if (!supportsNewAPISyncPlatform(platform) && upstreamBillingMode.value === 'newapi') {
     upstreamBillingMode.value = 'sub2api'
   }
 })
@@ -4708,7 +4711,7 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
 }
 
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
-  const configureNewAPI = payload.platform === 'openai'
+  const configureNewAPI = supportsNewAPISyncPlatform(payload.platform)
     && payload.type === 'apikey'
     && upstreamBillingMode.value === 'newapi'
   if (configureNewAPI && (

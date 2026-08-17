@@ -373,7 +373,7 @@ export default {
         errors: {
           NEWAPI_SYNC_BUSY: 'This account is already being synchronized. Try again shortly.',
           NEWAPI_SYNC_UNAVAILABLE: 'The NewAPI synchronization service is unavailable.',
-          NEWAPI_SYNC_ACCOUNT_INVALID: 'Only OpenAI API key accounts support this synchronization.',
+          NEWAPI_SYNC_ACCOUNT_INVALID: 'Only supported API key accounts can use this synchronization.',
           NEWAPI_SYNC_IDENTITY_CHANGED: 'The synchronization configuration changed. Try again.',
           NEWAPI_SYNC_CONFIG_INVALID: 'The synchronization configuration is invalid.',
           NEWAPI_SYNC_CONFIG_INCOMPLETE: 'Enter the NewAPI UID and user access token.',

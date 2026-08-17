@@ -239,38 +239,43 @@ func TestNewAPITestConnectionDoesNotModifyRatio(t *testing.T) {
 }
 
 func TestNewAPISyncBlankBaseURLUsesAccountEndpoint(t *testing.T) {
-	account := newAPISyncTestAccount(1, 0.4)
-	accountEndpoint := "https://account-endpoint.example.test"
-	account.Credentials = map[string]any{
-		"base_url": accountEndpoint,
-		"api_key":  newAPITestAPIKey,
-	}
-	account.Extra[NewAPIBaseURLExtraKey] = ""
-	userAccessToken, ok := account.Extra[NewAPIUserAccessTokenExtraKey].(string)
-	require.True(t, ok)
-	account.Extra[NewAPISyncIdentityExtraKey] = newAPISyncIdentity(
-		"",
-		42,
-		userAccessToken,
-	)
-	repo := &newAPISyncTestRepo{upstreamBillingProbeAccountRepo: &upstreamBillingProbeAccountRepo{
-		accounts: map[int64]*Account{1: account},
-	}}
-	doer := &newAPITestDoer{}
-	doer.handle = newAPITestSuccessHandler(t, "Basic", "VIP", false, "0.0325")
-	service := newAPISyncTestService(t, repo, func(*Account) (*NewAPIClient, error) {
-		return NewNewAPIClient(doer), nil
-	})
+	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok} {
+		t.Run(platform, func(t *testing.T) {
+			account := newAPISyncTestAccount(1, 0.4)
+			account.Platform = platform
+			accountEndpoint := "https://account-endpoint.example.test"
+			account.Credentials = map[string]any{
+				"base_url": accountEndpoint,
+				"api_key":  newAPITestAPIKey,
+			}
+			account.Extra[NewAPIBaseURLExtraKey] = ""
+			userAccessToken, ok := account.Extra[NewAPIUserAccessTokenExtraKey].(string)
+			require.True(t, ok)
+			account.Extra[NewAPISyncIdentityExtraKey] = newAPISyncIdentity(
+				"",
+				42,
+				userAccessToken,
+			)
+			repo := &newAPISyncTestRepo{upstreamBillingProbeAccountRepo: &upstreamBillingProbeAccountRepo{
+				accounts: map[int64]*Account{1: account},
+			}}
+			doer := &newAPITestDoer{}
+			doer.handle = newAPITestSuccessHandler(t, "Basic", "VIP", false, "0.0325")
+			service := newAPISyncTestService(t, repo, func(*Account) (*NewAPIClient, error) {
+				return NewNewAPIClient(doer), nil
+			})
 
-	result, err := service.SyncNewAPIAccount(t.Context(), 1)
-	require.NoError(t, err)
-	require.Equal(t, 0.0325, *result.NewRatio)
-	require.NotEmpty(t, doer.requests)
-	for _, request := range doer.requests {
-		require.Equal(t, "account-endpoint.example.test", request.URL.Host)
+			result, err := service.SyncNewAPIAccount(t.Context(), 1)
+			require.NoError(t, err)
+			require.Equal(t, 0.0325, *result.NewRatio)
+			require.NotEmpty(t, doer.requests)
+			for _, request := range doer.requests {
+				require.Equal(t, "account-endpoint.example.test", request.URL.Host)
+			}
+			require.Equal(t, accountEndpoint, *repo.writes[0].ExpectedAccountBaseURL)
+			require.Equal(t, newAPIAccountAPIKeyHash(account), repo.writes[0].ExpectedAccountAPIKeyHash)
+		})
 	}
-	require.Equal(t, accountEndpoint, *repo.writes[0].ExpectedAccountBaseURL)
-	require.Equal(t, newAPIAccountAPIKeyHash(account), repo.writes[0].ExpectedAccountAPIKeyHash)
 }
 
 func TestRefreshSchedulingCostUsesNewAPISnapshotAndCalibration(t *testing.T) {

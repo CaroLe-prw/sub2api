@@ -598,7 +598,7 @@ func (s *UpstreamBillingProbeService) ProbeAccounts(ctx context.Context, account
 
 // RefreshSchedulingCost dispatches to the account's configured discovery
 // mechanism. NewAPI accounts synchronize their effective group ratio; other
-// OpenAI API key accounts retain the Sub2API billing endpoint probe.
+// supported API key accounts retain the Sub2API billing endpoint probe.
 func (s *UpstreamBillingProbeService) RefreshSchedulingCost(
 	ctx context.Context,
 	accountID int64,

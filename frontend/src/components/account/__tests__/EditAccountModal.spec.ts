@@ -807,17 +807,19 @@ describe('EditAccountModal', () => {
     expect(payload).not.toHaveProperty('upstream_billing_rate_sync_enabled')
   })
 
-  it('exposes Sub2API probing for non-OpenAI API-key accounts', async () => {
+  it.each(['anthropic', 'gemini', 'grok'])('exposes Sub2API and NewAPI for %s API-key accounts', async (platform) => {
     const account = buildAccount()
-    account.platform = 'grok'
-    account.name = 'grok-relay'
-    account.credentials = { api_key: 'sk-grok', base_url: 'https://relay.example/v1' }
+    account.platform = platform
+    account.name = `${platform}-relay`
+    account.credentials = { api_key: `sk-${platform}`, base_url: 'https://relay.example/v1' }
     updateAccountMock.mockReset()
     updateAccountMock.mockResolvedValue(account)
 
     const wrapper = mountModal(account)
     const mode = wrapper.get<HTMLSelectElement>('[data-testid="upstream-billing-mode"]')
-    expect(mode.findAll('option').map((option) => option.attributes('value'))).toEqual(['off', 'sub2api'])
+    expect(mode.findAll('option').map((option) => option.attributes('value'))).toEqual(['off', 'sub2api', 'newapi'])
+    await mode.setValue('newapi')
+    expect(wrapper.find('[data-testid="newapi-sync-settings"]').exists()).toBe(true)
     await mode.setValue('sub2api')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 

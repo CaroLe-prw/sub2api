@@ -1706,7 +1706,7 @@
       >
         <UpstreamBillingSourceField
           v-model:mode="upstreamBillingMode"
-          :allow-new-api="account?.platform === 'openai'"
+          :allow-new-api="supportsNewAPISyncPlatform(account?.platform)"
         />
         <div v-if="account?.platform === 'openai' && upstreamBillingMode !== 'off'">
           <label class="input-label">{{ t('admin.accounts.upstreamBilling.calibrationFactor') }}</label>
@@ -1734,7 +1734,7 @@
           {{ t('admin.accounts.newapiSync.description') }}
         </p>
         <NewAPISyncSettings
-          v-if="account?.platform === 'openai'"
+          v-if="supportsNewAPISyncPlatform(account?.platform)"
           ref="newapiSyncSettings"
           :account-id="account.id"
           :enabled="upstreamBillingMode === 'newapi'"
@@ -2792,6 +2792,7 @@ import NewAPISyncSettings from '@/components/account/NewAPISyncSettings.vue'
 import UpstreamBillingSourceField from '@/components/account/UpstreamBillingSourceField.vue'
 import {
   resolveUpstreamBillingMode,
+  supportsNewAPISyncPlatform,
   type UpstreamBillingMode
 } from '@/components/account/upstreamBilling'
 import UpstreamBalanceAlertFields from '@/components/account/UpstreamBalanceAlertFields.vue'

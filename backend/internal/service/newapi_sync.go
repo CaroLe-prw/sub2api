@@ -80,7 +80,7 @@ var (
 		"NEWAPI_SYNC_UNAVAILABLE", "NewAPI ratio synchronization is unavailable",
 	)
 	ErrNewAPISyncAccountInvalid = infraBadRequest(
-		"NEWAPI_SYNC_ACCOUNT_INVALID", "account is not an OpenAI API key account",
+		"NEWAPI_SYNC_ACCOUNT_INVALID", "account is not a supported API key account",
 	)
 	ErrNewAPISyncBusy = infraConflict(
 		"NEWAPI_SYNC_BUSY", "NewAPI ratio synchronization is already running for this account",
@@ -628,7 +628,10 @@ func (s *UpstreamBillingProbeService) validateNewAPIBaseURL(raw string) (string,
 func (s *UpstreamBillingProbeService) resolveNewAPIBaseURL(account *Account, configured string) (string, error) {
 	raw := strings.TrimSpace(configured)
 	if raw == "" && account != nil {
-		raw = strings.TrimSpace(account.GetOpenAIBaseURL())
+		raw = strings.TrimSpace(account.GetCredential("base_url"))
+		if raw == "" && account.Platform == PlatformOpenAI {
+			raw = strings.TrimSpace(account.GetOpenAIBaseURL())
+		}
 	}
 	if raw == "" {
 		return "", errors.New("NewAPI base URL is unavailable")
@@ -808,7 +811,15 @@ func secretShouldReplace(value string) bool {
 }
 
 func isNewAPISyncAccount(account *Account) bool {
-	return account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey
+	if account == nil || account.Type != AccountTypeAPIKey {
+		return false
+	}
+	switch account.Platform {
+	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok:
+		return true
+	default:
+		return false
+	}
 }
 
 func newAPISyncEnabled(account *Account) bool {
@@ -995,7 +1006,7 @@ func calibratedNewAPIAccountRatio(account *Account, resolution *NewAPIResolution
 	if rawRatio <= 0 || math.IsNaN(rawRatio) || math.IsInf(rawRatio, 0) {
 		return 0, newAPIClientError("calibrated_ratio_invalid")
 	}
-	ratio := rawRatio * openAIUpstreamRateCalibration(account)
+	ratio := rawRatio * upstreamBillingProbeRateCalibration(account)
 	if ratio < 0 || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
 		return 0, newAPIClientError("calibrated_ratio_invalid")
 	}

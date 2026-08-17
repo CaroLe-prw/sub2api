@@ -319,7 +319,7 @@ export default {
         errors: {
           NEWAPI_SYNC_BUSY: '该账号正在同步，请稍后重试。',
           NEWAPI_SYNC_UNAVAILABLE: 'NewAPI 同步服务当前不可用。',
-          NEWAPI_SYNC_ACCOUNT_INVALID: '仅 OpenAI API Key 账号支持此同步功能。',
+          NEWAPI_SYNC_ACCOUNT_INVALID: '仅受支持的 API Key 账号可以使用此同步功能。',
           NEWAPI_SYNC_IDENTITY_CHANGED: '同步配置已发生变化，请重试。',
           NEWAPI_SYNC_CONFIG_INVALID: '同步配置格式无效。',
           NEWAPI_SYNC_CONFIG_INCOMPLETE: '请填写 NewAPI UID 和用户访问令牌。',

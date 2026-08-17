@@ -296,6 +296,48 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     ])
   })
 
+  it.each([
+    ['Anthropic', 'admin.accounts.claudeConsole', 'anthropic'],
+    ['Gemini', 'admin.accounts.gemini.accountType.apiKeyTitle', 'gemini'],
+    ['Grok', 'API Key', 'grok'],
+  ])('configures NewAPI after creating a %s API key account', async (platformLabel, typeLabel, platform) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, platformLabel)
+    if (platformLabel === 'Grok') {
+      await wrapper.get('[data-testid="grok-account-type-api-key"]').trigger('click')
+    } else {
+      await selectButtonByText(wrapper, typeLabel)
+    }
+
+    await wrapper.get('form#create-account-form input[type="text"]').setValue(`${platform} NewAPI account`)
+    await wrapper.get('form#create-account-form input[type="password"]').setValue(`${platform}-api-key`)
+    const mode = wrapper.get<HTMLSelectElement>('[data-testid="upstream-billing-mode"]')
+    expect(mode.findAll('option').map((option) => option.attributes('value'))).toEqual([
+      'off',
+      'sub2api',
+      'newapi',
+    ])
+    await mode.setValue('newapi')
+    await wrapper.get('#newapi-create-base-url').setValue('https://newapi.example.com')
+    await wrapper.get('#newapi-create-user-id').setValue('7')
+    await wrapper.get('#newapi-create-access-token').setValue('user-access-token')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      platform,
+      type: 'apikey',
+      upstream_billing_probe_enabled: false,
+    }))
+    expect(updateNewAPISyncConfigMock).toHaveBeenCalledWith(42, {
+      newapi_sync_enabled: true,
+      newapi_base_url: 'https://newapi.example.com',
+      newapi_user_access_token: 'user-access-token',
+      newapi_user_id: 7,
+    })
+    expect(syncNewAPIRatioMock).toHaveBeenCalledWith(42)
+  })
+
   it('exposes Agent Identity in the OpenAI authorization methods', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')
