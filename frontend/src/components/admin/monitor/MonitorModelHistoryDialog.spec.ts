@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { PoolMonitorAccount, PoolProbeResult } from '@/api/admin/schedulerProbes'
 import MonitorModelHistoryDialog from './MonitorModelHistoryDialog.vue'
+import type { ProbeHistoryByPlan } from './monitorDataTypes'
 
 vi.mock('vue-i18n', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-i18n')>()
@@ -31,6 +32,7 @@ vi.mock('vue-i18n', async (importOriginal) => {
         'admin.channelMonitor.dataPanel.probeStatus.success': '在线',
         'admin.channelMonitor.dataPanel.probeStatus.failed': '异常',
         'admin.channelMonitor.dataPanel.probeStatus.degraded': '响应偏慢',
+        'admin.channelMonitor.dataPanel.probeStatus.pending': '待探测',
         'admin.channelMonitor.runNow': '立即检测',
         'common.close': '关闭',
       })[key] ?? key,
@@ -76,6 +78,37 @@ function result(id: number, status: PoolProbeResult['status'], createdAt: string
 }
 
 describe('MonitorModelHistoryDialog', () => {
+  it('treats a null history response for a new probe plan as no samples', () => {
+    let wrapper: ReturnType<typeof mount> | undefined
+
+    expect(() => {
+      wrapper = mount(MonitorModelHistoryDialog, {
+        props: {
+          show: true,
+          account: {
+            ...account,
+            models: [{ ...account.models[0], status: '', sample_count: 0, failure_count: 0 }],
+          },
+          histories: { 81: null } as unknown as ProbeHistoryByPlan,
+          loading: false,
+          runningPlanId: null,
+        },
+        global: {
+          stubs: {
+            BaseDialog: {
+              props: ['show'],
+              template: '<div v-if="show"><slot /><slot name="footer" /></div>',
+            },
+            Icon: true,
+            MonitorHeartbeatTimeline: true,
+          },
+        },
+      })
+    }).not.toThrow()
+
+    expect(wrapper?.text()).toContain('待探测')
+  })
+
   it('does not count successful yellow slow-response samples as abnormal', () => {
     const wrapper = mount(MonitorModelHistoryDialog, {
       props: {

@@ -59,4 +59,14 @@ describe('admin scheduler probe API', () => {
       expect(call[0]).not.toContain('/channel-monitors')
     }
   })
+
+  it('normalizes a null history response for a new plan to an empty array', async () => {
+    get.mockResolvedValue({ data: null })
+
+    await expect(listResults(365, 100)).resolves.toEqual([])
+    expect(get).toHaveBeenCalledWith(
+      '/admin/scheduler-observability/probes/plans/365/results',
+      { params: { limit: 100 } },
+    )
+  })
 })

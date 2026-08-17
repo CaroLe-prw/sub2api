@@ -284,7 +284,7 @@ func (r *scheduledTestResultRepository) ListByPlanID(ctx context.Context, planID
 	}
 	defer func() { _ = rows.Close() }()
 
-	var results []*service.ScheduledTestResult
+	results := make([]*service.ScheduledTestResult, 0)
 	for rows.Next() {
 		r := &service.ScheduledTestResult{}
 		if err := rows.Scan(

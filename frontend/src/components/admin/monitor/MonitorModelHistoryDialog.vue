@@ -23,7 +23,8 @@ const title = computed(() => props.account
   ? t('admin.channelMonitor.dataPanel.channelDetailTitle', { name: props.account.name })
   : t('admin.channelMonitor.dataPanel.detail'))
 
-const allSamples = computed(() => Object.values(props.histories).flat())
+const allSamples = computed(() => Object.values(props.histories).flatMap((samples) =>
+  Array.isArray(samples) ? samples : []))
 const averageLatency = computed(() => {
   const successful = allSamples.value.filter((item) => item.status === 'success')
   return successful.length

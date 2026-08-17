@@ -104,7 +104,7 @@ export async function updateAccountModelPolicy(accountId: number, whitelist: str
 
 export async function listResults(planId: number, limit = 100): Promise<PoolProbeResult[]> {
   const { data } = await apiClient.get<PoolProbeResult[]>(`/admin/scheduler-observability/probes/plans/${planId}/results`, { params: { limit } })
-  return data
+  return data ?? []
 }
 
 export async function runNow(planId: number): Promise<PoolProbeResult> {
