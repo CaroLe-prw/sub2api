@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -1132,6 +1133,88 @@ type TestAccountRequest struct {
 	// ImageDataURL / AudioDataURL are data:<mime>;base64,... payloads.
 	ImageDataURL string `json:"image_data_url"`
 	AudioDataURL string `json:"audio_data_url"`
+}
+
+// TokenAudit handles an explicit, read-only six-sample Token usage audit.
+// POST /api/v1/admin/accounts/:id/token-audit
+func (h *AccountHandler) TokenAudit(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	var req service.TokenAuditRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		response.BadRequest(c, "Invalid token audit request")
+		return
+	}
+	result, err := h.accountTestService.RunTokenAudit(c.Request.Context(), accountID, req.ModelID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+// TokenAuditStream emits one SSE event after each serial sample so the UI can
+// render progress without exposing request or response bodies.
+// POST /api/v1/admin/accounts/:id/token-audit/stream
+func (h *AccountHandler) TokenAuditStream(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	var req service.TokenAuditRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		response.BadRequest(c, "Invalid token audit request")
+		return
+	}
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	writeEvent := func(event service.TokenAuditProgressEvent) error {
+		payload, marshalErr := json.Marshal(event)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if _, writeErr := fmt.Fprintf(c.Writer, "data: %s\n\n", payload); writeErr != nil {
+			return writeErr
+		}
+		c.Writer.Flush()
+		return nil
+	}
+	_, err = h.accountTestService.RunTokenAuditProgress(c.Request.Context(), accountID, req.ModelID, writeEvent)
+	if err != nil && c.Request.Context().Err() == nil {
+		_ = writeEvent(service.TokenAuditProgressEvent{Type: "error"})
+	}
+}
+
+type TokenAuditRetryRequest struct {
+	ModelID    string `json:"model_id"`
+	SampleName string `json:"sample_name" binding:"required"`
+}
+
+// TokenAuditRetry runs only the explicitly requested failed sample.
+// POST /api/v1/admin/accounts/:id/token-audit/retry
+func (h *AccountHandler) TokenAuditRetry(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	var req TokenAuditRetryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid token audit retry request")
+		return
+	}
+	sample, err := h.accountTestService.RunTokenAuditSample(c.Request.Context(), accountID, req.ModelID, req.SampleName)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, sample)
 }
 
 type SyncFromCRSRequest struct {

@@ -3,7 +3,8 @@
  * Handles AI platform account management for administrators
  */
 
-import { apiClient } from '../client'
+import { apiClient, buildApiUrl } from '../client'
+import { ADMIN_UI_REQUEST_HEADER } from '../adminUIRequest'
 import type {
   Account,
   CreateAccountRequest,
@@ -245,6 +246,137 @@ export async function testAccount(id: number): Promise<{
     message: string
     latency_ms?: number
   }>(`/admin/accounts/${id}/test`)
+  return data
+}
+
+export interface TokenAuditSample {
+  name: string
+  kind: string
+  local_tokens: number
+  sha256: string
+  http_status?: number
+  elapsed_ms?: number
+  request_id_present: boolean
+  response_id_present: boolean
+  input_tokens?: number
+  difference_tokens?: number
+  variable_tokens?: number
+  output_tokens?: number
+  total_tokens?: number
+  cached_tokens?: number
+  reasoning_tokens?: number
+  error_type?: string
+  error_code?: string
+  account_header_present: boolean
+  channel_header_present: boolean
+  upstream_header_present: boolean
+  transport_error: boolean
+  timed_out: boolean
+  json_parsed: boolean
+}
+
+export interface TokenAuditFit {
+  intercept: number
+  slope: number
+  r2: number
+  sample_count: number
+  confidence_limited: boolean
+}
+
+export interface TokenAuditResult {
+  account_id: number
+  model_id: string
+  tokenizer_name: string
+  tokenizer_version: string
+  tokenizer_encoding: string
+  tokenizer_exact_match: boolean
+  samples: TokenAuditSample[]
+  all_fit?: TokenAuditFit
+  english_fit?: TokenAuditFit
+  fixed_context_estimate?: number
+  variable_amplification?: number
+  code_extra_tokens?: number
+  chinese_extra_tokens?: number
+  variable_growth_status: string
+  output_cap_status: string
+  fixed_context_status: string
+  overall_status: string
+  completed: number
+  stopped_reason?: string
+}
+
+export async function runTokenAudit(id: number, modelId = 'gpt-5.6-sol'): Promise<TokenAuditResult> {
+  const { data } = await apiClient.post<TokenAuditResult>(`/admin/accounts/${id}/token-audit`, {
+    model_id: modelId
+  }, {
+    // Six serial samples may each use the backend's 90s per-request budget.
+    // Keep this manual audit from being mistaken for a browser network failure.
+    timeout: 10 * 60 * 1000
+  })
+  return data
+}
+
+export interface TokenAuditProgressEvent {
+  type: 'started' | 'sample_started' | 'sample_finished' | 'completed' | 'error'
+  index?: number
+  total?: number
+  name?: string
+  local_tokens?: number
+  completed?: number
+  sample?: TokenAuditSample
+  result?: TokenAuditResult
+}
+
+export async function runTokenAuditStream(
+  id: number,
+  modelId: string,
+  onEvent: (event: TokenAuditProgressEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const requestController = new AbortController()
+  const abortRequest = () => requestController.abort()
+  signal?.addEventListener('abort', abortRequest, { once: true })
+  const timeout = window.setTimeout(abortRequest, 10 * 60 * 1000)
+  try {
+    const response = await fetch(buildApiUrl(`/admin/accounts/${id}/token-audit/stream`), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
+        'Content-Type': 'application/json',
+        [ADMIN_UI_REQUEST_HEADER]: '1',
+      },
+      body: JSON.stringify({ model_id: modelId }),
+      signal: requestController.signal,
+    })
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('Token audit stream has no response body')
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const json = line.slice(6).trim()
+        if (!json) continue
+        onEvent(JSON.parse(json) as TokenAuditProgressEvent)
+      }
+    }
+  } finally {
+    window.clearTimeout(timeout)
+    signal?.removeEventListener('abort', abortRequest)
+  }
+}
+
+export async function retryTokenAuditSample(id: number, modelId: string, sampleName: string): Promise<TokenAuditSample> {
+  const { data } = await apiClient.post<TokenAuditSample>(`/admin/accounts/${id}/token-audit/retry`, {
+    model_id: modelId,
+    sample_name: sampleName,
+  }, { timeout: 10 * 60 * 1000 })
   return data
 }
 
@@ -1069,6 +1201,9 @@ export const accountsAPI = {
   delete: deleteAccount,
   toggleStatus,
   testAccount,
+  runTokenAudit,
+  runTokenAuditStream,
+  retryTokenAuditSample,
   refreshCredentials,
   applyOAuthCredentials,
   getStats,
