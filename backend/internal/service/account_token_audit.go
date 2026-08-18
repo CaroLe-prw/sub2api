@@ -456,7 +456,7 @@ func (s *AccountTestService) runTokenAuditSample(ctx context.Context, account *A
 		}
 		return record, false, ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	record.HTTPStatus = resp.StatusCode
 	record.RequestIDPresent = resp.Header.Get("x-request-id") != "" || resp.Header.Get("request-id") != "" || resp.Header.Get("openai-request-id") != ""
 	for key := range resp.Header {
