@@ -37,6 +37,9 @@ func TestAuthRegisterRateLimitThresholdHitReturns429(t *testing.T) {
 
 		if i <= 5 {
 			require.Equal(t, http.StatusBadRequest, w.Code, "第 %d 次请求应先进入业务校验", i)
+			// 每日限制由独立测试覆盖；在此保留同一 IP 的分钟窗口累计，
+			// 以验证短窗口限流仍会在第 6 次请求生效。
+			require.NoError(t, rdb.Del(ctx, "rate_limit:auth-register-daily:198.51.100.10").Err())
 			continue
 		}
 		require.Equal(t, http.StatusTooManyRequests, w.Code, "第 6 次请求应命中限流")
