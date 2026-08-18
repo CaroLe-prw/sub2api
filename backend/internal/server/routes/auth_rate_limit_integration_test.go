@@ -44,6 +44,31 @@ func TestAuthRegisterRateLimitThresholdHitReturns429(t *testing.T) {
 	}
 }
 
+func TestAuthRegisterDailyRateLimitThresholdHitReturns429(t *testing.T) {
+	ctx := context.Background()
+	rdb := startAuthRouteRedis(t, ctx)
+
+	router := newAuthRoutesTestRouter(rdb)
+	const path = "/api/v1/auth/register"
+
+	for i := 1; i <= 3; i++ {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "198.51.100.11:23456"
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if i <= 2 {
+			require.Equal(t, http.StatusBadRequest, w.Code, "第 %d 次请求应先进入业务校验", i)
+			continue
+		}
+		require.Equal(t, http.StatusTooManyRequests, w.Code, "第 3 次请求应命中每日注册限流")
+		require.Contains(t, w.Body.String(), "rate limit exceeded")
+		require.Equal(t, "86400", w.Header().Get("Retry-After"))
+	}
+}
+
 func startAuthRouteRedis(t *testing.T, ctx context.Context) *redis.Client {
 	t.Helper()
 	ensureAuthRouteDockerAvailable(t)

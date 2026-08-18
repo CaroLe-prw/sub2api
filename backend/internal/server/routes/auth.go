@@ -32,9 +32,17 @@ func RegisterAuthRoutes(
 	auth.Use(gin.HandlerFunc(auditLog))
 	{
 		// 注册/登录/2FA/验证码发送均属于高风险入口，增加服务端兜底限流（Redis 故障时 fail-close）
-		auth.POST("/register", rateLimiter.LimitWithOptions("auth-register", 5, time.Minute, middleware.RateLimitOptions{
-			FailureMode: middleware.RateLimitFailClose,
-		}), h.Auth.Register)
+		auth.POST("/register",
+			// 短窗口抑制脚本瞬时爆发；长窗口限制同一出口 IP 批量注册。
+			// 两层都必须通过，避免攻击者通过降低注册频率绕过保护。
+			rateLimiter.LimitWithOptions("auth-register", 5, time.Minute, middleware.RateLimitOptions{
+				FailureMode: middleware.RateLimitFailClose,
+			}),
+			rateLimiter.LimitWithOptions("auth-register-daily", 2, 24*time.Hour, middleware.RateLimitOptions{
+				FailureMode: middleware.RateLimitFailClose,
+			}),
+			h.Auth.Register,
+		)
 		auth.POST("/login", rateLimiter.LimitWithOptions("auth-login", 20, time.Minute, middleware.RateLimitOptions{
 			FailureMode: middleware.RateLimitFailClose,
 		}), h.Auth.Login)
