@@ -72,10 +72,10 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 			Pricing: &service.ChannelModelPricing{
 				BillingMode: service.BillingModeToken,
 				InputPrice:  testPtr(3e-6),
-				TimePricing: []service.TimePricingPeriod{
-					{Start: "09:00", End: "12:00", InputPrice: testPtr(4e-6)},
-					{Start: "14:00", End: "16:00", InputPrice: testPtr(5e-6)},
-				},
+				TimePricing: &service.ChannelTimePricing{Timezone: "Asia/Shanghai", Periods: []service.ChannelTimePricingPeriod{
+					{StartTime: "09:00", EndTime: "12:00", Multiplier: 2},
+					{StartTime: "14:00", EndTime: "16:00", Multiplier: 3},
+				}},
 			},
 			OfficialPricing: &service.PlazaOfficialPricing{
 				InputPrice:     testPtr(3e-6),

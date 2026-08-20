@@ -67,28 +67,16 @@ type userAvailableGroup struct {
 
 // userSupportedModelPricing 用户可见的定价字段白名单。
 type userSupportedModelPricing struct {
-	BillingMode      string                   `json:"billing_mode"`
-	InputPrice       *float64                 `json:"input_price"`
-	OutputPrice      *float64                 `json:"output_price"`
-	CacheWritePrice  *float64                 `json:"cache_write_price"`
-	CacheReadPrice   *float64                 `json:"cache_read_price"`
-	ImageInputPrice  *float64                 `json:"image_input_price"`
-	ImageOutputPrice *float64                 `json:"image_output_price"`
-	PerRequestPrice  *float64                 `json:"per_request_price"`
-	Intervals        []userPricingIntervalDTO `json:"intervals"`
-	TimePricing      []userTimePricingDTO     `json:"time_pricing"`
-}
-
-type userTimePricingDTO struct {
-	Start            string   `json:"start"`
-	End              string   `json:"end"`
-	InputPrice       *float64 `json:"input_price"`
-	OutputPrice      *float64 `json:"output_price"`
-	CacheWritePrice  *float64 `json:"cache_write_price"`
-	CacheReadPrice   *float64 `json:"cache_read_price"`
-	ImageInputPrice  *float64 `json:"image_input_price"`
-	ImageOutputPrice *float64 `json:"image_output_price"`
-	PerRequestPrice  *float64 `json:"per_request_price"`
+	BillingMode      string                      `json:"billing_mode"`
+	InputPrice       *float64                    `json:"input_price"`
+	OutputPrice      *float64                    `json:"output_price"`
+	CacheWritePrice  *float64                    `json:"cache_write_price"`
+	CacheReadPrice   *float64                    `json:"cache_read_price"`
+	ImageInputPrice  *float64                    `json:"image_input_price"`
+	ImageOutputPrice *float64                    `json:"image_output_price"`
+	PerRequestPrice  *float64                    `json:"per_request_price"`
+	Intervals        []userPricingIntervalDTO    `json:"intervals"`
+	TimePricing      *service.ChannelTimePricing `json:"time_pricing"`
 }
 
 // userPricingIntervalDTO 定价区间白名单（去掉内部 ID、SortOrder 等前端不渲染的字段）。
@@ -317,20 +305,6 @@ func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
 			PerRequestPrice: iv.PerRequestPrice,
 		})
 	}
-	timePricing := make([]userTimePricingDTO, 0, len(p.TimePricing))
-	for _, period := range p.TimePricing {
-		timePricing = append(timePricing, userTimePricingDTO{
-			Start:            period.Start,
-			End:              period.End,
-			InputPrice:       period.InputPrice,
-			OutputPrice:      period.OutputPrice,
-			CacheWritePrice:  period.CacheWritePrice,
-			CacheReadPrice:   period.CacheReadPrice,
-			ImageInputPrice:  period.ImageInputPrice,
-			ImageOutputPrice: period.ImageOutputPrice,
-			PerRequestPrice:  period.PerRequestPrice,
-		})
-	}
 	billingMode := string(effective.BillingMode)
 	if billingMode == "" {
 		billingMode = string(service.BillingModeToken)
@@ -345,6 +319,6 @@ func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
 		ImageOutputPrice: effective.ImageOutputPrice,
 		PerRequestPrice:  effective.PerRequestPrice,
 		Intervals:        intervals,
-		TimePricing:      timePricing,
+		TimePricing:      effective.TimePricing,
 	}
 }

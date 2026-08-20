@@ -139,7 +139,7 @@ func isOpenAITransientUpstreamErrorEnvelope(payload []byte) bool {
 }
 
 func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
-	if upstreamStatusCode != http.StatusBadRequest && upstreamStatusCode != http.StatusServiceUnavailable {
+	if upstreamStatusCode < http.StatusBadRequest {
 		return false
 	}
 	if upstreamStatusCode == http.StatusBadRequest && isOpenAITransientUpstreamErrorEnvelope(upstreamBody) {
@@ -156,6 +156,15 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 
 	if len(upstreamBody) > 0 && hasOpenAIServerOverloadedCode(upstreamBody) {
 		return true
+	}
+	if isOpenAICapacityShedMessage(upstreamMsg) ||
+		isOpenAICapacityShedMessage(gjson.GetBytes(upstreamBody, "error.message").String()) ||
+		isOpenAICapacityShedMessage(gjson.GetBytes(upstreamBody, "response.error.message").String()) ||
+		isOpenAICapacityShedMessage(string(upstreamBody)) {
+		return true
+	}
+	if upstreamStatusCode != http.StatusBadRequest && upstreamStatusCode != http.StatusServiceUnavailable {
+		return false
 	}
 	if upstreamStatusCode != http.StatusBadRequest {
 		return false
@@ -293,6 +302,19 @@ func shouldRetryOpenAINonOAuthCapacityOnSameAccount(account *Account, statusCode
 		isOpenAIRequestScopedCapacityError(statusCode, upstreamMsg, upstreamBody)
 }
 
+func isOpenAICapacityShedMessage(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	return strings.Contains(lower, "server is overloaded") ||
+		strings.Contains(lower, "servers are overloaded") ||
+		strings.Contains(lower, "servers are currently overloaded")
+}
+
+func isOpenAIRequestScopedCapacityShed(upstreamMsg string, upstreamBody []byte) bool {
+	return isOpenAIUpstreamCapacityShedEvent(upstreamBody) ||
+		isOpenAICapacityShedMessage(upstreamMsg) ||
+		isOpenAICapacityShedMessage(string(upstreamBody))
+}
+
 func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 	match := func(text string) bool {
 		lower := strings.ToLower(strings.TrimSpace(text))
@@ -377,8 +399,9 @@ func newOpenAIUpstreamFailoverError(
 	responseBody []byte,
 	upstreamMsg string,
 	retryableOnSameAccount bool,
-	retryableOnSameAccountIfNoOtherAccount bool,
+	retryableOnSameAccountIfNoOtherAccountValues ...bool,
 ) *UpstreamFailoverError {
+	retryableOnSameAccountIfNoOtherAccount := len(retryableOnSameAccountIfNoOtherAccountValues) > 0 && retryableOnSameAccountIfNoOtherAccountValues[0]
 	requestScopedCapacity := isOpenAIRequestScopedCapacityError(statusCode, upstreamMsg, responseBody)
 	// API-key capacity responses and explicit provider shed signals are request
 	// scoped, so changing accounts first only churns the pool. OAuth model
@@ -398,6 +421,7 @@ func newOpenAIUpstreamFailoverError(
 	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, responseBody) {
 		failoverErr.RetryableOnSameAccount = false
+		failoverErr.RequestScopedTransient = false
 		failoverErr.Scope = GatewayFailureScopeAccount
 		failoverErr.Reason = openAIRequestBodyTooLargeReason
 		failoverErr.NextAccountAction = NextAccountRetry

@@ -87,7 +87,12 @@
             </label>
             <Select
               :modelValue="entry.billing_mode"
-              @update:modelValue="emit('update', { ...entry, billing_mode: $event as BillingMode, intervals: [], time_pricing: [] })"
+              @update:modelValue="emit('update', {
+                ...entry,
+                billing_mode: $event as BillingMode,
+                intervals: [],
+                time_pricing: { ...entry.time_pricing, periods: [] },
+              })"
               :options="billingModeOptions"
               class="mt-1"
             />
@@ -134,80 +139,20 @@
             </div>
           </div>
 
-          <!-- Shanghai-time price overrides -->
-          <div v-if="!hideTimePricing" class="mt-4 border-t border-gray-200 pt-3 dark:border-dark-600">
-            <div class="flex items-center justify-between gap-3">
-              <div>
-                <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.channels.form.timePricing') }}
-                </label>
-                <p class="mt-0.5 text-[11px] text-gray-400">
-                  {{ t('admin.channels.form.timePricingHint') }}
-                </p>
-              </div>
-              <button type="button" @click="addTimePricing" class="shrink-0 text-xs text-primary-600 hover:text-primary-700">
-                + {{ t('admin.channels.form.addTimePricing') }}
-              </button>
+          <div v-if="enableTierMultipliers" class="mt-3 grid max-w-md grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs text-gray-400">{{ t('admin.channels.form.fastMultiplier') }}</label>
+              <input :value="entry.fast_multiplier" @input="emitField('fast_multiplier', ($event.target as HTMLInputElement).value)"
+                type="number" step="any" min="0.000001" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.multiplierPlaceholder')" />
             </div>
-
-            <div v-if="entry.time_pricing && entry.time_pricing.length > 0" class="mt-2 space-y-2">
-              <div
-                v-for="(period, idx) in entry.time_pricing"
-                :key="idx"
-                class="rounded-md border border-gray-200 bg-white p-2 dark:border-dark-600 dark:bg-dark-700/40"
-              >
-                <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
-                  <div>
-                    <label class="text-[11px] text-gray-400">{{ t('admin.channels.form.startTime') }}</label>
-                    <input :value="period.start" @input="updateTimePricingField(idx, 'start', ($event.target as HTMLInputElement).value)"
-                      type="time" class="input mt-0.5 text-sm" />
-                  </div>
-                  <div>
-                    <label class="text-[11px] text-gray-400">{{ t('admin.channels.form.endTime') }}</label>
-                    <input :value="period.end" @input="updateTimePricingField(idx, 'end', ($event.target as HTMLInputElement).value)"
-                      type="time" class="input mt-0.5 text-sm" />
-                  </div>
-                  <div>
-                    <label class="text-[11px] text-gray-400">{{ t('admin.channels.form.inputPrice') }}</label>
-                    <input :value="period.input_price" @input="updateTimePricingField(idx, 'input_price', ($event.target as HTMLInputElement).value)"
-                      type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.inheritPrice')" />
-                  </div>
-                  <div>
-                    <label class="text-[11px] text-gray-400">{{ t('admin.channels.form.outputPrice') }}</label>
-                    <input :value="period.output_price" @input="updateTimePricingField(idx, 'output_price', ($event.target as HTMLInputElement).value)"
-                      type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.inheritPrice')" />
-                  </div>
-                  <div>
-                    <label class="text-[11px] text-gray-400">{{ t('admin.channels.form.cacheWritePriceShort') }}</label>
-                    <input :value="period.cache_write_price" @input="updateTimePricingField(idx, 'cache_write_price', ($event.target as HTMLInputElement).value)"
-                      type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.inheritPrice')" />
-                  </div>
-                  <div>
-                    <label class="text-[11px] text-gray-400">{{ t('admin.channels.form.cacheReadPriceShort') }}</label>
-                    <input :value="period.cache_read_price" @input="updateTimePricingField(idx, 'cache_read_price', ($event.target as HTMLInputElement).value)"
-                      type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.inheritPrice')" />
-                  </div>
-                  <div>
-                    <label class="text-[11px] text-gray-400">{{ t('admin.channels.form.imageInputPrice') }}</label>
-                    <input :value="period.image_input_price" @input="updateTimePricingField(idx, 'image_input_price', ($event.target as HTMLInputElement).value)"
-                      type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.inheritPrice')" />
-                  </div>
-                  <div class="relative">
-                    <label class="text-[11px] text-gray-400">{{ t('admin.channels.form.imageTokenPrice') }}</label>
-                    <div class="flex items-center gap-1">
-                      <input :value="period.image_output_price" @input="updateTimePricingField(idx, 'image_output_price', ($event.target as HTMLInputElement).value)"
-                        type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.inheritPrice')" />
-                      <button type="button" @click="removeTimePricing(idx)" class="mt-0.5 shrink-0 rounded p-1 text-gray-400 hover:text-red-500">
-                        <Icon name="trash" size="sm" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div>
+              <label class="text-xs text-gray-400">{{ t('admin.channels.form.flexMultiplier') }}</label>
+              <input :value="entry.flex_multiplier" @input="emitField('flex_multiplier', ($event.target as HTMLInputElement).value)"
+                type="number" step="any" min="0.000001" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.multiplierPlaceholder')" />
             </div>
           </div>
 
-          <!-- Token intervals (channel-only; group long-context uses official presets) -->
+          <!-- Channel token intervals; the group long-context toggle controls whether tiers apply. -->
           <div v-if="!hideTokenIntervals" class="mt-3">
             <div class="flex items-center justify-between">
               <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -224,11 +169,18 @@
                 :key="idx"
                 :interval="iv"
                 :mode="entry.billing_mode"
+                :enable-multipliers="enableTierMultipliers"
                 @update="updateInterval(idx, $event)"
                 @remove="removeInterval(idx)"
               />
             </div>
           </div>
+
+          <TimePricingSection
+            v-if="enableTimePricing"
+            :model-value="entry.time_pricing"
+            @update:model-value="emit('update', { ...entry, time_pricing: $event })"
+          />
         </div>
 
         <!-- Per-request mode -->
@@ -311,6 +263,7 @@ import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import IntervalRow from './IntervalRow.vue'
 import ModelTagInput from './ModelTagInput.vue'
+import TimePricingSection from './TimePricingSection.vue'
 import type { PricingFormEntry, IntervalFormEntry } from './types'
 import { perTokenToMTok, getPlatformTagClass } from './types'
 import type { BillingMode } from '@/api/admin/channels'
@@ -322,10 +275,12 @@ const props = withDefaults(defineProps<{
   entry: PricingFormEntry
   platform?: string
   hideTokenIntervals?: boolean
-  hideTimePricing?: boolean
+  enableTimePricing?: boolean
+  enableTierMultipliers?: boolean
 }>(), {
   hideTokenIntervals: false,
-  hideTimePricing: false,
+  enableTimePricing: false,
+  enableTierMultipliers: false,
 })
 
 const emit = defineEmits<{
@@ -358,6 +313,8 @@ function addInterval() {
     min_tokens: 0, max_tokens: null, tier_label: '',
     input_price: null, output_price: null, cache_write_price: null,
     cache_read_price: null, per_request_price: null,
+    input_multiplier: null, output_multiplier: null,
+    cache_write_multiplier: null, cache_read_multiplier: null,
     sort_order: intervals.length
   })
   emit('update', { ...props.entry, intervals })
@@ -372,6 +329,8 @@ function addMediaTier() {
     min_tokens: 0, max_tokens: null, tier_label: labels[intervals.length] || '',
     input_price: null, output_price: null, cache_write_price: null,
     cache_read_price: null, per_request_price: null,
+    input_multiplier: null, output_multiplier: null,
+    cache_write_multiplier: null, cache_read_multiplier: null,
     sort_order: intervals.length
   })
   emit('update', { ...props.entry, intervals })
@@ -387,33 +346,6 @@ function removeInterval(idx: number) {
   const intervals = [...(props.entry.intervals || [])]
   intervals.splice(idx, 1)
   emit('update', { ...props.entry, intervals })
-}
-
-function addTimePricing() {
-  const periods = [...(props.entry.time_pricing || [])]
-  periods.push({
-    start: '09:00', end: '12:00',
-    input_price: null, output_price: null,
-    cache_write_price: null, cache_read_price: null,
-    image_input_price: null, image_output_price: null,
-    per_request_price: null,
-  })
-  emit('update', { ...props.entry, time_pricing: periods })
-}
-
-function updateTimePricingField(idx: number, field: keyof PricingFormEntry['time_pricing'][number], value: string) {
-  const periods = [...(props.entry.time_pricing || [])]
-  periods[idx] = {
-    ...periods[idx],
-    [field]: field === 'start' || field === 'end' ? value : (value === '' ? null : value),
-  }
-  emit('update', { ...props.entry, time_pricing: periods })
-}
-
-function removeTimePricing(idx: number) {
-  const periods = [...(props.entry.time_pricing || [])]
-  periods.splice(idx, 1)
-  emit('update', { ...props.entry, time_pricing: periods })
 }
 
 async function onModelsUpdate(newModels: string[]) {

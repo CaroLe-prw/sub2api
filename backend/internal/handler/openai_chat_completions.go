@@ -311,7 +311,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		if err == nil && result != nil && result.FirstTokenMs != nil {
 			service.SetOpsLatencyMs(c, service.OpsTimeToFirstTokenMsKey, int64(*result.FirstTokenMs))
 		}
-		submitChatAttemptUsage := func(attemptResult *service.OpenAIForwardResult) {
+		submitChatUsage := func(attemptResult *service.OpenAIForwardResult) {
 			if attemptResult == nil {
 				return
 			}
@@ -343,7 +343,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			canceledAttempt := openAIForwardClientCanceled(c, result, err)
 			if result != nil && (canceledAttempt || result.HasBillableUsage()) {
 				result.ClientDisconnect = result.ClientDisconnect || canceledAttempt
-				submitChatAttemptUsage(result)
+				submitChatUsage(result)
 				if canceledAttempt {
 					failoverClientGone(c)
 					outcome := openAIClientDisconnectOutcome(result, time.Since(requestStart).Milliseconds())
@@ -507,6 +507,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					zap.Bool("upstream_error_response_already_written", upstreamErrorAlreadyCommunicated),
 					zap.Error(err),
 				)
+				submitChatUsage(result)
 				return
 			}
 		}
@@ -531,7 +532,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			})
 		}
 
-		submitChatAttemptUsage(result)
+		submitChatUsage(result)
 		reqLog.Debug("openai_chat_completions.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", switchCount),

@@ -31,10 +31,6 @@ func recordGatewayStreamKeepaliveBytes(c *gin.Context, written int) {
 	state.mu.Unlock()
 }
 
-func recordOpenAIStreamKeepaliveBytes(c *gin.Context, written int) {
-	recordGatewayStreamKeepaliveBytes(c, written)
-}
-
 // GatewayResponseSemanticAdjustedWrittenSize returns downstream bytes excluding
 // transport-only keepalives. These bytes keep the connection alive but do not
 // commit the request to an account, so they must not prevent pre-output failover.

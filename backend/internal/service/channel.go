@@ -96,47 +96,49 @@ type ChannelModelPricing struct {
 	OutputPrice      *float64            `json:"output_price"`
 	CacheWritePrice  *float64            `json:"cache_write_price"`
 	CacheReadPrice   *float64            `json:"cache_read_price"`
+	FastMultiplier   *float64            `json:"fast_multiplier"`
+	FlexMultiplier   *float64            `json:"flex_multiplier"`
 	ImageInputPrice  *float64            `json:"image_input_price"`
 	ImageOutputPrice *float64            `json:"image_output_price"`
 	PerRequestPrice  *float64            `json:"per_request_price"`
 	Intervals        []PricingInterval   `json:"intervals"`
-	TimePricing      []TimePricingPeriod `json:"time_pricing,omitempty"`
+	TimePricing      *ChannelTimePricing `json:"time_pricing,omitempty"`
 	CreatedAt        time.Time           `json:"created_at,omitempty"`
 	UpdatedAt        time.Time           `json:"updated_at,omitempty"`
 }
 
-// TimePricingPeriod 渠道模型的分时价格覆盖。
-// 时间按 Asia/Shanghai 判断，区间采用左闭右开 [Start, End)。未填写的价格字段
-// 继续使用该模型的默认价或上下文区间价；填写的字段拥有最高优先级。
-type TimePricingPeriod struct {
-	Start            string   `json:"start"`
-	End              string   `json:"end"`
-	InputPrice       *float64 `json:"input_price"`
-	OutputPrice      *float64 `json:"output_price"`
-	CacheWritePrice  *float64 `json:"cache_write_price"`
-	CacheReadPrice   *float64 `json:"cache_read_price"`
-	ImageInputPrice  *float64 `json:"image_input_price"`
-	ImageOutputPrice *float64 `json:"image_output_price"`
-	PerRequestPrice  *float64 `json:"per_request_price"`
+// ChannelTimePricing 渠道模型定价的分时倍率配置。
+type ChannelTimePricing struct {
+	Timezone string                     `json:"timezone"`
+	Periods  []ChannelTimePricingPeriod `json:"periods"`
 }
 
-var channelPricingShanghaiLocation = time.FixedZone("Asia/Shanghai", 8*60*60)
+// ChannelTimePricingPeriod 是秒级的左闭右开分时倍率区间，并兼容历史 HH:mm 数据。
+type ChannelTimePricingPeriod struct {
+	StartTime  string  `json:"start_time"`
+	EndTime    string  `json:"end_time"`
+	Multiplier float64 `json:"multiplier"`
+}
 
 // PricingInterval 定价区间（token 区间 / 按次分层 / 图片分辨率分层）
 type PricingInterval struct {
-	ID              int64     `json:"id,omitempty"`
-	PricingID       int64     `json:"pricing_id,omitempty"`
-	MinTokens       int       `json:"min_tokens"`
-	MaxTokens       *int      `json:"max_tokens"`
-	TierLabel       string    `json:"tier_label"`
-	InputPrice      *float64  `json:"input_price"`
-	OutputPrice     *float64  `json:"output_price"`
-	CacheWritePrice *float64  `json:"cache_write_price"`
-	CacheReadPrice  *float64  `json:"cache_read_price"`
-	PerRequestPrice *float64  `json:"per_request_price"`
-	SortOrder       int       `json:"sort_order"`
-	CreatedAt       time.Time `json:"created_at,omitempty"`
-	UpdatedAt       time.Time `json:"updated_at,omitempty"`
+	ID                   int64     `json:"id,omitempty"`
+	PricingID            int64     `json:"pricing_id,omitempty"`
+	MinTokens            int       `json:"min_tokens"`
+	MaxTokens            *int      `json:"max_tokens"`
+	TierLabel            string    `json:"tier_label"`
+	InputPrice           *float64  `json:"input_price"`
+	OutputPrice          *float64  `json:"output_price"`
+	CacheWritePrice      *float64  `json:"cache_write_price"`
+	CacheReadPrice       *float64  `json:"cache_read_price"`
+	InputMultiplier      *float64  `json:"input_multiplier"`
+	OutputMultiplier     *float64  `json:"output_multiplier"`
+	CacheWriteMultiplier *float64  `json:"cache_write_multiplier"`
+	CacheReadMultiplier  *float64  `json:"cache_read_multiplier"`
+	PerRequestPrice      *float64  `json:"per_request_price"`
+	SortOrder            int       `json:"sort_order"`
+	CreatedAt            time.Time `json:"created_at,omitempty"`
+	UpdatedAt            time.Time `json:"updated_at,omitempty"`
 }
 
 // IsActive 判断渠道是否启用
@@ -214,79 +216,43 @@ func (p ChannelModelPricing) Clone() ChannelModelPricing {
 		copy(cp.Intervals, p.Intervals)
 	}
 	if p.TimePricing != nil {
-		cp.TimePricing = make([]TimePricingPeriod, len(p.TimePricing))
-		copy(cp.TimePricing, p.TimePricing)
+		cp.TimePricing = &ChannelTimePricing{Timezone: p.TimePricing.Timezone}
+		if p.TimePricing.Periods != nil {
+			cp.TimePricing.Periods = append([]ChannelTimePricingPeriod(nil), p.TimePricing.Periods...)
+		}
 	}
 	return cp
 }
 
-// EffectiveAt 返回指定时刻实际生效的渠道模型定价。
-// 分时字段覆盖默认价，并同步覆盖上下文/分层区间中的同名字段，因此分时价优先于
-// 长上下文阶梯价；未配置的字段仍从原定价继承。
+// EffectiveAt 返回指定时刻应用分时倍率后的渠道模型定价。
 func (p ChannelModelPricing) EffectiveAt(now time.Time) ChannelModelPricing {
 	effective := p.Clone()
-	period := p.TimePricingAt(now)
-	if period == nil {
+	multiplier := p.TimePricing.MultiplierAt(now)
+	if multiplier == 1 {
 		return effective
 	}
-	effective.applyTimePricing(period)
+	scale := func(value *float64) *float64 {
+		if value == nil {
+			return nil
+		}
+		scaled := *value * multiplier
+		return &scaled
+	}
+	effective.InputPrice = scale(effective.InputPrice)
+	effective.OutputPrice = scale(effective.OutputPrice)
+	effective.CacheWritePrice = scale(effective.CacheWritePrice)
+	effective.CacheReadPrice = scale(effective.CacheReadPrice)
+	effective.ImageInputPrice = scale(effective.ImageInputPrice)
+	effective.ImageOutputPrice = scale(effective.ImageOutputPrice)
+	effective.PerRequestPrice = scale(effective.PerRequestPrice)
+	for i := range effective.Intervals {
+		effective.Intervals[i].InputPrice = scale(effective.Intervals[i].InputPrice)
+		effective.Intervals[i].OutputPrice = scale(effective.Intervals[i].OutputPrice)
+		effective.Intervals[i].CacheWritePrice = scale(effective.Intervals[i].CacheWritePrice)
+		effective.Intervals[i].CacheReadPrice = scale(effective.Intervals[i].CacheReadPrice)
+		effective.Intervals[i].PerRequestPrice = scale(effective.Intervals[i].PerRequestPrice)
+	}
 	return effective
-}
-
-// TimePricingAt 返回上海时间下命中的分时价格区间。
-func (p *ChannelModelPricing) TimePricingAt(now time.Time) *TimePricingPeriod {
-	if p == nil || len(p.TimePricing) == 0 {
-		return nil
-	}
-	local := now.In(channelPricingShanghaiLocation)
-	current := local.Hour()*60 + local.Minute()
-	for i := range p.TimePricing {
-		start, startOK := parsePricingClock(p.TimePricing[i].Start)
-		end, endOK := parsePricingClock(p.TimePricing[i].End)
-		if startOK && endOK && start < end && current >= start && current < end {
-			return &p.TimePricing[i]
-		}
-	}
-	return nil
-}
-
-func (p *ChannelModelPricing) applyTimePricing(period *TimePricingPeriod) {
-	if p == nil || period == nil {
-		return
-	}
-	copyPrice := func(dst **float64, src *float64) {
-		if src != nil {
-			*dst = src
-		}
-	}
-	copyPrice(&p.InputPrice, period.InputPrice)
-	copyPrice(&p.OutputPrice, period.OutputPrice)
-	copyPrice(&p.CacheWritePrice, period.CacheWritePrice)
-	copyPrice(&p.CacheReadPrice, period.CacheReadPrice)
-	copyPrice(&p.ImageInputPrice, period.ImageInputPrice)
-	copyPrice(&p.ImageOutputPrice, period.ImageOutputPrice)
-	copyPrice(&p.PerRequestPrice, period.PerRequestPrice)
-	for i := range p.Intervals {
-		copyPrice(&p.Intervals[i].InputPrice, period.InputPrice)
-		copyPrice(&p.Intervals[i].OutputPrice, period.OutputPrice)
-		copyPrice(&p.Intervals[i].CacheWritePrice, period.CacheWritePrice)
-		copyPrice(&p.Intervals[i].CacheReadPrice, period.CacheReadPrice)
-		copyPrice(&p.Intervals[i].PerRequestPrice, period.PerRequestPrice)
-	}
-}
-
-func parsePricingClock(value string) (int, bool) {
-	if len(value) != 5 || value[2] != ':' {
-		return 0, false
-	}
-	hour, minute := 0, 0
-	if _, err := fmt.Sscanf(value, "%02d:%02d", &hour, &minute); err != nil {
-		return 0, false
-	}
-	if hour < 0 || hour > 23 || minute < 0 || minute > 59 {
-		return 0, false
-	}
-	return hour*60 + minute, true
 }
 
 // Clone 返回 Channel 的深拷贝
@@ -429,7 +395,7 @@ func validateSingleInterval(iv *PricingInterval, idx int) error {
 	return validateIntervalPrices(iv, idx)
 }
 
-// validateIntervalPrices 校验区间内所有价格字段 >= 0
+// validateIntervalPrices 校验区间价格 >= 0、倍率 > 0。
 func validateIntervalPrices(iv *PricingInterval, idx int) error {
 	prices := []struct {
 		name string
@@ -444,6 +410,20 @@ func validateIntervalPrices(iv *PricingInterval, idx int) error {
 	for _, p := range prices {
 		if p.val != nil && *p.val < 0 {
 			return fmt.Errorf("interval #%d: %s must be >= 0", idx+1, p.name)
+		}
+	}
+	multipliers := []struct {
+		name string
+		val  *float64
+	}{
+		{"input_multiplier", iv.InputMultiplier},
+		{"output_multiplier", iv.OutputMultiplier},
+		{"cache_write_multiplier", iv.CacheWriteMultiplier},
+		{"cache_read_multiplier", iv.CacheReadMultiplier},
+	}
+	for _, multiplier := range multipliers {
+		if multiplier.val != nil && *multiplier.val <= 0 {
+			return fmt.Errorf("interval #%d: %s must be > 0", idx+1, multiplier.name)
 		}
 	}
 	return nil

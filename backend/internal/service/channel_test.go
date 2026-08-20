@@ -9,11 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestChannelModelPricingEffectiveAtUsesShanghaiTime(t *testing.T) {
+func TestChannelModelPricingEffectiveAtUsesConfiguredTimezone(t *testing.T) {
 	baseInput := 1e-6
 	baseOutput := 2e-6
-	peakInput := 3e-6
-	peakCacheRead := 0.5e-6
 	pricing := ChannelModelPricing{
 		InputPrice:  &baseInput,
 		OutputPrice: &baseOutput,
@@ -22,27 +20,23 @@ func TestChannelModelPricingEffectiveAtUsesShanghaiTime(t *testing.T) {
 			InputPrice:  &baseInput,
 			OutputPrice: &baseOutput,
 		}},
-		TimePricing: []TimePricingPeriod{
-			{Start: "09:00", End: "12:00", InputPrice: &peakInput, CacheReadPrice: &peakCacheRead},
-			{Start: "14:00", End: "16:00", OutputPrice: testPtrFloat64(4e-6)},
-		},
+		TimePricing: &ChannelTimePricing{Timezone: "Asia/Shanghai", Periods: []ChannelTimePricingPeriod{
+			{StartTime: "09:00", EndTime: "12:00", Multiplier: 3},
+		}},
 	}
 
 	// 01:00 UTC is 09:00 in Shanghai and must include the left boundary.
 	effective := pricing.EffectiveAt(time.Date(2026, 8, 17, 1, 0, 0, 0, time.UTC))
-	require.InDelta(t, peakInput, *effective.InputPrice, 1e-12)
-	require.InDelta(t, baseOutput, *effective.OutputPrice, 1e-12)
-	require.InDelta(t, peakInput, *effective.Intervals[0].InputPrice, 1e-12)
-	require.InDelta(t, peakCacheRead, *effective.Intervals[0].CacheReadPrice, 1e-12)
+	require.InDelta(t, 3e-6, *effective.InputPrice, 1e-12)
+	require.InDelta(t, 6e-6, *effective.OutputPrice, 1e-12)
+	require.InDelta(t, 3e-6, *effective.Intervals[0].InputPrice, 1e-12)
 
 	// 04:00 UTC is 12:00 in Shanghai and must exclude the right boundary.
 	offPeak := pricing.EffectiveAt(time.Date(2026, 8, 17, 4, 0, 0, 0, time.UTC))
 	require.InDelta(t, baseInput, *offPeak.InputPrice, 1e-12)
-	require.Nil(t, offPeak.Intervals[0].CacheReadPrice)
 
 	// Resolving a price must not mutate the cached source value.
 	require.InDelta(t, baseInput, *pricing.InputPrice, 1e-12)
-	require.Nil(t, pricing.Intervals[0].CacheReadPrice)
 }
 
 func TestGetModelPricing(t *testing.T) {
@@ -234,6 +228,14 @@ func TestChannelModelPricingClone(t *testing.T) {
 		Intervals: []PricingInterval{
 			{MinTokens: 0, TierLabel: "tier1"},
 		},
+		TimePricing: &ChannelTimePricing{
+			Timezone: "Asia/Shanghai",
+			Periods: []ChannelTimePricingPeriod{{
+				StartTime:  "09:00",
+				EndTime:    "12:00",
+				Multiplier: 2,
+			}},
+		},
 	}
 
 	cloned := original.Clone()
@@ -244,6 +246,13 @@ func TestChannelModelPricingClone(t *testing.T) {
 
 	cloned.Intervals[0].TierLabel = "hacked"
 	require.Equal(t, "tier1", original.Intervals[0].TierLabel)
+
+	cloned.TimePricing.Timezone = "America/New_York"
+	cloned.TimePricing.Periods[0].StartTime = "10:00"
+	cloned.TimePricing.Periods[0].Multiplier = 3
+	require.Equal(t, "Asia/Shanghai", original.TimePricing.Timezone)
+	require.Equal(t, "09:00", original.TimePricing.Periods[0].StartTime)
+	require.Equal(t, 2.0, original.TimePricing.Periods[0].Multiplier)
 }
 
 // --- BillingMode.IsValid ---

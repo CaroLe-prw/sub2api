@@ -219,14 +219,11 @@ func TestSynthesizePricingFromLiteLLM_TokenMode(t *testing.T) {
 }
 
 func TestSynthesizePricingFromLiteLLM_PreservesTimePricing(t *testing.T) {
-	periodInput := 8e-6
 	existing := &ChannelModelPricing{
 		BillingMode: BillingModeToken,
-		TimePricing: []TimePricingPeriod{{
-			Start:      "09:00",
-			End:        "12:00",
-			InputPrice: &periodInput,
-		}},
+		TimePricing: &ChannelTimePricing{Timezone: "Asia/Shanghai", Periods: []ChannelTimePricingPeriod{{
+			StartTime: "09:00", EndTime: "12:00", Multiplier: 2,
+		}}},
 	}
 	lp := &LiteLLMModelPricing{
 		Mode:               "chat",
@@ -236,13 +233,13 @@ func TestSynthesizePricingFromLiteLLM_PreservesTimePricing(t *testing.T) {
 
 	got := synthesizePricingFromLiteLLM(lp, existing)
 	require.NotNil(t, got)
-	require.Len(t, got.TimePricing, 1, "补齐基础价时不能丢失渠道分时规则")
-	require.Equal(t, "09:00", got.TimePricing[0].Start)
+	require.Len(t, got.TimePricing.Periods, 1, "补齐基础价时不能丢失渠道分时规则")
+	require.Equal(t, "09:00", got.TimePricing.Periods[0].StartTime)
 	require.InDelta(t, 1.5e-6, *got.InputPrice, 1e-12, "非分时时段继续使用官方基础价")
 
-	effective := got.EffectiveAt(time.Date(2026, 8, 17, 10, 0, 0, 0, channelPricingShanghaiLocation))
+	effective := got.EffectiveAt(time.Date(2026, 8, 17, 10, 0, 0, 0, time.FixedZone("Asia/Shanghai", 8*60*60)))
 	require.NotNil(t, effective.InputPrice)
-	require.InDelta(t, periodInput, *effective.InputPrice, 1e-12, "分时时段必须覆盖基础回退价")
+	require.InDelta(t, 3e-6, *effective.InputPrice, 1e-12, "分时时段必须乘到基础回退价")
 }
 
 func TestSynthesizePricingFromLiteLLM_ImageGenerationMode(t *testing.T) {
@@ -317,7 +314,6 @@ func TestFillGlobalPricingFallback_EmptyPricingFillsFromLiteLLM(t *testing.T) {
 }
 
 func TestFillGlobalPricingFallback_TimeOnlyPricingKeepsSchedule(t *testing.T) {
-	periodInput := 8e-6
 	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
 		"deepseek-v4-flash": {
 			Mode:               "chat",
@@ -331,20 +327,18 @@ func TestFillGlobalPricingFallback_TimeOnlyPricingKeepsSchedule(t *testing.T) {
 		Platform: "openai",
 		Pricing: &ChannelModelPricing{
 			BillingMode: BillingModeToken,
-			TimePricing: []TimePricingPeriod{{
-				Start:      "09:00",
-				End:        "12:00",
-				InputPrice: &periodInput,
-			}},
+			TimePricing: &ChannelTimePricing{Timezone: "Asia/Shanghai", Periods: []ChannelTimePricingPeriod{{
+				StartTime: "09:00", EndTime: "12:00", Multiplier: 2,
+			}}},
 		},
 	}}
 
 	svc.fillGlobalPricingFallback(models)
 	require.NotNil(t, models[0].Pricing)
-	require.Len(t, models[0].Pricing.TimePricing, 1)
-	effective := models[0].Pricing.EffectiveAt(time.Date(2026, 8, 17, 10, 0, 0, 0, channelPricingShanghaiLocation))
+	require.Len(t, models[0].Pricing.TimePricing.Periods, 1)
+	effective := models[0].Pricing.EffectiveAt(time.Date(2026, 8, 17, 10, 0, 0, 0, time.FixedZone("Asia/Shanghai", 8*60*60)))
 	require.NotNil(t, effective.InputPrice)
-	require.InDelta(t, periodInput, *effective.InputPrice, 1e-12)
+	require.InDelta(t, 3e-6, *effective.InputPrice, 1e-12)
 }
 
 func TestFillGlobalPricingFallback_KeepsExistingPrice(t *testing.T) {

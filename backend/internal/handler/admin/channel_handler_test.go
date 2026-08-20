@@ -219,28 +219,26 @@ func TestChannelToResponse_WithIntervals(t *testing.T) {
 }
 
 func TestChannelToResponse_PreservesTimePricing(t *testing.T) {
-	periodInput := 8e-6
 	resp := pricingToResponse(&service.ChannelModelPricing{
 		Platform:    "openai",
 		Models:      []string{"deepseek-v4-flash"},
 		BillingMode: service.BillingModeToken,
-		TimePricing: []service.TimePricingPeriod{{
-			Start:      "09:00",
-			End:        "12:00",
-			InputPrice: &periodInput,
-		}},
+		TimePricing: &service.ChannelTimePricing{Timezone: "Asia/Shanghai", Periods: []service.ChannelTimePricingPeriod{{
+			StartTime: "09:00", EndTime: "12:00", Multiplier: 2,
+		}}},
 	})
 
 	raw, err := json.Marshal(resp)
 	require.NoError(t, err)
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal(raw, &decoded))
-	periods, ok := decoded["time_pricing"].([]any)
+	config, ok := decoded["time_pricing"].(map[string]any)
 	require.True(t, ok, "管理端读取渠道时必须返回 time_pricing")
+	periods := config["periods"].([]any)
 	require.Len(t, periods, 1)
 	period := periods[0].(map[string]any)
-	require.Equal(t, "09:00", period["start"])
-	require.InDelta(t, periodInput, period["input_price"].(float64), 1e-12)
+	require.Equal(t, "09:00", period["start_time"])
+	require.InDelta(t, 2, period["multiplier"].(float64), 1e-12)
 }
 
 func TestChannelToResponse_MultipleEntries(t *testing.T) {
@@ -330,7 +328,7 @@ func TestPricingRequestToService_Defaults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := pricingRequestToService([]channelModelPricingRequest{tt.req})
+			result := pricingRequestToService([]channelModelPricingRequest{tt.req}, true)
 			require.Len(t, result, 1)
 			switch tt.wantField {
 			case "BillingMode":
@@ -357,7 +355,7 @@ func TestPricingRequestToService_WithAllFields(t *testing.T) {
 		},
 	}
 
-	result := pricingRequestToService(reqs)
+	result := pricingRequestToService(reqs, true)
 	require.Len(t, result, 1)
 	r := result[0]
 	require.Equal(t, "openai", r.Platform)
@@ -398,7 +396,7 @@ func TestPricingRequestToService_WithIntervals(t *testing.T) {
 		},
 	}
 
-	result := pricingRequestToService(reqs)
+	result := pricingRequestToService(reqs, true)
 	require.Len(t, result, 1)
 	require.Len(t, result[0].Intervals, 2)
 
@@ -426,32 +424,24 @@ func TestPricingRequestToService_PreservesTimePricing(t *testing.T) {
 		"platform":"openai",
 		"models":["deepseek-v4-flash"],
 		"billing_mode":"token",
-		"time_pricing":[{
-			"start":"09:00",
-			"end":"12:00",
-			"input_price":0.000008,
-			"output_price":0.000024,
-			"cache_write_price":null,
-			"cache_read_price":0.000001,
-			"image_input_price":null,
-			"image_output_price":null,
-			"per_request_price":null
-		}]
+		"time_pricing":{"timezone":"Asia/Shanghai","periods":[{
+			"start_time":"09:00",
+			"end_time":"12:00",
+			"multiplier":2
+		}]}
 	}`), &req))
 
-	result := pricingRequestToService([]channelModelPricingRequest{req})
+	result := pricingRequestToService([]channelModelPricingRequest{req}, true)
 	require.Len(t, result, 1)
-	require.Len(t, result[0].TimePricing, 1, "管理端保存渠道时不能丢失 time_pricing")
-	period := result[0].TimePricing[0]
-	require.Equal(t, "09:00", period.Start)
-	require.Equal(t, "12:00", period.End)
-	require.InDelta(t, 8e-6, *period.InputPrice, 1e-12)
-	require.InDelta(t, 24e-6, *period.OutputPrice, 1e-12)
-	require.InDelta(t, 1e-6, *period.CacheReadPrice, 1e-12)
+	require.Len(t, result[0].TimePricing.Periods, 1, "管理端保存渠道时不能丢失 time_pricing")
+	period := result[0].TimePricing.Periods[0]
+	require.Equal(t, "09:00", period.StartTime)
+	require.Equal(t, "12:00", period.EndTime)
+	require.InDelta(t, 2, period.Multiplier, 1e-12)
 }
 
 func TestPricingRequestToService_EmptySlice(t *testing.T) {
-	result := pricingRequestToService([]channelModelPricingRequest{})
+	result := pricingRequestToService([]channelModelPricingRequest{}, true)
 	require.NotNil(t, result)
 	require.Empty(t, result)
 }
@@ -465,7 +455,7 @@ func TestPricingRequestToService_NilPriceFields(t *testing.T) {
 		},
 	}
 
-	result := pricingRequestToService(reqs)
+	result := pricingRequestToService(reqs, true)
 	require.Len(t, result, 1)
 	r := result[0]
 	require.Nil(t, r.InputPrice)
@@ -474,6 +464,85 @@ func TestPricingRequestToService_NilPriceFields(t *testing.T) {
 	require.Nil(t, r.CacheReadPrice)
 	require.Nil(t, r.ImageOutputPrice)
 	require.Nil(t, r.PerRequestPrice)
+}
+
+func TestPricingRequestToService_TimePricing(t *testing.T) {
+	req := channelModelPricingRequest{
+		Models:      []string{"gpt-5"},
+		BillingMode: "token",
+		TimePricing: &channelTimePricingRequest{
+			Timezone: "Asia/Shanghai",
+			Periods: []channelTimePricingPeriodRequest{{
+				StartTime: "09:00", EndTime: "12:00", Multiplier: 2,
+			}},
+		},
+	}
+
+	got := pricingRequestToService([]channelModelPricingRequest{req}, true)
+	require.Equal(t, "Asia/Shanghai", got[0].TimePricing.Timezone)
+	require.Equal(t, 2.0, got[0].TimePricing.Periods[0].Multiplier)
+}
+
+func TestPricingRequestToService_TimePricingNil(t *testing.T) {
+	got := pricingRequestToService([]channelModelPricingRequest{{Models: []string{"gpt-5"}}}, true)
+	require.Nil(t, got[0].TimePricing)
+}
+
+// 账号成本统计规则不支持倍率：allowChannelMultipliers=false 时必须丢弃，
+// 避免渠道倍率意外污染账号成本口径。
+func TestPricingRequestToService_MultipliersGatedByFlag(t *testing.T) {
+	req := channelModelPricingRequest{
+		Models:         []string{"gpt-5"},
+		BillingMode:    "token",
+		FastMultiplier: float64Ptr(2.5),
+		FlexMultiplier: float64Ptr(0.5),
+		Intervals: []pricingIntervalRequest{{
+			MinTokens:            272000,
+			InputMultiplier:      float64Ptr(2),
+			OutputMultiplier:     float64Ptr(1.5),
+			CacheWriteMultiplier: float64Ptr(2),
+			CacheReadMultiplier:  float64Ptr(2),
+		}},
+	}
+
+	allowed := pricingRequestToService([]channelModelPricingRequest{req}, true)
+	require.Equal(t, float64Ptr(2.5), allowed[0].FastMultiplier)
+	require.Equal(t, float64Ptr(0.5), allowed[0].FlexMultiplier)
+	require.Equal(t, float64Ptr(2), allowed[0].Intervals[0].InputMultiplier)
+	require.Equal(t, float64Ptr(1.5), allowed[0].Intervals[0].OutputMultiplier)
+	require.Equal(t, float64Ptr(2), allowed[0].Intervals[0].CacheWriteMultiplier)
+	require.Equal(t, float64Ptr(2), allowed[0].Intervals[0].CacheReadMultiplier)
+
+	dropped := pricingRequestToService([]channelModelPricingRequest{req}, false)
+	require.Nil(t, dropped[0].FastMultiplier)
+	require.Nil(t, dropped[0].FlexMultiplier)
+	require.Nil(t, dropped[0].Intervals[0].InputMultiplier)
+	require.Nil(t, dropped[0].Intervals[0].OutputMultiplier)
+	require.Nil(t, dropped[0].Intervals[0].CacheWriteMultiplier)
+	require.Nil(t, dropped[0].Intervals[0].CacheReadMultiplier)
+	// 非倍率字段不受开关影响
+	require.Equal(t, 272000, dropped[0].Intervals[0].MinTokens)
+}
+
+func TestPricingToResponse_TimePricing(t *testing.T) {
+	got := pricingToResponse(&service.ChannelModelPricing{
+		BillingMode: service.BillingModeToken,
+		TimePricing: &service.ChannelTimePricing{
+			Timezone: "Asia/Shanghai",
+			Periods: []service.ChannelTimePricingPeriod{{
+				StartTime: "14:00", EndTime: "18:00", Multiplier: 1.25,
+			}},
+		},
+	})
+
+	require.NotNil(t, got.TimePricing)
+	require.Equal(t, "Asia/Shanghai", got.TimePricing.Timezone)
+	require.Equal(t, 1.25, got.TimePricing.Periods[0].Multiplier)
+}
+
+func TestPricingToResponse_TimePricingNil(t *testing.T) {
+	got := pricingToResponse(&service.ChannelModelPricing{})
+	require.Nil(t, got.TimePricing)
 }
 
 // ---------------------------------------------------------------------------
@@ -514,7 +583,7 @@ func TestSyncPricingModels_ValidPlatform_EmptyService(t *testing.T) {
 	svc := service.NewPricingService(nil, nil)
 	router := setupSyncPricingModelsRouter(svc)
 
-	for _, platform := range []string{"anthropic", "openai", "gemini", "antigravity"} {
+	for _, platform := range []string{"anthropic", "openai", "gemini", "antigravity", "grok", "kimi", "zhipu", "deepseek"} {
 		req := httptest.NewRequest(http.MethodGet, "/channels/pricing/sync-models?platform="+platform, nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
