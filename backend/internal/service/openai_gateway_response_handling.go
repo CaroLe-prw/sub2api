@@ -70,7 +70,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	// frames whenever OpenAI keepalive is enabled, independently from whether a
 	// first-output timeout is configured.
 	stageFirstOutput := account != nil && account.Platform == PlatformOpenAI
-	guardFirstOutput := stageFirstOutput
+	guardFirstOutput := firstOutputTimeout > 0
 	var attemptResponseHeaders http.Header
 	if stageFirstOutput {
 		if s.responseHeaderFilter != nil {
@@ -674,7 +674,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if (eventType == "response.completed" || eventType == "response.done") && !sawFailedEvent {
 				startsClientOutput = true
 			}
-			startsFirstOutputProgress := forceFlushFailedEvent || openAIStreamDataStartsFirstOutputProgress(data, eventType, c)
+			// Native Responses keeps empty structural metadata private and does not
+			// let it disarm the semantic-output deadline. Passthrough uses the broader
+			// progress classifier because those frames are already relayed verbatim.
+			startsFirstOutputProgress := startsClientOutput
 			if startsClientOutput && firstClientOutputEventType == "" && eventType != "response.failed" {
 				firstClientOutputEventType = eventType
 			}
@@ -705,7 +708,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 
 			// 写入客户端（客户端断开后继续 drain 上游）
 			if !clientDisconnected {
-				terminalSuccess := eventType == "response.completed" || eventType == "response.done"
+				terminalSuccess := eventType == "response.completed" || eventType == "response.done" || strings.TrimSpace(data) == "[DONE]"
 				shouldFlush := terminalSuccess || (queueDrained && (clientOutputStarted || startsClientOutput))
 				if firstTokenMs == nil && startsVisibleOutput {
 					// 保证首个 token 事件尽快出站，避免影响 TTFT。

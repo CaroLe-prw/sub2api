@@ -91,7 +91,7 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 ) *UpstreamFailoverError {
 	shouldFailover := s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody)
 	tempUnscheduled := false
-	if c != nil && account != nil && account.Platform != PlatformGrok && !shouldFailover && !IsResponseCommitted(c) && s.rateLimitService != nil {
+	if account != nil && account.Platform != PlatformGrok && !shouldFailover && (c == nil || !IsResponseCommitted(c)) && s.rateLimitService != nil {
 		tempUnscheduled = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, upstreamModel) == ErrorPolicyTempUnscheduled
 		shouldFailover = tempUnscheduled
 	}
@@ -126,7 +126,7 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	if account.Platform != PlatformGrok && !tempUnscheduled {
 		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
 	}
-	return newOpenAIUpstreamFailoverError(
+	failoverErr := newOpenAIUpstreamFailoverError(
 		resp.StatusCode,
 		resp.Header,
 		respBody,
@@ -135,6 +135,12 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 			shouldRetryOpenAINonOAuthCapacityOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody)),
 		!shouldDisable && shouldRetryOpenAIOAuthCapacityOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody),
 	)
+	if tempUnscheduled {
+		failoverErr.RequestScopedTransient = true
+		failoverErr.Scope = GatewayFailureScopeRequest
+		failoverErr.NextAccountAction = NextAccountRetry
+	}
+	return failoverErr
 }
 
 // openAIChatCompletionsTargetURL 解析账号的（非 Grok）Chat Completions 上游端点。

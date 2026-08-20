@@ -987,7 +987,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				logOpenAICapacityFailoverSuppressed(ctx, account, "ws_http_bridge", resp.Header.Get("x-request-id"), eventType)
 				capacityFailoverSuppressedLogged = true
 			}
-			if eventType == "error" || eventType == "response.failed" {
+			if eventType == "error" || (eventType == "response.failed" && !wroteDownstream) {
 				upstreamEventErr = errors.New(errMessage)
 			}
 		}
@@ -1084,6 +1084,13 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 		return resultWithUsage(), streamErr
 	}
+	terminalErr := errors.New("upstream http bridge stream ended before terminal event")
+	if sawDone {
+		terminalErr = errors.New("upstream http bridge stream sent [DONE] before terminal event")
+	}
+	if turn == 1 && !wroteDownstream {
+		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, terminalErr, true)
+	}
 	if !clientDisconnected {
 		for _, downstreamMessage := range pendingClientMessages {
 			if err := writeClientMessage(downstreamMessage); err != nil {
@@ -1098,13 +1105,6 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			}
 			wroteDownstream = true
 		}
-	}
-	terminalErr := errors.New("upstream http bridge stream ended before terminal event")
-	if sawDone {
-		terminalErr = errors.New("upstream http bridge stream sent [DONE] before terminal event")
-	}
-	if turn == 1 && !wroteDownstream {
-		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, terminalErr, true)
 	}
 	return resultWithUsage(), terminalErr
 }
