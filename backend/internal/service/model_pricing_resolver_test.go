@@ -283,13 +283,13 @@ func TestResolve_WithChannelTimePricing(t *testing.T) {
 			StartTime: "09:00", EndTime: "12:00", Multiplier: 3,
 		}}},
 	}})
-	r.now = func() time.Time { return time.Date(2026, 8, 17, 1, 30, 0, 0, time.UTC) } // 09:30 Shanghai
+	pricingAt := time.Date(2026, 8, 17, 1, 30, 0, 0, time.UTC) // 09:30 Shanghai
 
 	resolved := r.Resolve(context.Background(), PricingInput{Model: "claude-sonnet-4", GroupID: groupIDPtr()})
 	require.Equal(t, PricingSourceChannel, resolved.Source)
 	require.InDelta(t, 10e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
 	require.InDelta(t, 50e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
-	require.InDelta(t, 3, resolvedChannelTimeMultiplier(resolved, r.now()), 1e-12)
+	require.InDelta(t, 3, resolvedChannelTimeMultiplier(resolved, pricingAt), 1e-12)
 	interval := r.GetIntervalPricing(resolved, 100000)
 	require.InDelta(t, 20e-6, interval.InputPricePerToken, 1e-12)
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"strings"
-	"time"
 )
 
 // PricingSource 定价来源标识
@@ -49,7 +48,6 @@ type ResolvedPricing struct {
 type ModelPricingResolver struct {
 	channelService *ChannelService
 	billingService *BillingService
-	now            func() time.Time
 }
 
 // NewModelPricingResolver 创建定价解析器实例
@@ -57,15 +55,7 @@ func NewModelPricingResolver(channelService *ChannelService, billingService *Bil
 	return &ModelPricingResolver{
 		channelService: channelService,
 		billingService: billingService,
-		now:            time.Now,
 	}
-}
-
-func (r *ModelPricingResolver) currentTime() time.Time {
-	if r != nil && r.now != nil {
-		return r.now()
-	}
-	return time.Now()
 }
 
 // PricingInput 定价解析输入
