@@ -16,9 +16,12 @@ func TestUsageLogRepository_GetOpenAISchedulerHealthSnapshots(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	repo := newUsageLogRepositoryWithSQL(nil, db)
-	rows := sqlmock.NewRows([]string{"account_id", "model", "success_count", "failure_count", "avg_ttft_ms"}).
-		AddRow(int64(35), "gpt-5.6-sol", int64(18), int64(2), float64(920))
-	mock.ExpectQuery(regexp.QuoteMeta("WITH successes AS (")).WithArgs(sqlmock.AnyArg()).WillReturnRows(rows)
+	lastSuccess := time.Now().Add(-time.Minute)
+	lastFailure := time.Now().Add(-2 * time.Minute)
+	rows := sqlmock.NewRows([]string{
+		"account_id", "model", "success_count", "failure_count", "avg_ttft_ms", "last_success_at", "last_failure_at",
+	}).AddRow(int64(35), "gpt-5.6-sol", int64(18), int64(2), float64(920), lastSuccess, lastFailure)
+	mock.ExpectQuery(regexp.QuoteMeta("WITH successes AS (")).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(rows)
 
 	snapshots, err := repo.GetOpenAISchedulerHealthSnapshots(context.Background(), time.Now().Add(-30*time.Minute))
 	require.NoError(t, err)
@@ -29,5 +32,7 @@ func TestUsageLogRepository_GetOpenAISchedulerHealthSnapshots(t *testing.T) {
 	require.Equal(t, int64(2), snapshots[0].FailureCount)
 	require.NotNil(t, snapshots[0].AvgTTFTMs)
 	require.InDelta(t, 920, *snapshots[0].AvgTTFTMs, 0.001)
+	require.Equal(t, lastSuccess, *snapshots[0].LastSuccessAt)
+	require.Equal(t, lastFailure, *snapshots[0].LastFailureAt)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

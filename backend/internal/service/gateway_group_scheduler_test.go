@@ -123,6 +123,110 @@ func TestBuildGatewayGroupSelectionOrderUsesSharedProbeHealth(t *testing.T) {
 	require.Equal(t, healthy.ID, order[0].account.ID)
 }
 
+func TestBuildGatewayGroupSelectionOrderDoesNotLetPriorityOverrideKnownFailure(t *testing.T) {
+	groupID := int64(17)
+	unhealthy := &Account{ID: 1, Platform: PlatformAnthropic, Priority: 1}
+	healthy := &Account{ID: 2, Platform: PlatformAnthropic, Priority: 100}
+	stats := newOpenAIAccountRuntimeStats()
+	stats.reportProbe(unhealthy.ID, "claude-opus-4-6", false, nil)
+	stats.reportProbe(unhealthy.ID, "claude-opus-4-6", false, nil)
+	stats.reportProbe(healthy.ID, "claude-opus-4-6", true, nil)
+	ctx := gatewaySchedulerTestPolicy(resolvedGroupOpenAISchedulerConfig{
+		TopK:                  1,
+		Priority:              10,
+		ErrorRate:             1,
+		SessionSticky:         100,
+		StickyWeightedEnabled: true,
+	})
+	ctx = withGatewayScheduleObservation(ctx, unhealthy.ID)
+	ctx = withGatewaySchedulerHealthStats(ctx, stats)
+
+	order, ok := buildGatewayGroupSelectionOrder(
+		ctx,
+		&groupID,
+		[]accountWithLoad{
+			{account: unhealthy, loadInfo: &AccountLoadInfo{AccountID: unhealthy.ID}},
+			{account: healthy, loadInfo: &AccountLoadInfo{AccountID: healthy.ID}},
+		},
+		unhealthy.ID,
+		"",
+		"claude-opus-4-6",
+	)
+
+	require.True(t, ok)
+	require.Len(t, order, 1)
+	require.Equal(t, healthy.ID, order[0].account.ID)
+	observation := gatewayScheduleObservationFromContext(ctx)
+	require.NotNil(t, observation)
+	require.Len(t, observation.decision.Candidates, 2)
+	require.Equal(t, "excluded", observation.decision.Candidates[0].State)
+	require.Equal(t, "consecutive_errors", observation.decision.Candidates[0].Reason)
+}
+
+func TestBuildGatewayGroupSelectionOrderKeepsFallbackWhenEveryAccountIsFailing(t *testing.T) {
+	groupID := int64(18)
+	first := &Account{ID: 1, Platform: PlatformAnthropic, Priority: 1}
+	second := &Account{ID: 2, Platform: PlatformAnthropic, Priority: 2}
+	stats := newOpenAIAccountRuntimeStats()
+	for range 2 {
+		stats.reportProbe(first.ID, "claude-opus-4-6", false, nil)
+		stats.reportProbe(second.ID, "claude-opus-4-6", false, nil)
+	}
+	ctx := gatewaySchedulerTestPolicy(resolvedGroupOpenAISchedulerConfig{
+		TopK:     2,
+		Priority: 1,
+	})
+	ctx = withGatewaySchedulerHealthStats(ctx, stats)
+
+	order, ok := buildGatewayGroupSelectionOrder(
+		ctx,
+		&groupID,
+		[]accountWithLoad{
+			{account: first, loadInfo: &AccountLoadInfo{AccountID: first.ID}},
+			{account: second, loadInfo: &AccountLoadInfo{AccountID: second.ID}},
+		},
+		0,
+		"",
+		"claude-opus-4-6",
+	)
+
+	require.True(t, ok)
+	require.Len(t, order, 2)
+}
+
+func TestBuildGatewayGroupSelectionOrderUsesRecentUserTrafficHealthGate(t *testing.T) {
+	groupID := int64(19)
+	unhealthy := &Account{ID: 1, Platform: PlatformAnthropic, Priority: 1}
+	healthy := &Account{ID: 2, Platform: PlatformAnthropic, Priority: 100}
+	stats := newOpenAIAccountRuntimeStats()
+	stats.replaceHistory([]OpenAISchedulerHealthSnapshot{
+		{AccountID: unhealthy.ID, Model: "claude-opus-4-6", FailureCount: 4},
+		{AccountID: healthy.ID, Model: "claude-opus-4-6", SuccessCount: 4},
+	})
+	ctx := gatewaySchedulerTestPolicy(resolvedGroupOpenAISchedulerConfig{
+		TopK:      1,
+		Priority:  10,
+		ErrorRate: 1,
+	})
+	ctx = withGatewaySchedulerHealthStats(ctx, stats)
+
+	order, ok := buildGatewayGroupSelectionOrder(
+		ctx,
+		&groupID,
+		[]accountWithLoad{
+			{account: unhealthy, loadInfo: &AccountLoadInfo{AccountID: unhealthy.ID}},
+			{account: healthy, loadInfo: &AccountLoadInfo{AccountID: healthy.ID}},
+		},
+		0,
+		"",
+		"claude-opus-4-6",
+	)
+
+	require.True(t, ok)
+	require.Len(t, order, 1)
+	require.Equal(t, healthy.ID, order[0].account.ID)
+}
+
 func TestBuildGatewayGroupSelectionOrderCapturesObservableScores(t *testing.T) {
 	groupID := int64(10)
 	first := &Account{ID: 1, Name: "first", Platform: PlatformGemini, Priority: 1}

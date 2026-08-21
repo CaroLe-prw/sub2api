@@ -25,6 +25,7 @@ const (
 	openAIAccountScheduleLayerLoadBalance            = "load_balance"
 	openAIAdvancedSchedulerSettingKey                = "openai_advanced_scheduler_enabled"
 	openAIStickyEscapeConsecutiveErrors        int64 = 2
+	openAIHealthGateConsecutiveErrors          int64 = 2
 	openAIWeightedStickyMaxScoreGapRatio             = 0.15
 )
 
@@ -346,6 +347,9 @@ func (s *openAIAccountRuntimeStats) reportProbe(accountID int64, model string, s
 		errorSample := 1.0
 		if success {
 			errorSample = 0
+			stat.consecutiveErrors.Store(0)
+		} else {
+			stat.consecutiveErrors.Add(1)
 		}
 		if samples == 1 {
 			stat.probeErrorBits.Store(math.Float64bits(errorSample))
@@ -521,6 +525,74 @@ func (s *openAIAccountRuntimeStats) consecutiveErrorCount(accountID int64) int64
 	return stat.consecutiveErrors.Load()
 }
 
+// healthGateReasonForRequest keeps a known-bad account/model out of the
+// preferred pool when another candidate is available. It combines consecutive
+// live/probe failures with the weighted recent real-traffic error rate. Model
+// evidence takes precedence over account-wide evidence so a broken model does
+// not quarantine unrelated models on the same account.
+func (s *openAIAccountRuntimeStats) healthGateReasonForRequest(accountID int64, models ...string) string {
+	if s == nil || accountID <= 0 {
+		return ""
+	}
+	seen := make(map[openAIAccountModelKey]struct{}, len(models))
+	foundModelEvidence := false
+	for _, model := range models {
+		key, ok := openAIAccountModelTransientKey(accountID, model)
+		if !ok {
+			continue
+		}
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		value, found := s.models.Load(key)
+		if !found {
+			continue
+		}
+		stat, _ := value.(*openAIAccountRuntimeStat)
+		if stat == nil {
+			continue
+		}
+		reason, hasEvidence := s.healthGateReasonForStat(stat)
+		foundModelEvidence = foundModelEvidence || hasEvidence
+		if reason != "" {
+			return reason
+		}
+	}
+	if foundModelEvidence {
+		return ""
+	}
+	value, ok := s.accounts.Load(accountID)
+	if !ok {
+		return ""
+	}
+	stat, _ := value.(*openAIAccountRuntimeStat)
+	reason, _ := s.healthGateReasonForStat(stat)
+	return reason
+}
+
+func (s *openAIAccountRuntimeStats) healthGateReasonForStat(stat *openAIAccountRuntimeStat) (string, bool) {
+	if stat == nil {
+		return "", false
+	}
+	if stat.consecutiveErrors.Load() >= openAIHealthGateConsecutiveErrors {
+		return "consecutive_errors", true
+	}
+	signals := s.signalsForStat(stat)
+	var evidenceWeight float64
+	for _, signal := range signals {
+		evidenceWeight += signal.weight
+	}
+	if evidenceWeight < 2 {
+		return "", evidenceWeight > 0
+	}
+	errorRate, _, _ := combineOpenAIHealthSignals(signals)
+	if errorRate > 0.5 {
+		return "error_rate", true
+	}
+	return "", true
+}
+
 func (s *openAIAccountRuntimeStats) size() int {
 	if s == nil {
 		return 0
@@ -533,11 +605,13 @@ func (s *openAIAccountRuntimeStats) size() int {
 // account-attributable upstream errors so client cancellations and bad requests
 // do not poison channel health.
 type OpenAISchedulerHealthSnapshot struct {
-	AccountID    int64
-	Model        string
-	SuccessCount int64
-	FailureCount int64
-	AvgTTFTMs    *float64
+	AccountID     int64
+	Model         string
+	SuccessCount  int64
+	FailureCount  int64
+	AvgTTFTMs     *float64
+	LastSuccessAt *time.Time
+	LastFailureAt *time.Time
 }
 
 type openAISchedulerHealthSnapshotRepository interface {
@@ -1343,6 +1417,35 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 				continue
 			}
 			candidates = append(candidates, candidate)
+		}
+	}
+
+	// Health is otherwise only a soft score and can be outweighed by priority,
+	// cost, load or sticky bonuses. Quarantine a known-bad model only when a
+	// non-quarantined alternative exists; if the whole pool is bad, retain the
+	// degraded pool as a last-resort fallback.
+	if s.stats != nil && len(candidates) > 1 {
+		healthReasons := make([]string, len(candidates))
+		healthyAlternatives := 0
+		for i := range candidates {
+			candidate := &candidates[i]
+			healthReasons[i] = s.stats.healthGateReasonForRequest(
+				candidate.account.ID,
+				req.RequestedModel,
+				canonicalOpenAIAccountSchedulingModel(candidate.account, req.RequestedModel),
+			)
+			if !candidate.excluded && healthReasons[i] == "" {
+				healthyAlternatives++
+			}
+		}
+		if healthyAlternatives > 0 {
+			for i := range candidates {
+				if healthReasons[i] == "" || candidates[i].excluded {
+					continue
+				}
+				candidates[i].excluded = true
+				req.observation.recordCandidateReason(candidates[i].account.ID, healthReasons[i])
+			}
 		}
 	}
 

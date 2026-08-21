@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -12,9 +13,16 @@ var scheduledTestCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom 
 
 // ScheduledTestService provides CRUD operations for scheduled test plans and results.
 type ScheduledTestService struct {
-	planRepo   ScheduledTestPlanRepository
-	resultRepo ScheduledTestResultRepository
+	planRepo        ScheduledTestPlanRepository
+	resultRepo      ScheduledTestResultRepository
+	userTrafficRepo schedulerUserTrafficRepository
 }
+
+type schedulerUserTrafficRepository interface {
+	GetSchedulerUserTrafficSnapshots(ctx context.Context, since time.Time, accountIDs []int64) ([]OpenAISchedulerHealthSnapshot, error)
+}
+
+const schedulerUserTrafficWindow = 30 * time.Minute
 
 // NewScheduledTestService creates a new ScheduledTestService.
 func NewScheduledTestService(
@@ -25,6 +33,10 @@ func NewScheduledTestService(
 		planRepo:   planRepo,
 		resultRepo: resultRepo,
 	}
+}
+
+func (s *ScheduledTestService) SetSchedulerUserTrafficRepository(repo schedulerUserTrafficRepository) {
+	s.userTrafficRepo = repo
 }
 
 // CreatePlan validates the cron expression, computes next_run_at, and persists the plan.
@@ -77,7 +89,41 @@ func (s *ScheduledTestService) ListResults(ctx context.Context, planID int64, li
 }
 
 func (s *ScheduledTestService) ListChannelMonitorPoolOverview(ctx context.Context, accountIDs []int64) ([]*ChannelMonitorPoolAccount, error) {
-	return s.planRepo.ListChannelMonitorPoolOverview(ctx, time.Now().Add(-7*24*time.Hour), accountIDs)
+	accounts, err := s.planRepo.ListChannelMonitorPoolOverview(ctx, time.Now().Add(-7*24*time.Hour), accountIDs)
+	if err != nil || s.userTrafficRepo == nil {
+		return accounts, err
+	}
+
+	snapshots, err := s.userTrafficRepo.GetSchedulerUserTrafficSnapshots(ctx, time.Now().Add(-schedulerUserTrafficWindow), accountIDs)
+	if err != nil {
+		return nil, err
+	}
+	type trafficKey struct {
+		accountID int64
+		model     string
+	}
+	byModel := make(map[trafficKey]OpenAISchedulerHealthSnapshot, len(snapshots))
+	for _, snapshot := range snapshots {
+		byModel[trafficKey{accountID: snapshot.AccountID, model: strings.ToLower(strings.TrimSpace(snapshot.Model))}] = snapshot
+	}
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		for i := range account.Models {
+			model := &account.Models[i]
+			snapshot := byModel[trafficKey{accountID: account.AccountID, model: strings.ToLower(strings.TrimSpace(model.Model))}]
+			model.UserTraffic = &ChannelMonitorUserTraffic{
+				WindowMinutes: int(schedulerUserTrafficWindow / time.Minute),
+				SuccessCount:  snapshot.SuccessCount,
+				FailureCount:  snapshot.FailureCount,
+				AvgTTFTMs:     snapshot.AvgTTFTMs,
+				LastSuccessAt: snapshot.LastSuccessAt,
+				LastFailureAt: snapshot.LastFailureAt,
+			}
+		}
+	}
+	return accounts, nil
 }
 
 // SaveResult inserts a result and prunes old entries beyond maxResults.

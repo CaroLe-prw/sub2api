@@ -6,8 +6,8 @@ import type { PoolMonitorAccount, PoolMonitorModel } from '@/api/admin/scheduler
 import MonitorCompactHeartbeatStrip from '@/components/admin/monitor/MonitorCompactHeartbeatStrip.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { HeartbeatSource } from '@/components/admin/monitor/monitorHeartbeatAggregation'
-import { resolveCurrentProbe } from '@/components/admin/monitor/monitorCurrentProbeState'
-import type { CurrentProbeState } from '@/components/admin/monitor/monitorCurrentProbeState'
+import { summarizeCombinedHealth } from '@/components/admin/monitor/monitorCombinedHealth'
+import type { CombinedMonitorHealth } from '@/components/admin/monitor/monitorCombinedHealth'
 
 const props = defineProps<{
   monitor: PoolMonitorAccount | null
@@ -20,17 +20,14 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-function currentModelState(model: PoolMonitorModel): CurrentProbeState {
-  return resolveCurrentProbe(model, model.recent_results ?? []).state
+function modelHealth(model: PoolMonitorModel): CombinedMonitorHealth {
+  return summarizeCombinedHealth(model)
 }
 
 const totalModels = computed(() => props.monitor?.models.length ?? 0)
-const availableModels = computed(() => props.monitor?.models.filter((model) => {
-  const status = currentModelState(model)
-  return status === 'success' || status === 'degraded'
-}).length ?? 0)
-const hasFailure = computed(() => props.monitor?.models.some((model) => currentModelState(model) === 'failed') ?? false)
-const hasDegraded = computed(() => props.monitor?.models.some((model) => currentModelState(model) === 'degraded') ?? false)
+const availableModels = computed(() => props.monitor?.models.filter((model) => modelHealth(model).available).length ?? 0)
+const hasFailure = computed(() => props.monitor?.models.some((model) => modelHealth(model).state === 'failed') ?? false)
+const hasDegraded = computed(() => props.monitor?.models.some((model) => modelHealth(model).state === 'degraded') ?? false)
 const state = computed<'healthy' | 'degraded' | 'partial' | 'failed' | 'pending' | 'unmonitored'>(() => {
   if (!props.monitor || totalModels.value === 0) return 'unmonitored'
   if (availableModels.value === totalModels.value) return hasDegraded.value ? 'degraded' : 'healthy'
@@ -42,6 +39,14 @@ const heartbeatSources = computed<HeartbeatSource[]>(() => props.monitor?.models
   id: String(model.plan_id),
   samples: model.recent_results ?? [],
 })) ?? [])
+const userSampleCount = computed(() => props.monitor?.models.reduce(
+  (total, model) => total + modelHealth(model).userSampleCount,
+  0,
+) ?? 0)
+const probeSampleCount = computed(() => props.monitor?.models.reduce(
+  (total, model) => total + modelHealth(model).probeSampleCount,
+  0,
+) ?? 0)
 const stateLabel = computed(() => t(`admin.accounts.modelAvailability.states.${state.value}`))
 const detailLabel = computed(() => props.monitor
   ? t('admin.accounts.modelAvailability.openDetail', {
@@ -88,6 +93,9 @@ function openDetail() {
     </div>
     <div class="mt-1.5">
       <MonitorCompactHeartbeatStrip :sources="heartbeatSources" coverage-unit="model" :limit="10" />
+    </div>
+    <div class="mt-1 text-[9px] leading-3 text-gray-400">
+      {{ t('admin.accounts.modelAvailability.sourceCounts', { users: userSampleCount, probes: probeSampleCount }) }}
     </div>
   </button>
 

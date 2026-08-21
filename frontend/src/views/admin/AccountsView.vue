@@ -565,6 +565,7 @@ import AccountModelAvailabilityCell from '@/components/admin/account/AccountMode
 import MonitorModelHistoryDialog from '@/components/admin/monitor/MonitorModelHistoryDialog.vue'
 import type { PoolMonitorAccount, PoolProbeResult } from '@/api/admin/schedulerProbes'
 import type { ProbeHistoryByPlan } from '@/components/admin/monitor/monitorDataTypes'
+import { mergeMonitorHistories } from '@/components/admin/monitor/monitorCurrentProbeState'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
@@ -1290,7 +1291,13 @@ const openPoolMonitorDetail = async (monitor: PoolMonitorAccount) => {
       await adminAPI.schedulerProbes.listResults(model.plan_id, 100),
     ] as const))
     if (selectedPoolMonitor.value?.account_id === monitor.account_id) {
-      poolMonitorHistories.value = Object.fromEntries(histories)
+      const historiesByPlan = Object.fromEntries(histories)
+      poolMonitorHistories.value = historiesByPlan
+      poolMonitorAccounts.value = poolMonitorAccounts.value.map((account) =>
+        account.account_id === monitor.account_id
+          ? mergeMonitorHistories(account, historiesByPlan)
+          : account)
+      selectedPoolMonitor.value = poolMonitorForAccount(monitor.account_id)
     }
   } catch (error) {
     appStore.showError(extractApiErrorMessage(error, t('admin.channelMonitor.dataPanel.historyError')))

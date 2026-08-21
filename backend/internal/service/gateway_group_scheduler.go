@@ -328,6 +328,34 @@ func buildGatewayGroupSelectionOrder(
 		return nil, false
 	}
 
+	// A candidate with consecutive failures or a high recent error rate must not
+	// regain the first slot through priority, cost or session bonuses while a
+	// healthier peer exists. Keep the full pool only when every candidate is
+	// degraded so routing can still make a best-effort fallback.
+	healthReasons := make(map[int64]string, len(scored))
+	if healthStats != nil && len(scored) > 1 {
+		healthyAlternatives := 0
+		for i := range scored {
+			candidate := &scored[i]
+			reason := healthStats.healthGateReasonForRequest(
+				candidate.account.ID,
+				requestedModel,
+				candidate.account.GetMappedModel(requestedModel),
+			)
+			healthReasons[candidate.account.ID] = reason
+			if reason == "" {
+				healthyAlternatives++
+			}
+		}
+		if healthyAlternatives > 0 {
+			for i := range scored {
+				if healthReasons[scored[i].account.ID] != "" {
+					scored[i].excluded = true
+				}
+			}
+		}
+	}
+
 	minPriority, maxPriority := scored[0].priority, scored[0].priority
 	maxWaiting := 1
 	minTTFT, maxTTFT := 0.0, 0.0
@@ -428,6 +456,7 @@ func buildGatewayGroupSelectionOrder(
 				weights.QuotaHeadroom*0.5 +
 				weights.UpstreamCost*(costFactor-openAIUpstreamCostNeutralFactor)
 		if policy.config.StickyWeightedEnabled &&
+			!candidate.excluded &&
 			stickyAccountID > 0 &&
 			candidate.account.ID == stickyAccountID {
 			candidate.score += weights.SessionSticky
@@ -443,6 +472,12 @@ func buildGatewayGroupSelectionOrder(
 		observedCandidates := make([]OpenAISchedulerObservabilityCandidate, 0, len(ranked))
 		for index, candidate := range ranked {
 			stickyBonus := stickyBonuses[candidate.account.ID]
+			state := "eligible"
+			reason := ""
+			if candidate.excluded {
+				state = "excluded"
+				reason = healthReasons[candidate.account.ID]
+			}
 			observedCandidates = append(observedCandidates, OpenAISchedulerObservabilityCandidate{
 				AccountID:   candidate.account.ID,
 				AccountName: candidate.account.Name,
@@ -450,7 +485,8 @@ func buildGatewayGroupSelectionOrder(
 				BaseScore:   candidate.score - stickyBonus,
 				StickyBonus: stickyBonus,
 				TotalScore:  candidate.score,
-				State:       "eligible",
+				State:       state,
+				Reason:      reason,
 			})
 		}
 		observation.decision = OpenAIAccountScheduleDecision{
@@ -460,14 +496,20 @@ func buildGatewayGroupSelectionOrder(
 		}
 	}
 
+	eligible := make([]openAIAccountCandidateScore, 0, len(scored))
+	for _, candidate := range scored {
+		if !candidate.excluded {
+			eligible = append(eligible, candidate)
+		}
+	}
 	topK := policy.config.TopK
-	if topK > len(scored) {
-		topK = len(scored)
+	if topK > len(eligible) {
+		topK = len(eligible)
 	}
 	if topK <= 0 {
 		topK = 1
 	}
-	top := selectTopKOpenAICandidates(scored, topK)
+	top := selectTopKOpenAICandidates(eligible, topK)
 	primary := buildOpenAIWeightedSelectionOrder(top, OpenAIAccountScheduleRequest{
 		GroupID:         groupID,
 		SessionHash:     sessionHash,
@@ -476,13 +518,13 @@ func buildGatewayGroupSelectionOrder(
 	})
 
 	selected := make(map[int64]struct{}, len(primary))
-	orderedScores := make([]openAIAccountCandidateScore, 0, len(scored))
+	orderedScores := make([]openAIAccountCandidateScore, 0, len(eligible))
 	for _, candidate := range primary {
 		orderedScores = append(orderedScores, candidate)
 		selected[candidate.account.ID] = struct{}{}
 	}
-	overflow := make([]openAIAccountCandidateScore, 0, len(scored)-len(primary))
-	for _, candidate := range scored {
+	overflow := make([]openAIAccountCandidateScore, 0, len(eligible)-len(primary))
+	for _, candidate := range eligible {
 		if _, exists := selected[candidate.account.ID]; !exists {
 			overflow = append(overflow, candidate)
 		}

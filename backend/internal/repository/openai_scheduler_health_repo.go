@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/lib/pq"
 )
 
 // GetOpenAISchedulerHealthSnapshots returns a small account/model aggregate for
@@ -15,22 +16,37 @@ func (r *usageLogRepository) GetOpenAISchedulerHealthSnapshots(
 	ctx context.Context,
 	since time.Time,
 ) ([]service.OpenAISchedulerHealthSnapshot, error) {
+	return r.GetSchedulerUserTrafficSnapshots(ctx, since, nil)
+}
+
+// GetSchedulerUserTrafficSnapshots returns account/model health evidence from
+// real user requests, optionally restricted to the accounts visible on the
+// current admin page.
+func (r *usageLogRepository) GetSchedulerUserTrafficSnapshots(
+	ctx context.Context,
+	since time.Time,
+	accountIDs []int64,
+) ([]service.OpenAISchedulerHealthSnapshot, error) {
 	rows, err := r.sql.QueryContext(ctx, `
 		WITH successes AS (
 			SELECT account_id,
 			       lower(COALESCE(NULLIF(TRIM(upstream_model), ''), NULLIF(TRIM(requested_model), ''), NULLIF(TRIM(model), ''), '')) AS model,
 			       COUNT(*)::bigint AS success_count,
-			       AVG(first_token_ms) FILTER (WHERE first_token_ms > 0)::float8 AS avg_ttft_ms
+			       AVG(first_token_ms) FILTER (WHERE first_token_ms > 0)::float8 AS avg_ttft_ms,
+			       MAX(created_at) AS last_success_at
 			FROM usage_logs
 			WHERE created_at >= $1 AND account_id > 0 AND actual_cost > 0
+			  AND (COALESCE(cardinality($2::bigint[]), 0) = 0 OR account_id = ANY($2::bigint[]))
 			GROUP BY 1, 2
 		), failures AS (
 			SELECT account_id,
 			       lower(COALESCE(NULLIF(TRIM(upstream_model), ''), NULLIF(TRIM(requested_model), ''), NULLIF(TRIM(model), ''), '')) AS model,
-			       COUNT(DISTINCT COALESCE(NULLIF(request_id, ''), 'error:' || id::text))::bigint AS failure_count
+			       COUNT(DISTINCT COALESCE(NULLIF(request_id, ''), 'error:' || id::text))::bigint AS failure_count,
+			       MAX(created_at) AS last_failure_at
 			FROM ops_error_logs
 			WHERE created_at >= $1
 			  AND account_id IS NOT NULL AND account_id > 0
+			  AND (COALESCE(cardinality($2::bigint[]), 0) = 0 OR account_id = ANY($2::bigint[]))
 			  AND error_phase = 'upstream'
 			  AND error_owner = 'provider'
 			  AND COALESCE(upstream_status_code, status_code, 0) NOT IN (400, 401, 403, 404, 409, 422, 499)
@@ -38,11 +54,12 @@ func (r *usageLogRepository) GetOpenAISchedulerHealthSnapshots(
 			GROUP BY 1, 2
 		)
 		SELECT COALESCE(s.account_id, f.account_id), COALESCE(s.model, f.model),
-		       COALESCE(s.success_count, 0), COALESCE(f.failure_count, 0), s.avg_ttft_ms
+		       COALESCE(s.success_count, 0), COALESCE(f.failure_count, 0), s.avg_ttft_ms,
+		       s.last_success_at, f.last_failure_at
 		FROM successes s
 		FULL OUTER JOIN failures f ON f.account_id = s.account_id AND f.model = s.model
 		ORDER BY 1, 2
-	`, since.UTC())
+	`, since.UTC(), pq.Array(accountIDs))
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +68,10 @@ func (r *usageLogRepository) GetOpenAISchedulerHealthSnapshots(
 	result := make([]service.OpenAISchedulerHealthSnapshot, 0)
 	for rows.Next() {
 		var item service.OpenAISchedulerHealthSnapshot
-		if err := rows.Scan(&item.AccountID, &item.Model, &item.SuccessCount, &item.FailureCount, &item.AvgTTFTMs); err != nil {
+		if err := rows.Scan(
+			&item.AccountID, &item.Model, &item.SuccessCount, &item.FailureCount, &item.AvgTTFTMs,
+			&item.LastSuccessAt, &item.LastFailureAt,
+		); err != nil {
 			return nil, err
 		}
 		result = append(result, item)

@@ -43,6 +43,19 @@ type ChannelMonitorPoolModel struct {
 	FailureCount  int64                         `json:"failure_count"`
 	LastCheckedAt *time.Time                    `json:"last_checked_at"`
 	RecentResults []ChannelMonitorPoolHeartbeat `json:"recent_results"`
+	UserTraffic   *ChannelMonitorUserTraffic    `json:"user_traffic,omitempty"`
+}
+
+// ChannelMonitorUserTraffic summarizes real user requests that are valid
+// channel-health evidence. Client errors, policy blocks and cancellations are
+// deliberately excluded from the failure count.
+type ChannelMonitorUserTraffic struct {
+	WindowMinutes int        `json:"window_minutes"`
+	SuccessCount  int64      `json:"success_count"`
+	FailureCount  int64      `json:"failure_count"`
+	AvgTTFTMs     *float64   `json:"avg_ttft_ms"`
+	LastSuccessAt *time.Time `json:"last_success_at"`
+	LastFailureAt *time.Time `json:"last_failure_at"`
 }
 
 // ChannelMonitorPoolHeartbeat is the compact result shape embedded in the

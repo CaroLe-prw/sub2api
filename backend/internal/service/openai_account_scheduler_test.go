@@ -1206,6 +1206,48 @@ func TestBuildOpenAIAccountLoadPlan_WeightedStickyHealthEscapeSkipsBonus(t *test
 	require.Equal(t, int64(37104), plan.candidates[1].account.ID)
 }
 
+func TestBuildOpenAIAccountLoadPlan_ProbeHealthGateSkipsKnownFailure(t *testing.T) {
+	stats := newOpenAIAccountRuntimeStats()
+	stats.reportProbe(37123, "gpt-5.6-sol", false, nil)
+	stats.reportProbe(37123, "gpt-5.6-sol", false, nil)
+	stats.reportProbe(37124, "gpt-5.6-sol", true, nil)
+
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.LBTopK = 2
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Priority = 10
+	scheduler := &defaultOpenAIAccountScheduler{
+		service: &OpenAIGatewayService{cfg: cfg},
+		stats:   stats,
+	}
+	observation := &openAIAccountScheduleObservation{}
+	accounts := []*Account{
+		{ID: 37123, Priority: 0},
+		{ID: 37124, Priority: 100},
+	}
+
+	plan := scheduler.buildOpenAIAccountLoadPlan(
+		context.Background(),
+		OpenAIAccountScheduleRequest{
+			RequestedModel: "gpt-5.6-sol",
+			observation:    observation,
+		},
+		accounts,
+		map[int64]*AccountLoadInfo{
+			37123: {AccountID: 37123},
+			37124: {AccountID: 37124},
+		},
+	)
+
+	require.Len(t, plan.selectionOrder, 1)
+	require.Equal(t, int64(37124), plan.selectionOrder[0].account.ID)
+	require.True(t, plan.candidates[0].excluded)
+	require.Equal(t, "consecutive_errors", observation.candidateReasons[37123])
+
+	stats.reportProbe(37123, "gpt-5.6-sol", true, nil)
+	stats.reportProbe(37123, "gpt-5.6-sol", true, nil)
+	require.Empty(t, stats.healthGateReasonForRequest(37123, "gpt-5.6-sol"))
+}
+
 func TestBuildOpenAIAccountLoadPlan_DirectStickyEscapeExcludesAccountWithoutWeightedMode(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Gateway.OpenAIWS.LBTopK = 2

@@ -54,6 +54,24 @@ function mountCell(value: PoolMonitorAccount | null) {
 }
 
 describe('AccountModelAvailabilityCell', () => {
+  it('uses real user traffic together with the latest probe for the outer status', () => {
+    const value = model(1, 'success')
+    value.user_traffic = {
+      window_minutes: 30,
+      success_count: 18,
+      failure_count: 2,
+      avg_ttft_ms: 920,
+      last_success_at: '2026-08-21T02:00:00Z',
+      last_failure_at: '2026-08-21T01:59:00Z',
+    }
+
+    const wrapper = mountCell(monitor([value]))
+
+    expect(wrapper.text()).toContain('1/1')
+    expect(wrapper.text()).toContain('admin.accounts.modelAvailability.states.degraded')
+    expect(wrapper.get('span.font-mono').classes()).toContain('text-amber-600')
+  })
+
   it('uses the newest embedded heartbeat and shows a slow success as available but degraded', () => {
     const staleModel = model(1, 'failed')
     staleModel.recent_results = [

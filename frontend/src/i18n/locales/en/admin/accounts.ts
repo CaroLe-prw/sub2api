@@ -216,12 +216,13 @@ export default {
         hint: 'Displayed as "group / base score / sticky bonus". The base score is computed within the current filtered candidate set and includes priority, load, queue depth, error rate, first-token latency, reset window, quota headroom, scheduling cost rate, and related factors. The sticky bonus applies only when sticky weighting is enabled for previous_response_id or session_hash. Higher scores are preferred.'
       },
       modelAvailability: {
-        hint: 'Shows available models / total probed models from the latest scheduler probes. Click to open the same channel detail used by scheduler observability.',
+        hint: 'Combines real user calls from the last 30 minutes with the latest active probe. Click to view the source breakdown.',
         openDetail: '{available}/{total} models available. Open channel monitor details.',
         loadError: 'Failed to load model availability',
+        sourceCounts: 'User 30m {users} · Current probe {probes}',
         states: {
           healthy: 'All available',
-          degraded: 'Slow response',
+          degraded: 'Available with issues',
           partial: 'Partially available',
           failed: 'All failed',
           pending: 'Pending probe',

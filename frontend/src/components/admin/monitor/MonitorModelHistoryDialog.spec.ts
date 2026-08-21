@@ -10,7 +10,7 @@ vi.mock('vue-i18n', async (importOriginal) => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => ({
+      t: (key: string, params: Record<string, unknown> = {}) => ({
         'admin.channelMonitor.dataPanel.channelDetailTitle': '渠道监控详情',
         'admin.channelMonitor.dataPanel.streaming': '流式',
         'admin.channelMonitor.dataPanel.probeState': '探测状态',
@@ -33,6 +33,18 @@ vi.mock('vue-i18n', async (importOriginal) => {
         'admin.channelMonitor.dataPanel.probeStatus.failed': '异常',
         'admin.channelMonitor.dataPanel.probeStatus.degraded': '响应偏慢',
         'admin.channelMonitor.dataPanel.probeStatus.pending': '待探测',
+        'admin.channelMonitor.dataPanel.combinedHealth': '真实调用 + 主动探测',
+        'admin.channelMonitor.dataPanel.combinedState': '综合状态',
+        'admin.channelMonitor.dataPanel.combinedSummary': '综合结果',
+        'admin.channelMonitor.dataPanel.userTraffic': '用户调用',
+        'admin.channelMonitor.dataPanel.activeProbeSummary': '主动探测',
+        'admin.channelMonitor.dataPanel.resultBreakdown': `${params.success ?? 0}成功·${params.failed ?? 0}失败`,
+        'admin.channelMonitor.dataPanel.probeBreakdown': '探测明细',
+        'admin.channelMonitor.dataPanel.modelSourceCounts': '来源样本',
+        'admin.channelMonitor.dataPanel.combinedStatus.success': '综合正常',
+        'admin.channelMonitor.dataPanel.combinedStatus.degraded': '可用但有异常',
+        'admin.channelMonitor.dataPanel.combinedStatus.failed': '综合异常',
+        'admin.channelMonitor.dataPanel.combinedStatus.pending': '暂无样本',
         'admin.channelMonitor.runNow': '立即检测',
         'common.close': '关闭',
       })[key] ?? key,
@@ -106,7 +118,7 @@ describe('MonitorModelHistoryDialog', () => {
       })
     }).not.toThrow()
 
-    expect(wrapper?.text()).toContain('待探测')
+    expect(wrapper?.text()).toContain('暂无样本')
   })
 
   it('does not count successful yellow slow-response samples as abnormal', () => {
@@ -135,8 +147,8 @@ describe('MonitorModelHistoryDialog', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('失败样本（红色）0')
-    expect(wrapper.text()).toContain('响应偏慢')
+    expect(wrapper.text()).toContain('1成功·0失败')
+    expect(wrapper.text()).toContain('可用但有异常')
   })
 
   it('shows the latest slow success as degraded even when older history contains failures', () => {
@@ -165,8 +177,8 @@ describe('MonitorModelHistoryDialog', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('响应偏慢')
-    expect(wrapper.text()).not.toContain('存在异常')
+    expect(wrapper.text()).toContain('可用但有异常')
+    expect(wrapper.text()).not.toContain('综合异常')
     expect(wrapper.findAll('.bg-red-500')).toHaveLength(0)
     expect(wrapper.findAll('.bg-amber-500').length).toBeGreaterThan(0)
     expect(wrapper.text()).toContain('1')

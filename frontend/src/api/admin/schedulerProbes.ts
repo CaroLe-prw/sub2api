@@ -21,6 +21,15 @@ export interface PoolProbeHeartbeat {
   created_at: string
 }
 
+export interface SchedulerUserTrafficSummary {
+  window_minutes: number
+  success_count: number
+  failure_count: number
+  avg_ttft_ms: number | null
+  last_success_at: string | null
+  last_failure_at: string | null
+}
+
 export interface PoolMonitorModel {
   plan_id: number
   model: string
@@ -32,6 +41,7 @@ export interface PoolMonitorModel {
   failure_count: number
   last_checked_at: string | null
   recent_results?: PoolProbeHeartbeat[]
+  user_traffic?: SchedulerUserTrafficSummary
 }
 
 export interface PoolMonitorAccount {
