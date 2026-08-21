@@ -1,19 +1,17 @@
 package migrations
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestChannelTimePricingShapeMigrationWrapsOnlyLegacyArrays(t *testing.T) {
-	content, err := FS.ReadFile("234_normalize_channel_time_pricing_shape.sql")
-	require.NoError(t, err)
-
-	sql := strings.Join(strings.Fields(string(content)), " ")
-	require.Contains(t, sql, "UPDATE channel_model_pricing")
-	require.Contains(t, sql, "SET time_pricing = jsonb_build_object( 'timezone', 'Asia/Shanghai', 'periods', time_pricing )")
-	require.Contains(t, sql, "jsonb_typeof(time_pricing) = 'array'")
-	require.NotContains(t, sql, "jsonb_typeof(time_pricing) = 'object'")
+func TestChannelTimePricingCompatibilityDoesNotEmbedAutomaticDataMigration(t *testing.T) {
+	for _, name := range []string{
+		"234_normalize_channel_time_pricing_shape.sql",
+		"235_normalize_channel_time_pricing_shape.sql",
+	} {
+		_, err := FS.ReadFile(name)
+		require.Error(t, err, "%s must not run automatically during startup", name)
+	}
 }
