@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -280,8 +281,22 @@ func marshalChannelTimePricing(config *service.ChannelTimePricing) (any, error) 
 }
 
 func unmarshalChannelTimePricing(data []byte) (*service.ChannelTimePricing, error) {
-	if len(data) == 0 {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
 		return nil, nil
+	}
+	// Early deployments and hand-written DeepSeek pricing stored time_pricing
+	// directly as a period array. Accept that shape as Shanghai time so one
+	// legacy row cannot make the entire admin channel list return HTTP 500.
+	if data[0] == '[' {
+		var periods []service.ChannelTimePricingPeriod
+		if err := json.Unmarshal(data, &periods); err != nil {
+			return nil, fmt.Errorf("unmarshal legacy time pricing periods: %w", err)
+		}
+		return &service.ChannelTimePricing{
+			Timezone: "Asia/Shanghai",
+			Periods:  periods,
+		}, nil
 	}
 	var config service.ChannelTimePricing
 	if err := json.Unmarshal(data, &config); err != nil {

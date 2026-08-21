@@ -61,6 +61,25 @@ func TestChannelModelPricingTimePricingListRoundTrip(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestChannelModelPricingTimePricingListAcceptsLegacyPeriodArray(t *testing.T) {
+	repo, mock := newChannelModelPricingTimePricingRepo(t)
+	legacyJSON := `[{"start_time":"00:30:00","end_time":"08:30:00","multiplier":0.5}]`
+	mock.ExpectQuery(`(?s)SELECT .*per_request_price, time_pricing, created_at, updated_at.*FROM channel_model_pricing.*channel_id = \$1`).
+		WithArgs(int64(7)).
+		WillReturnRows(modelPricingTimePricingRow(legacyJSON))
+	expectEmptyModelPricingIntervals(mock)
+
+	pricing, err := repo.ListModelPricing(context.Background(), 7)
+	require.NoError(t, err)
+	require.Len(t, pricing, 1)
+	require.NotNil(t, pricing[0].TimePricing)
+	require.Equal(t, "Asia/Shanghai", pricing[0].TimePricing.Timezone)
+	require.Equal(t, []service.ChannelTimePricingPeriod{{
+		StartTime: "00:30:00", EndTime: "08:30:00", Multiplier: 0.5,
+	}}, pricing[0].TimePricing.Periods)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestChannelModelPricingTimePricingListNullAndMalformed(t *testing.T) {
 	t.Run("SQL NULL maps to nil", func(t *testing.T) {
 		repo, mock := newChannelModelPricingTimePricingRepo(t)
