@@ -9,6 +9,7 @@ import { resolveCurrentProbe } from './monitorCurrentProbeState'
 import { summarizeCombinedHealth } from './monitorCombinedHealth'
 import type { CombinedMonitorHealthState } from './monitorCombinedHealth'
 import type { ProbeHistoryByPlan } from './monitorDataTypes'
+import { monitorAvailabilityTextClass } from './monitorAvailability'
 
 const props = defineProps<{
   show: boolean
@@ -137,7 +138,7 @@ function userTrafficHistory(model: PoolMonitorModel): PoolProbeHeartbeat[] {
           <article v-for="model in account.models" :key="model.plan_id" class="p-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div class="flex flex-wrap items-center gap-2"><span class="h-2 w-2 rounded-full" :class="currentModelState(model) === 'success' ? 'bg-emerald-500' : currentModelState(model) === 'degraded' ? 'bg-amber-500' : currentModelState(model) === 'failed' ? 'bg-red-500' : 'bg-gray-300'" /><strong class="font-mono text-sm text-gray-900 dark:text-white">{{ model.model }}</strong><span class="text-xs" :class="currentModelState(model) === 'success' ? 'text-emerald-500' : currentModelState(model) === 'degraded' ? 'text-amber-500' : currentModelState(model) === 'failed' ? 'text-red-500' : 'text-gray-400'">{{ t(`admin.channelMonitor.dataPanel.combinedStatus.${currentModelState(model)}`) }}</span><span class="text-[10px] text-gray-400">{{ t('admin.channelMonitor.dataPanel.modelSourceCounts', { users: (model.user_traffic?.success_count ?? 0) + (model.user_traffic?.failure_count ?? 0), probes: history(model.plan_id).length }) }}</span></div>
-              <div class="flex items-center gap-4"><span class="text-xs tabular-nums text-gray-500">{{ currentModelLatency(model) == null ? '-' : `${currentModelLatency(model)}ms` }}</span><span class="text-xs font-semibold tabular-nums text-emerald-500">{{ model.availability == null ? '-' : `${model.availability.toFixed(1)}%` }}</span><button type="button" class="btn btn-secondary btn-sm" :disabled="runningPlanId != null" @click="emit('run', model.plan_id)"><Icon name="refresh" size="xs" :class="runningPlanId === model.plan_id ? 'animate-spin' : ''" />{{ t('admin.channelMonitor.runNow') }}</button></div>
+              <div class="flex items-center gap-4"><span class="text-xs tabular-nums text-gray-500">{{ currentModelLatency(model) == null ? '-' : `${currentModelLatency(model)}ms` }}</span><span class="text-xs font-semibold tabular-nums" :class="monitorAvailabilityTextClass(model.availability)">{{ model.availability == null ? '-' : `${model.availability.toFixed(1)}%` }}</span><button type="button" class="btn btn-secondary btn-sm" :disabled="runningPlanId != null" @click="emit('run', model.plan_id)"><Icon name="refresh" size="xs" :class="runningPlanId === model.plan_id ? 'animate-spin' : ''" />{{ t('admin.channelMonitor.runNow') }}</button></div>
             </div>
             <div class="mt-3 space-y-3">
               <section class="rounded-xl bg-gray-50/80 px-3 pb-3 pt-2.5 dark:bg-dark-900/40">

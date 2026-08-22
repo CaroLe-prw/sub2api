@@ -6,6 +6,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { formatRelativeTime } from '@/utils/format'
 import MonitorCompactHeartbeatStrip from './MonitorCompactHeartbeatStrip.vue'
 import type { HeartbeatSource } from './monitorHeartbeatAggregation'
+import { monitorAvailabilityTextClass } from './monitorAvailability'
 
 const props = defineProps<{ accounts: PoolMonitorAccount[] }>()
 const emit = defineEmits<{
@@ -70,7 +71,7 @@ const sorted = computed(() => [...props.accounts].sort((a, b) => {
       <div class="mt-4 grid grid-cols-3 gap-2 border-t border-gray-100 pt-3 dark:border-dark-700">
         <div><div class="text-sm font-bold text-gray-800 dark:text-gray-100">{{ account.models.length }}</div><div class="text-[10px] text-gray-400">{{ t('admin.channelMonitor.dataPanel.stats.models') }}</div></div>
         <div><div class="text-sm font-bold text-gray-800 dark:text-gray-100">{{ avgLatency(account) == null ? '-' : `${avgLatency(account)}ms` }}</div><div class="text-[10px] text-gray-400">{{ t('admin.channelMonitor.dataPanel.avgLatency') }}</div></div>
-        <div><div class="text-sm font-bold" :class="availability(account) != null && availability(account)! >= 99 ? 'text-emerald-600' : 'text-gray-800 dark:text-gray-100'">{{ availability(account) == null ? '-' : `${availability(account)!.toFixed(1)}%` }}</div><div class="text-[10px] text-gray-400">{{ t('admin.channelMonitor.dataPanel.availability') }}</div></div>
+        <div><div class="text-sm font-bold" :class="monitorAvailabilityTextClass(availability(account))">{{ availability(account) == null ? '-' : `${availability(account)!.toFixed(1)}%` }}</div><div class="text-[10px] text-gray-400">{{ t('admin.channelMonitor.dataPanel.availability') }}</div></div>
       </div>
       <div class="mt-3 border-t border-gray-100 pt-3 dark:border-dark-700">
         <MonitorCompactHeartbeatStrip :sources="heartbeatSources(account)" coverage-unit="model" />

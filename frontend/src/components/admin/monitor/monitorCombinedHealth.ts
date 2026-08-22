@@ -22,7 +22,7 @@ export function summarizeCombinedHealth(
   const userSuccessCount = Math.max(0, traffic?.success_count ?? 0)
   const userFailureCount = Math.max(0, traffic?.failure_count ?? 0)
   const userSampleCount = userSuccessCount + userFailureCount
-  const userSlow = traffic?.avg_ttft_ms != null
+  const userSlow = userSampleCount > 0 && traffic?.avg_ttft_ms != null
     && firstTokenSeverity(traffic.avg_ttft_ms) !== 'good'
 
   const probe = resolveCurrentProbe(model, samples)

@@ -38,4 +38,17 @@ describe('TotpLoginModal', () => {
     expect(wrapper.text()).not.toContain('Invalid code')
     expect(wrapper.find('.bg-red-50').exists()).toBe(false)
   })
+
+  it('uses the paper login styling without changing the six digit input flow', () => {
+    const wrapper = mount(TotpLoginModal, {
+      props: {
+        tempToken: 'temp-token',
+        userEmailMasked: 'u***@example.com',
+      },
+    })
+
+    expect(wrapper.get('.totp-dialog').exists()).toBe(true)
+    expect(wrapper.findAll('.totp-code-input')).toHaveLength(6)
+    expect(wrapper.get('.totp-cancel-button').text()).toBe('common.cancel')
+  })
 })

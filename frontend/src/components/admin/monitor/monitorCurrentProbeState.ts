@@ -9,13 +9,37 @@ export interface CurrentProbeSnapshot {
   latest: PoolProbeHeartbeat | null
 }
 
+function resultTimestamp(sample: PoolProbeHeartbeat): number {
+  const createdAt = Date.parse(sample.created_at)
+  if (!Number.isNaN(createdAt)) return createdAt
+  const finishedAt = Date.parse(sample.finished_at)
+  if (!Number.isNaN(finishedAt)) return finishedAt
+  return Date.parse(sample.started_at)
+}
+
+function compareResultIds(left: PoolProbeHeartbeat['id'], right: PoolProbeHeartbeat['id']): number {
+  if (typeof left === 'number' && typeof right === 'number') {
+    return left === right ? 0 : left > right ? 1 : -1
+  }
+  return String(left).localeCompare(String(right), undefined, { numeric: true })
+}
+
+export function compareProbeResultsChronologically(
+  left: PoolProbeHeartbeat,
+  right: PoolProbeHeartbeat,
+): number {
+  const leftTimestamp = resultTimestamp(left)
+  const rightTimestamp = resultTimestamp(right)
+  if (!Number.isNaN(leftTimestamp) && !Number.isNaN(rightTimestamp) && leftTimestamp !== rightTimestamp) {
+    return leftTimestamp > rightTimestamp ? 1 : -1
+  }
+  return compareResultIds(left.id, right.id)
+}
+
 export function latestProbeResult(samples: readonly PoolProbeHeartbeat[]): PoolProbeHeartbeat | null {
   return samples.reduce<PoolProbeHeartbeat | null>((latest, item) => {
     if (!latest) return item
-    const itemCreatedAt = Date.parse(item.created_at)
-    const latestCreatedAt = Date.parse(latest.created_at)
-    if (itemCreatedAt !== latestCreatedAt) return itemCreatedAt > latestCreatedAt ? item : latest
-    return item.id > latest.id ? item : latest
+    return compareProbeResultsChronologically(item, latest) > 0 ? item : latest
   }, null)
 }
 

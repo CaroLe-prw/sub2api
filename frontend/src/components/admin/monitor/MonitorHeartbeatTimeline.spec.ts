@@ -109,6 +109,23 @@ describe('MonitorHeartbeatTimeline', () => {
     expect(heartbeats.map((item) => item.attributes('data-sample-id'))).toEqual(['1', '2'])
   })
 
+  it('uses the persisted id as a tie breaker so the newest bar stays on the right', () => {
+    const persistedAt = '2026-08-13T11:59:59Z'
+    const wrapper = mount(MonitorHeartbeatTimeline, {
+      props: { samples: [sample(2, persistedAt), sample(1, persistedAt)] },
+      global: {
+        stubs: {
+          MonitorHeartbeatTooltip: {
+            props: ['sample'],
+            template: '<button class="heartbeat" :data-sample-id="sample.id" />',
+          },
+        },
+      },
+    })
+
+    expect(wrapper.findAll('.heartbeat').map((item) => item.attributes('data-sample-id'))).toEqual(['1', '2'])
+  })
+
   it('shows the empty state without range labels before the first probe', () => {
     const wrapper = mount(MonitorHeartbeatTimeline, { props: { samples: [] } })
 

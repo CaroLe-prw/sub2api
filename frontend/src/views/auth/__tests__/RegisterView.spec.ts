@@ -66,7 +66,10 @@ function mountRegister() {
   return mount(RegisterView, {
     global: {
       stubs: {
-        AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
+        AuthLayout: {
+          props: ['variant'],
+          template: '<div data-testid="auth-layout" :data-variant="variant"><slot /><slot name="footer" /></div>'
+        },
         Icon: true,
         TurnstileWidget: { template: '<div data-testid="turnstile-widget" />' },
         LoginAgreementPrompt: true,
@@ -88,6 +91,13 @@ describe('RegisterView invitation layout', () => {
     showErrorMock.mockReset()
     getPublicSettingsMock.mockResolvedValue(publicSettings)
     registerMock.mockResolvedValue({})
+  })
+
+  it('uses the same responsive paper layout as the login page', async () => {
+    const wrapper = mountRegister()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="auth-layout"]').attributes('data-variant')).toBe('paper')
   })
 
   it('keeps the optional affiliate invitation field before Turnstile', async () => {

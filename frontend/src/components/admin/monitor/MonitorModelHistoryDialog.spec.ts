@@ -188,6 +188,38 @@ describe('MonitorModelHistoryDialog', () => {
     expect(wrapper.text()).toContain('1')
   })
 
+  it('does not paint low historical availability green', () => {
+    const wrapper = mount(MonitorModelHistoryDialog, {
+      props: {
+        show: true,
+        account: {
+          ...account,
+          models: [{ ...account.models[0], status: 'success', availability: 86.9 }],
+        },
+        histories: {
+          81: [result(2, 'success', '2026-08-16T03:36:00Z', 500)],
+        },
+        loading: false,
+        runningPlanId: null,
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            props: ['show'],
+            template: '<div v-if="show"><slot /><slot name="footer" /></div>',
+          },
+          Icon: true,
+          MonitorHeartbeatTimeline: true,
+        },
+      },
+    })
+
+    const value = wrapper.findAll('span').find((item) => item.text() === '86.9%')
+    expect(value).toBeDefined()
+    expect(value!.classes()).toContain('text-red-500')
+    expect(value!.classes()).not.toContain('text-emerald-500')
+  })
+
   it('renders real user successes and failures in a separate timeline', () => {
     const wrapper = mount(MonitorModelHistoryDialog, {
       props: {

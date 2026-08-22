@@ -4,8 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import MonitorDataPanel from './MonitorDataPanel.vue'
 import MonitorAccountWhitelistDialog from './MonitorAccountWhitelistDialog.vue'
 
-const { listPoolOverview, getPoolAccountModelPolicy, updatePoolAccountModelPolicy, showError, showSuccess } = vi.hoisted(() => ({
+const { listPoolOverview, listProbeResults, runProbeNow, getPoolAccountModelPolicy, updatePoolAccountModelPolicy, showError, showSuccess } = vi.hoisted(() => ({
   listPoolOverview: vi.fn(),
+  listProbeResults: vi.fn(),
+  runProbeNow: vi.fn(),
   getPoolAccountModelPolicy: vi.fn(),
   updatePoolAccountModelPolicy: vi.fn(),
   showError: vi.fn(),
@@ -16,8 +18,8 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     schedulerProbes: {
       listOverview: listPoolOverview,
-      listResults: vi.fn(),
-      runNow: vi.fn(),
+      listResults: listProbeResults,
+      runNow: runProbeNow,
       getAccountModelPolicy: getPoolAccountModelPolicy,
       updateAccountModelPolicy: updatePoolAccountModelPolicy,
     },
@@ -39,6 +41,8 @@ vi.mock('vue-i18n', async (importOriginal) => {
 describe('MonitorDataPanel', () => {
   beforeEach(() => {
     listPoolOverview.mockReset()
+    listProbeResults.mockReset()
+    runProbeNow.mockReset()
     showError.mockReset()
     showSuccess.mockReset()
     getPoolAccountModelPolicy.mockReset()
@@ -75,6 +79,7 @@ describe('MonitorDataPanel', () => {
         }],
       }],
     })
+    listProbeResults.mockResolvedValue([])
     getPoolAccountModelPolicy.mockResolvedValue({
       account_id: 35,
       whitelist: ['gpt-5.6-sol'],
@@ -189,5 +194,53 @@ describe('MonitorDataPanel', () => {
 
     expect(updatePoolAccountModelPolicy).toHaveBeenCalledWith(35, ['gpt-5.6-sol'])
     expect(showSuccess).toHaveBeenCalled()
+  })
+
+  it('synchronizes the selected overview snapshot with newer detail history', async () => {
+    const overview = (await listPoolOverview()).items[0]
+    listPoolOverview.mockResolvedValue({
+      items: [{
+        ...overview,
+        models: [{
+          ...overview.models[0],
+          status: 'failed',
+          last_checked_at: '2026-08-13T08:00:00Z',
+        }],
+      }],
+    })
+    listProbeResults.mockResolvedValue([{
+      id: 2,
+      plan_id: 81,
+      status: 'success',
+      ttft_ms: 200,
+      latency_ms: 253,
+      started_at: '2026-08-13T08:04:59Z',
+      finished_at: '2026-08-13T08:05:00Z',
+      created_at: '2026-08-13T08:05:00Z',
+      response_text: 'ok',
+      error_message: '',
+    }])
+
+    const wrapper = mount(MonitorDataPanel, {
+      global: {
+        stubs: {
+          Icon: true,
+          MonitorModelHistoryDialog: {
+            props: ['show', 'account', 'histories', 'loading', 'runningPlanId'],
+            template: '<div data-testid="history-dialog" />',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('detail'))
+    expect(detailButton).toBeDefined()
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper.getComponent('[data-testid="history-dialog"]')
+    expect(dialog.props('account').models[0].status).toBe('success')
+    expect(dialog.props('account').models[0].latency_ms).toBe(253)
   })
 })

@@ -8,6 +8,7 @@ import { formatRelativeTime } from '@/utils/format'
 import MonitorCompactHeartbeatStrip from './MonitorCompactHeartbeatStrip.vue'
 import type { HeartbeatSource } from './monitorHeartbeatAggregation'
 import type { MonitorModelRow } from './monitorDataTypes'
+import { monitorAvailabilityTextClass } from './monitorAvailability'
 
 interface MonitorModelGroup {
   model: string
@@ -174,7 +175,7 @@ function pagedRows(group: MonitorModelGroup): MonitorModelRow[] {
               </td>
               <td class="px-4 py-3"><span :class="probeClass(row.probe.status)">{{ t(`admin.channelMonitor.dataPanel.probeStatus.${row.probe.status || 'pending'}`) }}</span></td>
               <td class="px-4 py-3 text-right text-sm tabular-nums text-gray-700 dark:text-gray-200">{{ row.probe.latency_ms == null ? '-' : `${row.probe.latency_ms} ms` }}</td>
-              <td class="px-4 py-3 text-right text-sm font-medium tabular-nums text-gray-800 dark:text-gray-100">{{ row.probe.availability == null ? '-' : `${row.probe.availability.toFixed(2)}%` }}</td>
+              <td class="px-4 py-3 text-right text-sm font-medium tabular-nums" :class="monitorAvailabilityTextClass(row.probe.availability)">{{ row.probe.availability == null ? '-' : `${row.probe.availability.toFixed(2)}%` }}</td>
               <td class="whitespace-nowrap px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{{ formatRelativeTime(row.probe.last_checked_at) }}</td>
               <td class="px-4 py-3 text-right">
                 <button type="button" class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-primary-600 hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-500/10" @click="emit('detail', row.account)">

@@ -76,4 +76,18 @@ describe('summarizeCombinedHealth', () => {
     expect(summary.userSampleCount).toBe(0)
     expect(summary.probeSampleCount).toBe(1)
   })
+
+  it('ignores a stale user latency average when the current user window has no samples', () => {
+    const value = model('success')
+    value.user_traffic = {
+      window_minutes: 30,
+      success_count: 0,
+      failure_count: 0,
+      avg_ttft_ms: 30_000,
+      last_success_at: null,
+      last_failure_at: null,
+    }
+
+    expect(summarizeCombinedHealth(value).state).toBe('success')
+  })
 })

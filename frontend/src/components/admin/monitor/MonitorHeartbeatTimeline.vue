@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PoolProbeHeartbeat } from '@/api/admin/schedulerProbes'
 import MonitorHeartbeatTooltip from './MonitorHeartbeatTooltip.vue'
+import { compareProbeResultsChronologically } from './monitorCurrentProbeState'
 
 const VISIBLE_SAMPLE_LIMIT = 60
 
@@ -14,7 +15,7 @@ const props = defineProps<{
 const { t } = useI18n()
 
 const visibleSamples = computed(() => [...props.samples]
-  .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
+  .sort(compareProbeResultsChronologically)
   .slice(-VISIBLE_SAMPLE_LIMIT))
 
 const firstSample = computed(() => visibleSamples.value[0] ?? null)

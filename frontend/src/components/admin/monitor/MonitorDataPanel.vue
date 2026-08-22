@@ -12,6 +12,7 @@ import MonitorAccountWhitelistDialog from './MonitorAccountWhitelistDialog.vue'
 import MonitorModelHistoryDialog from './MonitorModelHistoryDialog.vue'
 import MonitorModelGroupList from './MonitorModelGroupList.vue'
 import type { ProbeHistoryByPlan } from './monitorDataTypes'
+import { mergeMonitorHistories } from './monitorCurrentProbeState'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -79,7 +80,11 @@ async function openAccount(account: PoolMonitorAccount) {
       await adminAPI.schedulerProbes.listResults(model.plan_id, 100),
     ] as const))
     if (selectedAccount.value?.account_id === account.account_id) {
-      histories.value = Object.fromEntries(entries)
+      const historiesByPlan = Object.fromEntries(entries)
+      histories.value = historiesByPlan
+      const merged = mergeMonitorHistories(account, historiesByPlan)
+      selectedAccount.value = merged
+      accounts.value = accounts.value.map((item) => item.account_id === merged.account_id ? merged : item)
     }
   } catch (error: unknown) {
     appStore.showError(extractApiErrorMessage(error, t('admin.channelMonitor.dataPanel.historyError')))
@@ -97,7 +102,11 @@ async function runProbe(planId: number) {
     histories.value = { ...histories.value, [planId]: [result as PoolProbeResult, ...current] }
     await load()
     if (selectedAccount.value) {
-      selectedAccount.value = accounts.value.find((account) => account.account_id === selectedAccount.value?.account_id) ?? selectedAccount.value
+      const refreshed = accounts.value.find((account) => account.account_id === selectedAccount.value?.account_id)
+        ?? selectedAccount.value
+      const merged = mergeMonitorHistories(refreshed, histories.value)
+      selectedAccount.value = merged
+      accounts.value = accounts.value.map((item) => item.account_id === merged.account_id ? merged : item)
     }
     appStore.showSuccess(t('admin.channelMonitor.runSuccess'))
   } catch (error: unknown) {
