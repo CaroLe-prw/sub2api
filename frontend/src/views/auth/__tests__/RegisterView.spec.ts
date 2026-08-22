@@ -100,6 +100,20 @@ describe('RegisterView invitation layout', () => {
     expect(wrapper.get('[data-testid="auth-layout"]').attributes('data-variant')).toBe('paper')
   })
 
+  it('uses the shared paper form styling hooks', async () => {
+    const wrapper = mountRegister()
+    await flushPromises()
+
+    expect(wrapper.get('.auth-panel').exists()).toBe(true)
+    expect(wrapper.get('.auth-title').text()).toBe('auth.createAccount')
+    expect(wrapper.get('form').classes()).toContain('auth-form')
+    expect(wrapper.get('button[type="submit"]').classes()).toContain('auth-submit')
+
+    const inputs = wrapper.findAll('form .input')
+    expect(inputs.length).toBeGreaterThan(0)
+    expect(inputs.every((input) => input.classes().includes('auth-input'))).toBe(true)
+  })
+
   it('keeps the optional affiliate invitation field before Turnstile', async () => {
     const wrapper = mountRegister()
     await flushPromises()

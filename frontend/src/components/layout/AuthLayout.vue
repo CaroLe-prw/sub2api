@@ -141,6 +141,110 @@ onMounted(() => {
   box-shadow: 0 22px 55px rgba(15, 23, 42, 0.09);
 }
 
+/* Shared paper form theme for login and registration. */
+.auth-page-paper :deep(.auth-title) {
+  color: #302b24;
+  font-family: Georgia, "Times New Roman", "Songti SC", "Noto Serif SC", serif;
+  font-size: 30px;
+  font-style: italic;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.auth-page-paper :deep(.auth-subtitle) {
+  color: #766d5e;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.auth-page-paper :deep(.auth-form .input-label) {
+  color: #302b24;
+  font-weight: 800;
+}
+
+.auth-page-paper :deep(.auth-input) {
+  min-height: 52px;
+  border: 2px solid #302b24;
+  border-radius: 9px;
+  color: #302b24;
+  background: #fffaf0;
+  box-shadow: 2px 2px 0 rgba(48, 43, 36, 0.14);
+}
+
+.auth-page-paper :deep(.auth-input:focus) {
+  border-color: #302b24;
+  box-shadow: 3px 3px 0 #f4ca61;
+  --tw-ring-color: transparent;
+}
+
+.auth-page-paper :deep(.auth-input.input-error),
+.auth-page-paper :deep(.auth-input.border-red-500) {
+  border-color: #ef4444;
+}
+
+.auth-page-paper :deep(.auth-input.input-error:focus),
+.auth-page-paper :deep(.auth-input.border-red-500:focus) {
+  border-color: #ef4444;
+  box-shadow: 3px 3px 0 rgba(239, 68, 68, 0.34);
+}
+
+.auth-page-paper :deep(.auth-input.border-green-500) {
+  border-color: #22c55e;
+}
+
+.auth-page-paper :deep(.auth-input.border-green-500:focus) {
+  border-color: #22c55e;
+  box-shadow: 3px 3px 0 rgba(34, 197, 94, 0.3);
+}
+
+.auth-page-paper :deep(.auth-submit),
+.auth-page-paper :deep(.auth-oauth-button) {
+  min-height: 50px;
+  border-radius: 9px;
+}
+
+.auth-page-paper :deep(.auth-submit) {
+  border: 2px solid #302b24;
+  color: #302b24;
+  background: #f4ca61 !important;
+  box-shadow: 4px 4px 0 #302b24;
+  font-weight: 800;
+}
+
+.auth-page-paper :deep(.auth-submit:hover) {
+  color: #302b24;
+  background: #ffd66d !important;
+  box-shadow: 2px 2px 0 #302b24;
+  transform: translate(2px, 2px);
+}
+
+.auth-page-paper :deep(.auth-panel .btn-secondary) {
+  min-height: 48px;
+  border: 2px solid #302b24;
+  border-radius: 9px;
+  color: #302b24;
+  background: #fffaf0;
+  box-shadow: 2px 2px 0 #302b24;
+  font-weight: 750;
+}
+
+.auth-page-paper :deep(.auth-panel .btn-secondary:hover) {
+  background: #fff09b;
+  box-shadow: 1px 1px 0 #302b24;
+  transform: translate(1px, 1px);
+}
+
+.auth-page-paper :deep(.auth-panel .h-px) {
+  height: 2px;
+  background: #302b24;
+}
+
+.auth-page-paper :deep(.auth-panel a) {
+  color: #c94129;
+  font-weight: 800;
+}
+
 .auth-footer {
   min-height: 20px;
   margin-top: 24px;
@@ -185,6 +289,29 @@ onMounted(() => {
   color: #94a3b8;
 }
 
+:global(.dark) .auth-page-paper :deep(.auth-title),
+:global(.dark) .auth-page-paper :deep(.auth-subtitle),
+:global(.dark) .auth-page-paper :deep(.auth-form .input-label) {
+  color: #eee5d3;
+}
+
+:global(.dark) .auth-page-paper :deep(.auth-input),
+:global(.dark) .auth-page-paper :deep(.auth-panel .btn-secondary) {
+  border-color: #eee5d3;
+  color: #eee5d3;
+  background: #302c25;
+  box-shadow: 2px 2px 0 rgba(238, 229, 211, 0.38);
+}
+
+:global(.dark) .auth-page-paper :deep(.auth-input.input-error),
+:global(.dark) .auth-page-paper :deep(.auth-input.border-red-500) {
+  border-color: #ef4444;
+}
+
+:global(.dark) .auth-page-paper :deep(.auth-input.border-green-500) {
+  border-color: #22c55e;
+}
+
 @media (max-width: 520px) {
   .auth-page {
     align-items: flex-start;
@@ -213,6 +340,14 @@ onMounted(() => {
   .auth-card {
     border-radius: 18px;
     padding: 26px 20px;
+  }
+
+  .auth-page-paper :deep(.auth-title) {
+    font-size: 27px;
+  }
+
+  .auth-page-paper :deep(.auth-input) {
+    min-height: 50px;
   }
 
   .auth-copyright {
