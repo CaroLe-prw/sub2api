@@ -615,10 +615,10 @@ export default {
           'Disables user registration, public site, and self-service features. Only admin can log in and manage the platform.',
         siteName: 'Site Name',
         siteNamePlaceholder: 'Sub2API',
-        siteNameHint: 'Displayed in emails and page titles',
+        siteNameHint: 'Displayed on the home and login pages, in emails, and in page titles',
         siteSubtitle: 'Site Subtitle',
         siteSubtitlePlaceholder: 'Subscription to API Conversion Platform',
-        siteSubtitleHint: 'Displayed on login and register pages',
+        siteSubtitleHint: 'Displayed on the home, login, and register pages',
         apiBaseUrl: 'API Base URL',
         apiBaseUrlPlaceholder: 'https://api.example.com',
         apiBaseUrlHint:

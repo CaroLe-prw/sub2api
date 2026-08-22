@@ -100,6 +100,18 @@ describe('HomeView compact mode', () => {
     expect(wrapper.find('.terminal-container').exists()).toBe(true)
   })
 
+  it('keeps the paper homepage branding configurable through public settings', () => {
+    const wrapper = mountHome({
+      compact_home_enabled: false,
+      site_name: 'Custom Gateway',
+      site_subtitle: 'Custom platform subtitle',
+    })
+
+    const home = wrapper.get('[data-testid="default-home"]')
+    expect(home.get('.hero-title').text()).toBe('Custom Gateway')
+    expect(home.get('.hero-subtitle').text()).toBe('Custom platform subtitle')
+  })
+
   it('links unauthenticated visitors to login', () => {
     expect(compactDestination(mountHome({ compact_home_enabled: true }))).toBe('/login')
   })

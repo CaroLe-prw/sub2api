@@ -13,6 +13,8 @@ vi.mock('vue-i18n', async (importOriginal) => {
       'admin.channelMonitor.dataPanel.firstToken': '首 T',
       'admin.channelMonitor.dataPanel.totalDuration': '总时长',
       'admin.channelMonitor.dataPanel.unavailable': '暂无数据',
+      'admin.channelMonitor.dataPanel.sourceUser': '真实用户调用',
+      'admin.channelMonitor.dataPanel.sourceProbe': '主动探测',
     })[key] ?? key }),
   }
 })
@@ -93,5 +95,20 @@ describe('MonitorHeartbeatTooltip', () => {
     const ttftValue = [...document.body.querySelectorAll('dd')]
       .find((element) => element.textContent === '10000ms')
     expect(ttftValue?.classList.contains('text-amber-600')).toBe(true)
+  })
+
+  it('renders user-call success as green and identifies its source', async () => {
+    const wrapper = mount(MonitorHeartbeatTooltip, {
+      props: { sample: { ...sample, id: 'usage:9', source: 'user', ttft_ms: 10_000 } },
+      attachTo: document.body,
+    })
+
+    expect(wrapper.get('button').classes()).toContain('bg-emerald-500')
+    expect(wrapper.get('button').classes()).not.toContain('bg-amber-400')
+
+    await wrapper.get('button').trigger('mouseenter')
+
+    expect(document.body.textContent).toContain('真实用户调用')
+    expect(wrapper.get('button').attributes('aria-label')).toContain('真实用户调用')
   })
 })

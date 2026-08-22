@@ -8,6 +8,7 @@ const VISIBLE_SAMPLE_LIMIT = 60
 
 const props = defineProps<{
   samples: PoolProbeHeartbeat[]
+  emptyLabel?: string
 }>()
 
 const { t } = useI18n()
@@ -46,7 +47,7 @@ function formatCompactRelativeTime(value: string): string {
       <MonitorHeartbeatTooltip v-for="sample in visibleSamples" :key="sample.id" :sample="sample" />
     </div>
     <div v-else class="mt-3 flex h-5 items-end">
-      <span class="text-xs text-gray-400">{{ t('admin.channelMonitor.dataPanel.noHistory') }}</span>
+      <span class="text-xs text-gray-400">{{ emptyLabel || t('admin.channelMonitor.dataPanel.noHistory') }}</span>
     </div>
 
     <div v-if="firstSample && lastSample" class="mt-1.5 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-[10px] leading-4 text-gray-400 dark:text-gray-500">

@@ -21,24 +21,32 @@ const placement = ref<'top' | 'bottom'>('top')
 const position = ref({ top: '0px', left: '0px' })
 
 const statusLabel = computed(() => t(`admin.channelMonitor.dataPanel.probeStatus.${props.sample.status}`))
+const sourceLabel = computed(() => props.sample.source === 'user'
+  ? t('admin.channelMonitor.dataPanel.sourceUser')
+  : t('admin.channelMonitor.dataPanel.sourceProbe'))
 const ttftLabel = computed(() => props.sample.ttft_ms == null
   ? t('admin.channelMonitor.dataPanel.unavailable')
   : `${props.sample.ttft_ms}ms`)
-const totalDurationLabel = computed(() => `${props.sample.latency_ms}ms`)
+const totalDurationLabel = computed(() => props.sample.source === 'user' && props.sample.latency_ms <= 0
+  ? t('admin.channelMonitor.dataPanel.unavailable')
+  : `${props.sample.latency_ms}ms`)
 const ttftSeverity = computed(() => props.sample.ttft_ms == null
   ? null
   : firstTokenSeverity(props.sample.ttft_ms))
 const heartbeatClass = computed(() => {
   if (props.sample.status === 'failed') return 'bg-red-500'
+  if (props.sample.source === 'user') return 'bg-emerald-500'
   return ttftSeverity.value == null
     ? 'bg-emerald-400'
     : LATENCY_BAR_CLASSES[ttftSeverity.value]
 })
 const successStatusClass = computed(() => ttftSeverity.value == null
+  || props.sample.source === 'user'
   ? 'text-emerald-300'
   : LATENCY_TEXT_CLASSES[ttftSeverity.value])
 const accessibleLabel = computed(() => [
   formatDateTime(props.sample.finished_at),
+  sourceLabel.value,
   statusLabel.value,
   `${t('admin.channelMonitor.dataPanel.firstToken')}: ${ttftLabel.value}`,
   `${t('admin.channelMonitor.dataPanel.totalDuration')}: ${totalDurationLabel.value}`,
@@ -90,7 +98,10 @@ function closeTooltip() {
       :style="position"
     >
       <div class="mb-2 flex items-center justify-between gap-3 border-b border-white/10 pb-2">
-        <span class="truncate text-gray-300">{{ formatDateTime(sample.finished_at) }}</span>
+        <span class="min-w-0">
+          <span class="block truncate text-gray-300">{{ formatDateTime(sample.finished_at) }}</span>
+          <span class="mt-0.5 block text-[10px] text-gray-500">{{ sourceLabel }}</span>
+        </span>
         <span :class="sample.status === 'success' ? successStatusClass : 'text-red-300'">{{ statusLabel }}</span>
       </div>
       <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 tabular-nums">

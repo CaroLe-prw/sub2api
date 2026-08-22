@@ -11,13 +11,22 @@ export type SchedulerProbeProvider = 'openai' | 'anthropic' | 'gemini' | 'grok'
 export type SchedulerProbeMode = 'fixed' | 'adaptive'
 
 export interface PoolProbeHeartbeat {
-  id: number
+  id: number | string
   plan_id: number
   status: 'success' | 'failed'
   ttft_ms: number | null
   latency_ms: number
   started_at: string
   finished_at: string
+  created_at: string
+  source?: 'probe' | 'user'
+}
+
+export interface SchedulerUserTrafficEvent {
+  id: string
+  status: 'success' | 'failed'
+  ttft_ms: number | null
+  latency_ms: number | null
   created_at: string
 }
 
@@ -28,6 +37,7 @@ export interface SchedulerUserTrafficSummary {
   avg_ttft_ms: number | null
   last_success_at: string | null
   last_failure_at: string | null
+  recent_events?: SchedulerUserTrafficEvent[]
 }
 
 export interface PoolMonitorModel {

@@ -50,25 +50,37 @@ func (s *scheduledTestOverviewRepoStub) ListChannelMonitorPoolOverview(context.C
 
 type scheduledTestTrafficRepoStub struct {
 	snapshots []OpenAISchedulerHealthSnapshot
+	events    []ChannelMonitorUserTrafficEvent
 }
 
 func (s *scheduledTestTrafficRepoStub) GetSchedulerUserTrafficSnapshots(context.Context, time.Time, []int64) ([]OpenAISchedulerHealthSnapshot, error) {
 	return s.snapshots, nil
 }
 
+func (s *scheduledTestTrafficRepoStub) GetSchedulerUserTrafficEvents(context.Context, time.Time, []int64, int) ([]ChannelMonitorUserTrafficEvent, error) {
+	return s.events, nil
+}
+
 func TestScheduledTestService_ListChannelMonitorPoolOverviewIncludesUserTraffic(t *testing.T) {
 	avgTTFT := 920.0
 	lastSuccess := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC)
 	lastFailure := lastSuccess.Add(-time.Minute)
+	latency := int64(1250)
 	planRepo := &scheduledTestOverviewRepoStub{accounts: []*ChannelMonitorPoolAccount{{
 		AccountID: 35,
 		Models:    []ChannelMonitorPoolModel{{PlanID: 81, Model: "GPT-5.6-SOL"}},
 	}}}
 	svc := NewScheduledTestService(planRepo, nil)
-	svc.SetSchedulerUserTrafficRepository(&scheduledTestTrafficRepoStub{snapshots: []OpenAISchedulerHealthSnapshot{{
-		AccountID: 35, Model: "gpt-5.6-sol", SuccessCount: 18, FailureCount: 2,
-		AvgTTFTMs: &avgTTFT, LastSuccessAt: &lastSuccess, LastFailureAt: &lastFailure,
-	}}})
+	svc.SetSchedulerUserTrafficRepository(&scheduledTestTrafficRepoStub{
+		snapshots: []OpenAISchedulerHealthSnapshot{{
+			AccountID: 35, Model: "gpt-5.6-sol", SuccessCount: 18, FailureCount: 2,
+			AvgTTFTMs: &avgTTFT, LastSuccessAt: &lastSuccess, LastFailureAt: &lastFailure,
+		}},
+		events: []ChannelMonitorUserTrafficEvent{{
+			ID: "usage:9", AccountID: 35, Model: "GPT-5.6-SOL", Status: "success",
+			LatencyMs: &latency, CreatedAt: lastSuccess,
+		}},
+	})
 
 	accounts, err := svc.ListChannelMonitorPoolOverview(context.Background(), []int64{35})
 	require.NoError(t, err)
@@ -81,5 +93,9 @@ func TestScheduledTestService_ListChannelMonitorPoolOverviewIncludesUserTraffic(
 		AvgTTFTMs:     &avgTTFT,
 		LastSuccessAt: &lastSuccess,
 		LastFailureAt: &lastFailure,
+		RecentEvents: []ChannelMonitorUserTrafficEvent{{
+			ID: "usage:9", AccountID: 35, Model: "GPT-5.6-SOL", Status: "success",
+			LatencyMs: &latency, CreatedAt: lastSuccess,
+		}},
 	}, accounts[0].Models[0].UserTraffic)
 }

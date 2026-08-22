@@ -24,7 +24,6 @@ const (
 const (
 	adaptiveChannelProbeColdInterval          = 10 * time.Minute
 	adaptiveChannelProbeStableInterval        = 60 * time.Minute
-	adaptiveChannelProbeRecentTrafficWindow   = 30 * time.Minute
 	adaptiveChannelProbeRecentTrafficDeferral = 60 * time.Minute
 	adaptiveChannelProbeStableSuccesses       = 3
 	adaptiveChannelProbeHistoryLimit          = 5
@@ -364,11 +363,14 @@ func (s *ScheduledTestRunnerService) shouldDeferProbeForRecentTraffic(ctx contex
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d recent real traffic lookup error: %v", plan.ID, err)
 		return false
 	}
-	if latest == nil || latest.IsZero() || now.Before(*latest) || now.Sub(*latest) > adaptiveChannelProbeRecentTrafficWindow {
+	if latest == nil || latest.IsZero() || now.Before(*latest) {
 		return false
 	}
 
-	nextRun := now.Add(adaptiveChannelProbeRecentTrafficDeferral)
+	nextRun := latest.Add(adaptiveChannelProbeRecentTrafficDeferral)
+	if !nextRun.After(now) {
+		return false
+	}
 	deferred := *plan
 	deferred.NextRunAt = &nextRun
 	if _, err := s.planRepo.Update(ctx, &deferred); err != nil {

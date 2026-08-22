@@ -169,7 +169,45 @@ func TestAdaptiveChannelProbeSkipsAfterRecentRealTraffic(t *testing.T) {
 	require.Zero(t, tester.probeCalls)
 	require.NotNil(t, planRepo.updated)
 	require.NotNil(t, planRepo.updated.NextRunAt)
-	require.Equal(t, now.Add(60*time.Minute), *planRepo.updated.NextRunAt)
+	require.Equal(t, latest.Add(60*time.Minute), *planRepo.updated.NextRunAt)
+}
+
+func TestAdaptiveChannelProbeWaitsFullHourAfterRealTraffic(t *testing.T) {
+	now := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+	latest := now.Add(-50 * time.Minute)
+	planRepo := &scheduledTestRunnerPlanRepoStub{}
+	runner := &ScheduledTestRunnerService{
+		planRepo:      planRepo,
+		probeReporter: &scheduledTestProbeReporterStub{latest: &latest},
+	}
+	runner.setChannelMonitorProbeSettings(ChannelMonitorProbeModeAdaptive, defaultChannelMonitorProbeFixedIntervalMinutes)
+
+	deferred := runner.shouldDeferProbeForRecentTraffic(context.Background(), &ScheduledTestPlan{
+		ID: 1, AccountID: 42, ManagedBy: ScheduledTestManagedBySchedulerProbe,
+	}, now)
+
+	require.True(t, deferred)
+	require.NotNil(t, planRepo.updated)
+	require.NotNil(t, planRepo.updated.NextRunAt)
+	require.Equal(t, latest.Add(60*time.Minute), *planRepo.updated.NextRunAt)
+}
+
+func TestAdaptiveChannelProbeDoesNotDeferAfterTrafficQuietForOneHour(t *testing.T) {
+	now := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+	latest := now.Add(-60 * time.Minute)
+	planRepo := &scheduledTestRunnerPlanRepoStub{}
+	runner := &ScheduledTestRunnerService{
+		planRepo:      planRepo,
+		probeReporter: &scheduledTestProbeReporterStub{latest: &latest},
+	}
+	runner.setChannelMonitorProbeSettings(ChannelMonitorProbeModeAdaptive, defaultChannelMonitorProbeFixedIntervalMinutes)
+
+	deferred := runner.shouldDeferProbeForRecentTraffic(context.Background(), &ScheduledTestPlan{
+		ID: 1, AccountID: 42, ManagedBy: ScheduledTestManagedBySchedulerProbe,
+	}, now)
+
+	require.False(t, deferred)
+	require.Nil(t, planRepo.updated)
 }
 
 func TestChannelMonitorPoolAccountEligibleRequiresEnabledNonOAuthAccount(t *testing.T) {

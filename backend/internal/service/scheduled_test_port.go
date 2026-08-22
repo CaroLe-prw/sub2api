@@ -50,12 +50,25 @@ type ChannelMonitorPoolModel struct {
 // channel-health evidence. Client errors, policy blocks and cancellations are
 // deliberately excluded from the failure count.
 type ChannelMonitorUserTraffic struct {
-	WindowMinutes int        `json:"window_minutes"`
-	SuccessCount  int64      `json:"success_count"`
-	FailureCount  int64      `json:"failure_count"`
-	AvgTTFTMs     *float64   `json:"avg_ttft_ms"`
-	LastSuccessAt *time.Time `json:"last_success_at"`
-	LastFailureAt *time.Time `json:"last_failure_at"`
+	WindowMinutes int                              `json:"window_minutes"`
+	SuccessCount  int64                            `json:"success_count"`
+	FailureCount  int64                            `json:"failure_count"`
+	AvgTTFTMs     *float64                         `json:"avg_ttft_ms"`
+	LastSuccessAt *time.Time                       `json:"last_success_at"`
+	LastFailureAt *time.Time                       `json:"last_failure_at"`
+	RecentEvents  []ChannelMonitorUserTrafficEvent `json:"recent_events,omitempty"`
+}
+
+// ChannelMonitorUserTrafficEvent is a bounded, admin-only real-request sample
+// used to render user traffic separately from synthetic probe history.
+type ChannelMonitorUserTrafficEvent struct {
+	ID        string    `json:"id"`
+	AccountID int64     `json:"-"`
+	Model     string    `json:"-"`
+	Status    string    `json:"status"`
+	TTFTMs    *int64    `json:"ttft_ms"`
+	LatencyMs *int64    `json:"latency_ms"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ChannelMonitorPoolHeartbeat is the compact result shape embedded in the

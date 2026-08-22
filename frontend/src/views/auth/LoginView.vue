@@ -1,17 +1,17 @@
 <template>
-  <AuthLayout>
-    <div class="space-y-6">
+  <AuthLayout variant="paper">
+    <div class="login-panel space-y-7">
       <!-- Title -->
       <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+        <h2 class="login-title text-2xl font-bold text-gray-900 dark:text-white">
           {{ t('auth.welcomeBack') }}
         </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
+        <p class="login-subtitle mt-2 text-sm text-gray-500 dark:text-dark-400">
           {{ t('auth.signInToAccount') }}
         </p>
       </div>
       <!-- Login Form -->
-      <form @submit.prevent="handleLogin" class="space-y-5">
+      <form class="login-form space-y-5" @submit.prevent="handleLogin">
         <!-- Email Input -->
         <div>
           <label for="email" class="input-label">
@@ -29,7 +29,7 @@
               autofocus
               autocomplete="email"
               :disabled="authActionDisabled"
-              class="input pl-11"
+              class="input login-input pl-11"
               :class="{ 'input-error': errors.email }"
               :placeholder="t('auth.emailPlaceholder')"
             />
@@ -52,7 +52,7 @@
               required
               autocomplete="current-password"
               :disabled="authActionDisabled"
-              class="input pl-11 pr-11"
+              class="input login-input pl-11 pr-11"
               :class="{ 'input-error': errors.password }"
               :placeholder="t('auth.passwordPlaceholder')"
             />
@@ -104,7 +104,7 @@
         <button
           type="submit"
           :disabled="authActionDisabled || (turnstileEnabled && !turnstileToken)"
-          class="btn btn-primary w-full"
+          class="btn btn-primary login-submit w-full"
         >
           <svg
             v-if="isLoading"
@@ -154,7 +154,7 @@
           <button
             v-if="showPasskeyLogin"
             type="button"
-            class="btn btn-secondary w-full"
+            class="btn btn-secondary login-oauth-button w-full"
             :disabled="authActionDisabled"
             @click="handlePasskeyLogin"
           >
@@ -744,6 +744,45 @@ function handle2FACancel(): void {
 </script>
 
 <style scoped>
+.login-title {
+  letter-spacing: -0.025em;
+}
+
+.login-subtitle {
+  line-height: 1.65;
+}
+
+.login-input {
+  min-height: 52px;
+  border-color: #dbe2ea;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.02);
+}
+
+.login-submit,
+.login-oauth-button {
+  min-height: 50px;
+  border-radius: 12px;
+}
+
+.login-submit {
+  box-shadow: 0 11px 24px rgba(13, 148, 136, 0.22);
+}
+
+.login-panel :deep(.btn-secondary) {
+  min-height: 48px;
+  border-color: #dbe2ea;
+  background: #fff;
+  box-shadow: 0 2px 7px rgba(15, 23, 42, 0.04);
+}
+
+:global(.dark) .login-input,
+:global(.dark) .login-panel :deep(.btn-secondary) {
+  border-color: #475569;
+  background: #1e293b;
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: all 0.3s ease;
@@ -753,5 +792,107 @@ function handle2FACancel(): void {
 .fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+
+/* Paper dashboard theme */
+.login-title {
+  color: #302b24;
+  font-family: Georgia, "Times New Roman", "Songti SC", "Noto Serif SC", serif;
+  font-size: 30px;
+  font-style: italic;
+  font-weight: 800;
+}
+
+.login-subtitle {
+  color: #766d5e;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.login-form :deep(.input-label) {
+  color: #302b24;
+  font-weight: 800;
+}
+
+.login-input {
+  min-height: 52px;
+  border: 2px solid #302b24;
+  border-radius: 9px;
+  color: #302b24;
+  background: #fffaf0;
+  box-shadow: 2px 2px 0 rgba(48, 43, 36, 0.14);
+}
+
+.login-input:focus {
+  border-color: #302b24;
+  box-shadow: 3px 3px 0 #f4ca61;
+  --tw-ring-color: transparent;
+}
+
+.login-submit {
+  min-height: 50px;
+  border: 2px solid #302b24;
+  border-radius: 9px;
+  color: #302b24;
+  background: #f4ca61 !important;
+  box-shadow: 4px 4px 0 #302b24;
+  font-weight: 800;
+}
+
+.login-submit:hover {
+  color: #302b24;
+  background: #ffd66d !important;
+  box-shadow: 2px 2px 0 #302b24;
+  transform: translate(2px, 2px);
+}
+
+.login-panel :deep(.btn-secondary) {
+  min-height: 48px;
+  border: 2px solid #302b24;
+  border-radius: 9px;
+  color: #302b24;
+  background: #fffaf0;
+  box-shadow: 2px 2px 0 #302b24;
+  font-weight: 750;
+}
+
+.login-panel :deep(.btn-secondary:hover) {
+  background: #fff09b;
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 #302b24;
+}
+
+.login-panel :deep(.h-px) {
+  height: 2px;
+  background: #302b24;
+}
+
+.login-panel a {
+  color: #c94129;
+  font-weight: 800;
+}
+
+:global(.dark) .login-title,
+:global(.dark) .login-subtitle,
+:global(.dark) .login-form :deep(.input-label) {
+  color: #eee5d3;
+}
+
+:global(.dark) .login-input,
+:global(.dark) .login-panel :deep(.btn-secondary) {
+  border-color: #eee5d3;
+  color: #eee5d3;
+  background: #302c25;
+  box-shadow: 2px 2px 0 rgba(238, 229, 211, 0.38);
+}
+
+@media (max-width: 520px) {
+  .login-title {
+    font-size: 27px;
+  }
+
+  .login-input {
+    min-height: 50px;
+  }
 }
 </style>

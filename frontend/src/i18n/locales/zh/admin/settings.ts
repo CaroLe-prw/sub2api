@@ -607,10 +607,10 @@ export default {
         backendModeDescription:
           '禁用用户注册、公开页面和自助服务功能。仅管理员可以登录和管理平台。',
         siteName: '站点名称',
-        siteNameHint: '显示在邮件和页面标题中',
+        siteNameHint: '显示在首页、登录页、邮件和页面标题中',
         siteNamePlaceholder: 'Sub2API',
         siteSubtitle: '站点副标题',
-        siteSubtitleHint: '显示在登录和注册页面',
+        siteSubtitleHint: '显示在首页、登录和注册页面',
         siteSubtitlePlaceholder: '订阅转 API 转换平台',
         apiBaseUrl: 'API 端点地址',
         apiBaseUrlHint: '用于"使用密钥"、"导入到 CC Switch"和回调地址建议，留空则使用当前站点地址',

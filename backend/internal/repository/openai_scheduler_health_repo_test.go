@@ -36,3 +36,35 @@ func TestUsageLogRepository_GetOpenAISchedulerHealthSnapshots(t *testing.T) {
 	require.Equal(t, lastFailure, *snapshots[0].LastFailureAt)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestUsageLogRepository_GetSchedulerUserTrafficEvents(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	repo := newUsageLogRepositoryWithSQL(nil, db)
+	successAt := time.Now().Add(-2 * time.Minute)
+	failureAt := time.Now().Add(-time.Minute)
+	rows := sqlmock.NewRows([]string{
+		"event_id", "account_id", "model", "status", "ttft_ms", "latency_ms", "created_at",
+	}).
+		AddRow("usage:9", int64(35), "gpt-5.6-sol", "success", int64(420), int64(1250), successAt).
+		AddRow("error:12", int64(35), "gpt-5.6-sol", "failed", nil, int64(800), failureAt)
+	mock.ExpectQuery(regexp.QuoteMeta("WITH success_events AS (")).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), 60).
+		WillReturnRows(rows)
+
+	events, err := repo.GetSchedulerUserTrafficEvents(context.Background(), time.Now().Add(-30*time.Minute), []int64{35}, 60)
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+	require.Equal(t, "usage:9", events[0].ID)
+	require.Equal(t, "success", events[0].Status)
+	require.Equal(t, int64(420), *events[0].TTFTMs)
+	require.Equal(t, int64(1250), *events[0].LatencyMs)
+	require.Equal(t, successAt, events[0].CreatedAt)
+	require.Equal(t, "error:12", events[1].ID)
+	require.Equal(t, "failed", events[1].Status)
+	require.Nil(t, events[1].TTFTMs)
+	require.Equal(t, failureAt, events[1].CreatedAt)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

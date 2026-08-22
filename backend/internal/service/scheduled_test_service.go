@@ -22,7 +22,14 @@ type schedulerUserTrafficRepository interface {
 	GetSchedulerUserTrafficSnapshots(ctx context.Context, since time.Time, accountIDs []int64) ([]OpenAISchedulerHealthSnapshot, error)
 }
 
-const schedulerUserTrafficWindow = 30 * time.Minute
+type schedulerUserTrafficEventRepository interface {
+	GetSchedulerUserTrafficEvents(ctx context.Context, since time.Time, accountIDs []int64, limitPerModel int) ([]ChannelMonitorUserTrafficEvent, error)
+}
+
+const (
+	schedulerUserTrafficWindow     = 30 * time.Minute
+	schedulerUserTrafficEventLimit = 60
+)
 
 // NewScheduledTestService creates a new ScheduledTestService.
 func NewScheduledTestService(
@@ -94,7 +101,8 @@ func (s *ScheduledTestService) ListChannelMonitorPoolOverview(ctx context.Contex
 		return accounts, err
 	}
 
-	snapshots, err := s.userTrafficRepo.GetSchedulerUserTrafficSnapshots(ctx, time.Now().Add(-schedulerUserTrafficWindow), accountIDs)
+	trafficSince := time.Now().Add(-schedulerUserTrafficWindow)
+	snapshots, err := s.userTrafficRepo.GetSchedulerUserTrafficSnapshots(ctx, trafficSince, accountIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -106,13 +114,30 @@ func (s *ScheduledTestService) ListChannelMonitorPoolOverview(ctx context.Contex
 	for _, snapshot := range snapshots {
 		byModel[trafficKey{accountID: snapshot.AccountID, model: strings.ToLower(strings.TrimSpace(snapshot.Model))}] = snapshot
 	}
+	eventsByModel := make(map[trafficKey][]ChannelMonitorUserTrafficEvent)
+	if eventRepo, ok := s.userTrafficRepo.(schedulerUserTrafficEventRepository); ok {
+		events, eventErr := eventRepo.GetSchedulerUserTrafficEvents(
+			ctx,
+			trafficSince,
+			accountIDs,
+			schedulerUserTrafficEventLimit,
+		)
+		if eventErr != nil {
+			return nil, eventErr
+		}
+		for _, event := range events {
+			key := trafficKey{accountID: event.AccountID, model: strings.ToLower(strings.TrimSpace(event.Model))}
+			eventsByModel[key] = append(eventsByModel[key], event)
+		}
+	}
 	for _, account := range accounts {
 		if account == nil {
 			continue
 		}
 		for i := range account.Models {
 			model := &account.Models[i]
-			snapshot := byModel[trafficKey{accountID: account.AccountID, model: strings.ToLower(strings.TrimSpace(model.Model))}]
+			key := trafficKey{accountID: account.AccountID, model: strings.ToLower(strings.TrimSpace(model.Model))}
+			snapshot := byModel[key]
 			model.UserTraffic = &ChannelMonitorUserTraffic{
 				WindowMinutes: int(schedulerUserTrafficWindow / time.Minute),
 				SuccessCount:  snapshot.SuccessCount,
@@ -120,6 +145,7 @@ func (s *ScheduledTestService) ListChannelMonitorPoolOverview(ctx context.Contex
 				AvgTTFTMs:     snapshot.AvgTTFTMs,
 				LastSuccessAt: snapshot.LastSuccessAt,
 				LastFailureAt: snapshot.LastFailureAt,
+				RecentEvents:  eventsByModel[key],
 			}
 		}
 	}
