@@ -86,7 +86,16 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 	responsesLiteCompactionRejection := code == "unsupported_value" &&
 		param == "compact_threshold" &&
 		strings.Contains(message, "does not support server-side compaction")
-	if !isExplicitOpenAIResponsesFieldRejection(code, message) && !responsesLiteCompactionRejection {
+	responsesInputIDPrefixRejection := code == "invalid_value" &&
+		openAIResponsesRejectedIDParamPattern.MatchString(param) &&
+		strings.Contains(message, "expected an id that begins with")
+	responsesZeroLengthContentRejection := code == "array_above_max_length" &&
+		strings.HasSuffix(param, ".content") &&
+		strings.Contains(message, "expected an array with maximum length 0")
+	if !isExplicitOpenAIResponsesFieldRejection(code, message) &&
+		!responsesLiteCompactionRejection &&
+		!responsesInputIDPrefixRejection &&
+		!responsesZeroLengthContentRejection {
 		return nil, "", false, nil
 	}
 	if index, ok := openAIResponsesMissingEncryptedContentIndex(param); ok && code == "missing_required_parameter" {
@@ -102,7 +111,7 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 		return backfillOpenAIResponsesFunctionCallArguments(body, index)
 	}
 	if index, ok := openAIResponsesRejectedIDIndex(param); ok {
-		return removeOpenAIResponsesRejectedOverlongID(body, index)
+		return removeOpenAIResponsesRejectedID(body, index, message)
 	}
 	if param == "max_output_tokens" && gjson.GetBytes(body, "max_output_tokens").Exists() {
 		retryBody, err := sjson.DeleteBytes(body, "max_output_tokens")
@@ -119,8 +128,13 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 		}
 		return retryBody, "context_management parameter rejection", true, nil
 	}
-	if index, field, ok := openAIResponsesRejectedIndexedParam(param); ok &&
-		isExplicitOpenAIResponsesUnknownParameter(code, message) {
+	if index, field, ok := openAIResponsesRejectedIndexedParam(param); ok {
+		if responsesZeroLengthContentRejection && field == "content" {
+			return removeOpenAIResponsesRejectedZeroLengthContent(body, index)
+		}
+		if !isExplicitOpenAIResponsesUnknownParameter(code, message) {
+			return nil, "", false, nil
+		}
 		switch field {
 		case "input", "arguments", "id":
 			// These fields need semantic conversion/backfill rather than deletion.
@@ -130,6 +144,18 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 		}
 	}
 	return nil, "", false, nil
+}
+
+func removeOpenAIResponsesRejectedZeroLengthContent(body []byte, rejectedIndex int) ([]byte, string, bool, error) {
+	itemType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, fmt.Sprintf("input.%d.type", rejectedIndex)).String()))
+	// Messages carry their actual user/assistant text in content. Never delete
+	// that text automatically even if a future upstream validation error uses
+	// the same code; this retry is only for non-message history items whose
+	// schema explicitly reports that content has a maximum length of zero.
+	if itemType == "" || itemType == "message" {
+		return nil, "", false, nil
+	}
+	return removeOpenAIResponsesRejectedFieldForItemType(body, rejectedIndex, "content")
 }
 
 func openAIResponsesMissingEncryptedContentIndex(param string) (int, bool) {
@@ -320,20 +346,21 @@ func backfillOpenAIResponsesFunctionCallArguments(body []byte, rejectedIndex int
 	return retryBody, "missing function call arguments", true, nil
 }
 
-func removeOpenAIResponsesRejectedOverlongID(body []byte, index int) ([]byte, string, bool, error) {
+func removeOpenAIResponsesRejectedID(body []byte, index int, rejectionMessage string) ([]byte, string, bool, error) {
 	idPath := fmt.Sprintf("input.%d.id", index)
 	id := gjson.GetBytes(body, idPath)
-	if id.Type != gjson.String || len(id.String()) <= codexCallIDMaxLength {
+	if id.Type != gjson.String {
 		return nil, "", false, nil
 	}
-	retryBody, changed, err := sanitizeOpenAIResponsesInputItemIDs(body)
+	retryBody, err := sjson.DeleteBytes(body, idPath)
 	if err != nil {
-		return nil, "", false, fmt.Errorf("sanitize overlong Responses input ID: %w", err)
+		return nil, "", false, fmt.Errorf("delete rejected Responses input ID: %w", err)
 	}
-	if !changed || gjson.GetBytes(retryBody, idPath).Exists() {
-		return nil, "", false, nil
+	reason := "invalid input item id"
+	if strings.Contains(strings.ToLower(rejectionMessage), "string too long") {
+		reason = "overlong input item id"
 	}
-	return retryBody, "overlong input item id", true, nil
+	return retryBody, reason, true, nil
 }
 
 func removeOpenAIResponsesRejectedSummaryAtIndex(body []byte, index int) ([]byte, string, bool, error) {

@@ -9,7 +9,7 @@ import (
 )
 
 // Invalid replayed IDs are removed rather than rewritten because a fabricated
-// msg/fc ID may point at a different upstream object.
+// item ID may point at a different upstream object.
 func shouldStripOpenAIResponsesInputItemID(itemType, id string) bool {
 	return shouldStripOpenAIResponsesInputItemIDWithOptions(itemType, id, false)
 }
@@ -28,6 +28,12 @@ func shouldStripOpenAIResponsesInputItemIDWithOptions(itemType, id string, strip
 	}
 	if itemType == "message" {
 		return !strings.HasPrefix(id, "msg") || len(id) > codexCallIDMaxLength
+	}
+	// Custom tool calls use their own item namespace. A function-call item ID
+	// (fc_*) is still invalid here even when the call_id pairing is otherwise
+	// correct; OpenAI rejects it with "Expected an ID that begins with 'ctc'.".
+	if itemType == "custom_tool_call" {
+		return !strings.HasPrefix(id, "ctc") || len(id) > codexCallIDMaxLength
 	}
 	if isCodexToolCallInputType(itemType) {
 		return !strings.HasPrefix(id, "fc") || len(id) > codexCallIDMaxLength

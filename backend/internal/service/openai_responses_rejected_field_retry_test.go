@@ -226,6 +226,66 @@ func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyRemovesArbitraryOverlongI
 	require.Equal(t, "call_36", gjson.GetBytes(retryBody, "input.36.call_id").String())
 }
 
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyRemovesWrongCustomToolCallIDPrefix(t *testing.T) {
+	input := make([]string, 433)
+	for index := range input {
+		input[index] = `{"type":"message","role":"user","content":"history"}`
+	}
+	input[432] = `{"type":"custom_tool_call","id":"fc_088da576572f0bfd","call_id":"call_432","name":"apply_patch","input":"patch"}`
+	body := []byte(`{"model":"gpt-5.6-sol","input":[` + strings.Join(input, ",") + `]}`)
+	responseBody := []byte(`{"error":{"code":"invalid_value","message":"Invalid 'input[432].id': 'fc_088da576572f0bfd'. Expected an ID that begins with 'ctc'.","param":"input[432].id","type":"invalid_request_error"}}`)
+
+	retryBody, reason, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "invalid input item id", reason)
+	require.False(t, gjson.GetBytes(retryBody, "input.432.id").Exists())
+	require.Equal(t, "call_432", gjson.GetBytes(retryBody, "input.432.call_id").String())
+	require.Equal(t, "patch", gjson.GetBytes(retryBody, "input.432.input").String())
+}
+
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyRemovesZeroLengthToolContent(t *testing.T) {
+	input := make([]string, 58)
+	for index := range input {
+		input[index] = `{"type":"message","role":"user","content":[{"type":"input_text","text":"history"}]}`
+	}
+	input[9] = `{"type":"function_call","call_id":"call_9","name":"first","arguments":"{}","content":[{"type":"output_text","text":"remove too"}]}`
+	input[57] = `{"type":"function_call","call_id":"call_57","name":"second","arguments":"{}","content":[{"type":"output_text","text":"remove"}]}`
+	body := []byte(`{"model":"gpt-5.6-sol","input":[` + strings.Join(input, ",") + `]}`)
+	responseBody := []byte(`{"error":{"code":"array_above_max_length","message":"Invalid 'input[57].content': array too long. Expected an array with maximum length 0, but got an array with length 1 instead.","param":"input[57].content","type":"invalid_request_error"}}`)
+
+	retryBody, reason, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "indexed content parameter rejection", reason)
+	require.False(t, gjson.GetBytes(retryBody, "input.9.content").Exists())
+	require.False(t, gjson.GetBytes(retryBody, "input.57.content").Exists())
+	require.Equal(t, "call_57", gjson.GetBytes(retryBody, "input.57.call_id").String())
+	require.True(t, gjson.GetBytes(retryBody, "input.0.content").IsArray())
+}
+
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyDoesNotDeleteMessageContentForArrayLengthError(t *testing.T) {
+	body := []byte(`{"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"keep"}]}]}`)
+	responseBody := []byte(`{"error":{"code":"array_above_max_length","message":"Invalid 'input[0].content': array too long. Expected an array with maximum length 0, but got an array with length 1 instead.","param":"input[0].content"}}`)
+
+	_, _, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+
+	require.NoError(t, err)
+	require.False(t, changed)
+}
+
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyDoesNotHandlePositiveContentLimit(t *testing.T) {
+	body := []byte(`{"input":[{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}","content":[{},{}]}]}`)
+	responseBody := []byte(`{"error":{"code":"array_above_max_length","message":"Invalid 'input[0].content': array too long. Expected an array with maximum length 1, but got an array with length 2 instead.","param":"input[0].content"}}`)
+
+	_, _, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+
+	require.NoError(t, err)
+	require.False(t, changed)
+}
+
 func TestOpenAIGatewayService_APIKeyStripsAllIndexedNamespacesBeforeFirstForward(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.5","stream":false,"input":[{"type":"function_call","name":"first","namespace":"remove-first","arguments":"{}"},{"type":"custom_tool_call","name":"second","namespace":"remove-second","input":"{}"}]}`)
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{

@@ -86,6 +86,18 @@ func TestSanitizeOpenAIResponsesInputItemIDs_ForceStripsReasoningID(t *testing.T
 	require.True(t, gjson.GetBytes(sanitized, "input.0.summary").IsArray())
 }
 
+func TestSanitizeOpenAIResponsesInputItemIDs_StripsFunctionPrefixFromCustomToolCall(t *testing.T) {
+	body := []byte(`{"input":[{"type":"custom_tool_call","id":"fc_wrong","call_id":"call_1","name":"apply_patch","input":"patch"},{"type":"custom_tool_call","id":"ctc_valid","call_id":"call_2","name":"exec","input":"pwd"}]}`)
+
+	sanitized, changed, err := sanitizeOpenAIResponsesInputItemIDs(body)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.False(t, gjson.GetBytes(sanitized, "input.0.id").Exists())
+	require.Equal(t, "call_1", gjson.GetBytes(sanitized, "input.0.call_id").String())
+	require.Equal(t, "ctc_valid", gjson.GetBytes(sanitized, "input.1.id").String())
+}
+
 func TestOpenAIGatewayService_APIKeyPassthrough_AppliesRequestedItemReferenceRecovery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
@@ -167,6 +179,8 @@ func TestShouldStripOpenAIResponsesInputItemID_Reasoning(t *testing.T) {
 		{"message item id", "message", "item_x", true},
 		{"function_call fc id", "function_call", "fc_abc", false},
 		{"function_call item id", "function_call", "item_x", true},
+		{"custom tool ctc id", "custom_tool_call", "ctc_abc", false},
+		{"custom tool fc id", "custom_tool_call", "fc_abc", true},
 		{"unconstrained type", "web_search_call", "ws_001", false},
 	}
 	for _, tc := range cases {
