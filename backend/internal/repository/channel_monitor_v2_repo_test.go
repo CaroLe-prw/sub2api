@@ -155,6 +155,36 @@ func TestChannelMonitorV2UsageSuccessExcludesCyberBillingRows(t *testing.T) {
 	require.Contains(t, channelMonitorV2HistogramSQL, "ul.actual_cost > 0")
 }
 
+func TestChannelMonitorV2ProbeAvailabilityDoesNotInflateTraffic(t *testing.T) {
+	acc := newMetricAccumulator()
+	acc.addProbeFact(channelMonitorV2ProbeFact{Success: 1})
+
+	publicMetric := acc.metric(5, false)
+	require.Zero(t, publicMetric.RequestCount)
+	require.Zero(t, publicMetric.RPM)
+	require.Zero(t, publicMetric.TokenCount)
+	require.Nil(t, publicMetric.ProbeSampleCount)
+	require.Equal(t, "probe", publicMetric.AvailabilitySource)
+	require.NotNil(t, publicMetric.AvailabilityRate)
+	require.InDelta(t, 1.0, *publicMetric.AvailabilityRate, 0.001)
+
+	adminMetric := acc.metric(5, true)
+	require.NotNil(t, adminMetric.ProbeSampleCount)
+	require.Equal(t, int64(1), *adminMetric.ProbeSampleCount)
+}
+
+func TestChannelMonitorV2ProbeAvailabilityKeepsIgnoredUserErrorsOut(t *testing.T) {
+	acc := newMetricAccumulator()
+	acc.addFact(channelMonitorV2Fact{Success: 9, Errors: 1})
+	acc.addProbeFact(channelMonitorV2ProbeFact{Success: 1})
+
+	metric := acc.metric(5, false)
+	applyIgnoredErrors(&metric, 1)
+	require.NotNil(t, metric.AvailabilityRate)
+	require.InDelta(t, 1.0, *metric.AvailabilityRate, 0.001)
+	require.Equal(t, "mixed", metric.AvailabilitySource)
+}
+
 func TestChannelMonitorV2RatesUseCoveredWindow(t *testing.T) {
 	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	filter := service.ChannelMonitorV2Filter{Start: start, End: start.Add(24 * time.Hour)}

@@ -107,6 +107,14 @@ type channelMonitorV2Fact struct {
 	TTFTSum, TTFTCount, DurationSum, DurationCount      int64
 }
 
+type channelMonitorV2ProbeFact struct {
+	BucketStart, Platform, GroupName, Model string
+	GroupID                                 int64
+	Success, Errors                         int64
+}
+
+const channelMonitorV2ProbeSignalTTL = 2 * time.Hour
+
 type channelMonitorV2Histogram struct {
 	BucketStart, Platform, Model, Metric string
 	GroupID, UserID                      int64
@@ -366,6 +374,15 @@ func (r *channelMonitorV2Repository) GetMatrix(ctx context.Context, filter servi
 	if err != nil {
 		return nil, err
 	}
+	probeFacts, err := r.loadChannelMonitorV2ProbeFacts(
+		ctx,
+		effectiveFilter,
+		cfg,
+		groupBy == service.ChannelMonitorV2GroupByPlatformGroup || groupBy == service.ChannelMonitorV2GroupByPlatformGroupModel,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("load account availability probes: %w", err)
+	}
 
 	seedGroupIDs := configuredChannelMonitorV2GroupIDs(filter, cfg)
 	// Empty config group list means all groups — load active groups so matrix seed
@@ -426,6 +443,27 @@ func (r *channelMonitorV2Repository) GetMatrix(ctx context.Context, filter servi
 		if bucket := acc.buckets[histogram.BucketStart]; bucket != nil {
 			bucket.addHistogram(histogram)
 		}
+	}
+	for _, probe := range probeFacts {
+		if !channelMonitorV2ModelSelected(filter, cfg, probe.Platform, probe.Model) {
+			continue
+		}
+		key := channelMonitorV2MatrixDimensionKey(groupBy, cfg, probe.Platform, probe.GroupID, probe.Model)
+		acc := accs[key]
+		if acc == nil {
+			acc = &channelMonitorV2MatrixAccumulator{total: newMetricAccumulator(), buckets: make(map[string]*metricAccumulator)}
+			accs[key] = acc
+		}
+		if key.groupID > 0 {
+			acc.groupName = probe.GroupName
+		}
+		bucket := acc.buckets[probe.BucketStart]
+		if bucket == nil {
+			bucket = newMetricAccumulator()
+			acc.buckets[probe.BucketStart] = bucket
+		}
+		acc.total.addProbeFact(probe)
+		bucket.addProbeFact(probe)
 	}
 
 	result := &service.ChannelMonitorV2Matrix{GroupBy: groupBy, Coverage: *coverage, Items: make([]service.ChannelMonitorV2MatrixRow, 0, len(accs))}
@@ -936,6 +974,122 @@ func (r *channelMonitorV2Repository) loadFacts(ctx context.Context, filter servi
 	return facts, rows.Err()
 }
 
+// loadChannelMonitorV2ProbeFacts loads the same active account/model probe
+// evidence shown by the account availability cell. Probe facts are queried at
+// read time instead of being copied into traffic aggregates: they can color an
+// otherwise empty pulse bucket without inflating user RPM/TPM or token totals.
+func (r *channelMonitorV2Repository) loadChannelMonitorV2ProbeFacts(
+	ctx context.Context,
+	filter service.ChannelMonitorV2Filter,
+	cfg service.ChannelMonitorV2Config,
+	includeGroups bool,
+) ([]channelMonitorV2ProbeFact, error) {
+	platforms := channelMonitorV2EnabledPlatforms(cfg)
+	if len(filter.Platforms) > 0 {
+		platforms = intersectStrings(platforms, filter.Platforms)
+	}
+	if len(platforms) == 0 || !filter.Start.Before(filter.End) {
+		return []channelMonitorV2ProbeFact{}, nil
+	}
+
+	groupIDs := configuredChannelMonitorV2GroupIDs(filter, cfg)
+	if len(filter.GroupIDs) > 0 && len(cfg.GroupIDs) > 0 && len(groupIDs) == 0 {
+		return []channelMonitorV2ProbeFact{}, nil
+	}
+	interval := fmt.Sprintf("%d seconds", max(60, int(filter.Bucket.Seconds())))
+	args := []any{
+		interval,
+		filter.Start,
+		filter.End,
+		service.ScheduledTestManagedBySchedulerProbe,
+		pq.Array(platforms),
+		pq.Array(groupIDs),
+		fmt.Sprintf("%d seconds", int(channelMonitorV2ProbeSignalTTL.Seconds())),
+	}
+
+	groupSelect := "0::bigint AS group_id, ''::text AS name"
+	groupJoin := ""
+	groupFilter := `AND (
+		COALESCE(cardinality($6::bigint[]), 0) = 0
+		OR EXISTS (
+			SELECT 1 FROM account_groups selected_ag
+			WHERE selected_ag.account_id = p.account_id
+			  AND selected_ag.group_id = ANY($6::bigint[])
+		)
+	)`
+	groupBy := "1, 2, 3, 4, 5"
+	if includeGroups {
+		groupSelect = "ag.group_id AS group_id, g.name AS name"
+		groupJoin = `
+		JOIN account_groups ag ON ag.account_id = p.account_id
+		JOIN groups g ON g.id = ag.group_id AND g.deleted_at IS NULL AND g.status = 'active'`
+		groupFilter = `AND (
+			COALESCE(cardinality($6::bigint[]), 0) = 0
+			OR ag.group_id = ANY($6::bigint[])
+		)`
+	}
+
+	query := `
+		WITH buckets AS (
+			SELECT generate_series(
+				date_bin($1::interval, $2::timestamptz, TIMESTAMPTZ '1970-01-01'),
+				date_bin($1::interval, $3::timestamptz - INTERVAL '1 microsecond', TIMESTAMPTZ '1970-01-01'),
+				$1::interval
+			) AS bucket_start
+		), eligible_plans AS (
+			SELECT p.id AS plan_id, lower(a.platform) AS platform, ` + groupSelect + `, p.model_id
+			FROM scheduled_test_plans p
+			JOIN accounts a ON a.id = p.account_id AND a.deleted_at IS NULL` + groupJoin + `
+			WHERE p.managed_by = $4 AND p.enabled = true
+			  AND lower(a.platform) = ANY($5::text[])
+			  ` + groupFilter + `
+		), states AS (
+			SELECT b.bucket_start, ep.platform, ep.group_id, ep.name, ep.model_id, latest.status
+			FROM buckets b
+			CROSS JOIN eligible_plans ep
+			JOIN LATERAL (
+				SELECT r.status
+				FROM scheduled_test_results r
+				WHERE r.plan_id = ep.plan_id
+				  AND r.created_at < b.bucket_start + $1::interval
+				  AND r.created_at >= b.bucket_start + $1::interval - $7::interval
+				ORDER BY r.created_at DESC, r.id DESC
+				LIMIT 1
+			) latest ON true
+		)
+		SELECT bucket_start, platform, group_id, name, model_id,
+		       COUNT(*) FILTER (WHERE status = 'success'),
+		       COUNT(*) FILTER (WHERE status <> 'success')
+		FROM states
+		GROUP BY ` + groupBy
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	facts := make([]channelMonitorV2ProbeFact, 0)
+	for rows.Next() {
+		var bucket time.Time
+		var fact channelMonitorV2ProbeFact
+		if err := rows.Scan(
+			&bucket,
+			&fact.Platform,
+			&fact.GroupID,
+			&fact.GroupName,
+			&fact.Model,
+			&fact.Success,
+			&fact.Errors,
+		); err != nil {
+			return nil, err
+		}
+		fact.BucketStart = bucket.UTC().Format(time.RFC3339Nano)
+		facts = append(facts, fact)
+	}
+	return facts, rows.Err()
+}
+
 func (r *channelMonitorV2Repository) loadHistograms(ctx context.Context, filter service.ChannelMonitorV2Filter, cfg service.ChannelMonitorV2Config, userID int64, byBucket bool) ([]channelMonitorV2Histogram, error) {
 	where, args, bucketSeconds := channelMonitorV2WhereWithRollup(filter, cfg, "h")
 	if userID < 0 {
@@ -1287,6 +1441,7 @@ func shiftSQLPlaceholders(query string, offset int) string {
 
 type metricAccumulator struct {
 	success, errors, upstreamAffected, upstreamAttempts, input, output, cacheCreation, cacheRead, ttftSum, ttftCount, durationSum, durationCount int64
+	probeSuccess, probeErrors                                                                                                                    int64
 	hist                                                                                                                                         map[string]map[int64]int64
 }
 
@@ -1341,6 +1496,10 @@ func (a *metricAccumulator) addFact(f channelMonitorV2Fact) {
 	a.durationSum += f.DurationSum
 	a.durationCount += f.DurationCount
 }
+func (a *metricAccumulator) addProbeFact(f channelMonitorV2ProbeFact) {
+	a.probeSuccess += f.Success
+	a.probeErrors += f.Errors
+}
 func (a *metricAccumulator) addHistogram(h channelMonitorV2Histogram) {
 	if a.hist[h.Metric] == nil {
 		a.hist[h.Metric] = map[int64]int64{}
@@ -1354,7 +1513,7 @@ func (a *metricAccumulator) metric(minutes float64, admin bool) service.ChannelM
 	if minutes <= 0 {
 		minutes = 1
 	}
-	m := service.ChannelMonitorV2Metric{SuccessRequests: a.success, ErrorRequests: a.errors, RequestCount: requests, InputTokens: a.input, OutputTokens: a.output, CacheCreationTokens: a.cacheCreation, CacheReadTokens: a.cacheRead, TokenCount: tokens, RPM: float64(requests) / minutes, TPM: float64(tokens) / minutes, CacheRateNumerator: a.cacheRead, CacheRateDenominator: denom, TTFT: latencyMetric(a.ttftSum, a.ttftCount, a.hist["ttft"]), Duration: latencyMetric(a.durationSum, a.durationCount, a.hist["duration"])}
+	m := service.ChannelMonitorV2Metric{SuccessRequests: a.success, ErrorRequests: a.errors, RequestCount: requests, InputTokens: a.input, OutputTokens: a.output, CacheCreationTokens: a.cacheCreation, CacheReadTokens: a.cacheRead, TokenCount: tokens, RPM: float64(requests) / minutes, TPM: float64(tokens) / minutes, CacheRateNumerator: a.cacheRead, CacheRateDenominator: denom, TTFT: latencyMetric(a.ttftSum, a.ttftCount, a.hist["ttft"]), Duration: latencyMetric(a.durationSum, a.durationCount, a.hist["duration"]), ProbeSuccessRequests: a.probeSuccess, ProbeErrorRequests: a.probeErrors}
 	if requests > 0 {
 		m.ErrorRate = float64(a.errors) / float64(requests)
 		m.SuccessRate = float64(a.success) / float64(requests)
@@ -1362,12 +1521,46 @@ func (a *metricAccumulator) metric(minutes float64, admin bool) service.ChannelM
 	if denom > 0 {
 		m.CacheRate = float64(a.cacheRead) / float64(denom)
 	}
+	refreshChannelMonitorV2Availability(&m)
 	if admin {
 		affected, attempts := a.upstreamAffected, a.upstreamAttempts
 		m.UpstreamAffectedRequests = &affected
 		m.UpstreamAttemptCount = &attempts
+		if probeSamples := a.probeSuccess + a.probeErrors; probeSamples > 0 {
+			m.ProbeSampleCount = &probeSamples
+		}
 	}
 	return m
+}
+
+func refreshChannelMonitorV2Availability(m *service.ChannelMonitorV2Metric) {
+	if m == nil {
+		return
+	}
+	probeRequests := m.ProbeSuccessRequests + m.ProbeErrorRequests
+	total := m.RequestCount + probeRequests
+	if total <= 0 {
+		m.AvailabilityRate = nil
+		m.AvailabilitySource = ""
+		return
+	}
+	countedErrors := m.ErrorRate*float64(m.RequestCount) + float64(m.ProbeErrorRequests)
+	availability := 1 - countedErrors/float64(total)
+	if availability < 0 {
+		availability = 0
+	}
+	if availability > 1 {
+		availability = 1
+	}
+	m.AvailabilityRate = &availability
+	switch {
+	case m.RequestCount > 0 && probeRequests > 0:
+		m.AvailabilitySource = "mixed"
+	case probeRequests > 0:
+		m.AvailabilitySource = "probe"
+	default:
+		m.AvailabilitySource = "traffic"
+	}
 }
 func latencyMetric(sum, count int64, hist map[int64]int64) service.ChannelMonitorV2Latency {
 	result := service.ChannelMonitorV2Latency{SampleCount: count}
@@ -1431,6 +1624,7 @@ func applyIgnoredErrors(m *service.ChannelMonitorV2Metric, ignoredCount int64) {
 	if m.SuccessRate > 1 {
 		m.SuccessRate = 1
 	}
+	refreshChannelMonitorV2Availability(m)
 }
 
 // loadIgnoredErrorCounts returns per-bucket and total ignored error request counts

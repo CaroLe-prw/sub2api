@@ -28,6 +28,9 @@ const i18nT = (key: string, params?: Record<string, unknown>) => {
     'channelMonitorV2.matrix.warningLegend': '警告',
     'channelMonitorV2.matrix.criticalLegend': '异常',
     'channelMonitorV2.matrix.unknownLegend': '未知',
+    'channelMonitorV2.matrix.availabilityEvidence': '可用性依据 {source}',
+    'channelMonitorV2.matrix.availabilitySources.probe': '账户探测',
+    'channelMonitorV2.matrix.availabilitySources.mixed': '真实调用 + 账户探测',
   }
   const template = map[key] || key
   return template.replace(/\{(\w+)\}/g, (_, name) => String(params?.[name] ?? ''))
@@ -139,6 +142,53 @@ describe('RelayPulseMatrix', () => {
     // No click-to-open modal
     await cells[0].trigger('click')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('renders probe-only availability without inventing user throughput', () => {
+    const probeMetric = {
+      ...metrics(0),
+      token_count: 0,
+      rpm: 0,
+      tpm: 0,
+      availability_rate: 1,
+      availability_source: 'probe' as const,
+    }
+    const probeHealth = {
+      ...health,
+      overall: 'healthy' as const,
+      error_rate: 'healthy' as const,
+      score: 100,
+      error_rate_score: 100,
+    }
+    const wrapper = mount(RelayPulseMatrix, {
+      props: {
+        rows: [{
+          platform: 'openai',
+          group_id: 7,
+          group_name: '默认组',
+          model: 'gpt-5',
+          metrics: probeMetric,
+          health: probeHealth,
+          buckets: [{ bucket_start: '2026-08-01T00:00:00Z', metrics: probeMetric, health: probeHealth }],
+        }],
+        coverage: {
+          requested_start: '2026-08-01T00:00:00Z',
+          requested_end: '2026-08-01T00:01:00Z',
+          coverage_start: '2026-08-01T00:00:00Z',
+          data_through: '2026-08-01T00:01:00Z',
+          computed_at: '2026-08-01T00:01:00Z',
+          aggregation_lag_seconds: 0,
+          coverage_complete: true,
+          bucket_seconds: 60,
+        },
+        healthMode: 'overall',
+      },
+    })
+
+    expect(wrapper.find('.pulse-cell').classes()).toContain('health-score10')
+    expect(wrapper.text()).toContain('100.0%')
+    expect(wrapper.text()).toContain('可用性依据 账户探测')
+    expect(wrapper.text()).toContain('每秒 Token 0')
   })
 })
 

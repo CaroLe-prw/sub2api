@@ -46,6 +46,11 @@ export interface MonitorMetric {
   cache_rate_denominator: number
   ttft: LatencyMetric
   duration: LatencyMetric
+  /** Combined real-traffic/account-probe availability. Probes never affect RPM/TPM. */
+  availability_rate?: number | null
+  availability_source?: 'traffic' | 'probe' | 'mixed'
+  /** Admin responses only; omitted publicly to avoid exposing pool scale. */
+  probe_sample_count?: number
   upstream_affected_requests?: number
   upstream_attempt_count?: number
 }

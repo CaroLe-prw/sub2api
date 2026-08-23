@@ -328,6 +328,43 @@ func TestChannelMonitorV2SparseBucketDoesNotCollapseToCacheOnlyScore(t *testing.
 	require.Nil(t, health.CacheScore)
 }
 
+func TestChannelMonitorV2AccountProbeScoresSparseAvailability(t *testing.T) {
+	thresholds := DefaultChannelMonitorV2HealthThresholds()
+	thresholds.MinimumSample = 50
+
+	health := ChannelMonitorV2HealthForWithThresholds(ChannelMonitorV2Metric{
+		ProbeSuccessRequests: 1,
+	}, thresholds)
+	require.Equal(t, "healthy", health.ErrorRate)
+	require.Equal(t, "healthy", health.Overall)
+	require.NotNil(t, health.ErrorRateScore)
+	require.InDelta(t, 100.0, *health.ErrorRateScore, 0.01)
+
+	health = ChannelMonitorV2HealthForWithThresholds(ChannelMonitorV2Metric{
+		ProbeErrorRequests: 1,
+	}, thresholds)
+	require.Equal(t, "critical", health.ErrorRate)
+	require.Equal(t, "critical", health.Overall)
+	require.NotNil(t, health.ErrorRateScore)
+	require.InDelta(t, 0.0, *health.ErrorRateScore, 0.01)
+}
+
+func TestChannelMonitorV2AccountProbeMergesWithRealTraffic(t *testing.T) {
+	thresholds := DefaultChannelMonitorV2HealthThresholds()
+	thresholds.MinimumSample = 50
+	thresholds.CriticalErrorRate = 0.5
+
+	health := ChannelMonitorV2HealthForWithThresholds(ChannelMonitorV2Metric{
+		RequestCount:         1,
+		ErrorRate:            0,
+		ProbeSuccessRequests: 1,
+		ProbeErrorRequests:   1,
+	}, thresholds)
+	require.NotNil(t, health.ErrorRateScore)
+	// One real success + one probe success + one probe failure = 1/3 error rate.
+	require.InDelta(t, 100.0/3.0, *health.ErrorRateScore, 0.01)
+}
+
 func TestErrorRateTTFTAndCacheScoreHelpers(t *testing.T) {
 	require.InDelta(t, 100.0, errorRateScore(0, 0.05), 0.001)
 	require.InDelta(t, 0.0, errorRateScore(0.05, 0.05), 0.001)
@@ -493,6 +530,11 @@ func TestRedactChannelMonitorV2MetricKeepsRates(t *testing.T) {
 		CacheRate: 0.5, CacheRateNumerator: 4, CacheRateDenominator: 8,
 		TTFT: ChannelMonitorV2Latency{SampleCount: 50, P50Ms: &p50},
 	}
+	availability := 0.95
+	probeSamples := int64(4)
+	m.AvailabilityRate = &availability
+	m.AvailabilitySource = "mixed"
+	m.ProbeSampleCount = &probeSamples
 	upstream := int64(3)
 	m.UpstreamAffectedRequests = &upstream
 	redactChannelMonitorV2Metric(&m, false)
@@ -502,6 +544,10 @@ func TestRedactChannelMonitorV2MetricKeepsRates(t *testing.T) {
 	require.Zero(t, m.CacheRateNumerator)
 	require.Zero(t, m.TTFT.SampleCount)
 	require.Nil(t, m.UpstreamAffectedRequests)
+	require.Nil(t, m.ProbeSampleCount)
+	require.Equal(t, "mixed", m.AvailabilitySource)
+	require.NotNil(t, m.AvailabilityRate)
+	require.InDelta(t, 0.95, *m.AvailabilityRate, 0.0001)
 	require.InDelta(t, 0.1, m.ErrorRate, 0.0001)
 	require.InDelta(t, 12.0, m.RPM, 0.0001)
 	require.InDelta(t, 34.0, m.TPM, 0.0001)

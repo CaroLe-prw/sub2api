@@ -84,25 +84,36 @@ type ChannelMonitorV2Filter struct {
 }
 
 type ChannelMonitorV2Metric struct {
-	SuccessRequests          int64                   `json:"success_requests"`
-	ErrorRequests            int64                   `json:"error_requests"`
-	RequestCount             int64                   `json:"request_count"`
-	InputTokens              int64                   `json:"input_tokens"`
-	OutputTokens             int64                   `json:"output_tokens"`
-	CacheCreationTokens      int64                   `json:"cache_creation_tokens"`
-	CacheReadTokens          int64                   `json:"cache_read_tokens"`
-	TokenCount               int64                   `json:"token_count"`
-	RPM                      float64                 `json:"rpm"`
-	TPM                      float64                 `json:"tpm"`
-	ErrorRate                float64                 `json:"error_rate"`
-	SuccessRate              float64                 `json:"success_rate"`
-	CacheRate                float64                 `json:"cache_rate"`
-	CacheRateNumerator       int64                   `json:"cache_rate_numerator"`
-	CacheRateDenominator     int64                   `json:"cache_rate_denominator"`
-	TTFT                     ChannelMonitorV2Latency `json:"ttft"`
-	Duration                 ChannelMonitorV2Latency `json:"duration"`
-	UpstreamAffectedRequests *int64                  `json:"upstream_affected_requests,omitempty"`
-	UpstreamAttemptCount     *int64                  `json:"upstream_attempt_count,omitempty"`
+	SuccessRequests      int64                   `json:"success_requests"`
+	ErrorRequests        int64                   `json:"error_requests"`
+	RequestCount         int64                   `json:"request_count"`
+	InputTokens          int64                   `json:"input_tokens"`
+	OutputTokens         int64                   `json:"output_tokens"`
+	CacheCreationTokens  int64                   `json:"cache_creation_tokens"`
+	CacheReadTokens      int64                   `json:"cache_read_tokens"`
+	TokenCount           int64                   `json:"token_count"`
+	RPM                  float64                 `json:"rpm"`
+	TPM                  float64                 `json:"tpm"`
+	ErrorRate            float64                 `json:"error_rate"`
+	SuccessRate          float64                 `json:"success_rate"`
+	CacheRate            float64                 `json:"cache_rate"`
+	CacheRateNumerator   int64                   `json:"cache_rate_numerator"`
+	CacheRateDenominator int64                   `json:"cache_rate_denominator"`
+	TTFT                 ChannelMonitorV2Latency `json:"ttft"`
+	Duration             ChannelMonitorV2Latency `json:"duration"`
+	// AvailabilityRate is the combined availability signal used by the pulse
+	// matrix. Real traffic remains the source of RPM/TPM and token metrics;
+	// account probes only fill availability gaps when traffic is sparse.
+	AvailabilityRate   *float64 `json:"availability_rate,omitempty"`
+	AvailabilitySource string   `json:"availability_source,omitempty"`
+	// ProbeSampleCount is admin-only. The raw counters are retained in-memory
+	// for health scoring but are never serialized, so public status responses do
+	// not reveal the number of monitored upstream accounts.
+	ProbeSampleCount         *int64 `json:"probe_sample_count,omitempty"`
+	ProbeSuccessRequests     int64  `json:"-"`
+	ProbeErrorRequests       int64  `json:"-"`
+	UpstreamAffectedRequests *int64 `json:"upstream_affected_requests,omitempty"`
+	UpstreamAttemptCount     *int64 `json:"upstream_attempt_count,omitempty"`
 }
 
 type ChannelMonitorV2Latency struct {
@@ -636,6 +647,7 @@ func redactChannelMonitorV2Metric(m *ChannelMonitorV2Metric, hideThroughput bool
 	// Latency sample_count is also a volume signal.
 	m.TTFT.SampleCount = 0
 	m.Duration.SampleCount = 0
+	m.ProbeSampleCount = nil
 	m.UpstreamAffectedRequests = nil
 	m.UpstreamAttemptCount = nil
 	if hideThroughput {
@@ -953,10 +965,22 @@ func ChannelMonitorV2HealthForWithThresholds(metrics ChannelMonitorV2Metric, thr
 	}
 	parts := make([]scored, 0, 3)
 
-	if metrics.RequestCount >= result.MinimumSample {
-		s := errorRateScore(metrics.ErrorRate, thresholds.CriticalErrorRate)
+	probeRequests := metrics.ProbeSuccessRequests + metrics.ProbeErrorRequests
+	availabilityRequests := metrics.RequestCount + probeRequests
+	availabilityErrorRate := metrics.ErrorRate
+	if probeRequests > 0 && availabilityRequests > 0 {
+		// ErrorRate may already exclude configured ignored error categories, so
+		// derive the real-traffic error contribution from that adjusted rate.
+		availabilityErrors := metrics.ErrorRate*float64(metrics.RequestCount) + float64(metrics.ProbeErrorRequests)
+		availabilityErrorRate = availabilityErrors / float64(availabilityRequests)
+	}
+	// A completed account probe is deliberate availability evidence and may
+	// score a sparse bucket immediately. Without probes, retain the configured
+	// minimum-sample confidence floor for ordinary user traffic.
+	if metrics.RequestCount >= result.MinimumSample || probeRequests > 0 {
+		s := errorRateScore(availabilityErrorRate, thresholds.CriticalErrorRate)
 		result.ErrorRateScore = &s
-		result.ErrorRate = healthBand(metrics.ErrorRate, thresholds.WarningErrorRate, thresholds.CriticalErrorRate)
+		result.ErrorRate = healthBand(availabilityErrorRate, thresholds.WarningErrorRate, thresholds.CriticalErrorRate)
 		parts = append(parts, scored{score: s, weight: thresholds.ErrorWeight, band: result.ErrorRate})
 	}
 	// Prefer p50 for TTFT scoring; fall back to p95 only if p50 is missing.

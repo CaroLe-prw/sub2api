@@ -105,6 +105,7 @@
                     <span class="pulse-tooltip-line pulse-tooltip-title">{{ formatBucketRange(slot.start) }}</span>
                     <span class="pulse-tooltip-line">{{ t('channelMonitorV2.matrix.scoreLine', { score: formatScore(slot.bucket.health) }) }}</span>
                     <span class="pulse-tooltip-line">{{ t('channelMonitorV2.metrics.successRateValue', { value: successRate(slot.bucket.metrics) }) }}</span>
+                    <span v-if="availabilitySourceLine(slot.bucket.metrics)" class="pulse-tooltip-line">{{ availabilitySourceLine(slot.bucket.metrics) }}</span>
                     <span class="pulse-tooltip-line">{{ t('channelMonitorV2.metrics.ttftValue', { value: latencyPrivacy(slot.bucket.metrics.ttft) }) }}</span>
                     <span v-if="showThroughput" class="pulse-tooltip-line">{{ t('channelMonitorV2.metrics.tpsValue', { value: formatTps(slot.bucket.metrics.tpm) }) }}</span>
                     <span class="pulse-tooltip-line">{{ t('channelMonitorV2.metrics.cacheRateValue', { value: formatPercent(slot.bucket.metrics.cache_rate) }) }}</span>
@@ -359,12 +360,29 @@ function rowKey(row: MonitorMatrixRow): string {
 }
 
 function successRate(metrics: MonitorMetric): string {
+  if (metrics.availability_rate != null && metrics.availability_source !== 'traffic') {
+    return formatMonitorPercent(metrics.availability_rate)
+  }
   // Empty traffic: no request count and no throughput signal.
   // When throughput is hidden for privacy, still show success from error_rate.
   const noCount = metrics.request_count <= 0
   const noTP = (metrics.rpm || 0) <= 0 && (metrics.tpm || 0) <= 0
   if (noCount && noTP && props.showThroughput) return '-'
   return formatMonitorSuccessRateFromError(metrics.error_rate)
+}
+
+function availabilitySourceLine(metrics: MonitorMetric): string {
+  if (metrics.availability_source === 'probe') {
+    return t('channelMonitorV2.matrix.availabilityEvidence', {
+      source: t('channelMonitorV2.matrix.availabilitySources.probe'),
+    })
+  }
+  if (metrics.availability_source === 'mixed') {
+    return t('channelMonitorV2.matrix.availabilityEvidence', {
+      source: t('channelMonitorV2.matrix.availabilitySources.mixed'),
+    })
+  }
+  return ''
 }
 
 function formatScore(health: MonitorHealth): string {
@@ -385,6 +403,8 @@ function bucketTooltipLines(bucket: MonitorMatrixBucket): string[] {
     t('channelMonitorV2.metrics.successRateValue', { value: successRate(metrics) }),
     t('channelMonitorV2.metrics.ttftValue', { value: latencyPrivacy(metrics.ttft) }),
   ]
+  const availabilityLine = availabilitySourceLine(metrics)
+  if (availabilityLine) lines.splice(3, 0, availabilityLine)
   if (props.showThroughput) {
     lines.push(t('channelMonitorV2.metrics.tpsValue', { value: formatTps(metrics.tpm) }))
   }
