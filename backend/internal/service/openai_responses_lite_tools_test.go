@@ -367,6 +367,26 @@ func TestNormalizeOpenAIResponsesLiteToolsPayload_ForcesExplicitParallelToolCall
 	require.False(t, gjson.GetBytes(updated, "parallel_tool_calls").Bool())
 }
 
+func TestNormalizeOpenAIResponsesLitePayloadForAccount_APIKeyOnlyForcesSerialToolCalls(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"reasoning":{"context":"current_turn"},
+		"parallel_tool_calls":true,
+		"tools":[{"type":"namespace","name":"collaboration"}],
+		"input":[{"type":"message","role":"user","content":"hello"}]
+	}`)
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	updated, changed, err := normalizeOpenAIResponsesLitePayloadForAccount(body, account)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.False(t, gjson.GetBytes(updated, "parallel_tool_calls").Bool())
+	require.Equal(t, "current_turn", gjson.GetBytes(updated, "reasoning.context").String())
+	require.Equal(t, "collaboration", gjson.GetBytes(updated, "tools.0.name").String())
+	require.False(t, gjson.GetBytes(updated, `input.#(type=="additional_tools")`).Exists())
+}
+
 func TestApplyCodexOAuthTransform_PreservesLiteNamespaceToolChoice(t *testing.T) {
 	reqBody := map[string]any{
 		"model": "gpt-5.6-terra",
@@ -510,6 +530,38 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 			}
 		})
 	}
+}
+
+func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteParallelToolCallsForAPIKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_lite_apikey\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n" +
+				"data: [DONE]\n\n",
+		)),
+	}}
+	svc := newOpenAIImageGenerationControlTestService(upstream)
+	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.144.1")
+	c.Request.Header.Set(responsesLiteHeader, "true")
+	account := newOpenAIImageGenerationControlTestAccount()
+	account.ID = 419
+	account.Name = "xiaomi6-0068"
+
+	result, err := svc.Forward(context.Background(), c, account, []byte(`{
+		"model":"gpt-5.6-sol","stream":true,
+		"parallel_tool_calls":true,
+		"tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}],
+		"input":[{"type":"message","role":"user","content":"hello"}]
+	}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "true", upstream.lastReq.Header.Get(responsesLiteHeader))
+	require.True(t, gjson.GetBytes(upstream.lastBody, "parallel_tool_calls").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "parallel_tool_calls").Bool())
 }
 
 func TestOpenAIGatewayServiceForward_DisablesResponsesLiteForServerSideCompaction(t *testing.T) {

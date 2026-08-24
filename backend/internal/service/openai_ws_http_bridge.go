@@ -642,6 +642,13 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	if err != nil {
 		return nil, err
 	}
+	if isOpenAIResponsesLiteWebSocketPayload(payload) {
+		litePayload, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(payload, account)
+		if liteErr != nil {
+			return nil, liteErr
+		}
+		payload = litePayload
+	}
 	body, err := prepareOpenAIWSHTTPBridgeBody(payload)
 	if err != nil {
 		return nil, fmt.Errorf("prepare http bridge body: %w", err)

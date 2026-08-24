@@ -27,10 +27,8 @@ func normalizeOpenAIResponsesLiteTools(reqBody map[string]any) (bool, error) {
 	if reqBody == nil {
 		return false, nil
 	}
-	if parallel, exists := reqBody["parallel_tool_calls"]; exists {
-		if _, ok := parallel.(bool); !ok {
-			return false, newOpenAIResponsesLiteValidationError("parallel_tool_calls", "responses Lite requires parallel_tool_calls to be a boolean")
-		}
+	if err := validateOpenAIResponsesLiteParallelToolCalls(reqBody); err != nil {
+		return false, err
 	}
 	if rawReasoning, exists := reqBody["reasoning"]; exists && rawReasoning != nil {
 		if _, ok := rawReasoning.(map[string]any); !ok {
@@ -98,6 +96,15 @@ func normalizeOpenAIResponsesLiteTools(reqBody map[string]any) (bool, error) {
 		reqBody["tools"] = topLevelTools
 	}
 	return ensureOpenAIResponsesLiteParallelToolCalls(reqBody, true)
+}
+
+func validateOpenAIResponsesLiteParallelToolCalls(reqBody map[string]any) error {
+	if parallel, exists := reqBody["parallel_tool_calls"]; exists {
+		if _, ok := parallel.(bool); !ok {
+			return newOpenAIResponsesLiteValidationError("parallel_tool_calls", "responses Lite requires parallel_tool_calls to be a boolean")
+		}
+	}
+	return nil
 }
 
 func ensureOpenAIResponsesLiteParallelToolCalls(reqBody map[string]any, changed bool) (bool, error) {
@@ -272,4 +279,38 @@ func normalizeOpenAIResponsesLiteToolsPayload(body []byte) ([]byte, bool, error)
 		return body, false, fmt.Errorf("encode responses Lite request body: %w", err)
 	}
 	return rebuilt, true, nil
+}
+
+// normalizeOpenAIResponsesLiteParallelToolCallsPayload applies the Lite
+// serial-tool-call contract without rewriting API-key tool declarations.
+func normalizeOpenAIResponsesLiteParallelToolCallsPayload(body []byte) ([]byte, bool, error) {
+	var requestBody map[string]any
+	if err := json.Unmarshal(body, &requestBody); err != nil {
+		return body, false, fmt.Errorf("decode responses Lite request body: %w", err)
+	}
+	if err := validateOpenAIResponsesLiteParallelToolCalls(requestBody); err != nil {
+		return body, false, err
+	}
+	changed, err := ensureOpenAIResponsesLiteParallelToolCalls(requestBody, false)
+	if err != nil || !changed {
+		return body, false, err
+	}
+	rebuilt, err := marshalOpenAIUpstreamJSON(requestBody)
+	if err != nil {
+		return body, false, fmt.Errorf("encode responses Lite request body: %w", err)
+	}
+	return rebuilt, true, nil
+}
+
+func normalizeOpenAIResponsesLitePayloadForAccount(body []byte, account *Account) ([]byte, bool, error) {
+	if account == nil {
+		return body, false, nil
+	}
+	if account.IsOpenAIOAuthLike() {
+		return normalizeOpenAIResponsesLiteToolsPayload(body)
+	}
+	if account.IsOpenAIApiKey() {
+		return normalizeOpenAIResponsesLiteParallelToolCallsPayload(body)
+	}
+	return body, false, nil
 }

@@ -86,11 +86,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			body = compactionBody
 		}
 	}
-	responsesLiteActive := account.IsOpenAIOAuthLike() &&
-		isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) &&
+	responsesLiteActive := isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) &&
 		!serverSideCompaction
 	if responsesLiteActive {
-		liteBody, changed, liteErr := normalizeOpenAIResponsesLiteToolsPayload(body)
+		liteBody, changed, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(body, account)
 		if liteErr != nil {
 			param := "tools"
 			var validationErr *openAIResponsesLiteValidationError
