@@ -29,7 +29,12 @@ func (c *openAIStickyCredentialFailoverCache) GetSessionAccountID(context.Contex
 	return c.accountID, nil
 }
 
-func (c *openAIStickyCredentialFailoverCache) SetSessionAccountID(_ context.Context, _ int64, _ string, accountID int64, _ time.Duration) error {
+func (c *openAIStickyCredentialFailoverCache) SetSessionAccountID(_ context.Context, _ int64, sessionHash string, accountID int64, _ time.Duration) error {
+	// HTTP response ownership shares the GatewayCache interface but uses an
+	// independent keyspace; it must not overwrite the sticky-session probe.
+	if strings.HasPrefix(sessionHash, "openai:http-response-owner:") {
+		return nil
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.accountID = accountID

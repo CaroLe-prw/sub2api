@@ -286,14 +286,13 @@ func toUserSupportedModels(
 	return out
 }
 
-// toUserPricing 将 service 层定价转换为用户 DTO；入参为 nil 时返回 nil。
-func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
-	if p == nil {
+// toUserPricingIntervals 将定价区间转换为用户 DTO 白名单形态；nil 入参返回 nil（JSON omitempty 可省略）。
+func toUserPricingIntervals(src []service.PricingInterval) []userPricingIntervalDTO {
+	if src == nil {
 		return nil
 	}
-	effective := p.EffectiveAt(time.Now())
-	intervals := make([]userPricingIntervalDTO, 0, len(effective.Intervals))
-	for _, iv := range effective.Intervals {
+	intervals := make([]userPricingIntervalDTO, 0, len(src))
+	for _, iv := range src {
 		intervals = append(intervals, userPricingIntervalDTO{
 			MinTokens:       iv.MinTokens,
 			MaxTokens:       iv.MaxTokens,
@@ -304,6 +303,20 @@ func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
 			CacheReadPrice:  iv.CacheReadPrice,
 			PerRequestPrice: iv.PerRequestPrice,
 		})
+	}
+	return intervals
+}
+
+// toUserPricing 将 service 层定价转换为用户 DTO；入参为 nil 时返回 nil。
+func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
+	if p == nil {
+		return nil
+	}
+	effective := p.EffectiveAt(time.Now())
+	intervals := toUserPricingIntervals(effective.Intervals)
+	if intervals == nil {
+		// 用户侧定价的 intervals 固定输出数组（空配置为 []），保持既有契约。
+		intervals = []userPricingIntervalDTO{}
 	}
 	billingMode := string(effective.BillingMode)
 	if billingMode == "" {

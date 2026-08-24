@@ -65,7 +65,7 @@ func TestLogRequestBodyReadFailure_RecordsSafeTransportMetadata(t *testing.T) {
 	require.EqualValues(t, 125000, fields["request_body_read_ms"])
 	require.Equal(t, "gzip", fields["content_encoding"])
 	require.Equal(t, "chunked", fields["transfer_encoding"])
-	require.Equal(t, io.ErrUnexpectedEOF.Error(), fields["error"])
+	require.NotContains(t, fields, "error")
 }
 
 func TestLogRequestBodyReadFailure_DoesNotLogRequestContent(t *testing.T) {
@@ -84,6 +84,23 @@ func TestLogRequestBodyReadFailure_DoesNotLogRequestContent(t *testing.T) {
 	require.Len(t, entries, 1)
 	require.NotContains(t, fmt.Sprint(entries[0].ContextMap()), secret)
 	require.NotContains(t, entries[0].Message, secret)
+}
+
+func TestLogRequestBodyReadFailure_DoesNotLogDecoderErrorPayload(t *testing.T) {
+	log, logs := newObservedLogger(t)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader("secret-payload-marker"))
+	req.Header.Set("Content-Encoding", "gzip")
+	req.ContentLength = 21
+
+	logRequestBodyReadFailure(log, req, errors.New(`decode Content-Encoding "gzip": unexpected EOF secret-payload-marker`))
+
+	entries := logs.All()
+	require.Len(t, entries, 1)
+	fields := entries[0].ContextMap()
+	require.Equal(t, "content_decoding_failed", fields["request_body_error_kind"])
+	require.Equal(t, "gzip", fields["content_encoding"])
+	require.EqualValues(t, 21, fields["request_content_length"])
+	require.NotContains(t, entries[0].Message+fmt.Sprint(fields), "secret-payload-marker")
 }
 
 func TestOpenAIResponses_PartialBodyKeepsResponseAndAddsDiagnostics(t *testing.T) {

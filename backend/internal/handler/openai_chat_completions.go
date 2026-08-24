@@ -56,6 +56,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
 			return
 		}
+		logRequestBodyReadFailure(reqLog, c.Request, err)
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
 		return
 	}
@@ -87,6 +88,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)
+		return
+	}
+	if _, err := service.ValidateOpenAIServiceTierField(body); err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
 	if service.IsGPTImageGenerationModel(reqModel) {
@@ -222,6 +227,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			)
 			if len(failedAccountIDs) == 0 {
 				cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel)
+				cls = classifySelectionFailureError(err, cls)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
@@ -295,11 +301,11 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			}()
 			return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
 		}()
-		cyberBlockKeyChat := ""
+		var cyberBlockBodyChat []byte
 		if service.GetOpsCyberPolicy(c) != nil {
-			cyberBlockKeyChat = service.CyberSessionBlockKey(apiKey.ID, c, body)
+			cyberBlockBodyChat = body
 		}
-		h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, err != nil, cyberBlockKeyChat, clientRequestedUsageFields(c, channelMapping, reqModel, ""), service.HashUsageRequestPayload(body))
+		h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, err != nil, cyberBlockBodyChat, clientRequestedUsageFields(c, channelMapping, reqModel, ""), service.HashUsageRequestPayload(body))
 
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
@@ -393,11 +399,12 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						Reason: observabilityReason, DurationMs: time.Since(routingStart).Milliseconds(),
 					})
 					if c.Writer.Size() != writerSizeBeforeForward {
+						h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
 						h.handleFailoverExhausted(c, failoverErr, true)
 						return
 					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
-						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
+						h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, reqModel, false, nil), false, nil, err)
 					}
 					if !failoverErr.ShouldRetryNextAccount() {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
@@ -405,7 +412,11 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					}
 					// Pool mode: retry on the same account
 					if retryLimit, retrySameAccount := openAISameAccountRetryLimit(account, failoverErr); retrySameAccount {
-						if sameAccountRetryCount[account.ID] < retryLimit {
+						allowed := sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit)
+						if failoverErr.AllowsOneSameAccountRetryBeforeSwitch() {
+							allowed = sameAccountRetryCount[account.ID] < retryLimit && sameAccountRetryDeadlineAllows(failoverErr)
+						}
+						if allowed {
 							budgetDecision := failoverBudget.evaluateSameAccountRetry(
 								c.Request.Context(), switchCount,
 								openAIFailoverRemainingCandidates(scheduleDecision.CandidateCount),
@@ -481,7 +492,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				upstreamStatus := openAIForwardFailureUpstreamStatus(c, err)
 				observabilityReason := openAIForwardFailureObservabilityReason(upstreamStatus)
 				if observabilityReason != "request_error_not_retryable" {
-					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, reqModel, false, result), false, nil, err)
 				}
 				recordObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
 					AccountID: account.ID, AccountName: account.Name, UpstreamStatus: upstreamStatus, Reason: observabilityReason,
@@ -517,7 +528,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				observabilityReason = "slow_first_output"
 			}
 			succeeded := openAIForwardSucceededForScheduling(result)
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), succeeded, result.FirstTokenMs)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, reqModel, false, result), succeeded, result.FirstTokenMs)
 			recordObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
 				AccountID: account.ID, AccountName: account.Name, Success: succeeded, Canceled: result.ClientDisconnect,
 				Reason: observabilityReason, FirstTokenMs: result.FirstTokenMs,
@@ -525,7 +536,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				CacheEligibleTokens: openAISchedulerCacheEligibleTokens(result.Usage),
 			})
 		} else {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), true, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, reqModel, false, result), true, nil)
 			recordObservabilityOutcome(c.Request.Context(), service.OpenAISchedulerObservabilityOutcome{
 				AccountID: account.ID, AccountName: account.Name, Success: true,
 				DurationMs: time.Since(routingStart).Milliseconds(),

@@ -355,7 +355,7 @@ func TestOpenAICompatBufferedFirstOutputTimeoutIgnoresResponsesPreamble(t *testi
 	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: body}
 
 	_, _, _, err := svc.readOpenAICompatBufferedTerminalWithFirstOutput(
-		resp, "compat buffered test", "request-id", &Account{Platform: PlatformOpenAI}, time.Now().Add(-time.Second), func() error { return wantErr },
+		resp, nil, "compat buffered test", "request-id", &Account{Platform: PlatformOpenAI}, time.Now().Add(-time.Second), func() error { return wantErr },
 	)
 
 	require.ErrorIs(t, err, wantErr)

@@ -125,13 +125,20 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 	// upstream/proxy round trip itself. Return the inbound cancellation unchanged
 	// when the client is gone. Other status-less transport failures happened
 	// before a response existed, so the handler may safely try another account.
-	if errors.Is(err, context.Canceled) && openAIInboundRequestDone(ctx, c) {
+	if (errors.Is(err, context.Canceled) && openAIInboundRequestDone(ctx, c)) ||
+		(errors.Is(err, context.DeadlineExceeded) && ctx != nil && errors.Is(ctx.Err(), context.DeadlineExceeded)) {
 		return err
 	}
 
 	// Transport attempt reached the network path; count as Ollama Cloud activity.
 	if s != nil {
 		scheduleOllamaCloudUsageActivity(s.deferredService, account)
+	}
+
+	// 插件已把请求交给上游时，自动切换账号可能造成重复扣费或重复执行。
+	var pluginErr *PluginTransportError
+	if errors.As(err, &pluginErr) && pluginErr.RequestSent {
+		return err
 	}
 
 	if classifyOpenAITransportError(err).Persistent {

@@ -179,6 +179,7 @@ export default {
     subscriptions: 'Subscriptions',
     quotaReset: 'Quota Reset',
     accounts: 'Accounts',
+    plugins: 'Plugins',
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',
