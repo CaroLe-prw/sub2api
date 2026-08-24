@@ -75,7 +75,15 @@ COPY backend/go.mod backend/go.sum ./
 # Cache mount keeps the module cache across builds so a transient CDN blip on
 # retry resumes instead of re-fetching every zip from scratch.
 RUN --mount=type=cache,id=sub2api-gomod,target=/go/pkg/mod \
-    go mod download
+    for attempt in 1 2 3; do \
+        if go mod download; then \
+            exit 0; \
+        fi; \
+        if [ "$attempt" -lt 3 ]; then \
+            sleep $((attempt * 5)); \
+        fi; \
+    done; \
+    exit 1
 
 # Copy backend source first
 COPY backend/ ./
