@@ -591,7 +591,7 @@ export default {
         combinedState: '综合状态',
         combinedSummary: '综合结果',
         userTraffic: '用户调用（近 {minutes} 分钟）',
-        userTrafficTimeline: '用户调用（近 {minutes} 分钟，绿＝成功，红＝失败）',
+        userTrafficTimeline: '用户调用（近 {minutes} 分钟，绿＝正常，黄/橙＝首字偏慢，红＝失败或严重慢）',
         activeProbeTimeline: '主动探测记录',
         noUserTraffic: '近 30 分钟暂无有效用户调用',
         timelineSampleCount: '已加载 {n} 条',

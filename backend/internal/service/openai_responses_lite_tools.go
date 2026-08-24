@@ -101,11 +101,17 @@ func normalizeOpenAIResponsesLiteTools(reqBody map[string]any) (bool, error) {
 }
 
 func ensureOpenAIResponsesLiteParallelToolCalls(reqBody map[string]any, changed bool) (bool, error) {
-	parallel := reqBody["parallel_tool_calls"]
-	if !openAIResponsesLiteHasTools(reqBody) {
-		return changed, nil
+	// Lite rejects an explicit true even on turns that declare no tools.
+	// Keep an absent field absent for tool-free turns to avoid rewriting it unnecessarily.
+	parallel, exists := reqBody["parallel_tool_calls"]
+	if exists {
+		if parallel == false {
+			return changed, nil
+		}
+		reqBody["parallel_tool_calls"] = false
+		return true, nil
 	}
-	if parallel == false {
+	if !openAIResponsesLiteHasTools(reqBody) {
 		return changed, nil
 	}
 	reqBody["parallel_tool_calls"] = false

@@ -35,13 +35,11 @@ const ttftSeverity = computed(() => props.sample.ttft_ms == null
   : firstTokenSeverity(props.sample.ttft_ms))
 const heartbeatClass = computed(() => {
   if (props.sample.status === 'failed') return 'bg-red-500'
-  if (props.sample.source === 'user') return 'bg-emerald-500'
   return ttftSeverity.value == null
     ? 'bg-emerald-400'
     : LATENCY_BAR_CLASSES[ttftSeverity.value]
 })
 const successStatusClass = computed(() => ttftSeverity.value == null
-  || props.sample.source === 'user'
   ? 'text-emerald-300'
   : LATENCY_TEXT_CLASSES[ttftSeverity.value])
 const accessibleLabel = computed(() => [

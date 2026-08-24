@@ -201,7 +201,7 @@ func TestNormalizeOpenAIResponsesLiteTools_ForcesParallelToolCallsFalse(t *testi
 	}
 }
 
-func TestNormalizeOpenAIResponsesLiteTools_DoesNotAddParallelToolCallsWithoutTools(t *testing.T) {
+func TestNormalizeOpenAIResponsesLiteTools_ForcesExplicitParallelToolCallsFalseWithoutTools(t *testing.T) {
 	reqBody := map[string]any{
 		"reasoning":           map[string]any{"context": "all_turns"},
 		"parallel_tool_calls": true,
@@ -210,8 +210,20 @@ func TestNormalizeOpenAIResponsesLiteTools_DoesNotAddParallelToolCallsWithoutToo
 	changed, err := normalizeOpenAIResponsesLiteTools(reqBody)
 
 	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, false, reqBody["parallel_tool_calls"])
+}
+
+func TestNormalizeOpenAIResponsesLiteTools_DoesNotAddParallelToolCallsWhenAbsentWithoutTools(t *testing.T) {
+	reqBody := map[string]any{
+		"reasoning": map[string]any{"context": "all_turns"},
+	}
+
+	changed, err := normalizeOpenAIResponsesLiteTools(reqBody)
+
+	require.NoError(t, err)
 	require.False(t, changed)
-	require.Equal(t, true, reqBody["parallel_tool_calls"])
+	require.NotContains(t, reqBody, "parallel_tool_calls")
 }
 
 func TestNormalizeOpenAIResponsesLiteTools_RejectsNonBooleanParallelToolCalls(t *testing.T) {
@@ -336,6 +348,25 @@ func TestNormalizeOpenAIResponsesLiteToolsPayload_PreservesResponseCreateShape(t
 	require.False(t, gjson.GetBytes(updated, "parallel_tool_calls").Bool())
 }
 
+func TestNormalizeOpenAIResponsesLiteToolsPayload_ForcesExplicitParallelToolCallsFalseWithoutTools(t *testing.T) {
+	body := []byte(`{
+		"type":"response.create",
+		"model":"gpt-5.6-terra",
+		"client_metadata":{"ws_request_header_x_openai_internal_codex_responses_lite":"true"},
+		"reasoning":{"context":"all_turns"},
+		"parallel_tool_calls":true,
+		"input":[{"type":"message","role":"user","content":"hello"}]
+	}`)
+
+	updated, changed, err := normalizeOpenAIResponsesLiteToolsPayload(body)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "response.create", gjson.GetBytes(updated, "type").String())
+	require.True(t, gjson.GetBytes(updated, "parallel_tool_calls").Exists())
+	require.False(t, gjson.GetBytes(updated, "parallel_tool_calls").Bool())
+}
+
 func TestApplyCodexOAuthTransform_PreservesLiteNamespaceToolChoice(t *testing.T) {
 	reqBody := map[string]any{
 		"model": "gpt-5.6-terra",
@@ -413,6 +444,33 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 			require.Equal(t, "collaboration", gjson.GetBytes(upstream.lastBody, "tool_choice.name").String())
 			require.True(t, gjson.GetBytes(upstream.lastBody, "parallel_tool_calls").Exists())
 			require.False(t, gjson.GetBytes(upstream.lastBody, "parallel_tool_calls").Bool())
+
+			noToolsRec := httptest.NewRecorder()
+			noToolsCtx, _ := gin.CreateTestContext(noToolsRec)
+			noToolsCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+			noToolsCtx.Request.Header.Set(responsesLiteHeader, "true")
+			noToolsUpstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader(
+					"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_lite_no_tools\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n" +
+						"data: [DONE]\n\n",
+				)),
+			}}
+			svc.httpUpstream = noToolsUpstream
+
+			result, err = svc.Forward(context.Background(), noToolsCtx, account, []byte(`{
+				"model":"gpt-5.6-terra","stream":true,
+				"reasoning":{"context":"all_turns"},
+				"parallel_tool_calls":true,
+				"input":[{"type":"message","role":"user","content":"hello"}]
+			}`))
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, "true", noToolsUpstream.lastReq.Header.Get(responsesLiteHeader))
+			require.True(t, gjson.GetBytes(noToolsUpstream.lastBody, "parallel_tool_calls").Exists())
+			require.False(t, gjson.GetBytes(noToolsUpstream.lastBody, "parallel_tool_calls").Bool())
 
 			badRec := httptest.NewRecorder()
 			badCtx, _ := gin.CreateTestContext(badRec)

@@ -591,7 +591,7 @@ export default {
         combinedState: 'Combined status',
         combinedSummary: 'Combined result',
         userTraffic: 'User calls (last {minutes} min)',
-        userTrafficTimeline: 'User calls (last {minutes} min; green = success, red = failure)',
+        userTrafficTimeline: 'User calls (last {minutes} min; green = normal, yellow/orange = slow first token, red = failure or critically slow)',
         activeProbeTimeline: 'Active probe history',
         noUserTraffic: 'No valid user calls in the last 30 minutes',
         timelineSampleCount: '{n} loaded',

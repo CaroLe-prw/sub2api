@@ -37,7 +37,7 @@ vi.mock('vue-i18n', async (importOriginal) => {
         'admin.channelMonitor.dataPanel.combinedState': '综合状态',
         'admin.channelMonitor.dataPanel.combinedSummary': '综合结果',
         'admin.channelMonitor.dataPanel.userTraffic': '用户调用',
-        'admin.channelMonitor.dataPanel.userTrafficTimeline': '用户调用红绿记录',
+        'admin.channelMonitor.dataPanel.userTrafficTimeline': '用户调用按首字速度分色',
         'admin.channelMonitor.dataPanel.activeProbeTimeline': '主动探测记录',
         'admin.channelMonitor.dataPanel.noUserTraffic': '暂无用户调用',
         'admin.channelMonitor.dataPanel.timelineSampleCount': `${params.n ?? 0}条`,
@@ -263,7 +263,7 @@ describe('MonitorModelHistoryDialog', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('用户调用红绿记录')
+    expect(wrapper.text()).toContain('用户调用按首字速度分色')
     expect(wrapper.text()).toContain('主动探测记录')
     const heartbeats = wrapper.findAll('.heartbeat-stub')
     expect(heartbeats).toHaveLength(3)

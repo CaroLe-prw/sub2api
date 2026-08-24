@@ -97,18 +97,26 @@ describe('MonitorHeartbeatTooltip', () => {
     expect(ttftValue?.classList.contains('text-amber-600')).toBe(true)
   })
 
-  it('renders user-call success as green and identifies its source', async () => {
+  it('renders a slow user-call success as yellow and identifies its source', async () => {
     const wrapper = mount(MonitorHeartbeatTooltip, {
       props: { sample: { ...sample, id: 'usage:9', source: 'user', ttft_ms: 10_000 } },
       attachTo: document.body,
     })
 
-    expect(wrapper.get('button').classes()).toContain('bg-emerald-500')
-    expect(wrapper.get('button').classes()).not.toContain('bg-amber-400')
+    expect(wrapper.get('button').classes()).toContain('bg-amber-400')
+    expect(wrapper.get('button').classes()).not.toContain('bg-emerald-500')
 
     await wrapper.get('button').trigger('mouseenter')
 
     expect(document.body.textContent).toContain('真实用户调用')
     expect(wrapper.get('button').attributes('aria-label')).toContain('真实用户调用')
+  })
+
+  it('keeps a fast user-call success green', () => {
+    const wrapper = mount(MonitorHeartbeatTooltip, {
+      props: { sample: { ...sample, id: 'usage:10', source: 'user', ttft_ms: 999 } },
+    })
+
+    expect(wrapper.get('button').classes()).toContain('bg-emerald-500')
   })
 })
