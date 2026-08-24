@@ -136,10 +136,14 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	if account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey {
 		forceReasoningIDStrip := openAIResponsesItemReferenceRecoveryRequested(c)
-		sanitizedBody, changed, sanitizeErr := sanitizeOpenAIResponsesInputItemIDsWithOptions(
-			body,
-			forceReasoningIDStrip || openAIResponsesStoreDisabled(body),
-		)
+		var sanitizedBody []byte
+		var changed bool
+		var sanitizeErr error
+		if forceReasoningIDStrip {
+			sanitizedBody, changed, sanitizeErr = sanitizeOpenAIResponsesInputItemIDsWithOptions(body, true)
+		} else {
+			sanitizedBody, changed, sanitizeErr = sanitizeOpenAIResponsesInputItemIDs(body)
+		}
 		if sanitizeErr != nil {
 			return nil, fmt.Errorf("sanitize OpenAI Responses input item IDs: %w", sanitizeErr)
 		}

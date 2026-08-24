@@ -42,8 +42,7 @@ func shouldStripOpenAIResponsesInputItemIDWithOptions(itemType, id string, strip
 }
 
 func sanitizeOpenAIResponsesInputItemIDs(body []byte) ([]byte, bool, error) {
-	store := gjson.GetBytes(body, "store")
-	return sanitizeOpenAIResponsesInputItemIDsWithOptions(body, store.Exists() && store.Type == gjson.False)
+	return sanitizeOpenAIResponsesInputItemIDsWithOptions(body, openAIResponsesStoreDisabled(body))
 }
 
 func sanitizeOpenAIResponsesInputItemIDsWithOptions(body []byte, stripReasoningIDs bool) ([]byte, bool, error) {
