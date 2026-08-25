@@ -20,6 +20,9 @@ const (
 	// Always refresh a small trailing window so late writes land without
 	// re-aggregating large history every tick.
 	channelMonitorV2RecentOverlap = 10 * time.Minute
+	// Repair a stale forward watermark incrementally after worker downtime. One
+	// bounded chunk per tick avoids both a permanent hole and a catch-up spike.
+	channelMonitorV2ForwardCatchupChunk = time.Hour
 
 	// Gentle backfill: small adaptive chunks, never default 24h hammering.
 	// Initial historical chunk after the 2h seed.
@@ -57,6 +60,9 @@ type ChannelMonitorV2Aggregator struct {
 	backfillAt       time.Time
 	backfillChunk    time.Duration
 	backfillFailures int
+	// dataThrough tracks the exclusive end of the latest contiguous forward
+	// range repaired by this process. It is restored from the durable watermark.
+	dataThrough time.Time
 	// nextWaitFloor is applied after runOnce when failures require backoff.
 	nextWaitFloor time.Duration
 	// cursorLoaded is true after the first successful watermark read (or init).
@@ -66,6 +72,7 @@ type ChannelMonitorV2Aggregator struct {
 	unsub         func()
 	ctx           context.Context
 	cancel        context.CancelFunc
+	now           func() time.Time
 }
 
 func NewChannelMonitorV2Aggregator(repo ChannelMonitorV2Repository, db *sql.DB, settings channelMonitorRuntimeReader) *ChannelMonitorV2Aggregator {
@@ -77,6 +84,7 @@ func NewChannelMonitorV2Aggregator(repo ChannelMonitorV2Repository, db *sql.DB, 
 		stopCh:        make(chan struct{}),
 		kickCh:        make(chan struct{}, 1),
 		backfillChunk: channelMonitorV2BackfillChunkInit,
+		now:           func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -230,7 +238,11 @@ func (s *ChannelMonitorV2Aggregator) runOnce() {
 		defer release()
 	}
 
-	now := time.Now().UTC().Truncate(time.Minute)
+	nowFn := s.now
+	if nowFn == nil {
+		nowFn = func() time.Time { return time.Now().UTC() }
+	}
+	now := nowFn().UTC().Truncate(time.Minute)
 	if err := s.ensureCursor(ctx, now); err != nil {
 		logger.LegacyPrintf("service.channel_monitor_v2", "[ChannelMonitorV2] load watermark failed: %v", err)
 		return
@@ -239,6 +251,7 @@ func (s *ChannelMonitorV2Aggregator) runOnce() {
 	s.mu.Lock()
 	cursor := s.backfillAt
 	hasData := s.hasAggregated
+	dataThrough := s.dataThrough
 	s.mu.Unlock()
 
 	// Phase 1 (first upgrade / empty): seed the default 90m UI window quickly.
@@ -250,7 +263,24 @@ func (s *ChannelMonitorV2Aggregator) runOnce() {
 			s.recordBackfillFailure(now, cursor)
 			return
 		}
+		s.recordDataThrough(now)
 		s.recordBackfillSuccess(start, time.Since(started), now)
+		return
+	}
+
+	// A stopped/failed worker leaves data_through behind wall clock. Repair that
+	// contiguous forward gap before the normal trailing refresh; otherwise the
+	// overlap would jump the watermark to now and make the older hole permanent.
+	if !dataThrough.IsZero() && dataThrough.Before(now.Add(-channelMonitorV2RecentOverlap)) {
+		end := dataThrough.Add(channelMonitorV2ForwardCatchupChunk)
+		if end.After(now) {
+			end = now
+		}
+		if err := s.repo.RecomputeRange(ctx, dataThrough, end); err != nil {
+			logger.LegacyPrintf("service.channel_monitor_v2", "[ChannelMonitorV2] forward catch-up failed %s..%s: %v", dataThrough, end, err)
+			return
+		}
+		s.recordDataThrough(end)
 		return
 	}
 
@@ -259,6 +289,7 @@ func (s *ChannelMonitorV2Aggregator) runOnce() {
 		logger.LegacyPrintf("service.channel_monitor_v2", "[ChannelMonitorV2] overlap aggregation failed: %v", err)
 		return
 	}
+	s.recordDataThrough(now)
 
 	// Phase 2: walk history backward at most one chunk per tick until retention max (90d).
 	// Product UI (30d) fills first; remaining 30–90d continues silently.
@@ -378,6 +409,14 @@ func (s *ChannelMonitorV2Aggregator) recordBackfillFailure(now, end time.Time) {
 	s.nextWaitFloor = floor
 }
 
+func (s *ChannelMonitorV2Aggregator) recordDataThrough(through time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if through.After(s.dataThrough) {
+		s.dataThrough = through
+	}
+}
+
 // ensureCursor restores durable backfill_cursor after process restart so progress
 // and historical walk continue instead of re-seeding only the last 2h.
 func (s *ChannelMonitorV2Aggregator) ensureCursor(ctx context.Context, now time.Time) error {
@@ -397,6 +436,9 @@ func (s *ChannelMonitorV2Aggregator) ensureCursor(ctx context.Context, now time.
 		return nil
 	}
 	if wm != nil {
+		if !wm.DataThrough.IsZero() {
+			s.dataThrough = wm.DataThrough.UTC().Truncate(time.Minute)
+		}
 		if !wm.BackfillCursor.IsZero() {
 			s.backfillAt = wm.BackfillCursor.UTC().Truncate(time.Minute)
 		}

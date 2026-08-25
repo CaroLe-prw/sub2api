@@ -77,6 +77,12 @@ export function formatMonitorSuccessRateFromError(errorRate: number): string {
   return formatMonitorPercent(1 - (errorRate || 0))
 }
 
+/** KPI success rate where sample volume is available; empty windows are unknown. */
+export function formatMonitorSampledSuccessRateFromError(errorRate: number, requestCount: number): string {
+  if (requestCount <= 0) return '-'
+  return formatMonitorSuccessRateFromError(errorRate)
+}
+
 /**
  * Map continuous 0–100 score to 11 fine bands for multi-stop green→yellow→red.
  * score10 = best (green), score0 = worst (red).

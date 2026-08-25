@@ -10,13 +10,15 @@ import (
 )
 
 type channelMonitorV2RepoStub struct {
-	config serviceChannelMonitorV2ConfigAlias
-	users  *ChannelMonitorV2List[ChannelMonitorV2UserRow]
-	matrix *ChannelMonitorV2Matrix
-	errors *ChannelMonitorV2List[ChannelMonitorV2ErrorRow]
-	snap   *ChannelMonitorV2Snapshot
-	group  ChannelMonitorV2GroupBy
-	admin  bool
+	config         serviceChannelMonitorV2ConfigAlias
+	users          *ChannelMonitorV2List[ChannelMonitorV2UserRow]
+	matrix         *ChannelMonitorV2Matrix
+	errors         *ChannelMonitorV2List[ChannelMonitorV2ErrorRow]
+	snap           *ChannelMonitorV2Snapshot
+	watermark      *ChannelMonitorV2AggregationWatermark
+	recomputeCalls [][2]time.Time
+	group          ChannelMonitorV2GroupBy
+	admin          bool
 }
 
 // Alias keeps composite literals readable without introducing another package.
@@ -76,10 +78,15 @@ func (s *channelMonitorV2RepoStub) GetErrors(_ context.Context, _ ChannelMonitor
 func (s *channelMonitorV2RepoStub) GetUsers(context.Context, ChannelMonitorV2Filter, ChannelMonitorV2Config, bool) (*ChannelMonitorV2List[ChannelMonitorV2UserRow], error) {
 	return s.users, nil
 }
-func (s *channelMonitorV2RepoStub) RecomputeRange(context.Context, time.Time, time.Time) error {
+func (s *channelMonitorV2RepoStub) RecomputeRange(_ context.Context, start, end time.Time) error {
+	s.recomputeCalls = append(s.recomputeCalls, [2]time.Time{start, end})
 	return nil
 }
 func (s *channelMonitorV2RepoStub) GetAggregationWatermark(context.Context) (*ChannelMonitorV2AggregationWatermark, error) {
+	if s.watermark != nil {
+		wm := *s.watermark
+		return &wm, nil
+	}
 	return &ChannelMonitorV2AggregationWatermark{}, nil
 }
 

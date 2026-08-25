@@ -47,3 +47,24 @@ func TestChannelMonitorV2AggregatorAdaptiveChunk(t *testing.T) {
 	require.Greater(t, s.backfillChunk, 30*time.Minute)
 	require.LessOrEqual(t, s.backfillChunk, channelMonitorV2MaxChunkForDepth(now, cursor.Add(-30*time.Minute)))
 }
+
+func TestChannelMonitorV2AggregatorRepairsForwardGapBeforeNormalRefresh(t *testing.T) {
+	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	dataThrough := now.Add(-6 * time.Hour)
+	repo := &channelMonitorV2RepoStub{watermark: &ChannelMonitorV2AggregationWatermark{
+		HasData:        true,
+		DataThrough:    dataThrough,
+		BackfillCursor: now.Add(-30 * 24 * time.Hour),
+	}}
+	aggregator := NewChannelMonitorV2Aggregator(repo, nil, nil)
+	aggregator.now = func() time.Time { return now }
+
+	aggregator.runOnce()
+	require.Equal(t, [][2]time.Time{{dataThrough, dataThrough.Add(time.Hour)}}, repo.recomputeCalls)
+
+	aggregator.runOnce()
+	require.Equal(t, [][2]time.Time{
+		{dataThrough, dataThrough.Add(time.Hour)},
+		{dataThrough.Add(time.Hour), dataThrough.Add(2 * time.Hour)},
+	}, repo.recomputeCalls)
+}

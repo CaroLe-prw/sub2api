@@ -202,7 +202,7 @@
       >
         <MetricCell
           :label="t('channelMonitorV2.metrics.successRate')"
-          :value="formatPercent(1 - snapshot.metrics.error_rate)"
+          :value="formatMonitorSampledSuccessRateFromError(snapshot.metrics.error_rate, snapshot.metrics.request_count)"
           :detail="t('channelMonitorV2.metrics.errorRateValue', { value: formatPercent(snapshot.metrics.error_rate) })"
           :state="snapshot.health.error_rate"
         />
@@ -494,6 +494,7 @@ import {
   formatLatencyPrivacy,
   formatMonitorMs,
   formatMonitorPercent,
+  formatMonitorSampledSuccessRateFromError,
   formatMonitorThroughput,
   formatMonitorTokensPerSecond,
   tokensPerSecondFromTpm,

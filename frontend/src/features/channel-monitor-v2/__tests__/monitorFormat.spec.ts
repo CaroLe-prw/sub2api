@@ -6,6 +6,7 @@ import {
   formatMonitorNumber,
   formatMonitorPercent,
   formatMonitorRate,
+  formatMonitorSampledSuccessRateFromError,
   formatMonitorSuccessRate,
   formatMonitorSuccessRateFromError,
   formatMonitorThroughput,
@@ -74,6 +75,11 @@ describe('monitorFormat accuracy', () => {
   it('derives success rate from error_rate without absolute counts', () => {
     expect(formatMonitorSuccessRateFromError(0.1)).toBe('90.0%')
     expect(formatMonitorSuccessRateFromError(0)).toBe('100.0%')
+  })
+
+  it('does not report 100% success when a KPI window has no samples', () => {
+    expect(formatMonitorSampledSuccessRateFromError(0, 0)).toBe('-')
+    expect(formatMonitorSampledSuccessRateFromError(0.1, 10)).toBe('90.0%')
   })
 
   it('maps continuous scores to multi-stop bands', () => {
