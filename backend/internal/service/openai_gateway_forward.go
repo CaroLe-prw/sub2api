@@ -86,9 +86,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			body = compactionBody
 		}
 	}
-	responsesLiteActive := isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) &&
+	responsesLite := account.IsOpenAI() &&
+		isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) &&
 		!serverSideCompaction
-	if responsesLiteActive {
+	if responsesLite {
 		liteBody, changed, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(body, account)
 		if liteErr != nil {
 			param := "tools"
@@ -163,7 +164,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, reqModel)
 	}
 	if account.IsOpenAIApiKey() {
-		if normalized, changed, normalizeErr := normalizeOpenAIParallelToolCallsWithoutTools(body); normalizeErr != nil {
+		if normalized, changed, normalizeErr := normalizeOpenAIParallelToolCallsWithoutTools(body, responsesLite); normalizeErr != nil {
 			return nil, normalizeErr
 		} else if changed {
 			body = normalized
@@ -328,7 +329,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		imageGenerationAllowed = GroupAllowsImageGeneration(apiKey.Group)
 	}
 	codexImageGenerationBridgeEnabled := isCodexCLI &&
-		!responsesLiteActive &&
+		!responsesLite &&
 		!serverSideCompaction &&
 		imageGenerationAllowed &&
 		codexImageGenerationExplicitToolPolicy != codexImageGenerationExplicitToolPolicyStrip &&

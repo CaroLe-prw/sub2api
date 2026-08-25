@@ -1351,6 +1351,7 @@ func TestOpenAIWSHTTPBridgeRelaysSSEFramesAsWebSocketMessages(t *testing.T) {
 	require.False(t, gjson.GetBytes(upstream.lastBody, "type").Exists())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "generate").Exists())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "parallel_tool_calls").Exists())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "parallel_tool_calls").Bool())
 }
 

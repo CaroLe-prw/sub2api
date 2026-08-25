@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -27,8 +26,10 @@ func normalizeOpenAIResponsesLiteTools(reqBody map[string]any) (bool, error) {
 	if reqBody == nil {
 		return false, nil
 	}
-	if err := validateOpenAIResponsesLiteParallelToolCalls(reqBody); err != nil {
-		return false, err
+	if parallel, exists := reqBody["parallel_tool_calls"]; exists {
+		if _, ok := parallel.(bool); !ok {
+			return false, newOpenAIResponsesLiteValidationError("parallel_tool_calls", "responses Lite requires parallel_tool_calls to be a boolean")
+		}
 	}
 	if rawReasoning, exists := reqBody["reasoning"]; exists && rawReasoning != nil {
 		if _, ok := rawReasoning.(map[string]any); !ok {
@@ -98,48 +99,18 @@ func normalizeOpenAIResponsesLiteTools(reqBody map[string]any) (bool, error) {
 	return ensureOpenAIResponsesLiteParallelToolCalls(reqBody, true)
 }
 
-func validateOpenAIResponsesLiteParallelToolCalls(reqBody map[string]any) error {
-	if parallel, exists := reqBody["parallel_tool_calls"]; exists {
-		if _, ok := parallel.(bool); !ok {
-			return newOpenAIResponsesLiteValidationError("parallel_tool_calls", "responses Lite requires parallel_tool_calls to be a boolean")
-		}
-	}
-	return nil
-}
-
 func ensureOpenAIResponsesLiteParallelToolCalls(reqBody map[string]any, changed bool) (bool, error) {
-	// Lite rejects an explicit true even on turns that declare no tools.
-	// Keep an absent field absent for tool-free turns to avoid rewriting it unnecessarily.
 	parallel, exists := reqBody["parallel_tool_calls"]
 	if exists {
-		if parallel == false {
-			return changed, nil
+		if _, ok := parallel.(bool); !ok {
+			return false, newOpenAIResponsesLiteValidationError("parallel_tool_calls", "responses Lite requires parallel_tool_calls to be a boolean")
 		}
-		reqBody["parallel_tool_calls"] = false
-		return true, nil
 	}
-	if !openAIResponsesLiteHasTools(reqBody) {
+	if parallel == false {
 		return changed, nil
 	}
 	reqBody["parallel_tool_calls"] = false
 	return true, nil
-}
-
-func openAIResponsesLiteHasTools(reqBody map[string]any) bool {
-	if tools, ok := reqBody["tools"].([]any); ok && len(tools) > 0 {
-		return true
-	}
-	input, _ := reqBody["input"].([]any)
-	for _, rawItem := range input {
-		item, ok := rawItem.(map[string]any)
-		if !ok || strings.TrimSpace(firstNonEmptyString(item["type"])) != "additional_tools" {
-			continue
-		}
-		if tools, ok := item["tools"].([]any); ok && len(tools) > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 func ensureOpenAIResponsesLiteReasoningContext(reqBody map[string]any) (bool, error) {
@@ -267,7 +238,7 @@ func openAIResponsesLiteToolIdentityForError(rawTool any) string {
 
 func normalizeOpenAIResponsesLiteToolsPayload(body []byte) ([]byte, bool, error) {
 	var requestBody map[string]any
-	if err := json.Unmarshal(body, &requestBody); err != nil {
+	if err := decodeOpenAIJSONUseNumber(body, &requestBody); err != nil {
 		return body, false, fmt.Errorf("decode responses Lite request body: %w", err)
 	}
 	changed, err := normalizeOpenAIResponsesLiteTools(requestBody)
@@ -281,15 +252,10 @@ func normalizeOpenAIResponsesLiteToolsPayload(body []byte) ([]byte, bool, error)
 	return rebuilt, true, nil
 }
 
-// normalizeOpenAIResponsesLiteParallelToolCallsPayload applies the Lite
-// serial-tool-call contract without rewriting API-key tool declarations.
 func normalizeOpenAIResponsesLiteParallelToolCallsPayload(body []byte) ([]byte, bool, error) {
 	var requestBody map[string]any
-	if err := json.Unmarshal(body, &requestBody); err != nil {
+	if err := decodeOpenAIJSONUseNumber(body, &requestBody); err != nil {
 		return body, false, fmt.Errorf("decode responses Lite request body: %w", err)
-	}
-	if err := validateOpenAIResponsesLiteParallelToolCalls(requestBody); err != nil {
-		return body, false, err
 	}
 	changed, err := ensureOpenAIResponsesLiteParallelToolCalls(requestBody, false)
 	if err != nil || !changed {
@@ -303,14 +269,11 @@ func normalizeOpenAIResponsesLiteParallelToolCallsPayload(body []byte) ([]byte, 
 }
 
 func normalizeOpenAIResponsesLitePayloadForAccount(body []byte, account *Account) ([]byte, bool, error) {
-	if account == nil {
+	if account == nil || !account.IsOpenAI() {
 		return body, false, nil
 	}
 	if account.IsOpenAIOAuthLike() {
 		return normalizeOpenAIResponsesLiteToolsPayload(body)
 	}
-	if account.IsOpenAIApiKey() {
-		return normalizeOpenAIResponsesLiteParallelToolCallsPayload(body)
-	}
-	return body, false, nil
+	return normalizeOpenAIResponsesLiteParallelToolCallsPayload(body)
 }
