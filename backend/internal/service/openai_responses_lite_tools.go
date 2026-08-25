@@ -4,11 +4,20 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 type openAIResponsesLiteValidationError struct {
 	param   string
 	message string
+}
+
+func openAIResponsesLiteHeaderFromContext(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	return c.GetHeader(responsesLiteHeader)
 }
 
 func (e *openAIResponsesLiteValidationError) Error() string { return e.message }

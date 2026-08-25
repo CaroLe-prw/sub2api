@@ -613,6 +613,55 @@ func TestOpenAIGatewayServiceForward_DisablesParallelToolCallsForResponsesLiteAP
 	}
 }
 
+func TestOpenAIGatewayServiceForward_HeaderOverrideResponsesLitePinsParallelToolCalls(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, passthrough := range []bool{false, true} {
+		name := "managed"
+		if passthrough {
+			name = "passthrough"
+		}
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader(
+					"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_lite\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n" +
+						"data: [DONE]\n\n",
+				)),
+			}}
+			svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+			account := &Account{
+				ID: 504, Name: "responses-lite-header-override", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Concurrency: 1, Status: StatusActive, Schedulable: true, RateMultiplier: f64p(1),
+				Credentials: map[string]any{
+					"api_key":                 "sk-test",
+					"header_override_enabled": true,
+					"header_overrides": map[string]any{
+						responsesLiteHeaderKey: "true",
+					},
+				},
+				Extra: map[string]any{"openai_passthrough": passthrough},
+			}
+			body := []byte(`{
+				"model":"gpt-5.6-terra","stream":true,
+				"parallel_tool_calls":false,
+				"input":[{"type":"message","role":"user","content":"hello"}]
+			}`)
+
+			result, err := svc.Forward(context.Background(), c, account, body)
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, "true", getHeaderRaw(upstream.lastReq.Header, responsesLiteHeaderKey))
+			require.Equal(t, gjson.False, gjson.GetBytes(upstream.lastBody, "parallel_tool_calls").Type, string(upstream.lastBody))
+		})
+	}
+}
+
 func TestNormalizeOpenAIResponsesLitePayloadForAccount_APIKeyOnlyForcesSerialToolCalls(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-5.6-sol",

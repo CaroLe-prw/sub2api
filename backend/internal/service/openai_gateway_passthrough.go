@@ -258,7 +258,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthroughAttempt(
 		}
 	}
 	if account != nil && account.IsOpenAI() {
-		responsesLite := isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || isOpenAIResponsesLiteWebSocketPayload(body)
+		responsesLite := isOpenAIResponsesLiteHeaderEnabledForAccount(openAIResponsesLiteHeaderFromContext(c), account) || isOpenAIResponsesLiteWebSocketPayload(body)
 		normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(body, account, responsesLite)
 		if normalizeErr != nil {
 			return nil, fmt.Errorf("normalize passthrough Responses compatibility: %w", normalizeErr)
@@ -845,6 +845,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
+	if isOpenAIServerSideCompactionRequest(c, body) {
+		deleteHeaderAllForms(req.Header, responsesLiteHeaderKey)
+	}
 	// x-codex-beta-features：按真实 Codex 的会话级行为补注（在账号级覆写之后，
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)
@@ -2100,8 +2103,15 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverError(
 	if retryableIfNoOtherAccount {
 		retryableOnSameAccount = false
 	}
-	failoverErr := s.newOpenAIAccountFailoverError(
-		account, statusCode, headers, payload, message, shouldDisable,
+	// 流终止事件承载在 HTTP 200 内，外层响应头描述的是成功流状态，而不是语义上的
+	// 429 事件。仅在配额分类时忽略这些头；故障转移错误仍保留它们，使 Retry-After
+	// 和请求 ID 能继续传递给后续处理。
+	classificationHeaders := headers
+	if statusCode == http.StatusTooManyRequests {
+		classificationHeaders = nil
+	}
+	failoverErr := s.newOpenAIAccountFailoverErrorWithClassificationHeaders(
+		account, statusCode, headers, classificationHeaders, payload, message, shouldDisable,
 		retryableOnSameAccount, retryableIfNoOtherAccount,
 	)
 	if !failoverErr.IsCredentialFailure() && !failoverErr.RequestScopedTransient {

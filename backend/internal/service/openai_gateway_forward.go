@@ -77,7 +77,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 	serverSideCompaction := isOpenAIServerSideCompactionRequest(c, body)
-	if serverSideCompaction && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) {
+	responsesLiteRequested := account.IsOpenAI() &&
+		isOpenAIResponsesLiteHeaderEnabledForAccount(openAIResponsesLiteHeaderFromContext(c), account)
+	if serverSideCompaction && responsesLiteRequested {
 		compactionBody, changed, compactErr := stripOpenAIResponsesLiteInput(body)
 		if compactErr != nil {
 			return nil, compactErr
@@ -86,9 +88,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			body = compactionBody
 		}
 	}
-	responsesLite := account.IsOpenAI() &&
-		isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) &&
-		!serverSideCompaction
+	responsesLite := responsesLiteRequested && !serverSideCompaction
 	if responsesLite {
 		liteBody, changed, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(body, account)
 		if liteErr != nil {
@@ -1469,6 +1469,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
+	if isOpenAIServerSideCompactionRequest(c, body) {
+		deleteHeaderAllForms(req.Header, responsesLiteHeaderKey)
+	}
 	// x-codex-beta-features：按真实 Codex 的会话级行为补注（在账号级覆写之后，
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)

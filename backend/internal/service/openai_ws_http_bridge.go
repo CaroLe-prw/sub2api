@@ -634,6 +634,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	}
 	responseModelObserver := &upstreamResponseModelObserver{}
 
+	responsesLite := !hasOpenAIServerSideCompactionInBody(payload) &&
+		(isOpenAIResponsesLiteWebSocketPayload(payload) ||
+			isOpenAIResponsesLiteHeaderEnabledForAccount(openAIResponsesLiteHeaderFromContext(c), account))
 	payload, _, err := stripOpenAIResponsesLiteWSMetadataForCompaction(payload)
 	if err != nil {
 		return nil, err
@@ -642,7 +645,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	if err != nil {
 		return nil, err
 	}
-	if isOpenAIResponsesLiteWebSocketPayload(payload) {
+	if responsesLite {
 		litePayload, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(payload, account)
 		if liteErr != nil {
 			return nil, liteErr
@@ -693,7 +696,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			LoweredTools:  loweredTools,
 		})
 	}
-	if account.Platform != PlatformGrok && isOpenAIResponsesLiteWebSocketPayload(payload) {
+	if account.Platform != PlatformGrok && responsesLite {
 		liteBody, liteChanged, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(body, account)
 		if liteErr != nil {
 			return nil, fmt.Errorf("normalize responses Lite payload: %w", liteErr)
@@ -716,7 +719,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if buildErr != nil {
 			return nil, buildErr
 		}
-		if account.Platform != PlatformGrok && isOpenAIResponsesLiteWebSocketPayload(payload) {
+		if account.Platform != PlatformGrok && responsesLite {
 			upstreamReq.Header.Set(responsesLiteHeader, "true")
 		}
 		return upstreamReq, nil

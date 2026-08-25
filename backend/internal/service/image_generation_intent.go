@@ -19,6 +19,19 @@ func isOpenAIResponsesLiteHeader(value string) bool {
 	return strings.EqualFold(strings.TrimSpace(value), "true")
 }
 
+// isOpenAIResponsesLiteHeaderEnabledForAccount resolves the header value that
+// will actually be sent upstream. API-key account header overrides are applied
+// after ingress normalization, so they must participate in the earlier Lite
+// payload decision as well.
+func isOpenAIResponsesLiteHeaderEnabledForAccount(inboundValue string, account *Account) bool {
+	if account != nil {
+		if override, ok := account.HeaderOverrideValue(responsesLiteHeaderKey); ok {
+			return isOpenAIResponsesLiteHeader(override)
+		}
+	}
+	return isOpenAIResponsesLiteHeader(inboundValue)
+}
+
 func isOpenAIResponsesLiteWebSocketPayload(body []byte) bool {
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return false
