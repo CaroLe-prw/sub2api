@@ -1379,7 +1379,10 @@ type GatewayOpenAIWSSchedulerScoreWeights struct {
 	Load      float64 `mapstructure:"load"`
 	Queue     float64 `mapstructure:"queue"`
 	ErrorRate float64 `mapstructure:"error_rate"`
-	TTFT      float64 `mapstructure:"ttft"`
+	// TTFT controls both the normalized base-score contribution and a bounded
+	// probabilistic preference during Top-K selection. It never makes the
+	// fastest account an unconditional winner.
+	TTFT float64 `mapstructure:"ttft"`
 	// Reset 倾向「会话窗口最早重置」的账号（use-it-or-lose-it）。
 	// >0 时，剩余重置时间越短的账号得分越高，从而被优先用尽。
 	Reset float64 `mapstructure:"reset"`

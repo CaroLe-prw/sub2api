@@ -509,13 +509,13 @@ func buildGatewayGroupSelectionOrder(
 	if topK <= 0 {
 		topK = 1
 	}
-	top := selectTopKOpenAICandidates(eligible, topK)
-	primary := buildOpenAIWeightedSelectionOrder(top, OpenAIAccountScheduleRequest{
+	top := selectTopKOpenAICandidatesWithTTFTPreference(eligible, topK, policy.config.TTFT)
+	primary := buildOpenAIWeightedSelectionOrderWithTTFTBias(top, OpenAIAccountScheduleRequest{
 		GroupID:         groupID,
 		SessionHash:     sessionHash,
 		RequestedModel:  requestedModel,
 		StickyAccountID: stickyAccountID,
-	})
+	}, policy.config.TTFT)
 
 	selected := make(map[int64]struct{}, len(primary))
 	orderedScores := make([]openAIAccountCandidateScore, 0, len(eligible))

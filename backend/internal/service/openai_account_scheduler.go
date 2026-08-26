@@ -183,7 +183,7 @@ type openAIAccountLoadPlan struct {
 	candidateCount            int
 	topK                      int
 	loadSkew                  float64
-	preferFastTTFT            bool
+	ttftPreferenceWeight      float64
 	includeOverflowFallback   bool
 }
 
@@ -1346,12 +1346,25 @@ func buildOpenAIWeightedSelectionOrder(
 	candidates []openAIAccountCandidateScore,
 	req OpenAIAccountScheduleRequest,
 ) []openAIAccountCandidateScore {
+	return buildOpenAIWeightedSelectionOrderWithTTFTBias(candidates, req, 0)
+}
+
+// buildOpenAIWeightedSelectionOrderWithTTFTBias keeps every candidate's draw
+// weight positive while giving faster measured TTFT a bounded multiplier. It
+// deliberately remains probabilistic: latency is a preference, not a hard
+// routing rule, and unmeasured accounts keep an exploration path.
+func buildOpenAIWeightedSelectionOrderWithTTFTBias(
+	candidates []openAIAccountCandidateScore,
+	req OpenAIAccountScheduleRequest,
+	ttftPreferenceWeight float64,
+) []openAIAccountCandidateScore {
 	if len(candidates) <= 1 {
 		return append([]openAIAccountCandidateScore(nil), candidates...)
 	}
 
 	pool := append([]openAIAccountCandidateScore(nil), candidates...)
 	weights := make([]float64, len(pool))
+	ttftMultipliers := openAITTFTSelectionMultipliers(pool, ttftPreferenceWeight)
 	minScore := pool[0].score
 	for i := 1; i < len(pool); i++ {
 		if pool[i].score < minScore {
@@ -1364,7 +1377,7 @@ func buildOpenAIWeightedSelectionOrder(
 		if math.IsNaN(weight) || math.IsInf(weight, 0) || weight <= 0 {
 			weight = 1.0
 		}
-		weights[i] = weight
+		weights[i] = weight * ttftMultipliers[i]
 	}
 
 	order := make([]openAIAccountCandidateScore, 0, len(pool))
@@ -1393,37 +1406,101 @@ func buildOpenAIWeightedSelectionOrder(
 		order = append(order, pool[selectedIdx])
 		pool = append(pool[:selectedIdx], pool[selectedIdx+1:]...)
 		weights = append(weights[:selectedIdx], weights[selectedIdx+1:]...)
+		ttftMultipliers = append(ttftMultipliers[:selectedIdx], ttftMultipliers[selectedIdx+1:]...)
 	}
 	return order
 }
 
-// prioritizeFastestOpenAITTFTCandidate makes measured first-token latency
-// authoritative for the first acquisition attempt while preserving the
-// existing weighted order for fallbacks. Requiring at least two measured
-// candidates keeps a single known sample from starving unmeasured accounts.
-func prioritizeFastestOpenAITTFTCandidate(order []openAIAccountCandidateScore) []openAIAccountCandidateScore {
-	fastestIndex := -1
-	fastestTTFT := math.MaxFloat64
-	measured := 0
-	for i := range order {
-		candidate := order[i]
-		if !candidate.hasTTFT || candidate.ttft <= 0 || math.IsNaN(candidate.ttft) || math.IsInf(candidate.ttft, 0) {
+func openAITTFTSelectionMultipliers(candidates []openAIAccountCandidateScore, preferenceWeight float64) []float64 {
+	multipliers := make([]float64, len(candidates))
+	for i := range multipliers {
+		multipliers[i] = 1
+	}
+	if preferenceWeight <= 0 || math.IsNaN(preferenceWeight) || math.IsInf(preferenceWeight, 0) {
+		return multipliers
+	}
+
+	minTTFT, maxTTFT, measured := openAIMeasuredTTFTRange(candidates)
+	if measured < 2 || !(maxTTFT > minTTFT) {
+		return multipliers
+	}
+	// A configuration can intentionally request a strong TTFT preference, but
+	// cap the extra draw multiplier so slower accounts always retain a non-zero
+	// exploration path.
+	strength := math.Min(preferenceWeight, 4)
+	for i, candidate := range candidates {
+		if !validOpenAICandidateTTFT(candidate) {
 			continue
 		}
+		factor := 1 - clamp01((candidate.ttft-minTTFT)/(maxTTFT-minTTFT))
+		multipliers[i] = 1 + strength*factor
+	}
+	return multipliers
+}
+
+func openAIMeasuredTTFTRange(candidates []openAIAccountCandidateScore) (minTTFT float64, maxTTFT float64, measured int) {
+	for _, candidate := range candidates {
+		if !validOpenAICandidateTTFT(candidate) {
+			continue
+		}
+		if measured == 0 {
+			minTTFT, maxTTFT = candidate.ttft, candidate.ttft
+		} else {
+			minTTFT = math.Min(minTTFT, candidate.ttft)
+			maxTTFT = math.Max(maxTTFT, candidate.ttft)
+		}
 		measured++
-		if candidate.ttft < fastestTTFT {
+	}
+	return minTTFT, maxTTFT, measured
+}
+
+func validOpenAICandidateTTFT(candidate openAIAccountCandidateScore) bool {
+	return candidate.hasTTFT && candidate.ttft > 0 && !math.IsNaN(candidate.ttft) && !math.IsInf(candidate.ttft, 0)
+}
+
+// selectTopKOpenAICandidatesWithTTFTPreference keeps comprehensive score as
+// the main admission rule but, when Top-K has room for exploration, reserves
+// one slot for the fastest account backed by comparative TTFT evidence.
+func selectTopKOpenAICandidatesWithTTFTPreference(
+	candidates []openAIAccountCandidateScore,
+	topK int,
+	ttftPreferenceWeight float64,
+) []openAIAccountCandidateScore {
+	top := selectTopKOpenAICandidates(candidates, topK)
+	if ttftPreferenceWeight <= 0 || topK < 2 || len(top) < 2 || len(top) >= len(candidates) {
+		return top
+	}
+
+	_, _, measured := openAIMeasuredTTFTRange(candidates)
+	if measured < 2 {
+		return top
+	}
+	fastestIndex := -1
+	fastestTTFT := math.MaxFloat64
+	for i, candidate := range candidates {
+		if validOpenAICandidateTTFT(candidate) && candidate.ttft < fastestTTFT {
 			fastestIndex = i
 			fastestTTFT = candidate.ttft
 		}
 	}
-	if measured < 2 || fastestIndex <= 0 {
-		return order
+	if fastestIndex < 0 {
+		return top
+	}
+	if candidates[fastestIndex].account == nil {
+		return top
+	}
+	fastestID := candidates[fastestIndex].account.ID
+	for _, candidate := range top {
+		if candidate.account != nil && candidate.account.ID == fastestID {
+			return top
+		}
 	}
 
-	fastest := order[fastestIndex]
-	copy(order[1:fastestIndex+1], order[:fastestIndex])
-	order[0] = fastest
-	return order
+	top[len(top)-1] = candidates[fastestIndex]
+	sort.Slice(top, func(i, j int) bool {
+		return isOpenAIAccountCandidateBetter(top[i], top[j])
+	})
+	return top
 }
 
 func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
@@ -1549,7 +1626,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	plan.loadSkew = calcLoadSkewByMoments(loadRateSum, loadRateSumSquares, len(candidates))
 
 	weights := s.service.openAIWSSchedulerWeightsForRequest(ctx)
-	plan.preferFastTTFT = weights.TTFT > 0
+	plan.ttftPreferenceWeight = weights.TTFT
 	now := time.Now()
 	upstreamCostFactors := map[int64]float64(nil)
 	if req.UseUpstreamTokenCost && weights.UpstreamCost > 0 {
@@ -1728,11 +1805,8 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		if groupTopK > len(pool) {
 			groupTopK = len(pool)
 		}
-		ranked := selectTopKOpenAICandidates(pool, groupTopK)
-		primary := buildOpenAIWeightedSelectionOrder(ranked, req)
-		if plan.preferFastTTFT {
-			primary = prioritizeFastestOpenAITTFTCandidate(primary)
-		}
+		ranked := selectTopKOpenAICandidatesWithTTFTPreference(pool, groupTopK, plan.ttftPreferenceWeight)
+		primary := buildOpenAIWeightedSelectionOrderWithTTFTBias(ranked, req, plan.ttftPreferenceWeight)
 		if !plan.includeOverflowFallback || groupTopK >= len(pool) {
 			return primary
 		}

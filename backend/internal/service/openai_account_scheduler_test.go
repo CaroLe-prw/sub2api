@@ -3703,25 +3703,34 @@ func TestBuildOpenAIWeightedSelectionOrder_DeterministicBySessionSeed(t *testing
 	}
 }
 
-func TestBuildOpenAISelectionOrder_PrioritizesFastestMeasuredTTFT(t *testing.T) {
+func TestBuildOpenAISelectionOrder_BiasesTowardFastestMeasuredTTFTWithoutForcingIt(t *testing.T) {
 	scheduler := &defaultOpenAIAccountScheduler{}
 	plan := openAIAccountLoadPlan{
 		candidates: []openAIAccountCandidateScore{
-			{account: &Account{ID: 111}, loadInfo: &AccountLoadInfo{}, score: 9, ttft: 12_000, hasTTFT: true},
-			{account: &Account{ID: 112}, loadInfo: &AccountLoadInfo{}, score: 8, ttft: 900, hasTTFT: true},
-			{account: &Account{ID: 113}, loadInfo: &AccountLoadInfo{}, score: 7, ttft: 4_000, hasTTFT: true},
+			{account: &Account{ID: 111}, loadInfo: &AccountLoadInfo{}, score: 3, ttft: 12_000, hasTTFT: true},
+			{account: &Account{ID: 112}, loadInfo: &AccountLoadInfo{}, score: 3, ttft: 900, hasTTFT: true},
 		},
-		topK:           3,
-		preferFastTTFT: true,
+		topK:                 2,
+		ttftPreferenceWeight: 2.5,
 	}
 
-	order := scheduler.buildOpenAISelectionOrder(OpenAIAccountScheduleRequest{
-		SessionHash:    "ttft_first",
-		RequestedModel: "gpt-5.6",
-	}, plan)
+	fastFirst := 0
+	slowFirst := 0
+	for i := 0; i < 512; i++ {
+		order := scheduler.buildOpenAISelectionOrder(OpenAIAccountScheduleRequest{
+			SessionHash:    fmt.Sprintf("ttft_bias_%d", i),
+			RequestedModel: "gpt-5.6",
+		}, plan)
+		require.Len(t, order, 2)
+		if order[0].account.ID == 112 {
+			fastFirst++
+		} else {
+			slowFirst++
+		}
+	}
 
-	require.Len(t, order, 3)
-	require.Equal(t, int64(112), order[0].account.ID)
+	require.Greater(t, fastFirst, slowFirst)
+	require.Positive(t, slowFirst, "TTFT tendency must preserve exploration instead of forcing the fastest account")
 }
 
 func TestBuildOpenAISelectionOrder_TTFTWeightZeroKeepsWeightedOrder(t *testing.T) {
@@ -3731,8 +3740,8 @@ func TestBuildOpenAISelectionOrder_TTFTWeightZeroKeepsWeightedOrder(t *testing.T
 			{account: &Account{ID: 131}, loadInfo: &AccountLoadInfo{}, score: 9, ttft: 12_000, hasTTFT: true},
 			{account: &Account{ID: 132}, loadInfo: &AccountLoadInfo{}, score: 8, ttft: 900, hasTTFT: true},
 		},
-		topK:           2,
-		preferFastTTFT: false,
+		topK:                 2,
+		ttftPreferenceWeight: 0,
 	}
 	req := OpenAIAccountScheduleRequest{SessionHash: "ttft_disabled", RequestedModel: "gpt-5.6"}
 	want := buildOpenAIWeightedSelectionOrder(selectTopKOpenAICandidates(plan.candidates, plan.topK), req)
@@ -3745,14 +3754,42 @@ func TestBuildOpenAISelectionOrder_TTFTWeightZeroKeepsWeightedOrder(t *testing.T
 	}
 }
 
-func TestPrioritizeFastestOpenAITTFTCandidate_PreservesExplorationWithOneSample(t *testing.T) {
-	order := []openAIAccountCandidateScore{
-		{account: &Account{ID: 121}},
-		{account: &Account{ID: 122}, ttft: 900, hasTTFT: true},
+func TestSelectTopKOpenAICandidatesWithTTFTPreference_ReservesOneSlotForFastestMeasured(t *testing.T) {
+	candidates := []openAIAccountCandidateScore{
+		{account: &Account{ID: 121}, loadInfo: &AccountLoadInfo{}, score: 9, ttft: 12_000, hasTTFT: true},
+		{account: &Account{ID: 122}, loadInfo: &AccountLoadInfo{}, score: 8, ttft: 4_000, hasTTFT: true},
+		{account: &Account{ID: 123}, loadInfo: &AccountLoadInfo{}, score: 1, ttft: 900, hasTTFT: true},
 	}
 
-	got := prioritizeFastestOpenAITTFTCandidate(order)
+	got := selectTopKOpenAICandidatesWithTTFTPreference(candidates, 2, 2.5)
 
+	require.Len(t, got, 2)
+	require.Equal(t, int64(121), got[0].account.ID)
+	require.Equal(t, int64(123), got[1].account.ID)
+}
+
+func TestSelectTopKOpenAICandidatesWithTTFTPreference_DoesNotForceTopKOne(t *testing.T) {
+	candidates := []openAIAccountCandidateScore{
+		{account: &Account{ID: 121}, loadInfo: &AccountLoadInfo{}, score: 9, ttft: 12_000, hasTTFT: true},
+		{account: &Account{ID: 122}, loadInfo: &AccountLoadInfo{}, score: 1, ttft: 900, hasTTFT: true},
+	}
+
+	got := selectTopKOpenAICandidatesWithTTFTPreference(candidates, 1, 2.5)
+
+	require.Len(t, got, 1)
+	require.Equal(t, int64(121), got[0].account.ID)
+}
+
+func TestSelectTopKOpenAICandidatesWithTTFTPreference_RequiresComparativeSamples(t *testing.T) {
+	candidates := []openAIAccountCandidateScore{
+		{account: &Account{ID: 121}, loadInfo: &AccountLoadInfo{}, score: 9},
+		{account: &Account{ID: 122}, loadInfo: &AccountLoadInfo{}, score: 8},
+		{account: &Account{ID: 123}, loadInfo: &AccountLoadInfo{}, score: 1, ttft: 900, hasTTFT: true},
+	}
+
+	got := selectTopKOpenAICandidatesWithTTFTPreference(candidates, 2, 2.5)
+
+	require.Len(t, got, 2)
 	require.Equal(t, int64(121), got[0].account.ID)
 	require.Equal(t, int64(122), got[1].account.ID)
 }

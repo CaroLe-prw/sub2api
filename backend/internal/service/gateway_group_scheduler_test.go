@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -121,6 +122,48 @@ func TestBuildGatewayGroupSelectionOrderUsesSharedProbeHealth(t *testing.T) {
 
 	require.True(t, ok)
 	require.Equal(t, healthy.ID, order[0].account.ID)
+}
+
+func TestBuildGatewayGroupSelectionOrderBiasesTowardFastTTFTWithoutForcingIt(t *testing.T) {
+	groupID := int64(20)
+	slow := &Account{ID: 1, Platform: PlatformGemini, Priority: 1}
+	fast := &Account{ID: 2, Platform: PlatformGemini, Priority: 1}
+	stats := newOpenAIAccountRuntimeStats()
+	slowTTFT := 8_000
+	fastTTFT := 800
+	stats.reportProbe(slow.ID, "gemini-2.5-pro", true, &slowTTFT)
+	stats.reportProbe(fast.ID, "gemini-2.5-pro", true, &fastTTFT)
+	ctx := gatewaySchedulerTestPolicy(resolvedGroupOpenAISchedulerConfig{
+		TopK: 2,
+		TTFT: 2.5,
+	})
+	ctx = withGatewaySchedulerHealthStats(ctx, stats)
+
+	fastFirst := 0
+	slowFirst := 0
+	for i := 0; i < 512; i++ {
+		order, ok := buildGatewayGroupSelectionOrder(
+			ctx,
+			&groupID,
+			[]accountWithLoad{
+				{account: slow, loadInfo: &AccountLoadInfo{AccountID: slow.ID}},
+				{account: fast, loadInfo: &AccountLoadInfo{AccountID: fast.ID}},
+			},
+			0,
+			fmt.Sprintf("ttft_bias_%d", i),
+			"gemini-2.5-pro",
+		)
+		require.True(t, ok)
+		require.Len(t, order, 2)
+		if order[0].account.ID == fast.ID {
+			fastFirst++
+		} else {
+			slowFirst++
+		}
+	}
+
+	require.Greater(t, fastFirst, slowFirst)
+	require.Positive(t, slowFirst, "TTFT tendency must preserve exploration instead of forcing the fastest account")
 }
 
 func TestBuildGatewayGroupSelectionOrderDoesNotLetPriorityOverrideKnownFailure(t *testing.T) {
