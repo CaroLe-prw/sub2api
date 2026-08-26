@@ -446,19 +446,20 @@ func buildGatewayGroupSelectionOrder(
 		}
 		// Quota headroom remains neutral for the generic gateway until every
 		// provider exposes equivalent reset-window data.
-		candidate.score =
+		candidate.primaryScore =
 			weights.Priority*priorityFactor +
 				weights.Load*loadFactor +
 				weights.Queue*queueFactor +
 				weights.ErrorRate*errorFactor +
-				weights.TTFT*ttftFactor +
 				weights.Reset*resetFactor +
 				weights.QuotaHeadroom*0.5 +
 				weights.UpstreamCost*(costFactor-openAIUpstreamCostNeutralFactor)
+		candidate.score = candidate.primaryScore + weights.TTFT*ttftFactor
 		if policy.config.StickyWeightedEnabled &&
 			!candidate.excluded &&
 			stickyAccountID > 0 &&
 			candidate.account.ID == stickyAccountID {
+			candidate.primaryScore += weights.SessionSticky
 			candidate.score += weights.SessionSticky
 			stickyBonuses[candidate.account.ID] = weights.SessionSticky
 		}
@@ -509,7 +510,8 @@ func buildGatewayGroupSelectionOrder(
 	if topK <= 0 {
 		topK = 1
 	}
-	top := selectTopKOpenAICandidatesWithTTFTPreference(eligible, topK, policy.config.TTFT)
+	// All presets apply their non-TTFT policy before the secondary TTFT bias.
+	top := selectTopKOpenAIPrimaryCandidates(eligible, topK)
 	primary := buildOpenAIWeightedSelectionOrderWithTTFTBias(top, OpenAIAccountScheduleRequest{
 		GroupID:         groupID,
 		SessionHash:     sessionHash,
@@ -530,7 +532,7 @@ func buildGatewayGroupSelectionOrder(
 		}
 	}
 	sort.SliceStable(overflow, func(i, j int) bool {
-		return isOpenAIAccountCandidateBetter(overflow[i], overflow[j])
+		return isOpenAIAccountCandidatePrimaryBetter(overflow[i], overflow[j])
 	})
 	orderedScores = append(orderedScores, overflow...)
 

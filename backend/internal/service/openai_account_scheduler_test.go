@@ -3754,44 +3754,39 @@ func TestBuildOpenAISelectionOrder_TTFTWeightZeroKeepsWeightedOrder(t *testing.T
 	}
 }
 
-func TestSelectTopKOpenAICandidatesWithTTFTPreference_ReservesOneSlotForFastestMeasured(t *testing.T) {
-	candidates := []openAIAccountCandidateScore{
-		{account: &Account{ID: 121}, loadInfo: &AccountLoadInfo{}, score: 9, ttft: 12_000, hasTTFT: true},
-		{account: &Account{ID: 122}, loadInfo: &AccountLoadInfo{}, score: 8, ttft: 4_000, hasTTFT: true},
-		{account: &Account{ID: 123}, loadInfo: &AccountLoadInfo{}, score: 1, ttft: 900, hasTTFT: true},
+func TestBuildOpenAISelectionOrder_TTFTBiasDoesNotOverrideTopKAdmission(t *testing.T) {
+	scheduler := &defaultOpenAIAccountScheduler{}
+	plan := openAIAccountLoadPlan{
+		candidates: []openAIAccountCandidateScore{
+			{account: &Account{ID: 121}, loadInfo: &AccountLoadInfo{}, primaryScore: 9, score: 9, ttft: 12_000, hasTTFT: true},
+			{account: &Account{ID: 122}, loadInfo: &AccountLoadInfo{}, primaryScore: 8, score: 8, ttft: 4_000, hasTTFT: true},
+			// Even a very high complete score cannot cross a lower primary-policy
+			// admission boundary merely because this account has faster TTFT.
+			{account: &Account{ID: 123}, loadInfo: &AccountLoadInfo{}, primaryScore: 1, score: 20, ttft: 900, hasTTFT: true},
+		},
+		topK:                 2,
+		ttftPreferenceWeight: 2.5,
 	}
 
-	got := selectTopKOpenAICandidatesWithTTFTPreference(candidates, 2, 2.5)
+	got := scheduler.buildOpenAISelectionOrder(OpenAIAccountScheduleRequest{
+		SessionHash:    "cost_first_ttft_second",
+		RequestedModel: "gpt-5.6",
+	}, plan)
 
 	require.Len(t, got, 2)
-	require.Equal(t, int64(121), got[0].account.ID)
-	require.Equal(t, int64(123), got[1].account.ID)
+	require.ElementsMatch(t, []int64{121, 122}, []int64{got[0].account.ID, got[1].account.ID})
 }
 
-func TestSelectTopKOpenAICandidatesWithTTFTPreference_DoesNotForceTopKOne(t *testing.T) {
+func TestSelectTopKOpenAIPrimaryCandidates_UsesTTFTCompleteScoreToBreakPrimaryTie(t *testing.T) {
 	candidates := []openAIAccountCandidateScore{
-		{account: &Account{ID: 121}, loadInfo: &AccountLoadInfo{}, score: 9, ttft: 12_000, hasTTFT: true},
-		{account: &Account{ID: 122}, loadInfo: &AccountLoadInfo{}, score: 1, ttft: 900, hasTTFT: true},
+		{account: &Account{ID: 141}, loadInfo: &AccountLoadInfo{}, primaryScore: 5, score: 5.5},
+		{account: &Account{ID: 142}, loadInfo: &AccountLoadInfo{}, primaryScore: 5, score: 7.5},
 	}
 
-	got := selectTopKOpenAICandidatesWithTTFTPreference(candidates, 1, 2.5)
+	got := selectTopKOpenAIPrimaryCandidates(candidates, 1)
 
 	require.Len(t, got, 1)
-	require.Equal(t, int64(121), got[0].account.ID)
-}
-
-func TestSelectTopKOpenAICandidatesWithTTFTPreference_RequiresComparativeSamples(t *testing.T) {
-	candidates := []openAIAccountCandidateScore{
-		{account: &Account{ID: 121}, loadInfo: &AccountLoadInfo{}, score: 9},
-		{account: &Account{ID: 122}, loadInfo: &AccountLoadInfo{}, score: 8},
-		{account: &Account{ID: 123}, loadInfo: &AccountLoadInfo{}, score: 1, ttft: 900, hasTTFT: true},
-	}
-
-	got := selectTopKOpenAICandidatesWithTTFTPreference(candidates, 2, 2.5)
-
-	require.Len(t, got, 2)
-	require.Equal(t, int64(121), got[0].account.ID)
-	require.Equal(t, int64(122), got[1].account.ID)
+	require.Equal(t, int64(142), got[0].account.ID)
 }
 
 func TestBuildOpenAISelectionOrder_WeightedStickyIsNotForcedFirst(t *testing.T) {

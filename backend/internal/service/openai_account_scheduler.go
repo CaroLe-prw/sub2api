@@ -1115,16 +1115,17 @@ func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int6
 }
 
 type openAIAccountCandidateScore struct {
-	account   *Account
-	loadInfo  *AccountLoadInfo
-	loadKnown bool
-	excluded  bool
-	baseScore float64
-	score     float64
-	priority  int
-	errorRate float64
-	ttft      float64
-	hasTTFT   bool
+	account      *Account
+	loadInfo     *AccountLoadInfo
+	loadKnown    bool
+	excluded     bool
+	primaryScore float64
+	baseScore    float64
+	score        float64
+	priority     int
+	errorRate    float64
+	ttft         float64
+	hasTTFT      bool
 }
 
 func (o *openAIAccountScheduleObservation) recordStickyEscape(accountID int64, reason string) {
@@ -1236,6 +1237,36 @@ func (h *openAIAccountCandidateHeap) Pop() any {
 	return last
 }
 
+type openAIAccountPrimaryCandidateHeap []openAIAccountCandidateScore
+
+func (h openAIAccountPrimaryCandidateHeap) Len() int {
+	return len(h)
+}
+
+func (h openAIAccountPrimaryCandidateHeap) Less(i, j int) bool {
+	return isOpenAIAccountCandidatePrimaryBetter(h[j], h[i])
+}
+
+func (h openAIAccountPrimaryCandidateHeap) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+}
+
+func (h *openAIAccountPrimaryCandidateHeap) Push(x any) {
+	candidate, ok := x.(openAIAccountCandidateScore)
+	if !ok {
+		panic("openAIAccountPrimaryCandidateHeap: invalid element type")
+	}
+	*h = append(*h, candidate)
+}
+
+func (h *openAIAccountPrimaryCandidateHeap) Pop() any {
+	old := *h
+	n := len(old)
+	last := old[n-1]
+	*h = old[:n-1]
+	return last
+}
+
 func isOpenAIAccountCandidateBetter(left openAIAccountCandidateScore, right openAIAccountCandidateScore) bool {
 	if left.score != right.score {
 		return left.score > right.score
@@ -1250,6 +1281,15 @@ func isOpenAIAccountCandidateBetter(left openAIAccountCandidateScore, right open
 		return left.loadInfo.WaitingCount < right.loadInfo.WaitingCount
 	}
 	return left.account.ID < right.account.ID
+}
+
+func isOpenAIAccountCandidatePrimaryBetter(left openAIAccountCandidateScore, right openAIAccountCandidateScore) bool {
+	if left.primaryScore != right.primaryScore {
+		return left.primaryScore > right.primaryScore
+	}
+	// TTFT may break an exact primary-policy tie, but cannot override a better
+	// result from the preset's non-TTFT factors.
+	return isOpenAIAccountCandidateBetter(left, right)
 }
 
 func selectTopKOpenAICandidates(candidates []openAIAccountCandidateScore, topK int) []openAIAccountCandidateScore {
@@ -1283,6 +1323,41 @@ func selectTopKOpenAICandidates(candidates []openAIAccountCandidateScore, topK i
 	copy(ranked, best)
 	sort.Slice(ranked, func(i, j int) bool {
 		return isOpenAIAccountCandidateBetter(ranked[i], ranked[j])
+	})
+	return ranked
+}
+
+func selectTopKOpenAIPrimaryCandidates(candidates []openAIAccountCandidateScore, topK int) []openAIAccountCandidateScore {
+	if len(candidates) == 0 {
+		return nil
+	}
+	if topK <= 0 {
+		topK = 1
+	}
+	if topK >= len(candidates) {
+		ranked := append([]openAIAccountCandidateScore(nil), candidates...)
+		sort.Slice(ranked, func(i, j int) bool {
+			return isOpenAIAccountCandidatePrimaryBetter(ranked[i], ranked[j])
+		})
+		return ranked
+	}
+
+	best := make(openAIAccountPrimaryCandidateHeap, 0, topK)
+	for _, candidate := range candidates {
+		if len(best) < topK {
+			heap.Push(&best, candidate)
+			continue
+		}
+		if isOpenAIAccountCandidatePrimaryBetter(candidate, best[0]) {
+			best[0] = candidate
+			heap.Fix(&best, 0)
+		}
+	}
+
+	ranked := make([]openAIAccountCandidateScore, len(best))
+	copy(ranked, best)
+	sort.Slice(ranked, func(i, j int) bool {
+		return isOpenAIAccountCandidatePrimaryBetter(ranked[i], ranked[j])
 	})
 	return ranked
 }
@@ -1456,51 +1531,6 @@ func openAIMeasuredTTFTRange(candidates []openAIAccountCandidateScore) (minTTFT 
 
 func validOpenAICandidateTTFT(candidate openAIAccountCandidateScore) bool {
 	return candidate.hasTTFT && candidate.ttft > 0 && !math.IsNaN(candidate.ttft) && !math.IsInf(candidate.ttft, 0)
-}
-
-// selectTopKOpenAICandidatesWithTTFTPreference keeps comprehensive score as
-// the main admission rule but, when Top-K has room for exploration, reserves
-// one slot for the fastest account backed by comparative TTFT evidence.
-func selectTopKOpenAICandidatesWithTTFTPreference(
-	candidates []openAIAccountCandidateScore,
-	topK int,
-	ttftPreferenceWeight float64,
-) []openAIAccountCandidateScore {
-	top := selectTopKOpenAICandidates(candidates, topK)
-	if ttftPreferenceWeight <= 0 || topK < 2 || len(top) < 2 || len(top) >= len(candidates) {
-		return top
-	}
-
-	_, _, measured := openAIMeasuredTTFTRange(candidates)
-	if measured < 2 {
-		return top
-	}
-	fastestIndex := -1
-	fastestTTFT := math.MaxFloat64
-	for i, candidate := range candidates {
-		if validOpenAICandidateTTFT(candidate) && candidate.ttft < fastestTTFT {
-			fastestIndex = i
-			fastestTTFT = candidate.ttft
-		}
-	}
-	if fastestIndex < 0 {
-		return top
-	}
-	if candidates[fastestIndex].account == nil {
-		return top
-	}
-	fastestID := candidates[fastestIndex].account.ID
-	for _, candidate := range top {
-		if candidate.account != nil && candidate.account.ID == fastestID {
-			return top
-		}
-	}
-
-	top[len(top)-1] = candidates[fastestIndex]
-	sort.Slice(top, func(i, j int) bool {
-		return isOpenAIAccountCandidateBetter(top[i], top[j])
-	})
-	return top
 }
 
 func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
@@ -1692,7 +1722,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		}
 	}
 
-	bestBaseScore := -math.MaxFloat64
+	bestPrimaryScore := -math.MaxFloat64
 	for i := range candidates {
 		item := &candidates[i]
 		priorityFactor := 1.0
@@ -1726,17 +1756,17 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			upstreamCostFactor = factor
 		}
 
-		item.baseScore = weights.Priority*priorityFactor +
+		item.primaryScore = weights.Priority*priorityFactor +
 			weights.Load*loadFactor +
 			weights.Queue*queueFactor +
 			weights.ErrorRate*errorFactor +
-			weights.TTFT*ttftFactor +
 			weights.Reset*resetFactor +
 			weights.QuotaHeadroom*quotaHeadroomFactor +
 			weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor)
+		item.baseScore = item.primaryScore + weights.TTFT*ttftFactor
 		item.score = item.baseScore
-		if !item.excluded && item.baseScore > bestBaseScore {
-			bestBaseScore = item.baseScore
+		if !item.excluded && item.primaryScore > bestPrimaryScore {
+			bestPrimaryScore = item.primaryScore
 		}
 	}
 	if req.StickyWeighted {
@@ -1750,20 +1780,22 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			if !previousMatch && !sessionMatch {
 				continue
 			}
-			if !openAIWeightedStickyWithinScoreGap(item.baseScore, bestBaseScore) {
+			if !openAIWeightedStickyWithinScoreGap(item.primaryScore, bestPrimaryScore) {
 				slog.Debug("weighted_sticky_score_gap_exceeded",
 					"account_id", item.account.ID,
-					"base_score", item.baseScore,
-					"best_base_score", bestBaseScore,
+					"primary_score", item.primaryScore,
+					"best_primary_score", bestPrimaryScore,
 					"max_gap_ratio", openAIWeightedStickyMaxScoreGapRatio,
 				)
 				req.observation.recordCandidateReason(item.account.ID, "score_gap")
 				continue
 			}
 			if previousMatch {
+				item.primaryScore += weights.Previous
 				item.score += weights.Previous
 			}
 			if sessionMatch {
+				item.primaryScore += weights.SessionSticky
 				item.score += weights.SessionSticky
 			}
 		}
@@ -1805,7 +1837,9 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		if groupTopK > len(pool) {
 			groupTopK = len(pool)
 		}
-		ranked := selectTopKOpenAICandidatesWithTTFTPreference(pool, groupTopK, plan.ttftPreferenceWeight)
+		// Every preset applies its non-TTFT policy first. TTFT can break an exact
+		// primary-score tie and then biases the probabilistic draw inside Top-K.
+		ranked := selectTopKOpenAIPrimaryCandidates(pool, groupTopK)
 		primary := buildOpenAIWeightedSelectionOrderWithTTFTBias(ranked, req, plan.ttftPreferenceWeight)
 		if !plan.includeOverflowFallback || groupTopK >= len(pool) {
 			return primary
@@ -1822,7 +1856,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 			}
 		}
 		sort.Slice(overflow, func(i, j int) bool {
-			return isOpenAIAccountCandidateBetter(overflow[i], overflow[j])
+			return isOpenAIAccountCandidatePrimaryBetter(overflow[i], overflow[j])
 		})
 		return append(primary, overflow...)
 	}

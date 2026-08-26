@@ -166,6 +166,38 @@ func TestBuildGatewayGroupSelectionOrderBiasesTowardFastTTFTWithoutForcingIt(t *
 	require.Positive(t, slowFirst, "TTFT tendency must preserve exploration instead of forcing the fastest account")
 }
 
+func TestBuildGatewayGroupSelectionOrderTTFTDoesNotOverridePrimaryPolicyAdmission(t *testing.T) {
+	groupID := int64(21)
+	primaryPreferred := &Account{ID: 1, Platform: PlatformGemini, Priority: 1}
+	fastButPrimaryWorse := &Account{ID: 2, Platform: PlatformGemini, Priority: 100}
+	stats := newOpenAIAccountRuntimeStats()
+	slowTTFT := 8_000
+	fastTTFT := 800
+	stats.reportProbe(primaryPreferred.ID, "gemini-2.5-pro", true, &slowTTFT)
+	stats.reportProbe(fastButPrimaryWorse.ID, "gemini-2.5-pro", true, &fastTTFT)
+	ctx := gatewaySchedulerTestPolicy(resolvedGroupOpenAISchedulerConfig{
+		TopK:     1,
+		Priority: 1,
+		TTFT:     10,
+	})
+	ctx = withGatewaySchedulerHealthStats(ctx, stats)
+
+	order, ok := buildGatewayGroupSelectionOrder(
+		ctx,
+		&groupID,
+		[]accountWithLoad{
+			{account: primaryPreferred, loadInfo: &AccountLoadInfo{AccountID: primaryPreferred.ID}},
+			{account: fastButPrimaryWorse, loadInfo: &AccountLoadInfo{AccountID: fastButPrimaryWorse.ID}},
+		},
+		0,
+		"cost_first_ttft_second",
+		"gemini-2.5-pro",
+	)
+
+	require.True(t, ok)
+	require.Equal(t, primaryPreferred.ID, order[0].account.ID)
+}
+
 func TestBuildGatewayGroupSelectionOrderDoesNotLetPriorityOverrideKnownFailure(t *testing.T) {
 	groupID := int64(17)
 	unhealthy := &Account{ID: 1, Platform: PlatformAnthropic, Priority: 1}
