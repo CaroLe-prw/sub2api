@@ -364,6 +364,9 @@ type AccountTestService struct {
 	tlsFPProfileService       *TLSFingerprintProfileService
 	usageLogRepo              UsageLogRepository
 	billingService            *BillingService
+	modelMetadataRegistryMu   sync.Mutex
+	modelMetadataRegistry     map[string]modelsDevProvider
+	modelMetadataRegistryAt   time.Time
 	pluginManager             *PluginManager
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator

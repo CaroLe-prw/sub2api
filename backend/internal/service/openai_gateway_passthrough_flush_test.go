@@ -212,7 +212,6 @@ func TestOpenAIStreamingPassthroughEmptyStructuralFramesBeforeFailureCanStillFai
 	require.ErrorAs(t, err, &failoverErr)
 	require.Empty(t, recorder.Body.String())
 	require.Empty(t, writer.flushBodyLengths)
-	require.Nil(t, result.firstTokenMs)
 }
 
 func TestOpenAIStreamingPassthroughNonRetryableFailedBeforeOutputFlushesAtBoundary(t *testing.T) {

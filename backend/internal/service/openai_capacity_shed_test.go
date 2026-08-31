@@ -197,7 +197,6 @@ func TestOpenAIStreamEmptyStructuralFramesBeforeFailureStillFailOver(t *testing.
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.True(t, failoverErr.RetryableOnSameAccount)
-	require.Nil(t, result.firstTokenMs)
 	require.False(t, c.Writer.Written())
 	require.Empty(t, rec.Body.String())
 }
