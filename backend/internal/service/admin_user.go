@@ -710,6 +710,28 @@ func (s *adminServiceImpl) GetUserBalanceHistory(ctx context.Context, userID int
 		}
 		return codes, total, totalRecharged, nil
 	}
+	if codeType == RedeemTypeLotteryBalance {
+		codes, total, err := s.listLotteryBalanceHistory(ctx, userID, params)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		totalRecharged, err := s.redeemCodeRepo.SumPositiveBalanceByUser(ctx, userID)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		return codes, total, totalRecharged, nil
+	}
+	if codeType == RedeemTypeCheckInBalance {
+		codes, total, err := s.listCheckInBalanceHistory(ctx, userID, params)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		totalRecharged, err := s.redeemCodeRepo.SumPositiveBalanceByUser(ctx, userID)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		return codes, total, totalRecharged, nil
+	}
 
 	if codeType == "" {
 		return s.getAllUserBalanceHistory(ctx, userID, params)
@@ -742,13 +764,21 @@ func (s *adminServiceImpl) getAllUserBalanceHistory(ctx context.Context, userID 
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	codes := mergeBalanceHistoryCodes(redeemCodes, affiliateCodes, params)
+	lotteryCodes, lotteryTotal, err := s.listLotteryBalanceHistoryForMerge(ctx, userID, needed)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	checkInCodes, checkInTotal, err := s.listCheckInBalanceHistoryForMerge(ctx, userID, needed)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	codes := mergeBalanceHistoryCodes(redeemCodes, affiliateCodes, lotteryCodes, checkInCodes, params)
 
 	totalRecharged, err := s.redeemCodeRepo.SumPositiveBalanceByUser(ctx, userID)
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	return codes, redeemTotal + affiliateTotal, totalRecharged, nil
+	return codes, redeemTotal + affiliateTotal + lotteryTotal + checkInTotal, totalRecharged, nil
 }
 
 func (s *adminServiceImpl) listRedeemBalanceHistoryForMerge(ctx context.Context, userID int64, needed int) ([]RedeemCode, int64, error) {
@@ -825,7 +855,6 @@ LIMIT $3`, userID, params.Offset(), params.Limit())
 	if err != nil {
 		return nil, 0, err
 	}
-	defer func() { _ = rows.Close() }()
 
 	codes := make([]RedeemCode, 0, params.Limit())
 	for rows.Next() {
@@ -859,6 +888,214 @@ LIMIT $3`, userID, params.Offset(), params.Limit())
 	return codes, total, nil
 }
 
+func (s *adminServiceImpl) listLotteryBalanceHistoryForMerge(ctx context.Context, userID int64, needed int) ([]RedeemCode, int64, error) {
+	if needed <= 0 {
+		return nil, 0, nil
+	}
+
+	var (
+		out   []RedeemCode
+		total int64
+	)
+	for page := 1; len(out) < needed; page++ {
+		params := pagination.PaginationParams{Page: page, PageSize: 1000}
+		codes, currentTotal, err := s.listLotteryBalanceHistory(ctx, userID, params)
+		if err != nil {
+			return nil, 0, err
+		}
+		total = currentTotal
+		out = append(out, codes...)
+		if len(codes) < params.Limit() || int64(len(out)) >= total {
+			break
+		}
+	}
+	if len(out) > needed {
+		out = out[:needed]
+	}
+	return out, total, nil
+}
+
+func (s *adminServiceImpl) listLotteryBalanceHistory(ctx context.Context, userID int64, params pagination.PaginationParams) ([]RedeemCode, int64, error) {
+	if s == nil || s.entClient == nil || userID <= 0 {
+		return nil, 0, nil
+	}
+
+	rows, err := s.entClient.QueryContext(ctx, `
+SELECT e.id, e.round_id, COALESCE(e.prize_name, ''),
+       COALESCE(e.reward_amount, 0)::double precision, e.entered_at, e.settled_at
+FROM lottery_entries e
+WHERE e.user_id = $1
+  AND e.prize_tier IS NOT NULL
+  AND e.settled_at IS NOT NULL
+ORDER BY e.settled_at DESC, e.id DESC
+OFFSET $2
+LIMIT $3`, userID, params.Offset(), params.Limit())
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	codes := make([]RedeemCode, 0, params.Limit())
+	for rows.Next() {
+		var (
+			entryID   int64
+			roundID   int64
+			prizeName string
+			reward    float64
+			enteredAt time.Time
+			settledAt time.Time
+		)
+		if err := rows.Scan(&entryID, &roundID, &prizeName, &reward, &enteredAt, &settledAt); err != nil {
+			return nil, 0, err
+		}
+		usedBy := userID
+		usedAt := settledAt
+		codes = append(codes, RedeemCode{
+			ID:        entryID,
+			Code:      fmt.Sprintf("LOTTERY-%d-%d", roundID, entryID),
+			Type:      RedeemTypeLotteryBalance,
+			Value:     reward,
+			Status:    StatusUsed,
+			UsedBy:    &usedBy,
+			UsedAt:    &usedAt,
+			Notes:     prizeName,
+			CreatedAt: enteredAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, 0, err
+	}
+
+	countRows, err := s.entClient.QueryContext(ctx, `
+SELECT COUNT(*) FROM lottery_entries
+WHERE user_id = $1
+  AND prize_tier IS NOT NULL
+  AND settled_at IS NOT NULL`, userID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = countRows.Close() }()
+
+	var total sql.NullInt64
+	if countRows.Next() {
+		if err := countRows.Scan(&total); err != nil {
+			return nil, 0, err
+		}
+	}
+	if err := countRows.Err(); err != nil {
+		return nil, 0, err
+	}
+	if !total.Valid {
+		return codes, 0, nil
+	}
+	return codes, total.Int64, nil
+}
+
+func (s *adminServiceImpl) listCheckInBalanceHistoryForMerge(ctx context.Context, userID int64, needed int) ([]RedeemCode, int64, error) {
+	if needed <= 0 {
+		return nil, 0, nil
+	}
+
+	var (
+		out   []RedeemCode
+		total int64
+	)
+	for page := 1; len(out) < needed; page++ {
+		params := pagination.PaginationParams{Page: page, PageSize: 1000}
+		codes, currentTotal, err := s.listCheckInBalanceHistory(ctx, userID, params)
+		if err != nil {
+			return nil, 0, err
+		}
+		total = currentTotal
+		out = append(out, codes...)
+		if len(codes) < params.Limit() || int64(len(out)) >= total {
+			break
+		}
+	}
+	if len(out) > needed {
+		out = out[:needed]
+	}
+	return out, total, nil
+}
+
+func (s *adminServiceImpl) listCheckInBalanceHistory(ctx context.Context, userID int64, params pagination.PaginationParams) ([]RedeemCode, int64, error) {
+	if s == nil || s.entClient == nil || userID <= 0 {
+		return nil, 0, nil
+	}
+
+	rows, err := s.entClient.QueryContext(ctx, `
+SELECT id, business_date::text,
+       COALESCE(reward_amount, 0)::double precision, created_at
+FROM user_check_ins
+WHERE user_id = $1
+ORDER BY created_at DESC, id DESC
+OFFSET $2
+LIMIT $3`, userID, params.Offset(), params.Limit())
+	if err != nil {
+		return nil, 0, err
+	}
+
+	codes := make([]RedeemCode, 0, params.Limit())
+	for rows.Next() {
+		var (
+			recordID     int64
+			businessDate string
+			reward       float64
+			createdAt    time.Time
+		)
+		if err := rows.Scan(&recordID, &businessDate, &reward, &createdAt); err != nil {
+			_ = rows.Close()
+			return nil, 0, err
+		}
+		usedBy := userID
+		usedAt := createdAt
+		codes = append(codes, RedeemCode{
+			ID:        recordID,
+			Code:      fmt.Sprintf("CHECKIN-%s-%d", businessDate, recordID),
+			Type:      RedeemTypeCheckInBalance,
+			Value:     reward,
+			Status:    StatusUsed,
+			UsedBy:    &usedBy,
+			UsedAt:    &usedAt,
+			Notes:     businessDate,
+			CreatedAt: createdAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, 0, err
+	}
+
+	countRows, err := s.entClient.QueryContext(ctx, `
+SELECT COUNT(*) FROM user_check_ins
+WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = countRows.Close() }()
+
+	var total sql.NullInt64
+	if countRows.Next() {
+		if err := countRows.Scan(&total); err != nil {
+			return nil, 0, err
+		}
+	}
+	if err := countRows.Err(); err != nil {
+		return nil, 0, err
+	}
+	if !total.Valid {
+		return codes, 0, nil
+	}
+	return codes, total.Int64, nil
+}
+
 func countAffiliateBalanceHistory(ctx context.Context, client *dbent.Client, userID int64) (int64, error) {
 	rows, err := client.QueryContext(ctx, `
 SELECT COUNT(*)
@@ -885,8 +1122,12 @@ WHERE user_id = $1
 	return total.Int64, nil
 }
 
-func mergeBalanceHistoryCodes(redeemCodes, affiliateCodes []RedeemCode, params pagination.PaginationParams) []RedeemCode {
-	combined := append(append([]RedeemCode{}, redeemCodes...), affiliateCodes...)
+func mergeBalanceHistoryCodes(redeemCodes, affiliateCodes, lotteryCodes, checkInCodes []RedeemCode, params pagination.PaginationParams) []RedeemCode {
+	combined := make([]RedeemCode, 0, len(redeemCodes)+len(affiliateCodes)+len(lotteryCodes)+len(checkInCodes))
+	combined = append(combined, redeemCodes...)
+	combined = append(combined, affiliateCodes...)
+	combined = append(combined, lotteryCodes...)
+	combined = append(combined, checkInCodes...)
 	sort.SliceStable(combined, func(i, j int) bool {
 		return redeemCodeHistoryTime(combined[i]).After(redeemCodeHistoryTime(combined[j]))
 	})
