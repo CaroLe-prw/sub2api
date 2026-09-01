@@ -1420,9 +1420,9 @@ func (c *codexModelsManifestCache) set(key string, manifest *CodexModelsManifest
 // FetchCodexModelsManifest fetches the live Codex models manifest from either
 // the ChatGPT backend for OAuth accounts or a custom upstream for API key accounts.
 //
-// After validating the stable top-level envelope, OAuth response bodies are
-// passed through verbatim. Custom API key manifests receive only the narrowly
-// scoped compatibility adjustments required by custom-provider Codex clients.
+// After validating the stable top-level envelope, model-level Responses Lite
+// compatibility is enforced for every account type. Custom API key manifests
+// additionally receive the metadata required by custom-provider Codex clients.
 func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, account *Account, clientVersion, ifNoneMatch string) (*CodexModelsManifest, error) {
 	if account == nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_ACCOUNT_REQUIRED", "account is required")
@@ -1747,17 +1747,17 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstream(ctx context.Cont
 				retryable: true,
 			}
 		}
-		body, err = adjustAPIKeyCodexModelsManifest(body)
-		if err != nil {
-			return nil, &codexModelsManifestUpstreamError{
-				err: infraerrors.Newf(
-					http.StatusBadGateway,
-					"OPENAI_CODEX_MODELS_UPSTREAM_INVALID_MANIFEST",
-					"codex models manifest upstream could not be adjusted: %v",
-					err,
-				),
-				retryable: true,
-			}
+	}
+	body, err = adjustCodexModelsManifestResponsesLite(body)
+	if err != nil {
+		return nil, &codexModelsManifestUpstreamError{
+			err: infraerrors.Newf(
+				http.StatusBadGateway,
+				"OPENAI_CODEX_MODELS_UPSTREAM_INVALID_MANIFEST",
+				"codex models manifest upstream could not be adjusted: %v",
+				err,
+			),
+			retryable: true,
 		}
 	}
 	etag := resp.Header.Get("ETag")
@@ -1769,9 +1769,9 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstream(ctx context.Cont
 	}
 	if request.useAPIKeyUpstream {
 		manifest.upstreamETag = etag
-		if !bytes.Equal(body, upstreamBody) {
-			manifest.ETag = codexModelsManifestBodyETag(body)
-		}
+	}
+	if !bytes.Equal(body, upstreamBody) {
+		manifest.ETag = codexModelsManifestBodyETag(body)
 	}
 	return manifest, nil
 }
@@ -1787,17 +1787,10 @@ func CodexModelsManifestETag(body []byte) string {
 	return codexModelsManifestBodyETag(body)
 }
 
-var apiKeyCodexModelsWithoutResponsesLite = map[string]struct{}{
-	"gpt-5.6-sol":   {},
-	"gpt-5.6-terra": {},
-	"gpt-5.6-luna":  {},
-}
-
-// adjustAPIKeyCodexModelsManifest prevents Codex from selecting Responses
-// Lite for custom API key providers. Those clients do not install web.run in
-// Lite mode, so the affected model manifests must advertise the full Responses
-// path. Return the original body when no targeted true value is present.
-func adjustAPIKeyCodexModelsManifest(body []byte) ([]byte, error) {
+// adjustCodexModelsManifestResponsesLite prevents Codex from selecting the
+// private Responses Lite contract for models that only support full Responses.
+// Return the original body when no targeted true value is present.
+func adjustCodexModelsManifestResponsesLite(body []byte) ([]byte, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, fmt.Errorf("decode JSON object: %w", err)
@@ -1817,7 +1810,7 @@ func adjustAPIKeyCodexModelsManifest(body []byte) ([]byte, error) {
 		if err := json.Unmarshal(model["slug"], &slug); err != nil {
 			continue
 		}
-		if _, targeted := apiKeyCodexModelsWithoutResponsesLite[slug]; !targeted {
+		if !openAIModelRequiresFullResponses(slug) {
 			continue
 		}
 		var useResponsesLite bool
@@ -1920,7 +1913,7 @@ func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manife
 	if err != nil {
 		return err
 	}
-	body, err = adjustAPIKeyCodexModelsManifest(body)
+	body, err = adjustCodexModelsManifestResponsesLite(body)
 	if err != nil {
 		return err
 	}

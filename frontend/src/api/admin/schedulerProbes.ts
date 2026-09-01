@@ -42,6 +42,7 @@ export interface SchedulerUserTrafficSummary {
 
 export interface PoolMonitorModel {
   plan_id: number
+  has_probe?: boolean
   model: string
   enabled: boolean
   status: '' | 'success' | 'failed'

@@ -243,4 +243,60 @@ describe('MonitorDataPanel', () => {
     expect(dialog.props('account').models[0].status).toBe('success')
     expect(dialog.props('account').models[0].latency_ms).toBe(253)
   })
+
+  it('shows traffic-only models without requesting a nonexistent probe history', async () => {
+    const overview = (await listPoolOverview()).items[0]
+    listPoolOverview.mockResolvedValue({
+      items: [{
+        ...overview,
+        models: [
+          { ...overview.models[0], has_probe: true },
+          {
+            plan_id: 0,
+            has_probe: false,
+            model: 'gpt-5.6-sol',
+            enabled: false,
+            status: '',
+            latency_ms: null,
+            availability: null,
+            sample_count: 0,
+            failure_count: 0,
+            last_checked_at: null,
+            recent_results: [],
+            user_traffic: {
+              window_minutes: 30,
+              success_count: 4,
+              failure_count: 0,
+              avg_ttft_ms: 430,
+              last_success_at: '2026-08-13T08:06:00Z',
+              last_failure_at: null,
+            },
+          },
+        ],
+      }],
+    })
+
+    const wrapper = mount(MonitorDataPanel, {
+      global: {
+        stubs: {
+          Icon: true,
+          MonitorModelHistoryDialog: {
+            props: ['show', 'account', 'histories', 'loading', 'runningPlanId'],
+            template: '<div data-testid="history-dialog" />',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('detail'))
+    expect(detailButton).toBeDefined()
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    expect(listProbeResults).toHaveBeenCalledTimes(1)
+    expect(listProbeResults).toHaveBeenCalledWith(81, 100)
+    expect(listProbeResults).not.toHaveBeenCalledWith(0, 100)
+    expect(wrapper.getComponent('[data-testid="history-dialog"]').props('account').models).toHaveLength(2)
+  })
 })

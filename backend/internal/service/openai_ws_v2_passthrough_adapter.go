@@ -689,9 +689,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		return err
 	}
 	firstMessageResponsesLite := !hasOpenAIServerSideCompactionInBody(firstClientMessage) &&
-		(isOpenAIResponsesLiteWebSocketPayload(firstClientMessage) ||
-			isOpenAIResponsesLiteHeaderEnabledForAccount(openAIResponsesLiteHeaderFromContext(c), account))
-	firstClientMessage, _, err := stripOpenAIResponsesLiteWSMetadataForCompaction(firstClientMessage)
+		isOpenAIResponsesLiteRequestedForPayload(c, account, firstClientMessage, "")
+	firstClientMessage, _, err := stripOpenAIResponsesLiteWSMetadataForUnsupportedModel(firstClientMessage, account, "")
+	if err != nil {
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", err)
+	}
+	firstClientMessage, _, err = stripOpenAIResponsesLiteWSMetadataForCompaction(firstClientMessage)
 	if err != nil {
 		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket compaction payload", err)
 	}
@@ -1016,9 +1019,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}()
 			}
 			responsesLite := isResponseCreate && !hasOpenAIServerSideCompactionInBody(payload) &&
-				(isOpenAIResponsesLiteWebSocketPayload(payload) ||
-					isOpenAIResponsesLiteHeaderEnabledForAccount(openAIResponsesLiteHeaderFromContext(c), account))
+				isOpenAIResponsesLiteRequestedForPayload(c, account, payload, capturedSessionModel)
 			if isResponseCreate {
+				payload, _, filterErr = stripOpenAIResponsesLiteWSMetadataForUnsupportedModel(payload, account, capturedSessionModel)
+				if filterErr != nil {
+					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", filterErr)
+				}
 				if normalized, compatibilityChanged, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(payload, account, responsesLite); normalizeErr != nil {
 					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", normalizeErr)
 				} else if compatibilityChanged {

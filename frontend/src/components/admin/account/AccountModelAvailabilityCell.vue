@@ -8,6 +8,7 @@ import Icon from '@/components/icons/Icon.vue'
 import type { HeartbeatSource } from '@/components/admin/monitor/monitorHeartbeatAggregation'
 import { summarizeCombinedHealth } from '@/components/admin/monitor/monitorCombinedHealth'
 import type { CombinedMonitorHealth } from '@/components/admin/monitor/monitorCombinedHealth'
+import { hasActiveProbe, monitorModelKey } from '@/components/admin/monitor/monitorModelProbe'
 
 const props = defineProps<{
   monitor: PoolMonitorAccount | null
@@ -35,8 +36,8 @@ const state = computed<'healthy' | 'degraded' | 'partial' | 'failed' | 'pending'
   if (hasFailure.value) return 'failed'
   return 'pending'
 })
-const heartbeatSources = computed<HeartbeatSource[]>(() => props.monitor?.models.map((model) => ({
-  id: String(model.plan_id),
+const heartbeatSources = computed<HeartbeatSource[]>(() => props.monitor?.models.filter(hasActiveProbe).map((model) => ({
+  id: monitorModelKey(model),
   samples: model.recent_results ?? [],
 })) ?? [])
 const userSampleCount = computed(() => props.monitor?.models.reduce(

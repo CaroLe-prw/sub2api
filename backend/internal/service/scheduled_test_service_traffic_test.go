@@ -86,6 +86,7 @@ func TestScheduledTestService_ListChannelMonitorPoolOverviewIncludesUserTraffic(
 	require.NoError(t, err)
 	require.Len(t, accounts, 1)
 	require.Len(t, accounts[0].Models, 1)
+	require.True(t, accounts[0].Models[0].HasProbe)
 	require.Equal(t, &ChannelMonitorUserTraffic{
 		WindowMinutes: 30,
 		SuccessCount:  18,
@@ -98,4 +99,46 @@ func TestScheduledTestService_ListChannelMonitorPoolOverviewIncludesUserTraffic(
 			LatencyMs: &latency, CreatedAt: lastSuccess,
 		}},
 	}, accounts[0].Models[0].UserTraffic)
+}
+
+func TestScheduledTestService_ListChannelMonitorPoolOverviewIncludesTrafficOnlyModels(t *testing.T) {
+	lastSuccess := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC)
+	latency := int64(840)
+	planRepo := &scheduledTestOverviewRepoStub{accounts: []*ChannelMonitorPoolAccount{{
+		AccountID: 35,
+		Models:    []ChannelMonitorPoolModel{{PlanID: 81, Model: "gpt-5.6-terra"}},
+	}}}
+	svc := NewScheduledTestService(planRepo, nil)
+	svc.SetSchedulerUserTrafficRepository(&scheduledTestTrafficRepoStub{
+		snapshots: []OpenAISchedulerHealthSnapshot{
+			{AccountID: 35, Model: "gpt-5.6-terra", SuccessCount: 3},
+			{AccountID: 35, Model: "gpt-5.6-sol", SuccessCount: 7, LastSuccessAt: &lastSuccess},
+		},
+		events: []ChannelMonitorUserTrafficEvent{{
+			ID: "usage:10", AccountID: 35, Model: "gpt-5.6-sol", Status: "success",
+			LatencyMs: &latency, CreatedAt: lastSuccess,
+		}},
+	})
+
+	accounts, err := svc.ListChannelMonitorPoolOverview(context.Background(), []int64{35})
+
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	require.Len(t, accounts[0].Models, 2)
+	var trafficOnly *ChannelMonitorPoolModel
+	for i := range accounts[0].Models {
+		if accounts[0].Models[i].Model == "gpt-5.6-sol" {
+			trafficOnly = &accounts[0].Models[i]
+			break
+		}
+	}
+	require.NotNil(t, trafficOnly)
+	require.Zero(t, trafficOnly.PlanID)
+	require.False(t, trafficOnly.HasProbe)
+	require.NotNil(t, trafficOnly.UserTraffic)
+	require.EqualValues(t, 7, trafficOnly.UserTraffic.SuccessCount)
+	require.Equal(t, []ChannelMonitorUserTrafficEvent{{
+		ID: "usage:10", AccountID: 35, Model: "gpt-5.6-sol", Status: "success",
+		LatencyMs: &latency, CreatedAt: lastSuccess,
+	}}, trafficOnly.UserTraffic.RecentEvents)
 }

@@ -7,6 +7,7 @@ import { formatRelativeTime } from '@/utils/format'
 import MonitorCompactHeartbeatStrip from './MonitorCompactHeartbeatStrip.vue'
 import type { HeartbeatSource } from './monitorHeartbeatAggregation'
 import { monitorAvailabilityTextClass } from './monitorAvailability'
+import { hasActiveProbe, monitorModelKey } from './monitorModelProbe'
 
 const props = defineProps<{ accounts: PoolMonitorAccount[] }>()
 const emit = defineEmits<{
@@ -39,8 +40,8 @@ function lastChecked(account: PoolMonitorAccount): string | null {
 }
 
 function heartbeatSources(account: PoolMonitorAccount): HeartbeatSource[] {
-  return account.models.map((model) => ({
-    id: String(model.plan_id),
+  return account.models.filter(hasActiveProbe).map((model) => ({
+    id: monitorModelKey(model),
     samples: model.recent_results ?? [],
   }))
 }

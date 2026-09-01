@@ -121,4 +121,23 @@ describe('AccountModelAvailabilityCell', () => {
     expect(wrapper.text()).toContain('2/2')
     expect(wrapper.get('span.font-mono').classes()).toContain('text-emerald-600')
   })
+
+  it('counts a successful traffic-only model alongside actively probed models', () => {
+    const trafficOnly = model(0, '')
+    trafficOnly.model = 'gpt-5.6-sol'
+    trafficOnly.has_probe = false
+    trafficOnly.user_traffic = {
+      window_minutes: 30,
+      success_count: 4,
+      failure_count: 0,
+      avg_ttft_ms: 430,
+      last_success_at: '2026-08-21T02:00:00Z',
+      last_failure_at: null,
+    }
+
+    const wrapper = mountCell(monitor([model(1, 'success'), trafficOnly]))
+
+    expect(wrapper.text()).toContain('2/2')
+    expect(wrapper.get('span.font-mono').classes()).toContain('text-emerald-600')
+  })
 })

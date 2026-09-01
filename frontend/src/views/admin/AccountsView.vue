@@ -566,6 +566,7 @@ import MonitorModelHistoryDialog from '@/components/admin/monitor/MonitorModelHi
 import type { PoolMonitorAccount, PoolProbeResult } from '@/api/admin/schedulerProbes'
 import type { ProbeHistoryByPlan } from '@/components/admin/monitor/monitorDataTypes'
 import { mergeMonitorHistories } from '@/components/admin/monitor/monitorCurrentProbeState'
+import { hasActiveProbe } from '@/components/admin/monitor/monitorModelProbe'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
@@ -1287,7 +1288,7 @@ const openPoolMonitorDetail = async (monitor: PoolMonitorAccount) => {
   poolMonitorHistories.value = {}
   poolMonitorHistoryLoading.value = true
   try {
-    const histories = await Promise.all(monitor.models.map(async (model) => [
+    const histories = await Promise.all(monitor.models.filter(hasActiveProbe).map(async (model) => [
       model.plan_id,
       await adminAPI.schedulerProbes.listResults(model.plan_id, 100),
     ] as const))

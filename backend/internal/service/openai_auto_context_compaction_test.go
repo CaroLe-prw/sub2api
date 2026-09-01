@@ -68,7 +68,7 @@ func TestApplyOpenAIAutoContextCompactionToBodyUsesAccountThresholdAndPinsPrevio
 }
 
 func TestApplyOpenAIAutoContextCompactionToBodySkipsResponsesLite(t *testing.T) {
-	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":"hello"}`)
+	body := []byte(`{"model":"gpt-5.6-codex","stream":true,"input":"hello"}`)
 	c := newOpenAIAutoContextCompactionTestContext("/v1/responses", body)
 	c.Request.Header.Set(responsesLiteHeader, "true")
 	account := newOpenAIAutoContextCompactionTestAccount(map[string]any{openAIContextCompactionSupportedExtraKey: true})
@@ -125,7 +125,7 @@ func TestApplyOpenAIAutoContextCompactionToBodyRespectsCompatibilityGuards(t *te
 		{
 			name:    "responses lite account pool",
 			path:    "/v1/responses",
-			body:    []byte(`{"model":"gpt-5.6-sol","input":"hello"}`),
+			body:    []byte(`{"model":"gpt-5.6-codex","input":"hello"}`),
 			account: newOpenAIAutoContextCompactionTestAccount(map[string]any{openAIContextCompactionSupportedExtraKey: true}),
 		},
 		{

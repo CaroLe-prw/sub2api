@@ -13,6 +13,7 @@ import MonitorModelHistoryDialog from './MonitorModelHistoryDialog.vue'
 import MonitorModelGroupList from './MonitorModelGroupList.vue'
 import type { ProbeHistoryByPlan } from './monitorDataTypes'
 import { mergeMonitorHistories } from './monitorCurrentProbeState'
+import { hasActiveProbe } from './monitorModelProbe'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -75,7 +76,7 @@ async function openAccount(account: PoolMonitorAccount) {
   histories.value = {}
   historyLoading.value = true
   try {
-    const entries = await Promise.all(account.models.map(async (model) => [
+    const entries = await Promise.all(account.models.filter(hasActiveProbe).map(async (model) => [
       model.plan_id,
       await adminAPI.schedulerProbes.listResults(model.plan_id, 100),
     ] as const))

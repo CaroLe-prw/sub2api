@@ -34,6 +34,7 @@ const ScheduledTestManagedByChannelMonitor = ScheduledTestManagedBySchedulerProb
 // account/model pair. Scheduled account tests are streaming by design.
 type ChannelMonitorPoolModel struct {
 	PlanID        int64                         `json:"plan_id"`
+	HasProbe      bool                          `json:"has_probe"`
 	Model         string                        `json:"model"`
 	Enabled       bool                          `json:"enabled"`
 	Status        string                        `json:"status"`

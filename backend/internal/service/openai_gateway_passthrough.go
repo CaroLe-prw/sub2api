@@ -258,7 +258,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthroughAttempt(
 		}
 	}
 	if account != nil && account.IsOpenAI() {
-		responsesLite := isOpenAIResponsesLiteHeaderEnabledForAccount(openAIResponsesLiteHeaderFromContext(c), account) || isOpenAIResponsesLiteWebSocketPayload(body)
+		responsesLite := isOpenAIResponsesLiteRequestedForPayload(c, account, body, reqModel)
 		normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(body, account, responsesLite)
 		if normalizeErr != nil {
 			return nil, fmt.Errorf("normalize passthrough Responses compatibility: %w", normalizeErr)
@@ -848,6 +848,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	if isOpenAIServerSideCompactionRequest(c, body) {
 		deleteHeaderAllForms(req.Header, responsesLiteHeaderKey)
 	}
+	stripOpenAIResponsesLiteHeaderForUnsupportedModel(req.Header, account, body, "")
 	// x-codex-beta-features：按真实 Codex 的会话级行为补注（在账号级覆写之后，
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)

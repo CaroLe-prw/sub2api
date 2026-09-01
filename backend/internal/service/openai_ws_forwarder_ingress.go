@@ -269,8 +269,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 		}
 		responsesLite := !hasOpenAIServerSideCompactionInBody(normalized) &&
-			(isOpenAIResponsesLiteWebSocketPayload(normalized) ||
-				isOpenAIResponsesLiteHeaderEnabledForAccount(openAIResponsesLiteHeaderFromContext(c), account))
+			isOpenAIResponsesLiteRequestedForPayload(c, account, normalized, ingressSessionOriginalModel)
+		var liteMetadataErr error
+		normalized, _, liteMetadataErr = stripOpenAIResponsesLiteWSMetadataForUnsupportedModel(normalized, account, ingressSessionOriginalModel)
+		if liteMetadataErr != nil {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", liteMetadataErr)
+		}
 		if compatibilityBody, compatibilityChanged, compatibilityErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(normalized, account, responsesLite); compatibilityErr != nil {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", compatibilityErr)
 		} else if compatibilityChanged {

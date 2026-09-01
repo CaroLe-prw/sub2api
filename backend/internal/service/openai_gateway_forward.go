@@ -87,7 +87,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	serverSideCompaction := isOpenAIServerSideCompactionRequest(c, body)
 	responsesLiteRequested := account.IsOpenAI() &&
-		isOpenAIResponsesLiteHeaderEnabledForAccount(openAIResponsesLiteHeaderFromContext(c), account)
+		isOpenAIResponsesLiteRequestedForPayload(c, account, body, "")
 	if serverSideCompaction && responsesLiteRequested {
 		compactionBody, changed, compactErr := stripOpenAIResponsesLiteInput(body)
 		if compactErr != nil {
@@ -1508,6 +1508,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	if isOpenAIServerSideCompactionRequest(c, body) {
 		deleteHeaderAllForms(req.Header, responsesLiteHeaderKey)
 	}
+	stripOpenAIResponsesLiteHeaderForUnsupportedModel(req.Header, account, body, "")
 	// x-codex-beta-features：按真实 Codex 的会话级行为补注（在账号级覆写之后，
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)

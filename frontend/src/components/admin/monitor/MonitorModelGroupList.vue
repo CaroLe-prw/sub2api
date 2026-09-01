@@ -9,6 +9,7 @@ import MonitorCompactHeartbeatStrip from './MonitorCompactHeartbeatStrip.vue'
 import type { HeartbeatSource } from './monitorHeartbeatAggregation'
 import type { MonitorModelRow } from './monitorDataTypes'
 import { monitorAvailabilityTextClass } from './monitorAvailability'
+import { hasActiveProbe, monitorModelKey } from './monitorModelProbe'
 
 interface MonitorModelGroup {
   model: string
@@ -86,7 +87,7 @@ function setGroupPage(page: number) {
 }
 
 function heartbeatSources(group: MonitorModelGroup): HeartbeatSource[] {
-  return group.rows.map((row) => ({
+  return group.rows.filter((row) => hasActiveProbe(row.probe)).map((row) => ({
     id: String(row.account.account_id),
     samples: row.probe.recent_results ?? [],
   }))
@@ -168,7 +169,7 @@ function pagedRows(group: MonitorModelGroup): MonitorModelRow[] {
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 bg-white dark:divide-dark-700 dark:bg-dark-800">
-            <tr v-for="row in pagedRows(expandedGroup)" :key="row.probe.plan_id" class="hover:bg-gray-50/70 dark:hover:bg-dark-700/40">
+            <tr v-for="row in pagedRows(expandedGroup)" :key="`${row.account.account_id}:${monitorModelKey(row.probe)}`" class="hover:bg-gray-50/70 dark:hover:bg-dark-700/40">
               <td class="px-4 py-3">
                 <div class="font-medium text-gray-800 dark:text-gray-100">{{ row.account.name }}</div>
                 <div class="text-[11px] text-gray-400">#{{ row.account.account_id }} · {{ row.account.platform }} · {{ row.account.type }}</div>

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -130,24 +131,53 @@ func (s *ScheduledTestService) ListChannelMonitorPoolOverview(ctx context.Contex
 			eventsByModel[key] = append(eventsByModel[key], event)
 		}
 	}
+	accountByID := make(map[int64]*ChannelMonitorPoolAccount, len(accounts))
+	attachedModels := make(map[trafficKey]struct{})
+	trafficForKey := func(key trafficKey) *ChannelMonitorUserTraffic {
+		snapshot := byModel[key]
+		return &ChannelMonitorUserTraffic{
+			WindowMinutes: int(schedulerUserTrafficWindow / time.Minute),
+			SuccessCount:  snapshot.SuccessCount,
+			FailureCount:  snapshot.FailureCount,
+			AvgTTFTMs:     snapshot.AvgTTFTMs,
+			LastSuccessAt: snapshot.LastSuccessAt,
+			LastFailureAt: snapshot.LastFailureAt,
+			RecentEvents:  eventsByModel[key],
+		}
+	}
 	for _, account := range accounts {
 		if account == nil {
 			continue
 		}
+		accountByID[account.AccountID] = account
 		for i := range account.Models {
 			model := &account.Models[i]
+			model.HasProbe = model.PlanID > 0
 			key := trafficKey{accountID: account.AccountID, model: strings.ToLower(strings.TrimSpace(model.Model))}
-			snapshot := byModel[key]
-			model.UserTraffic = &ChannelMonitorUserTraffic{
-				WindowMinutes: int(schedulerUserTrafficWindow / time.Minute),
-				SuccessCount:  snapshot.SuccessCount,
-				FailureCount:  snapshot.FailureCount,
-				AvgTTFTMs:     snapshot.AvgTTFTMs,
-				LastSuccessAt: snapshot.LastSuccessAt,
-				LastFailureAt: snapshot.LastFailureAt,
-				RecentEvents:  eventsByModel[key],
-			}
+			model.UserTraffic = trafficForKey(key)
+			attachedModels[key] = struct{}{}
 		}
+	}
+	for key, snapshot := range byModel {
+		if _, attached := attachedModels[key]; attached || strings.TrimSpace(snapshot.Model) == "" {
+			continue
+		}
+		account := accountByID[key.accountID]
+		if account == nil {
+			continue
+		}
+		account.Models = append(account.Models, ChannelMonitorPoolModel{
+			Model:       strings.TrimSpace(snapshot.Model),
+			UserTraffic: trafficForKey(key),
+		})
+	}
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		sort.SliceStable(account.Models, func(i, j int) bool {
+			return strings.ToLower(account.Models[i].Model) < strings.ToLower(account.Models[j].Model)
+		})
 	}
 	return accounts, nil
 }

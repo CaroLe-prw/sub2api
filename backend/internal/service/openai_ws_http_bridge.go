@@ -761,9 +761,12 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	responseModelObserver := &upstreamResponseModelObserver{}
 
 	responsesLite := !hasOpenAIServerSideCompactionInBody(payload) &&
-		(isOpenAIResponsesLiteWebSocketPayload(payload) ||
-			isOpenAIResponsesLiteHeaderEnabledForAccount(openAIResponsesLiteHeaderFromContext(c), account))
-	payload, _, err := stripOpenAIResponsesLiteWSMetadataForCompaction(payload)
+		isOpenAIResponsesLiteRequestedForPayload(c, account, payload, originalModel)
+	payload, _, err := stripOpenAIResponsesLiteWSMetadataForUnsupportedModel(payload, account, originalModel)
+	if err != nil {
+		return nil, err
+	}
+	payload, _, err = stripOpenAIResponsesLiteWSMetadataForCompaction(payload)
 	if err != nil {
 		return nil, err
 	}

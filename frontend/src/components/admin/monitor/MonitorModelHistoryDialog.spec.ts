@@ -39,6 +39,7 @@ vi.mock('vue-i18n', async (importOriginal) => {
         'admin.channelMonitor.dataPanel.userTraffic': '用户调用',
         'admin.channelMonitor.dataPanel.userTrafficTimeline': '用户调用按首字速度分色',
         'admin.channelMonitor.dataPanel.activeProbeTimeline': '主动探测记录',
+        'admin.channelMonitor.dataPanel.noActiveProbeForModel': '仅用户调用，未配置主动探测',
         'admin.channelMonitor.dataPanel.noUserTraffic': '暂无用户调用',
         'admin.channelMonitor.dataPanel.timelineSampleCount': `${params.n ?? 0}条`,
         'admin.channelMonitor.dataPanel.activeProbeSummary': '主动探测',
@@ -275,5 +276,60 @@ describe('MonitorModelHistoryDialog', () => {
       ['user', 'success'],
       ['probe', 'success'],
     ])
+  })
+
+  it('renders a traffic-only model without offering an invalid probe action', () => {
+    const wrapper = mount(MonitorModelHistoryDialog, {
+      props: {
+        show: true,
+        account: {
+          ...account,
+          models: [
+            { ...account.models[0], has_probe: true },
+            {
+              plan_id: 0,
+              has_probe: false,
+              model: 'gpt-5.6-sol',
+              enabled: false,
+              status: '',
+              latency_ms: null,
+              availability: null,
+              sample_count: 0,
+              failure_count: 0,
+              last_checked_at: null,
+              recent_results: [],
+              user_traffic: {
+                window_minutes: 30,
+                success_count: 4,
+                failure_count: 0,
+                avg_ttft_ms: 430,
+                last_success_at: '2026-08-16T03:38:00Z',
+                last_failure_at: null,
+                recent_events: [
+                  { id: 'usage:10', status: 'success', ttft_ms: 430, latency_ms: 840, created_at: '2026-08-16T03:38:00Z' },
+                ],
+              },
+            },
+          ],
+        },
+        histories: { 81: [result(1, 'success', '2026-08-16T03:36:00Z', 500)] },
+        loading: false,
+        runningPlanId: null,
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            props: ['show'],
+            template: '<div v-if="show"><slot /><slot name="footer" /></div>',
+          },
+          Icon: true,
+          MonitorHeartbeatTimeline: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('gpt-5.6-sol')
+    expect(wrapper.text()).toContain('仅用户调用，未配置主动探测')
+    expect(wrapper.findAll('[data-testid="run-probe"]')).toHaveLength(1)
   })
 })

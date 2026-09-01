@@ -103,7 +103,7 @@ func (a *Account) GetOpenAIContextCompactionThreshold() int64 {
 // separate semantics.
 func applyOpenAIAutoContextCompactionToBody(c *gin.Context, account *Account, body []byte) ([]byte, bool, error) {
 	setOpenAIAutoContextCompactionState(c, false, false)
-	responsesLite := c != nil && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader))
+	responsesLite := isOpenAIResponsesLiteRequestedForPayload(c, account, body, "")
 	if len(body) == 0 || account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey || !account.IsPoolMode() || isOpenAIResponsesCompactPath(c) || responsesLite {
 		return body, false, nil
 	}

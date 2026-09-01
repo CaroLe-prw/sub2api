@@ -428,7 +428,7 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 				Extra:       map[string]any{"openai_passthrough": passthrough},
 			}
 			body := []byte(`{
-				"model":"gpt-5.6-terra","stream":true,"instructions":"test",
+				"model":"gpt-5.6-codex","stream":true,"instructions":"test",
 				"reasoning":{"effort":"high","context":"current_turn"},
 				"parallel_tool_calls":true,
 				"tools":[
@@ -465,7 +465,7 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 			badUpstream := &httpUpstreamRecorder{}
 			svc.httpUpstream = badUpstream
 
-			result, err = svc.Forward(context.Background(), badCtx, account, []byte(`{"model":"gpt-5.6-terra","tools":[{"type":"function","name":"shell"}],"parallel_tool_calls":"false"}`))
+			result, err = svc.Forward(context.Background(), badCtx, account, []byte(`{"model":"gpt-5.6-codex","tools":[{"type":"function","name":"shell"}],"parallel_tool_calls":"false"}`))
 
 			require.ErrorContains(t, err, "parallel_tool_calls to be a boolean")
 			require.Nil(t, result)
@@ -479,8 +479,8 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 				body      string
 				wantParam string
 			}{
-				{body: `{"model":"gpt-5.6-terra","tools":{}}`, wantParam: "tools"},
-				{body: `{"model":"gpt-5.6-terra","reasoning":[]}`, wantParam: "reasoning"},
+				{body: `{"model":"gpt-5.6-codex","tools":{}}`, wantParam: "tools"},
+				{body: `{"model":"gpt-5.6-codex","reasoning":[]}`, wantParam: "reasoning"},
 			} {
 				rec := httptest.NewRecorder()
 				requestCtx, _ := gin.CreateTestContext(rec)
@@ -495,6 +495,77 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 				require.Equal(t, malformed.wantParam, gjson.Get(rec.Body.String(), "error.param").String())
 			}
 		})
+	}
+}
+
+func TestOpenAIGatewayServiceForward_DisablesResponsesLiteForUnsupportedModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	accountCases := []struct {
+		name        string
+		accountType string
+		credentials map[string]any
+		inbound     bool
+	}{
+		{name: "oauth", accountType: AccountTypeOAuth, credentials: map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "chatgpt-account"}, inbound: true},
+		{name: "apikey", accountType: AccountTypeAPIKey, credentials: map[string]any{"api_key": "sk-test"}, inbound: true},
+		{
+			name: "apikey_header_override", accountType: AccountTypeAPIKey,
+			credentials: map[string]any{
+				"api_key":                 "sk-test",
+				"header_override_enabled": true,
+				"header_overrides": map[string]any{
+					responsesLiteHeaderKey: "true",
+				},
+			},
+		},
+	}
+
+	for _, accountCase := range accountCases {
+		for _, passthrough := range []bool{false, true} {
+			mode := "managed"
+			if passthrough {
+				mode = "passthrough"
+			}
+			t.Run(accountCase.name+"/"+mode, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+				c.Request.Header.Set("User-Agent", "codex_cli_rs/0.144.1")
+				if accountCase.inbound {
+					c.Request.Header.Set(responsesLiteHeader, "true")
+				}
+
+				upstream := &httpUpstreamRecorder{resp: &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+					Body: io.NopCloser(strings.NewReader(
+						"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_full\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n" +
+							"data: [DONE]\n\n",
+					)),
+				}}
+				svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+				account := &Account{
+					ID: 505, Name: "responses-lite-unsupported-model", Platform: PlatformOpenAI, Type: accountCase.accountType,
+					Concurrency: 1, Status: StatusActive, Schedulable: true, RateMultiplier: f64p(1),
+					Credentials: accountCase.credentials,
+					Extra:       map[string]any{"openai_passthrough": passthrough},
+				}
+				body := []byte(`{
+					"model":"gpt-5.6-sol","stream":true,"instructions":"test",
+					"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}],
+					"parallel_tool_calls":true,
+					"input":[{"type":"message","role":"user","content":"hello"}]
+				}`)
+
+				result, err := svc.Forward(context.Background(), c, account, body)
+
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				require.Empty(t, upstream.lastReq.Header.Get(responsesLiteHeader))
+				require.True(t, gjson.GetBytes(upstream.lastBody, "parallel_tool_calls").Bool())
+			})
+		}
 	}
 }
 
@@ -548,7 +619,7 @@ func TestOpenAIGatewayServiceForward_PinsParallelToolCallsForToollessResponsesLi
 						Extra:       map[string]any{"openai_passthrough": passthrough},
 					}
 					body := []byte(`{
-						"model":"gpt-5.6-terra","stream":true,"instructions":"test",
+						"model":"gpt-5.6-codex","stream":true,"instructions":"test",
 						"reasoning":{"effort":"high","context":"current_turn"},
 						"input":[{"type":"message","role":"user","content":"hello"}]` + parallelCase.field + `
 					}`)
@@ -595,7 +666,7 @@ func TestOpenAIGatewayServiceForward_DisablesParallelToolCallsForResponsesLiteAP
 				Extra:       map[string]any{"openai_passthrough": passthrough},
 			}
 			body := []byte(`{
-				"model":"gpt-5.6-terra","stream":true,"instructions":"test",
+				"model":"gpt-5.6-codex","stream":true,"instructions":"test",
 				"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}],
 				"parallel_tool_calls":true,
 				"input":[{"type":"message","role":"user","content":"hello"}]
@@ -647,7 +718,7 @@ func TestOpenAIGatewayServiceForward_HeaderOverrideResponsesLitePinsParallelTool
 				Extra: map[string]any{"openai_passthrough": passthrough},
 			}
 			body := []byte(`{
-				"model":"gpt-5.6-terra","stream":true,
+				"model":"gpt-5.6-codex","stream":true,
 				"parallel_tool_calls":false,
 				"input":[{"type":"message","role":"user","content":"hello"}]
 			}`)
@@ -692,7 +763,7 @@ func TestOpenAIGatewayServiceForward_DisablesResponsesLiteForServerSideCompactio
 			name: "body signal",
 			path: "/v1/responses",
 			body: []byte(`{
-				"model":"gpt-5.6-sol","stream":true,
+				"model":"gpt-5.6-codex","stream":true,
 				"tools":[{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"send_message"}]}],
 				"input":[
 					{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"image_gen"}]},
@@ -705,7 +776,7 @@ func TestOpenAIGatewayServiceForward_DisablesResponsesLiteForServerSideCompactio
 			name: "compact path",
 			path: "/v1/responses/compact",
 			body: []byte(`{
-				"model":"gpt-5.6-sol","stream":true,
+				"model":"gpt-5.6-codex","stream":true,
 				"input":[
 					{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"image_gen"}]},
 					{"type":"message","role":"user","content":"hello"}

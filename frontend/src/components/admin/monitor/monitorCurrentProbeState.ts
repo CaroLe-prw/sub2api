@@ -1,5 +1,6 @@
 import type { PoolMonitorAccount, PoolMonitorModel, PoolProbeHeartbeat } from '@/api/admin/schedulerProbes'
 import { firstTokenSeverity } from '@/utils/latencyHealth'
+import { hasActiveProbe } from './monitorModelProbe'
 
 export type CurrentProbeState = 'success' | 'degraded' | 'failed' | 'pending'
 
@@ -99,6 +100,7 @@ export function mergeMonitorHistories(
 ): PoolMonitorAccount {
   let changed = false
   const models = account.models.map((model) => {
+    if (!hasActiveProbe(model)) return model
     const samples = histories[model.plan_id]
     if (!Array.isArray(samples) || samples.length === 0) return model
 
