@@ -1213,7 +1213,19 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				messages := pendingDownstream
 				pendingDownstream = nil
 				for _, downstreamMessage := range messages {
-					if err := writeClientMessage(downstreamMessage); err != nil {
+					downstreamEventType := strings.TrimSpace(gjson.GetBytes(downstreamMessage, "type").String())
+					if downstreamEventType == "" {
+						downstreamEventType = eventType
+					}
+					// Keep the upstream payload intact for account-state classification, but
+					// rewrite capacity-shed codes in the client-visible copy so Codex retries.
+					clientMessage := downstreamMessage
+					if downstreamEventType == "error" || downstreamEventType == "response.failed" {
+						if rewritten, changed := sanitizeOpenAICapacityShedErrorCodeForClient(clientMessage); changed {
+							clientMessage = rewritten
+						}
+					}
+					if err := writeClientMessage(clientMessage); err != nil {
 						if isOpenAIWSClientDisconnectError(err) {
 							clientDisconnected = true
 							closeStatus, closeReason := summarizeOpenAIWSReadCloseError(err)
@@ -1235,7 +1247,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 						break
 					}
 					wroteDownstream = true
-					markOpenAIWSClientVisibleFailure(c, eventType, downstreamMessage)
+					markOpenAIWSClientVisibleFailure(c, downstreamEventType, downstreamMessage)
 				}
 			}
 			if isTerminalEvent {
