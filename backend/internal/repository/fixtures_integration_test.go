@@ -92,6 +92,8 @@ func mustCreateGroup(t *testing.T, client *dbent.Client, g *service.Group) *serv
 		SetNillableMaxAccountCostMultiplier(g.MaxAccountCostMultiplier).
 		SetIsExclusive(g.IsExclusive).
 		SetRequireOauthOnly(g.RequireOAuthOnly).
+		SetForceOpenaiFast(g.ForceOpenAIFast).
+		SetFreeOpenaiFast(g.FreeOpenAIFast).
 		SetProfitControlEnabled(g.ProfitControlEnabled).
 		SetProfitMinMargin(g.ProfitMinMargin).
 		SetProfitSafetyBuffer(g.ProfitSafetyBuffer)

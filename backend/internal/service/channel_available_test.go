@@ -226,9 +226,10 @@ func TestSynthesizePricingFromLiteLLM_PreservesTimePricing(t *testing.T) {
 		}}},
 	}
 	lp := &LiteLLMModelPricing{
-		Mode:               "chat",
-		InputCostPerToken:  1.5e-6,
-		OutputCostPerToken: 4.5e-6,
+		Mode:                                "chat",
+		InputCostPerToken:                   1.5e-6,
+		OutputCostPerToken:                  4.5e-6,
+		CacheCreationInputTokenCostAbove1hr: 6e-6,
 	}
 
 	got := synthesizePricingFromLiteLLM(lp, existing)
@@ -236,10 +237,12 @@ func TestSynthesizePricingFromLiteLLM_PreservesTimePricing(t *testing.T) {
 	require.Len(t, got.TimePricing.Periods, 1, "补齐基础价时不能丢失渠道分时规则")
 	require.Equal(t, "09:00", got.TimePricing.Periods[0].StartTime)
 	require.InDelta(t, 1.5e-6, *got.InputPrice, 1e-12, "非分时时段继续使用官方基础价")
+	require.InDelta(t, 6e-6, *got.CacheWrite1hPrice, 1e-12, "LiteLLM 的 1h 缓存写入价必须补入渠道回退价")
 
 	effective := got.EffectiveAt(time.Date(2026, 8, 17, 10, 0, 0, 0, time.FixedZone("Asia/Shanghai", 8*60*60)))
 	require.NotNil(t, effective.InputPrice)
 	require.InDelta(t, 3e-6, *effective.InputPrice, 1e-12, "分时时段必须乘到基础回退价")
+	require.InDelta(t, 12e-6, *effective.CacheWrite1hPrice, 1e-12, "1h 缓存写入价也必须应用分时倍率")
 }
 
 func TestSynthesizePricingFromLiteLLM_ImageGenerationMode(t *testing.T) {

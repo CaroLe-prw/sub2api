@@ -141,13 +141,13 @@ func pricingNeedsFallback(p *ChannelModelPricing) bool {
 		return true
 	}
 	if p.InputPrice != nil || p.OutputPrice != nil ||
-		p.CacheWritePrice != nil || p.CacheReadPrice != nil ||
+		p.CacheWritePrice != nil || p.CacheWrite1hPrice != nil || p.CacheReadPrice != nil ||
 		p.ImageOutputPrice != nil || p.PerRequestPrice != nil {
 		return false
 	}
 	for _, iv := range p.Intervals {
 		if iv.InputPrice != nil || iv.OutputPrice != nil ||
-			iv.CacheWritePrice != nil || iv.CacheReadPrice != nil ||
+			iv.CacheWritePrice != nil || iv.CacheWrite1hPrice != nil || iv.CacheReadPrice != nil ||
 			iv.PerRequestPrice != nil {
 			return false
 		}
@@ -197,6 +197,7 @@ func synthesizePricingFromLiteLLM(lp *LiteLLMModelPricing, existing *ChannelMode
 	fillMissingPrice(&pricing.InputPrice, lp.InputCostPerToken)
 	fillMissingPrice(&pricing.OutputPrice, lp.OutputCostPerToken)
 	fillMissingPrice(&pricing.CacheWritePrice, lp.CacheCreationInputTokenCost)
+	fillMissingPrice(&pricing.CacheWrite1hPrice, lp.CacheCreationInputTokenCostAbove1hr)
 	fillMissingPrice(&pricing.CacheReadPrice, lp.CacheReadInputTokenCost)
 	fillMissingPrice(&pricing.ImageOutputPrice, lp.OutputCostPerImageToken)
 	return &pricing
