@@ -1178,6 +1178,33 @@ const maxModerationTestImages = 1
 const maxModerationTestImageSize = 8 * 1024 * 1024
 const maxVisibleApiKeyRows: number = 3
 const blockedKeywordMax = 10000
+const openAIRiskThresholdCategories = [
+  'harassment',
+  'harassment/threatening',
+  'hate',
+  'hate/threatening',
+  'illicit',
+  'illicit/violent',
+  'self-harm',
+  'self-harm/intent',
+  'self-harm/instructions',
+  'sexual',
+  'sexual/minors',
+  'violence',
+  'violence/graphic',
+]
+const mistralRiskThresholdCategories = [
+  'sexual',
+  'hate_and_discrimination',
+  'violence_and_threats',
+  'dangerous_and_criminal_content',
+  'selfharm',
+  'health',
+  'financial',
+  'law',
+  'pii',
+  'jailbreaking',
+]
 const riskThresholdDefaults: Record<string, number> = {
   harassment: 98,
   'harassment/threatening': 90,
@@ -1192,8 +1219,16 @@ const riskThresholdDefaults: Record<string, number> = {
   'sexual/minors': 65,
   violence: 95,
   'violence/graphic': 95,
+  hate_and_discrimination: 65,
+  violence_and_threats: 90,
+  dangerous_and_criminal_content: 95,
+  selfharm: 65,
+  health: 99,
+  financial: 99,
+  law: 99,
+  pii: 90,
+  jailbreaking: 85,
 }
-const riskThresholdCategories = Object.keys(riskThresholdDefaults)
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -1260,6 +1295,14 @@ const configForm = reactive({
   keyword_blocking_mode: 'keyword_and_api' as KeywordBlockingMode,
   model_filter_type: 'all' as ContentModerationModelFilterType,
   model_filter_models: [] as string[],
+})
+
+const riskThresholdCategories = computed(() => {
+  const model = configForm.model.trim().toLowerCase()
+  const baseURL = configForm.base_url.trim().toLowerCase()
+  return model.startsWith('mistral-moderation') || baseURL.includes('api.mistral.ai')
+    ? mistralRiskThresholdCategories
+    : openAIRiskThresholdCategories
 })
 
 const pagination = reactive({
@@ -1577,7 +1620,7 @@ const moderationScoreRows = computed<ModerationScoreRow[]>(() => {
 })
 
 const riskThresholdRows = computed<RiskThresholdRow[]>(() => (
-  riskThresholdCategories.map((category) => ({
+  riskThresholdCategories.value.map((category) => ({
     category,
     value: configForm.thresholds[category] ?? riskThresholdDefaults[category],
     defaultValue: riskThresholdDefaults[category],
@@ -2289,7 +2332,7 @@ function buildModelFilterPayload(): ContentModerationModelFilter {
 
 function riskThresholdsFromConfig(thresholds: Record<string, number> | null | undefined): Record<string, number> {
   const out: Record<string, number> = { ...riskThresholdDefaults }
-  for (const category of riskThresholdCategories) {
+  for (const category of riskThresholdCategories.value) {
     const value = thresholds?.[category]
     if (Number.isFinite(value)) {
       out[category] = clampPercent(Number(value) * 100)
@@ -2300,8 +2343,8 @@ function riskThresholdsFromConfig(thresholds: Record<string, number> | null | un
 
 function buildRiskThresholdPayload(): Record<string, number> {
   const payload: Record<string, number> = {}
-  for (const category of riskThresholdCategories) {
-    payload[category] = Number((clampPercent(configForm.thresholds[category]) / 100).toFixed(4))
+  for (const category of riskThresholdCategories.value) {
+    payload[category] = Number((clampPercent(configForm.thresholds[category] ?? riskThresholdDefaults[category]) / 100).toFixed(4))
   }
   return payload
 }

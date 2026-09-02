@@ -1316,6 +1316,60 @@ func TestBuildContentModerationTestAuditResult_UsesConfiguredThresholdsOnly(t *t
 	require.Equal(t, 0.98, result.Thresholds["harassment"])
 }
 
+func TestEvaluateModerationScoresSupportsMistralCategories(t *testing.T) {
+	thresholds := ContentModerationDefaultThresholds()
+	categories := []string{
+		"hate_and_discrimination",
+		"violence_and_threats",
+		"dangerous_and_criminal_content",
+		"selfharm",
+		"health",
+		"financial",
+		"law",
+		"pii",
+		"jailbreaking",
+	}
+
+	for _, category := range categories {
+		t.Run(category, func(t *testing.T) {
+			threshold, ok := thresholds[category]
+			require.True(t, ok)
+			flagged, highestCategory, highestScore := evaluateModerationScores(
+				map[string]float64{category: threshold},
+				thresholds,
+			)
+			require.True(t, flagged)
+			require.Equal(t, category, highestCategory)
+			require.Equal(t, threshold, highestScore)
+		})
+	}
+}
+
+func TestContentModerationCallModeration_MistralUsesTextFromMultimodalInput(t *testing.T) {
+	var request moderationAPIRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		_ = json.NewEncoder(w).Encode(moderationAPIResponse{Results: []moderationAPIResult{{
+			CategoryScores: map[string]float64{"jailbreaking": 0.1},
+		}}})
+	}))
+	defer server.Close()
+
+	cfg := defaultContentModerationConfig()
+	cfg.BaseURL = server.URL
+	cfg.Model = "mistral-moderation-2603"
+	cfg.APIKeys = []string{"sk-test"}
+	svc := NewContentModerationService(nil, nil, nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.callModeration(context.Background(), cfg, []moderationAPIInputPart{
+		{Type: "text", Text: "check this prompt"},
+		{Type: "image_url", ImageURL: &moderationAPIImageURLRef{URL: "https://example.com/a.png"}},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "check this prompt", request.Input)
+}
+
 func TestContentModerationCallModeration_400DoesNotFreezeAPIKey(t *testing.T) {
 	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

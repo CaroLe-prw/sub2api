@@ -285,6 +285,47 @@ describe('admin RiskControlView', () => {
     expect(showError).not.toHaveBeenCalled()
   })
 
+  it('shows and saves Mistral Moderation category thresholds', async () => {
+    getConfig.mockResolvedValue({
+      ...baseConfig(),
+      base_url: 'https://api.mistral.ai',
+      model: 'mistral-moderation-2603',
+    })
+    const wrapper = mount(RiskControlView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          BaseDialog: BaseDialogStub,
+          Icon: true,
+          Select: true,
+          Toggle: true,
+          Pagination: true,
+          ModelWhitelistSelector: ModelWhitelistSelectorStub,
+          ProxySelector: true,
+        },
+      },
+    })
+
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.riskThresholds').trigger('click')
+
+    expect(wrapper.find('[data-test="risk-threshold-jailbreaking"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="risk-threshold-hate_and_discrimination"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="risk-threshold-harassment"]').exists()).toBe(false)
+    await wrapper.get('[data-test="risk-threshold-jailbreaking"]').setValue('80')
+    await findButtonByText(wrapper, 'admin.riskControl.saveConfig').trigger('click')
+    await flushPromises()
+
+    expect(updateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      thresholds: expect.objectContaining({
+        jailbreaking: 0.8,
+        hate_and_discrimination: 0.65,
+      }),
+    }))
+    expect(showError).not.toHaveBeenCalled()
+  })
+
   it('describes worker runtime as async audit and pre-block record processing', async () => {
     getStatus.mockResolvedValue({
       ...runtimeStatus(),

@@ -112,23 +112,43 @@ var contentModerationCategoryOrder = []string{
 	"sexual/minors",
 	"violence",
 	"violence/graphic",
+	// Mistral Moderation 2 categories. "sexual" is shared with OpenAI and is
+	// already listed above.
+	"hate_and_discrimination",
+	"violence_and_threats",
+	"dangerous_and_criminal_content",
+	"selfharm",
+	"health",
+	"financial",
+	"law",
+	"pii",
+	"jailbreaking",
 }
 
 func ContentModerationDefaultThresholds() map[string]float64 {
 	return map[string]float64{
-		"harassment":             0.98,
-		"harassment/threatening": 0.90,
-		"hate":                   0.65,
-		"hate/threatening":       0.65,
-		"illicit":                0.95,
-		"illicit/violent":        0.95,
-		"self-harm":              0.65,
-		"self-harm/intent":       0.85,
-		"self-harm/instructions": 0.65,
-		"sexual":                 0.65,
-		"sexual/minors":          0.65,
-		"violence":               0.95,
-		"violence/graphic":       0.95,
+		"harassment":                     0.98,
+		"harassment/threatening":         0.90,
+		"hate":                           0.65,
+		"hate/threatening":               0.65,
+		"illicit":                        0.95,
+		"illicit/violent":                0.95,
+		"self-harm":                      0.65,
+		"self-harm/intent":               0.85,
+		"self-harm/instructions":         0.65,
+		"sexual":                         0.65,
+		"sexual/minors":                  0.65,
+		"violence":                       0.95,
+		"violence/graphic":               0.95,
+		"hate_and_discrimination":        0.65,
+		"violence_and_threats":           0.90,
+		"dangerous_and_criminal_content": 0.95,
+		"selfharm":                       0.65,
+		"health":                         0.99,
+		"financial":                      0.99,
+		"law":                            0.99,
+		"pii":                            0.90,
+		"jailbreaking":                   0.85,
 	}
 }
 
@@ -1741,7 +1761,7 @@ func (s *ContentModerationService) callModerationOnceWithInput(ctx context.Conte
 	}
 	payload := moderationAPIRequest{
 		Model: cfg.Model,
-		Input: input,
+		Input: contentModerationProviderInput(cfg, input),
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -1783,6 +1803,23 @@ func (s *ContentModerationService) callModerationOnceWithInput(ctx context.Conte
 		return nil, errors.New("moderation api returned empty results")
 	}
 	return &out.Results[0], nil
+}
+
+func contentModerationProviderInput(cfg *ContentModerationConfig, input any) any {
+	if cfg == nil || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(cfg.Model)), "mistral-moderation") {
+		return input
+	}
+	parts, ok := input.([]moderationAPIInputPart)
+	if !ok {
+		return input
+	}
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if text := strings.TrimSpace(part.Text); part.Type == "text" && text != "" {
+			texts = append(texts, text)
+		}
+	}
+	return strings.Join(texts, "\n")
 }
 
 // moderationProxyURLCacheEntry 缓存 proxy_id 到代理 URL 的解析结果，
