@@ -127,7 +127,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 
 	if clientStream {
-		return s.streamChatCompletionsAsResponses(c, resp, account, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		return s.streamChatCompletionsAsResponses(c, resp, account, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, len(body))
 	}
 	return s.bufferChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 }
@@ -187,6 +187,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	reasoningEffort *string,
 	serviceTier *string,
 	startTime time.Time,
+	requestBodyLen int,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
@@ -197,8 +198,11 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	state.ToolSearchDeclared = toolSearch
 	state.NamespaceTools = namespaceTools
 	clientDisconnected := false
+	silentRefusalGuardEnabled := requestBodyLen >= openAISilentRefusalMinRequestBodyBytes
+	meaningfulOutputSeen := false
+	pendingEvents := make([]apicompat.ResponsesStreamEvent, 0, 4)
 
-	writeEvents := func(events []apicompat.ResponsesStreamEvent) {
+	writeEventsNow := func(events []apicompat.ResponsesStreamEvent) {
 		if clientDisconnected || len(events) == 0 {
 			return
 		}
@@ -223,6 +227,27 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		}
 		c.Writer.Flush()
 	}
+	writeOrStageEvents := func(events []apicompat.ResponsesStreamEvent, startsOutput bool) {
+		if clientDisconnected || len(events) == 0 {
+			return
+		}
+		if startsOutput {
+			meaningfulOutputSeen = true
+		}
+		if silentRefusalGuardEnabled && !meaningfulOutputSeen {
+			pendingEvents = append(pendingEvents, events...)
+			return
+		}
+		if len(pendingEvents) > 0 {
+			combined := make([]apicompat.ResponsesStreamEvent, 0, len(pendingEvents)+len(events))
+			combined = append(combined, pendingEvents...)
+			combined = append(combined, events...)
+			pendingEvents = pendingEvents[:0]
+			writeEventsNow(combined)
+			return
+		}
+		writeEventsNow(events)
+	}
 
 	effortValue := ""
 	if reasoningEffort != nil {
@@ -232,9 +257,10 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		c.Request.Context(), c, account, resp, "openai responses chat fallback", requestID,
 		originalModel, effortValue, startTime,
 		func(chunk *apicompat.ChatCompletionsChunk) {
+			startsOutput := chatChunkStartsResponsesOutput(chunk)
 			events := apicompat.ChatCompletionsChunkToResponsesEvents(chunk, state)
 			s.cacheReasoningItemsFromEvents(events)
-			writeEvents(events)
+			writeOrStageEvents(events, startsOutput)
 		},
 	)
 
@@ -272,10 +298,18 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 			FirstTokenMs:                scan.FirstTokenMs,
 		}, fmt.Errorf("invalid tool call arguments from upstream: %w", err)
 	}
+	if silentRefusalGuardEnabled && !meaningfulOutputSeen && !clientDisconnected &&
+		state.FinishReason == "stop" && !openAIUsageHasTokens(&scan.Usage) {
+		return nil, newOpenAISilentRefusalFailoverError(c, account, requestID)
+	}
 
 	finalEvents := apicompat.FinalizeChatCompletionsResponsesStream(state)
 	s.cacheReasoningItemsFromEvents(finalEvents)
-	writeEvents(finalEvents)
+	if len(pendingEvents) > 0 {
+		finalEvents = append(pendingEvents, finalEvents...)
+		pendingEvents = pendingEvents[:0]
+	}
+	writeEventsNow(finalEvents)
 	if !clientDisconnected {
 		writeStreamHeaders()
 		if _, err := fmt.Fprint(c.Writer, "data: [DONE]\n\n"); err != nil {
@@ -309,7 +343,17 @@ func chatChunkStartsResponsesOutput(chunk *apicompat.ChatCompletionsChunk) bool 
 		return false
 	}
 	for _, choice := range chunk.Choices {
-		if choice.Delta.Content != nil || choice.Delta.ReasoningContent != nil || len(choice.Delta.ToolCalls) > 0 {
+		if choice.Delta.Content != nil && strings.TrimSpace(*choice.Delta.Content) != "" {
+			return true
+		}
+		reasoning := choice.Delta.ReasoningContent
+		if reasoning == nil {
+			reasoning = choice.Delta.Reasoning
+		}
+		if reasoning != nil && strings.TrimSpace(*reasoning) != "" {
+			return true
+		}
+		if len(choice.Delta.ToolCalls) > 0 {
 			return true
 		}
 	}
