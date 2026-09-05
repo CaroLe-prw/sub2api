@@ -390,7 +390,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 
 	// 7. Send request
 	proxyURL := ""
-	if account.Proxy != nil {
+	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
 	// Grok may reject encrypted reasoning replayed under a different OAuth
@@ -416,7 +416,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			}
 			headerGuard.close()
 			return nil, s.newOpenAIFirstOutputTimeoutError(
-				ctx, c, account, startTime, originalModel, reasoningEffort,
+				ctx, c, account, opsUpstreamProxyID(account), opsUpstreamProxyName(account), startTime, originalModel, reasoningEffort,
 				firstOutputTimeout, "response_headers", nil,
 			)
 		}
@@ -634,7 +634,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponseWithReaso
 		deadline = startTime.Add(firstOutputTimeout)
 		onTimeout = func() error {
 			return s.newOpenAIFirstOutputTimeoutError(
-				c.Request.Context(), c, account, startTime, originalModel, reasoningEffort,
+				c.Request.Context(), c, account, opsUpstreamProxyID(account), opsUpstreamProxyName(account), startTime, originalModel, reasoningEffort,
 				firstOutputTimeout, "semantic_output", resp.Header,
 			)
 		}
@@ -717,6 +717,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponseWithReaso
 
 	result := &OpenAIForwardResult{
 		RequestID:                     requestID,
+		UpstreamHeaders:               resp.Header,
 		ResponseID:                    finalResponse.ID,
 		Usage:                         usage,
 		Model:                         originalModel,
@@ -756,6 +757,8 @@ func (s *OpenAIGatewayService) recordOpenAIMessagesStreamUpstreamError(c *gin.Co
 	message = sanitizeUpstreamErrorMessage(message)
 	setOpsUpstreamError(c, http.StatusBadGateway, message, "")
 	event := OpsUpstreamErrorEvent{
+		ProxyID:            opsUpstreamProxyID(account),
+		ProxyName:          opsUpstreamProxyName(account),
 		Platform:           PlatformOpenAI,
 		UpstreamStatusCode: http.StatusBadGateway,
 		UpstreamRequestID:  strings.TrimSpace(upstreamRequestID),
@@ -1069,6 +1072,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 	resultWithUsage := func() *OpenAIForwardResult {
 		out := &OpenAIForwardResult{
 			RequestID:                     requestID,
+			UpstreamHeaders:               resp.Header,
 			ResponseID:                    responseID,
 			Usage:                         usage,
 			Model:                         originalModel,
@@ -1467,7 +1471,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 			for range events {
 			}
 			return resultWithUsage(), s.newOpenAIFirstOutputTimeoutError(
-				c.Request.Context(), c, account, startTime, originalModel, reasoningEffort,
+				c.Request.Context(), c, account, opsUpstreamProxyID(account), opsUpstreamProxyName(account), startTime, originalModel, reasoningEffort,
 				firstOutputTimeout, "semantic_output", resp.Header,
 			)
 

@@ -203,6 +203,8 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 				kind = "failover"
 			}
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				ProxyID:            opsUpstreamProxyID(account),
+				ProxyName:          opsUpstreamProxyName(account),
 				Platform:           account.Platform,
 				AccountID:          account.ID,
 				AccountName:        account.Name,
@@ -428,7 +430,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 	if firstOutputTimedOut.Load() && firstTokenMs == nil {
 		return nil, s.newOpenAIFirstOutputTimeoutError(
-			c.Request.Context(), c, account, startTime, originalModel, effortValue,
+			c.Request.Context(), c, account, opsUpstreamProxyID(account), opsUpstreamProxyName(account), startTime, originalModel, effortValue,
 			firstOutputTimeout, "semantic_output", resp.Header,
 		)
 	}
@@ -436,6 +438,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
 			RequestID:                     requestID,
+			UpstreamHeaders:               resp.Header,
 			Usage:                         usage,
 			Model:                         originalModel,
 			BillingModel:                  billingModel,
@@ -604,6 +607,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 
 	return &OpenAIForwardResult{
 		RequestID:                     requestID,
+		UpstreamHeaders:               resp.Header,
 		Usage:                         usage,
 		Model:                         originalModel,
 		BillingModel:                  billingModel,

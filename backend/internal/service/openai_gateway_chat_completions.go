@@ -478,7 +478,7 @@ func (s *OpenAIGatewayService) sendOpenAIChatResponsesRequest(
 			}
 			headerGuard.close()
 			return nil, s.newOpenAIFirstOutputTimeoutError(
-				ctx, c, account, startTime, originalModel, reasoningEffort,
+				ctx, c, account, opsUpstreamProxyID(account), opsUpstreamProxyName(account), startTime, originalModel, reasoningEffort,
 				firstOutputTimeout, "response_headers", nil,
 			)
 		}
@@ -608,7 +608,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponseWithReasoning(
 		deadline = startTime.Add(firstOutputTimeout)
 		onTimeout = func() error {
 			return s.newOpenAIFirstOutputTimeoutError(
-				c.Request.Context(), c, account, startTime, originalModel, reasoningEffort,
+				c.Request.Context(), c, account, opsUpstreamProxyID(account), opsUpstreamProxyName(account), startTime, originalModel, reasoningEffort,
 				firstOutputTimeout, "semantic_output", resp.Header,
 			)
 		}
@@ -697,6 +697,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponseWithReasoning(
 
 	result := &OpenAIForwardResult{
 		RequestID:                     requestID,
+		UpstreamHeaders:               resp.Header,
 		Usage:                         usage,
 		Model:                         originalModel,
 		BillingModel:                  billingModel,
@@ -836,6 +837,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponseWithReasoning(
 	resultWithUsage := func() *OpenAIForwardResult {
 		out := &OpenAIForwardResult{
 			RequestID:                     requestID,
+			UpstreamHeaders:               resp.Header,
 			Usage:                         usage,
 			Model:                         originalModel,
 			BillingModel:                  billingModel,
@@ -1287,7 +1289,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponseWithReasoning(
 			for range events {
 			}
 			return resultWithUsage(), s.newOpenAIFirstOutputTimeoutError(
-				c.Request.Context(), c, account, startTime, originalModel, reasoningEffort,
+				c.Request.Context(), c, account, opsUpstreamProxyID(account), opsUpstreamProxyName(account), startTime, originalModel, reasoningEffort,
 				firstOutputTimeout, "semantic_output", resp.Header,
 			)
 

@@ -81,6 +81,37 @@ describe('HelpTooltip', () => {
     await wrapper.get('.group').trigger('mouseenter')
     await nextTick()
     expect(getTooltipElement().textContent).toContain('API key decrypt failed')
+
+    wrapper.unmount()
+  })
+
+  it('keeps a hover tooltip open while the pointer moves between the trigger and the tooltip', async () => {
+    const wrapper = mount(HelpTooltip, {
+      attachTo: document.body,
+      props: {
+        content: 'copyable details',
+      },
+    })
+
+    const trigger = wrapper.get('.group')
+    const tooltip = getTooltipElement()
+
+    await trigger.trigger('mouseenter')
+    await nextTick()
+    expect(tooltip.style.display).not.toBe('none')
+
+    await trigger.trigger('mouseleave', { relatedTarget: tooltip })
+    await nextTick()
+    expect(tooltip.style.display).not.toBe('none')
+
+    tooltip.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: trigger.element }))
+    await nextTick()
+    expect(tooltip.style.display).not.toBe('none')
+
+    tooltip.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: null }))
+    await nextTick()
+    expect(tooltip.style.display).toBe('none')
+
     wrapper.unmount()
   })
 

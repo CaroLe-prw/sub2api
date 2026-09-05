@@ -21,6 +21,7 @@ const {
 
 
 vi.mock('@/utils/featureFlags', () => ({
+  isChannelMonitorQuotaVisible: () => false,
   isChannelMonitorV1Mode: () => true,
   isChannelMonitorV2Mode: () => false,
   getChannelMonitorMode: () => 'v1' as const,

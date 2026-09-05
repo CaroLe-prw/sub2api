@@ -516,8 +516,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			)
 			firstOutputTimeout := s.openAIWSFirstOutputTimeout()
 			if firstOutputTimeout > 0 && firstTokenMs == nil && ctx.Err() == nil && time.Until(startTime.Add(firstOutputTimeout)) <= 5*time.Millisecond {
+				wsProxyID, wsProxyName := opsUpstreamWSProxyAttribution(account)
 				return nil, s.newOpenAIFirstOutputTimeoutError(
-					ctx, c, account, startTime, originalModel, "", firstOutputTimeout,
+					ctx, c, account, wsProxyID, wsProxyName, startTime, originalModel, "", firstOutputTimeout,
 					"websocket_first_semantic_output", lease.HandshakeHeaders(),
 				)
 			}
@@ -591,17 +592,8 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 		imageCounter.AddSSEData(message)
 
-		if eventType == "response.failed" {
-			if hit, code, msg := detectOpenAICyberPolicy(message); hit {
-				MarkOpsCyberPolicy(c, CyberPolicyMark{
-					Code:           code,
-					Message:        msg,
-					Body:           truncateString(string(message), 4096),
-					UpstreamStatus: http.StatusOK,
-					UpstreamInTok:  usage.InputTokens,
-					UpstreamOutTok: usage.OutputTokens,
-				})
-			}
+		if eventType == "error" || eventType == "response.failed" {
+			markOpenAICyberPolicyEvent(c, message, http.StatusOK, usage)
 		}
 
 		if eventType == "error" {

@@ -117,20 +117,16 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 //  1. Pricing == nil（渠道完全没声明该模型的定价条目）
 //  2. Pricing 非 nil 但所有价格字段为空（admin UI 建了条目但没填价格）
 //
-// 当 pricingService 为 nil（测试场景），跳过回落。可用渠道与模型广场共用。
+// 当 pricingService 为 nil（测试场景），跳过价格回落，但仍补充内置模型倍率。
+// 可用渠道与模型广场共用。
 func fillGlobalPricingFallback(pricingService *PricingService, models []SupportedModel) {
-	if pricingService == nil {
-		return
-	}
 	for i := range models {
-		if !pricingNeedsFallback(models[i].Pricing) {
-			continue
+		if pricingService != nil && pricingNeedsFallback(models[i].Pricing) {
+			if lp := pricingService.GetModelPricing(models[i].Name); lp != nil {
+				models[i].Pricing = synthesizePricingFromLiteLLM(lp, models[i].Pricing)
+			}
 		}
-		lp := pricingService.GetModelPricing(models[i].Name)
-		if lp == nil {
-			continue
-		}
-		models[i].Pricing = synthesizePricingFromLiteLLM(lp, models[i].Pricing)
+		models[i].Pricing = withDefaultMaxReasoningEffortMultiplier(models[i].Pricing, models[i].Name)
 	}
 }
 
@@ -207,6 +203,13 @@ func fillMissingPrice(target **float64, fallback float64) {
 	if *target == nil {
 		*target = nonZeroPtr(fallback)
 	}
+}
+
+func maxReasoningEffortMultiplierFromPricing(pricing *ChannelModelPricing) *float64 {
+	if pricing == nil {
+		return nil
+	}
+	return pricing.MaxReasoningEffortMultiplier
 }
 
 func nonZeroPtr(v float64) *float64 {

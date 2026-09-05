@@ -1,5 +1,6 @@
+import { createPinia, setActivePinia } from 'pinia'
 import { mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ChannelMonitor } from '@/api/admin/channelMonitor'
 import MonitorCard from '@/components/user/monitor/MonitorCard.vue'
@@ -55,6 +56,7 @@ function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
 }
 
 describe('AdminMonitorCardGrid', () => {
+  beforeEach(() => setActivePinia(createPinia()))
   it('previews private and disabled monitors without making the card interactive', () => {
     const monitor = makeMonitor()
     const wrapper = mount(AdminMonitorCardGrid, {

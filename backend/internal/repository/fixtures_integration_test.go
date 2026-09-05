@@ -94,6 +94,7 @@ func mustCreateGroup(t *testing.T, client *dbent.Client, g *service.Group) *serv
 		SetRequireOauthOnly(g.RequireOAuthOnly).
 		SetForceOpenaiFast(g.ForceOpenAIFast).
 		SetFreeOpenaiFast(g.FreeOpenAIFast).
+		SetCodexModelsManifestConfig(g.CodexModelsManifestConfig).
 		SetProfitControlEnabled(g.ProfitControlEnabled).
 		SetProfitMinMargin(g.ProfitMinMargin).
 		SetProfitSafetyBuffer(g.ProfitSafetyBuffer)

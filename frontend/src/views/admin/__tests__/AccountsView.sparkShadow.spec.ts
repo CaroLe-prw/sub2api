@@ -133,6 +133,8 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
   })
 
   it('AccountActionMenu 的 duplicate 事件一键复制账号并刷新列表', async () => {
+    const duplicate = { id: 998, name: 'parent-acc (Copy)', credentials: { api_key: 'test-key' } }
+    duplicateAccount.mockResolvedValueOnce(duplicate)
     const wrapper = mountView()
     await flushPromises()
 
@@ -145,7 +147,7 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     expect(listAccounts.mock.calls.length).toBeGreaterThan(1)
     const editModal = wrapper.getComponent({ name: 'EditAccountModal' })
     expect(editModal.props('show')).toBe(true)
-    expect(editModal.props('account')).toEqual(expect.objectContaining({ id: 998 }))
+    expect(editModal.props('account')).toEqual(duplicate)
     wrapper.unmount()
   })
 

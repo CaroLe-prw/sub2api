@@ -23,7 +23,7 @@ var openAIModelsWithoutResponsesLite = map[string]struct{}{
 
 func openAIModelRequiresFullResponses(model string) bool {
 	_, restricted := openAIModelsWithoutResponsesLite[strings.ToLower(strings.TrimSpace(model))]
-	return restricted
+	return restricted || isOpenAIGPT6AstraModel(model)
 }
 
 func openAIResponsesLitePayloadModel(body []byte, fallbackModel string) string {
