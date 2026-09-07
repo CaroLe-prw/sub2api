@@ -390,6 +390,47 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it('loads, edits and clears Kimi response model mappings', async () => {
+    const account = buildAccount()
+    account.platform = 'kimi'
+    account.credentials.response_model_mapping = { k3: 'kimi-k3' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const editor = wrapper.get('[data-testid="response-model-mapping"]')
+    expect((editor.findAll('input')[0].element as HTMLInputElement).value).toBe('k3')
+    expect((editor.findAll('input')[1].element as HTMLInputElement).value).toBe('kimi-k3')
+    await editor.findAll('input')[1].setValue('kimi-public')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.response_model_mapping).toEqual({ k3: 'kimi-public' })
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    const reopened = wrapper.get('[data-testid="response-model-mapping"]')
+    expect((reopened.findAll('input')[1].element as HTMLInputElement).value).toBe('kimi-k3')
+    await reopened.findAll('button')[0].trigger('click')
+    updateAccountMock.mockClear()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.response_model_mapping).toEqual({})
+    wrapper.unmount()
+  })
+
+  it('rejects duplicate response mapping sources without saving', async () => {
+    updateAccountMock.mockReset()
+    const wrapper = mountModal()
+    const editor = wrapper.get('[data-testid="response-model-mapping"]')
+    await editor.get('button').trigger('click')
+    const buttons = editor.findAll('button')
+    await buttons[buttons.length - 1].trigger('click')
+    const inputs = editor.findAll('input')
+    await inputs[0].setValue('k3')
+    await inputs[1].setValue('kimi-k3')
+    await inputs[2].setValue(' k3 ')
+    await inputs[3].setValue('other')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('preserves adaptive Kimi Responses endpoint on submit', async () => {
     const account = buildAccount()
     account.platform = 'kimi'

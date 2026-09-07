@@ -966,6 +966,14 @@ export default {
       interceptWarmupRequests: 'Intercept Warmup Requests',
       interceptWarmupRequestsDesc:
         'When enabled, warmup requests like title generation will return mock responses without consuming upstream tokens',
+      responseModelMapping: {
+        title: 'Response model mapping',
+        hint: 'Replace exact model names in downstream JSON and streaming responses, e.g. k3 → kimi-k3. Request models, upstream logs and billing stay unchanged. Remove all rules to disable.',
+        from: 'Returned model, e.g. k3',
+        to: 'Downstream model, e.g. kimi-k3',
+        add: 'Add response mapping',
+        invalid: 'Use at most 64 rules with unique source names. Both names must contain 1–200 characters and no control characters.'
+      },
       headerOverride: {
         title: 'Header Override',
         hint: 'Override same-named request headers on forwarding (case-insensitive)',

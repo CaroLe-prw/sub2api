@@ -1035,6 +1035,14 @@ export default {
       errorCodeExists: '该错误码已被选中',
       interceptWarmupRequests: '拦截预热请求',
       interceptWarmupRequestsDesc: '启用后，标题生成等预热请求将返回 mock 响应，不消耗上游 token',
+      responseModelMapping: {
+        title: '响应模型映射',
+        hint: '将返回给下游的模型名按精确匹配替换，支持普通和流式响应。例如 k3 → kimi-k3。不会修改请求模型、上游日志或计费；删除全部规则即可关闭。',
+        from: '返回模型名，如 k3',
+        to: '下游模型名，如 kimi-k3',
+        add: '添加响应映射',
+        invalid: '最多添加 64 条规则；名称不能为空、超过 200 个字符或包含控制字符，来源模型名不能重复。'
+      },
       headerOverride: {
         title: '请求头覆写',
         hint: '转发时用配置值覆盖同名请求头（不区分大小写）',

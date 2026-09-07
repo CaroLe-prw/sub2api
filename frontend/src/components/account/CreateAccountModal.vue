@@ -1722,6 +1722,11 @@
           </div>
         </div>
 
+        <ResponseModelMappingEditor
+          v-if="supportsResponseModelMapping(form.platform, 'apikey')"
+          v-model="responseModelMappingRows"
+        />
+
         <!-- Header Override Section (eligible API-key platforms) -->
         <div
           v-if="isHeaderOverrideCapable(form.platform, 'apikey')"
@@ -3873,6 +3878,8 @@ import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
+import ResponseModelMappingEditor from '@/components/account/ResponseModelMappingEditor.vue'
+import { supportsResponseModelMapping, validResponseModelMapping, applyResponseModelMapping, type ResponseModelMappingRow } from '@/utils/responseModelMapping'
 import UpstreamBalanceAlertFields from '@/components/account/UpstreamBalanceAlertFields.vue'
 import UpstreamBillingSourceField from '@/components/account/UpstreamBillingSourceField.vue'
 import NewAPISyncConfigFields from '@/components/account/NewAPISyncConfigFields.vue'
@@ -4291,6 +4298,7 @@ const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
 const headerOverrideEnabled = ref(false)
 const headerOverrideRows = ref<HeaderOverrideRow[]>([])
+const responseModelMappingRows = ref<ResponseModelMappingRow[]>([])
 
 // Grok OAuth：自定义上游地址（base_url 仅改写转发端点，OAuth 授权/刷新不受影响）
 const grokOAuthCustomBaseUrlEnabled = ref(false)
@@ -4822,6 +4830,7 @@ watch(
     // 避免上一平台的配置行被提交到新平台账号
     headerOverrideEnabled.value = false
     headerOverrideRows.value = []
+    responseModelMappingRows.value = []
     openAIImagesUrlToB64JsonEnabled.value = false
     grokOAuthCustomBaseUrlEnabled.value = false
     grokOAuthBaseUrl.value = ''
@@ -5285,6 +5294,7 @@ const resetForm = () => {
   customErrorCodeInput.value = null
   headerOverrideEnabled.value = false
   headerOverrideRows.value = []
+  responseModelMappingRows.value = []
   openAIImagesUrlToB64JsonEnabled.value = false
   grokOAuthCustomBaseUrlEnabled.value = false
   grokOAuthBaseUrl.value = ''
@@ -5798,6 +5808,14 @@ const handleSubmit = async () => {
   if (customErrorCodesEnabled.value) {
     credentials.custom_error_codes_enabled = true
     credentials.custom_error_codes = [...selectedErrorCodes.value]
+  }
+
+  if (supportsResponseModelMapping(form.platform, 'apikey')) {
+    if (!validResponseModelMapping(responseModelMappingRows.value)) {
+      appStore.showError(t('admin.accounts.responseModelMapping.invalid'))
+      return
+    }
+    applyResponseModelMapping(credentials, responseModelMappingRows.value)
   }
 
   // Add header override if enabled for this API-key platform

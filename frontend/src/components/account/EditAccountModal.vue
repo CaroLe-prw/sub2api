@@ -583,6 +583,11 @@
         </div>
       </div>
 
+      <ResponseModelMappingEditor
+        v-if="supportsResponseModelMapping(account.platform, account.type)"
+        v-model="responseModelMappingRows"
+      />
+
       <!-- Header Override Section (eligible API-key platforms + grok OAuth) -->
       <div v-if="headerOverrideCapable" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -2984,6 +2989,8 @@ import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
+import ResponseModelMappingEditor from '@/components/account/ResponseModelMappingEditor.vue'
+import { supportsResponseModelMapping, loadResponseModelMapping, validResponseModelMapping, applyResponseModelMapping, type ResponseModelMappingRow } from '@/utils/responseModelMapping'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
 import NewAPISyncSettings from '@/components/account/NewAPISyncSettings.vue'
 import UpstreamBillingSourceField from '@/components/account/UpstreamBillingSourceField.vue'
@@ -3286,6 +3293,7 @@ const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
 const headerOverrideEnabled = ref(false)
 const headerOverrideRows = ref<HeaderOverrideRow[]>([])
+const responseModelMappingRows = ref<ResponseModelMappingRow[]>([])
 
 const headerOverrideCapable = computed(
   () => !!props.account && isHeaderOverrideCapable(props.account.platform, props.account.type)
@@ -4050,6 +4058,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   loadTempUnschedRules(credentials)
   loadAccountSchedulingThresholdOverride(newAccount.platform, credentials)
+
+  responseModelMappingRows.value = loadResponseModelMapping(newAccount.credentials?.response_model_mapping)
 
   // Load header override state for eligible account platforms/types
   headerOverrideEnabled.value = false
@@ -4859,6 +4869,14 @@ const handleSubmit = async () => {
       const newCredentials: Record<string, unknown> = {
         ...currentCredentials,
         base_url: newBaseUrl
+      }
+
+      if (supportsResponseModelMapping(props.account.platform, props.account.type)) {
+        if (!validResponseModelMapping(responseModelMappingRows.value)) {
+          appStore.showError(t('admin.accounts.responseModelMapping.invalid'))
+          return
+        }
+        applyResponseModelMapping(newCredentials, responseModelMappingRows.value)
       }
 
       // 国产供应商：模式与协议写入凭据（决定额度/余额探测与转发端点/格式）。
