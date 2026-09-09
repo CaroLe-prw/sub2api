@@ -343,12 +343,14 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	}
 	resp, err := s.sendOpenAIChatResponsesRequest(
 		ctx, c, account, responsesBody, token, promptCacheKey, originalModel, reasoningEffort,
-		startTime, firstOutputTimeout, autoContextCompactionInjected, compatPromptCacheTenantIsolated,
+		startTime, firstOutputTimeout, autoContextCompactionInjected, compatPromptCacheTenantIsolated, clientStream,
 	)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
@@ -439,9 +441,14 @@ func (s *OpenAIGatewayService) sendOpenAIChatResponsesRequest(
 	firstOutputTimeout time.Duration,
 	autoContextCompactionInjected bool,
 	compatPromptCacheTenantIsolated bool,
+	clientStream bool,
 ) (*http.Response, error) {
 	for {
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+		cancelUpstream := func() {}
+		if clientStream {
+			upstreamCtx, cancelUpstream = context.WithCancel(upstreamCtx)
+		}
 		var headerGuard *openAIFirstOutputHeaderGuard
 		if firstOutputTimeout > 0 {
 			upstreamCtx, headerGuard = newOpenAIFirstOutputHeaderGuard(
@@ -456,6 +463,7 @@ func (s *OpenAIGatewayService) sendOpenAIChatResponsesRequest(
 			if headerGuard != nil {
 				headerGuard.close()
 			}
+			cancelUpstream()
 			return nil, fmt.Errorf("build upstream request: %w", err)
 		}
 
@@ -478,6 +486,7 @@ func (s *OpenAIGatewayService) sendOpenAIChatResponsesRequest(
 				_ = resp.Body.Close()
 			}
 			headerGuard.close()
+			cancelUpstream()
 			return nil, s.newOpenAIFirstOutputTimeoutError(
 				ctx, c, account, opsUpstreamProxyID(account), opsUpstreamProxyName(account), startTime, originalModel, reasoningEffort,
 				firstOutputTimeout, "response_headers", nil,
@@ -487,10 +496,13 @@ func (s *OpenAIGatewayService) sendOpenAIChatResponsesRequest(
 			if headerGuard != nil {
 				headerGuard.close()
 			}
+			cancelUpstream()
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 		}
 		if headerGuard != nil {
-			resp.Body = &openAIRequestContextReadCloser{ReadCloser: resp.Body, cleanup: headerGuard.close}
+			resp.Body = &openAIRequestContextReadCloser{ReadCloser: resp.Body, cleanup: func() { cancelUpstream(); headerGuard.close() }}
+		} else {
+			resp.Body = &openAIRequestContextReadCloser{ReadCloser: resp.Body, cleanup: cancelUpstream}
 		}
 
 		if resp.StatusCode >= http.StatusBadRequest && autoContextCompactionInjected {

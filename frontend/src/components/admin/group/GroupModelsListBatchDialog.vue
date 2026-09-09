@@ -1,22 +1,22 @@
 <template>
   <BaseDialog
     :show="show"
-    :title="t('admin.groups.modelsList.batch.title')"
+    :title="t('admin.groups.modelAllowlist.batch.title')"
     width="normal"
     @close="close"
   >
     <div class="space-y-4">
       <p class="text-sm text-gray-600 dark:text-gray-300">
-        {{ t('admin.groups.modelsList.batch.description', { count: selectedCount }) }}
+        {{ t('admin.groups.modelAllowlist.batch.description', { count: selectedCount }) }}
       </p>
 
       <div class="flex items-center justify-between gap-4 rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600">
         <div>
           <p class="text-sm font-medium text-gray-800 dark:text-gray-100">
-            {{ t('admin.groups.modelsList.batch.enable') }}
+            {{ t('admin.groups.modelAllowlist.batch.enable') }}
           </p>
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {{ t('admin.groups.modelsList.hint') }}
+            {{ t('admin.groups.modelAllowlist.hint') }}
           </p>
         </div>
         <button
@@ -35,17 +35,17 @@
 
       <div>
         <label class="input-label" for="batch-models-list-input">
-          {{ t('admin.groups.modelsList.batch.models') }}
+          {{ t('admin.groups.modelAllowlist.batch.models') }}
         </label>
         <textarea
           id="batch-models-list-input"
           v-model="draft.modelsText"
           rows="9"
           class="input min-h-40 resize-y font-mono text-sm"
-          :placeholder="t('admin.groups.modelsList.batch.modelsPlaceholder')"
+          :placeholder="t('admin.groups.modelAllowlist.batch.modelsPlaceholder')"
         />
         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          {{ t('admin.groups.modelsList.batch.modelsHint', { count: modelCount }) }}
+          {{ t('admin.groups.modelAllowlist.batch.modelsHint', { count: modelCount }) }}
         </p>
       </div>
     </div>
@@ -67,7 +67,7 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { ModelsListConfig } from '@/types'
+import type { ModelAllowlist } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 
@@ -79,7 +79,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
-  save: [config: ModelsListConfig]
+  save: [config: ModelAllowlist]
 }>()
 
 const { t } = useI18n()

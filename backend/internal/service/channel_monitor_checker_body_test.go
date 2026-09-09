@@ -733,3 +733,35 @@ func TestExtractAnthropicMonitorText(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractAnthropicMonitorText_TextAfterThinking(t *testing.T) {
+	body := []byte(`{"content":[{"type":"thinking","thinking":""},{"type":"text","text":"答案是 2"}]}`)
+	respText := extractAnthropicMonitorText(body)
+
+	if respText != "答案是 2" {
+		t.Fatalf("extractAnthropicMonitorText() = %q, want %q", respText, "答案是 2")
+	}
+}
+
+func TestGeminiMonitorBodyIncludesExplicitUserRole(t *testing.T) {
+	adapter := providerAdapters[MonitorProviderGemini]
+	body, err := adapter.buildBody("gemini-3.6-flash", "Reply with only 7.")
+	if err != nil {
+		t.Fatalf("buildBody() error = %v", err)
+	}
+
+	var payload struct {
+		Contents []struct {
+			Role string `json:"role"`
+		} `json:"contents"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(payload.Contents) != 1 {
+		t.Fatalf("contents length = %d, want 1", len(payload.Contents))
+	}
+	if payload.Contents[0].Role != "user" {
+		t.Fatalf("contents[0].role = %q, want user", payload.Contents[0].Role)
+	}
+}

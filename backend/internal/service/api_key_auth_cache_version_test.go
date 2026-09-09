@@ -2,7 +2,7 @@ package service
 
 import "testing"
 
-func TestAPIKeyService_RejectsV10AuthSnapshotWithoutModelsListConfig(t *testing.T) {
+func TestAPIKeyService_RejectsV10AuthSnapshotWithoutModelAllowlist(t *testing.T) {
 	groupID := int64(9)
 	svc := &APIKeyService{}
 
@@ -35,7 +35,7 @@ func TestAPIKeyService_RejectsV10AuthSnapshotWithoutModelsListConfig(t *testing.
 		t.Fatalf("expected stale snapshot to be ignored without error, got %v", err)
 	}
 	if ok {
-		t.Fatalf("expected v10 auth snapshot to be rejected after models_list_config was added")
+		t.Fatalf("expected v10 auth snapshot to be rejected after model_allowlist was added")
 	}
 	if apiKey != nil {
 		t.Fatalf("expected no API key from stale snapshot, got %#v", apiKey)
@@ -57,5 +57,17 @@ func TestAPIKeyService_RejectsV15AuthSnapshotWithoutReasoningEffortPolicy(t *tes
 	}
 	if apiKey != nil {
 		t.Fatalf("expected no API key from stale snapshot, got %#v", apiKey)
+	}
+}
+
+func TestAPIKeyService_RejectsPreMergeAuthSnapshots(t *testing.T) {
+	for _, version := range []int{24, 25} {
+		svc := &APIKeyService{}
+		apiKey, ok, err := svc.applyAuthCacheEntry("pre-merge", &APIKeyAuthCacheEntry{
+			Snapshot: &APIKeyAuthSnapshot{Version: version},
+		})
+		if err != nil || ok || apiKey != nil {
+			t.Fatalf("snapshot v%d must be ignored: apiKey=%v ok=%v err=%v", version, apiKey, ok, err)
+		}
 	}
 }

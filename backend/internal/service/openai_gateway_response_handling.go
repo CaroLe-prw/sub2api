@@ -638,6 +638,12 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						s.handleOpenAIStreamTerminalAccountSideEffects(c, account, dataBytes, failedMessage, resp.Header, mappedModel)
 						bareErrorAccountSideEffectsPending = false
 					}
+					if eventType == "response.failed" {
+						// Once semantic output is committed, failover replay is unsafe. Keep
+						// the terminal event on the existing stream, but retain the upstream
+						// request ID and payload for operations diagnostics.
+						s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "stream_failed", dataBytes, failedMessage)
+					}
 				}
 				if !outputStarted {
 					shouldFailover := false
@@ -684,7 +690,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				// real client error or a failure after semantic output) must still be
 				// visible in ops. HTTP remains 200 once SSE starts, so the middleware
 				// cannot recover this payload unless it is recorded here.
-				s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "http_error", dataBytes, failedMessage)
+				// Failures after output were already recorded as stream_failed above.
+				if !outputStarted || cyberHit || eventType != "response.failed" {
+					s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "http_error", dataBytes, failedMessage)
+				}
 				forceFlushFailedEvent = true
 				sawFailedEvent = true
 				terminalFailurePending = !codexFailureTerminal || eventType == "response.failed"

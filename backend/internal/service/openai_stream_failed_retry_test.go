@@ -222,7 +222,7 @@ func TestOpenAIStreamFailedAfterOutputRecordsErrorMetadata(t *testing.T) {
 	events, ok := rawEvents.([]*OpsUpstreamErrorEvent)
 	require.True(t, ok)
 	require.Len(t, events, 1)
-	require.Equal(t, "http_error", events[0].Kind)
+	require.Equal(t, "stream_failed", events[0].Kind)
 	require.JSONEq(t, `{"error":{"type":"server_error","code":"internal_error"}}`, events[0].Detail)
 }
 

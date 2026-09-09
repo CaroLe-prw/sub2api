@@ -386,9 +386,9 @@ func TestShouldFailoverOpenAIUpstreamResponseContextWindow502(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	body := []byte(`{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"upstream_error","code":null}}`)
 
-	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadGateway, "", body))
-	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadGateway, "temporary upstream outage", []byte(`{"error":{"message":"temporary upstream outage"}}`)))
-	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadGateway, "", body))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadGateway, "temporary upstream outage", []byte(`{"error":{"message":"temporary upstream outage"}}`)))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(),
 		http.StatusBadGateway,
 		"temporary upstream outage",
 		[]byte(`{"error":{"message":"temporary upstream outage"},"echo":"context_length_exceeded"}`),
@@ -398,17 +398,17 @@ func TestShouldFailoverOpenAIUpstreamResponseContextWindow502(t *testing.T) {
 func TestShouldFailoverOpenAIUpstreamResponseTransient400Envelopes(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 
-	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(nil,
 		http.StatusBadRequest,
 		"Upstream request failed",
 		[]byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"}}`),
 	))
-	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(nil,
 		http.StatusBadRequest,
 		"upstream returned 400",
 		[]byte(`{"error":{"code":"gg_upstream_failed","message":"upstream returned 400","type":"upstream_error"}}`),
 	))
-	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(nil,
 		http.StatusBadRequest,
 		"Upstream request failed",
 		[]byte(`{"error":{"message":"Upstream request failed","type":"invalid_request_error"}}`),

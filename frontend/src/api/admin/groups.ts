@@ -12,7 +12,7 @@ import type {
   CompositeRoutePreviewRequest,
   CompositeRouteDecision,
   CreateGroupRequest,
-  ModelsListConfig,
+  ModelAllowlist,
   UpdateGroupRequest,
   PaginatedResponse
 } from '@/types'
@@ -104,15 +104,15 @@ export async function getById(id: number): Promise<AdminGroup> {
 }
 
 /**
- * Get candidate models for custom /v1/models list.
+ * Get candidate models for the group model allowlist.
  * id=0 returns platform default models for create flow.
  */
-export async function getModelsListCandidates(
+export async function getModelAllowlistCandidates(
   id: number,
   platform?: GroupPlatform
 ): Promise<string[]> {
   const { data } = await apiClient.get<{ models: string[] }>(
-    `/admin/groups/${id}/models-list-candidates`,
+    `/admin/groups/${id}/model-allowlist-candidates`,
     {
       params: platform ? { platform } : undefined
     }
@@ -120,14 +120,14 @@ export async function getModelsListCandidates(
   return data.models || []
 }
 
-/** Apply one custom /v1/models list to several selected groups. */
-export async function batchSetModelsListConfig(
+/** Apply one model allowlist to several selected groups. */
+export async function batchSetModelAllowlist(
   groupIDs: number[],
-  modelsListConfig: ModelsListConfig,
+  modelAllowlist: ModelAllowlist,
 ): Promise<{ affected: number }> {
   const { data } = await apiClient.put<{ affected: number }>(
-    '/admin/groups/batch-models-list-config',
-    { group_ids: groupIDs, models_list_config: modelsListConfig },
+    '/admin/groups/batch-model-allowlist',
+    { group_ids: groupIDs, model_allowlist: modelAllowlist },
   )
   return data
 }
@@ -490,8 +490,8 @@ export const groupsAPI = {
   getAllIncludingInactive,
   getLiveCapability,
   getById,
-  getModelsListCandidates,
-  batchSetModelsListConfig,
+  getModelAllowlistCandidates,
+  batchSetModelAllowlist,
   create,
   duplicate,
   update,

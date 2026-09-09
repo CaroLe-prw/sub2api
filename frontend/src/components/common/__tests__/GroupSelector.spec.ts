@@ -11,6 +11,8 @@ vi.mock('vue-i18n', async () => {
 
 import GroupSelector from '../GroupSelector.vue'
 
+vi.mock('@/stores', () => ({ useAuthStore: () => ({ isSimpleMode: false }) }))
+
 const groups = [
   { id: 1, name: 'Plus', platform: 'openai', account_count: 9 },
   { id: 2, name: 'Pro', platform: 'openai', account_count: 8 }

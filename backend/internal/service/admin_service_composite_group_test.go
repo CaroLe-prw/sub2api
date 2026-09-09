@@ -189,7 +189,7 @@ func TestAdminService_UpdateAccountPersistsPerGroupPriorities(t *testing.T) {
 	require.Equal(t, priorities, accountRepo.groupPrioritiesByAccount[7])
 }
 
-func TestAdminService_CompositeModelsListCandidatesIncludeConcreteAccountMappings(t *testing.T) {
+func TestAdminService_CompositeModelAllowlistCandidatesIncludeConcreteAccountMappings(t *testing.T) {
 	accountRepo := &accountRepoStubForCompositeModelsList{
 		accounts: []Account{
 			{
@@ -222,7 +222,7 @@ func TestAdminService_CompositeModelsListCandidatesIncludeConcreteAccountMapping
 	}
 	svc := &adminServiceImpl{accountRepo: accountRepo, groupRepo: groupRepo}
 
-	candidates, err := svc.GetGroupModelsListCandidates(context.Background(), 99, PlatformComposite)
+	candidates, err := svc.GetGroupModelAllowlistCandidates(context.Background(), 99, PlatformComposite)
 
 	require.NoError(t, err)
 	require.Contains(t, candidates, "gpt-custom")
@@ -234,12 +234,12 @@ func TestAdminService_CompositeModelsListCandidatesIncludeConcreteAccountMapping
 
 // 独立 CN 分组的模型列表候选沿用 default 分支的 Claude 默认列表；
 // composite 支持不得改变独立分组的候选语义。
-func TestAdminService_CNProviderModelsListCandidatesKeepClaudeDefaults(t *testing.T) {
+func TestAdminService_CNProviderModelAllowlistCandidatesKeepClaudeDefaults(t *testing.T) {
 	want := make([]string, 0, len(claude.DefaultModels))
 	for _, model := range claude.DefaultModels {
 		want = append(want, model.ID)
 	}
-	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek} {
+	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax} {
 		require.Equal(t, want, defaultModelsListCandidateIDs(platform), "platform=%s", platform)
 	}
 }

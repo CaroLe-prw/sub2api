@@ -47,7 +47,7 @@
             ? 'bg-white ring-1 ring-primary-200 dark:bg-dark-700 dark:ring-primary-800'
             : 'hover:bg-white dark:hover:bg-dark-700'
         ]"
-        :title="t('admin.groups.rateAndAccounts', { rate: group.rate_multiplier, count: group.account_count || 0 })"
+        :title="group.rate_multiplier == null ? group.name : t('admin.groups.rateAndAccounts', { rate: group.rate_multiplier, count: group.account_count || 0 })"
       >
         <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
           <input
@@ -60,8 +60,8 @@
           <GroupBadge
             :name="group.name"
             :platform="group.platform"
-            :subscription-type="group.subscription_type"
-            :rate-multiplier="group.rate_multiplier"
+            :subscription-type="group.subscription_type || undefined"
+            :rate-multiplier="group.rate_multiplier == null ? undefined : group.rate_multiplier"
             class="min-w-0 flex-1"
           />
         </label>
@@ -75,7 +75,7 @@
             min="1"
             class="h-7 w-16 rounded-md border border-primary-200 bg-white px-1 text-center text-sm font-medium text-gray-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-primary-800 dark:bg-dark-800 dark:text-gray-100 dark:focus:border-primary-500 dark:focus:ring-primary-900/40"
             :value="priorities[group.id] ?? defaultPriority"
-            :title="t('admin.accounts.groupPriorityHint')"
+            :title="group.rate_multiplier == null ? group.name : t('admin.accounts.groupPriorityHint')"
             @input="handlePriorityChange(group.id, $event)"
           />
         </label>
@@ -110,13 +110,15 @@ import { useI18n } from 'vue-i18n'
 import GroupBadge from './GroupBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import Toggle from '@/components/common/Toggle.vue'
-import type { AdminGroup, GroupPlatform } from '@/types'
+import type { Group, GroupPlatform } from '@/types'
+import { useAuthStore } from '@/stores'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 interface Props {
   modelValue: number[]
-  groups: AdminGroup[]
+  groups: (Group & { account_count?: number })[]
   platform?: GroupPlatform // Optional platform filter
   mixedScheduling?: boolean // For antigravity accounts: allow anthropic/gemini groups
   searchable?: boolean | 'auto'
@@ -191,7 +193,9 @@ const isSearchable = computed(() => {
 
 // Filter groups by platform if specified
 const filteredGroups = computed(() => {
-  let result: AdminGroup[] = props.groups
+  let result = authStore.isSimpleMode
+    ? props.groups.filter((g) => g.platform !== 'composite')
+    : props.groups
   if (props.platform) {
     // antigravity 账户启用混合调度后，可选择 anthropic/gemini 分组
     if (props.platform === 'antigravity' && props.mixedScheduling) {
@@ -211,6 +215,17 @@ const filteredGroups = computed(() => {
   }
   return result
 })
+
+watch(
+  () => [authStore.isSimpleMode, props.groups, props.modelValue] as const,
+  () => {
+    if (!authStore.isSimpleMode || props.groups.length === 0) return
+    const visibleIDs = new Set(props.groups.filter((group) => group.platform !== 'composite').map((group) => group.id))
+    const cleaned = props.modelValue.filter((id) => visibleIDs.has(id))
+    if (cleaned.length !== props.modelValue.length) emit('update:modelValue', cleaned)
+  },
+  { immediate: true, deep: true }
+)
 
 const handleChange = (groupId: number, checked: boolean) => {
   const newValue = checked
