@@ -349,7 +349,7 @@ func testOpenAIStreamingRepairsConcatenatedJSONDocuments(t *testing.T, passthrou
 	capture.WriteDownstream(recorder.Body.Bytes(), "text/event-stream", false)
 	var diagnostics responsediag.Record
 	require.NoError(t, json.Unmarshal(responsediag.Snapshot(captureCtx), &diagnostics))
-	require.Equal(t, "extra", diagnostics.Upstream.Status)
+	require.Equal(t, "extra_content", diagnostics.Upstream.Status)
 	require.Equal(t, "ok", diagnostics.Downstream.Status)
 	require.Contains(t, diagnostics.Upstream.Body, largeInProgress+outputItemAdded)
 	require.Equal(t, recorder.Body.String(), diagnostics.Downstream.Body)

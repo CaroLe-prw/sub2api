@@ -10,18 +10,26 @@ import (
 	"sync"
 )
 
-const MaxBodyBytes = 256 * 1024
+const (
+	MaxBodyBytes           = 1024 * 1024 // Default retained bytes per request/response side.
+	MaxConfiguredBodyBytes = 16 * 1024 * 1024
+)
 
 type contextKey struct{}
 type snapshotKey struct{}
 
 type Capture struct {
-	mu         sync.Mutex
-	upstream   *bodyCapture
-	downstream bodyCapture
+	mu              sync.Mutex
+	maxBodyBytes    int
+	incomingRequest *requestCapture
+	upstreamRequest *requestCapture
+	secrets         []string
+	upstream        *bodyCapture
+	downstream      bodyCapture
 }
 type bodyCapture struct {
 	Body            string `json:"body"`
+	LimitBytes      int    `json:"limit_bytes,omitempty"`
 	ContentType     string `json:"content_type"`
 	Bytes           int64  `json:"bytes"`
 	Truncated       bool   `json:"truncated"`
@@ -47,18 +55,28 @@ type Summary struct {
 	Downstream string `json:"downstream"`
 }
 type Record struct {
-	Summary    Summary `json:"summary"`
-	Upstream   *Side   `json:"upstream,omitempty"`
-	Downstream Side    `json:"downstream"`
+	IncomingRequest *RequestRecord `json:"incoming_request,omitempty"`
+	UpstreamRequest *RequestRecord `json:"upstream_request,omitempty"`
+	Summary         Summary        `json:"summary"`
+	Upstream        *Side          `json:"upstream,omitempty"`
+	Downstream      Side           `json:"downstream"`
 }
 
-func Start(ctx context.Context) (context.Context, *Capture) {
-	c := &Capture{}
+func Start(ctx context.Context, configured ...int) (context.Context, *Capture) {
+	limit := MaxBodyBytes
+	if len(configured) > 0 && configured[0] > 0 {
+		limit = min(configured[0], MaxConfiguredBodyBytes)
+	}
+	c := &Capture{maxBodyBytes: limit, downstream: bodyCapture{LimitBytes: limit}}
 	return context.WithValue(ctx, contextKey{}, c), c
 }
 func (b *bodyCapture) append(p []byte) {
 	b.Bytes += int64(len(p))
-	remaining := MaxBodyBytes - len(b.buffer)
+	limit := b.LimitBytes
+	if limit <= 0 {
+		limit = MaxBodyBytes
+	}
+	remaining := limit - len(b.buffer)
 	if len(p) > remaining {
 		b.Truncated = true
 		p = p[:remaining]
@@ -93,7 +111,7 @@ func WrapUpstream(ctx context.Context, resp *http.Response) {
 	if ct != "" && !strings.Contains(ct, "json") && !strings.Contains(ct, "event-stream") && !strings.HasPrefix(ct, "text/") {
 		return
 	}
-	b := &bodyCapture{ContentType: ct}
+	b := &bodyCapture{ContentType: ct, LimitBytes: c.maxBodyBytes}
 	c.mu.Lock()
 	c.upstream = b
 	c.mu.Unlock()
@@ -142,11 +160,19 @@ func Snapshot(ctx context.Context) json.RawMessage {
 		copy.Body = string(copy.buffer)
 		up = &copy
 	}
+	incomingRequest := copyRequestCapture(c.incomingRequest)
+	upstreamRequest := copyRequestCapture(c.upstreamRequest)
+	secrets := append([]string(nil), c.secrets...)
 	c.mu.Unlock()
-	if down.Bytes == 0 && up == nil {
+	if down.Bytes == 0 && up == nil && incomingRequest == nil && upstreamRequest == nil {
 		return nil
 	}
-	record := Record{Downstream: analyze(down), Summary: Summary{Upstream: "unavailable"}}
+	record := Record{
+		Downstream:      analyze(down),
+		Summary:         Summary{Upstream: "unavailable"},
+		IncomingRequest: sanitizeRequest(incomingRequest, secrets),
+		UpstreamRequest: sanitizeRequest(upstreamRequest, secrets),
+	}
 	if up != nil {
 		side := analyze(*up)
 		record.Upstream = &side

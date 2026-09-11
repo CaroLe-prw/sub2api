@@ -222,6 +222,7 @@ export const adminUsageAPI = {
 export default adminUsageAPI
 
 export interface ResponseDiagnosticSide {
+  limit_bytes?: number
   body: string
   content_type: string
   controls_escaped?: boolean
@@ -232,7 +233,21 @@ export interface ResponseDiagnosticSide {
   json_documents: number
   issues?: Array<{ kind: string; frame: number; json?: string; extra?: string }>
 }
+export interface RequestDiagnostics {
+  limit_bytes?: number
+  inspection_limit_bytes?: number
+  method: string
+  content_type: string
+  body: string
+  bytes: number
+  complete: boolean
+  truncated: boolean
+  redacted: boolean
+  omitted_reason?: string
+}
 export interface ResponseDiagnostics {
+  incoming_request?: RequestDiagnostics
+  upstream_request?: RequestDiagnostics
   summary: { upstream: string; downstream: string }
   upstream?: ResponseDiagnosticSide
   downstream: ResponseDiagnosticSide

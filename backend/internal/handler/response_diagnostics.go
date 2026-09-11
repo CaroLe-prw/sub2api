@@ -19,12 +19,12 @@ func (w *diagnosticResponseWriter) Write(p []byte) (int, error) {
 }
 func (w *diagnosticResponseWriter) WriteString(s string) (int, error) { return w.Write([]byte(s)) }
 
-func startResponseDiagnostics(c *gin.Context) {
+func startResponseDiagnostics(c *gin.Context, limits ...int) {
 	if c.Request == nil || strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {
 		return
 	}
-	ctx, capture := responsediag.Start(c.Request.Context())
-	c.Request = c.Request.WithContext(ctx)
+	ctx, capture := responsediag.Start(c.Request.Context(), limits...)
+	c.Request = responsediag.WrapRequest(c.Request.WithContext(ctx), false)
 	c.Writer = &diagnosticResponseWriter{ResponseWriter: c.Writer, capture: capture}
 	// Usage is normally submitted immediately after the last downstream write.
 	// The immutable snapshot is made at that submission boundary.

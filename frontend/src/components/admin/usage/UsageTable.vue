@@ -276,7 +276,7 @@
         <template #cell-response_diagnostics="{ row }">
           <button v-if="row.response_diagnostics" class="text-left text-xs hover:underline" @click="responseUsageId = row.id">
             <span class="block text-primary-600">{{ t('admin.usage.response.view') }}</span>
-            <span v-for="side in (['upstream', 'downstream'] as const)" :key="side" class="block whitespace-nowrap" :class="row.response_diagnostics[side] === 'extra' ? 'text-red-500' : 'text-gray-500'">
+            <span v-for="side in (['upstream', 'downstream'] as const)" :key="side" class="block whitespace-nowrap" :class="row.response_diagnostics[side] === 'extra_content' ? 'text-red-500' : 'text-gray-500'">
               {{ t(`admin.usage.response.${side}Short`) }}: {{ t(`admin.usage.response.status.${row.response_diagnostics[side]}`) }}
             </span>
           </button>

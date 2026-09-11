@@ -524,6 +524,11 @@ gateway:
   # SSE max line size in bytes (default: 40MB)
   # SSE 单行最大字节数（默认 40MB）
   max_line_size: 41943040
+  # 诊断记录每份请求/响应最多保留的字节数，默认 1 MiB；范围 1 KiB–16 MiB。
+  # 仅影响日志副本，不限制实际请求/响应。请求完整脱敏的解析上限为此值的 2 倍。
+  # 环境变量：GATEWAY_RESPONSE_DIAGNOSTICS_MAX_BODY_BYTES；0 使用默认值。
+  # 四份记录合计约为此值的 4 倍，另有 JSON 转义、异常片段和元数据开销。
+  response_diagnostics_max_body_bytes: 1048576
   # Log upstream error response body summary (safe/truncated; does not log request content)
   # 记录上游错误响应体摘要（安全/截断；不记录请求内容）
   log_upstream_error_body: true

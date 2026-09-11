@@ -1063,6 +1063,8 @@ type GatewayConfig struct {
 	ImageNonstreamKeepaliveInterval int `mapstructure:"image_nonstream_keepalive_interval"`
 	// MaxLineSize: 上游 SSE 单行最大字节数（0使用默认值）
 	MaxLineSize int `mapstructure:"max_line_size"`
+	// Retained diagnostic bytes per side, separate from forwarding limits; 0 uses 1 MiB.
+	ResponseDiagnosticsMaxBodyBytes int `mapstructure:"response_diagnostics_max_body_bytes"`
 
 	// 是否记录上游错误响应体摘要（避免输出请求内容）
 	LogUpstreamErrorBody bool `mapstructure:"log_upstream_error_body"`
@@ -2557,6 +2559,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.image_stream_keepalive_interval", 10)
 	viper.SetDefault("gateway.image_nonstream_keepalive_interval", 0)
 	viper.SetDefault("gateway.max_line_size", 500*1024*1024)
+	viper.SetDefault("gateway.response_diagnostics_max_body_bytes", 1024*1024)
 	viper.SetDefault("gateway.scheduling.sticky_session_max_waiting", 3)
 	viper.SetDefault("gateway.scheduling.sticky_session_wait_timeout", 120*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_wait_timeout", 30*time.Second)
@@ -3624,6 +3627,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.OpenAIScheduler.StickyEscapeErrorRate < 0 || c.Gateway.OpenAIScheduler.StickyEscapeErrorRate > 1 {
 		return fmt.Errorf("gateway.openai_scheduler.sticky_escape_error_rate must be between 0 and 1")
+	}
+	if limit := c.Gateway.ResponseDiagnosticsMaxBodyBytes; limit < 0 || limit > 16*1024*1024 || (limit > 0 && limit < 1024) {
+		return fmt.Errorf("gateway.response_diagnostics_max_body_bytes must be 0 (default 1 MiB) or between 1024 and 16777216 bytes")
 	}
 	if c.Gateway.MaxLineSize < 0 {
 		return fmt.Errorf("gateway.max_line_size must be non-negative")

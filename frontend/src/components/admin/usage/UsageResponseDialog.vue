@@ -8,19 +8,36 @@
     </div>
     <p v-else-if="!record" class="py-6 text-sm text-gray-500">{{ t('admin.usage.response.unavailable') }}</p>
     <template v-else>
+      <p class="mb-4 text-sm text-gray-500">{{ t('admin.usage.response.requestHelp') }}</p>
+      <section v-for="request in requests" :key="request.key" class="mb-6 space-y-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <h3 class="font-semibold">{{ t(`admin.usage.response.${request.key}`) }}</h3>
+          <span v-if="request.value" class="text-xs text-gray-500">{{ request.value.method }} · {{ request.value.bytes.toLocaleString() }} bytes</span>
+          <span v-else class="text-sm text-gray-500">{{ t('admin.usage.response.unavailable') }}</span>
+        </div>
+        <template v-if="request.value">
+          <p v-if="request.value.omitted_reason" class="text-sm text-amber-600">{{ t(`admin.usage.response.requestOmitted.${request.value.omitted_reason}`, { limit: formatCaptureLimit(request.value.inspection_limit_bytes, 2 * 1024 * 1024) }) }}</p>
+          <p v-else-if="request.value.truncated" class="text-sm text-amber-600">{{ t('admin.usage.response.requestTruncated', { limit: formatCaptureLimit(request.value.limit_bytes) }) }}</p>
+          <details v-if="request.value.body">
+            <summary class="cursor-pointer text-sm text-primary-600">{{ t('admin.usage.response.requestBody') }}</summary>
+            <pre class="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-gray-50 p-3 text-xs dark:bg-dark-800">{{ request.value.body }}</pre>
+          </details>
+        </template>
+      </section>
       <section v-for="side in sides" :key="side.key" class="mb-6 space-y-3">
         <div class="flex flex-wrap items-center gap-2">
           <h3 class="font-semibold">{{ t(`admin.usage.response.${side.key}`) }}</h3>
-          <span class="text-sm" :class="side.value?.status === 'extra' ? 'text-red-500' : 'text-gray-500'">
+          <span class="text-sm" :class="side.value?.status === 'extra_content' ? 'text-red-500' : 'text-gray-500'">
             {{ t(`admin.usage.response.status.${side.value?.status ?? 'unavailable'}`) }}
           </span>
           <span v-if="side.value" class="text-xs text-gray-500">{{ side.value.bytes.toLocaleString() }} bytes · {{ side.value.json_documents }} JSON</span>
         </div>
         <template v-if="side.value">
           <p v-if="side.value.controls_escaped" class="text-sm text-amber-600">{{ t('admin.usage.response.controlsEscaped') }}</p>
-          <p v-if="side.value.truncated || !side.value.complete" class="text-sm text-amber-600">{{ t('admin.usage.response.partial') }}</p>
-          <div v-for="(issue, index) in side.value.issues" :key="index" class="rounded-lg border border-red-200 p-3 dark:border-red-900">
-            <p class="mb-2 text-sm text-red-500">{{ t(`admin.usage.response.issue.${issue.kind}`, { frame: issue.frame }) }}</p>
+          <p v-if="side.value.truncated" class="text-sm text-amber-600">{{ t('admin.usage.response.truncatedHelp', { limit: formatCaptureLimit(side.value.limit_bytes) }) }}</p>
+          <p v-else-if="!side.value.complete" class="text-sm text-amber-600">{{ t('admin.usage.response.partial') }}</p>
+          <div v-for="(issue, index) in side.value.issues" :key="index" class="rounded-lg border p-3" :class="issue.kind === 'trailing_symbols' ? 'border-gray-200 dark:border-gray-700' : isDiagnosticNotice(issue.kind) ? 'border-amber-200 dark:border-amber-900' : 'border-red-200 dark:border-red-900'">
+            <p class="mb-2 text-sm" :class="issue.kind === 'trailing_symbols' ? 'text-gray-500' : isDiagnosticNotice(issue.kind) ? 'text-amber-600' : 'text-red-500'">{{ t(`admin.usage.response.issue.${issue.kind}`, { frame: issue.frame }) }}</p>
             <template v-if="issue.json">
               <p class="text-xs text-gray-500">{{ t('admin.usage.response.firstJSON') }}</p>
               <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs">{{ issue.json }}</pre>
@@ -30,7 +47,7 @@
               <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs">{{ issue.extra }}</pre>
             </template>
           </div>
-          <details :open="side.value.status === 'extra'">
+          <details :open="side.value.status === 'extra_content'">
             <summary class="cursor-pointer text-sm text-primary-600">{{ t('admin.usage.response.raw') }}</summary>
             <pre class="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-gray-50 p-3 text-xs dark:bg-dark-800">{{ side.value.body }}</pre>
           </details>
@@ -52,10 +69,24 @@ const record = ref<ResponseDiagnostics | null>(null)
 const loading = ref(false)
 const error = ref(false)
 let controller: AbortController | null = null
+const requests = computed(() => [
+  { key: 'incomingRequest', value: record.value?.incoming_request },
+  { key: 'upstreamRequest', value: record.value?.upstream_request }
+])
 const sides = computed(() => [
   { key: 'upstream', value: record.value?.upstream },
   { key: 'downstream', value: record.value?.downstream }
 ])
+// Captures made before limits were recorded used 256 KiB per side.
+function formatCaptureLimit(bytes?: number, legacyLimit = 256 * 1024): string {
+  const limit = bytes && bytes > 0 ? bytes : legacyLimit
+  if (limit % (1024 * 1024) === 0) return `${limit / (1024 * 1024)} MiB`
+  if (limit % 1024 === 0) return `${limit / 1024} KiB`
+  return `${limit} bytes`
+}
+function isDiagnosticNotice(kind: string) {
+  return kind === 'capture_truncated' || kind === 'incomplete_capture' || kind === 'invalid_json'
+}
 async function load() {
   controller?.abort()
   record.value = null

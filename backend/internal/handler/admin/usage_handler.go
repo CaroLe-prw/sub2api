@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/responsediag"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -662,5 +663,5 @@ func (h *UsageHandler) ResponseDiagnostics(c *gin.Context) {
 		return
 	}
 	c.Header("Cache-Control", "no-store")
-	response.Success(c, log.ResponseDiagnostics)
+	response.Success(c, responsediag.RefreshAnalysis(log.ResponseDiagnostics))
 }

@@ -807,3 +807,27 @@ describe('admin UsageTable deleted-user badge', () => {
     expect(wrapper.text()).toContain('active@test.com')
   })
 })
+
+describe('admin response content alerts', () => {
+  it('only marks substantive extra content red, including when old records are listed', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: ['extra', 'extra_content', 'tail_symbols'].map((status, index) => ({
+          ...baseImageRow, id: index + 1, request_id: `diag-${index}`,
+          response_diagnostics: { upstream: 'ok', downstream: status }
+        })),
+        columns: []
+      },
+      global: {
+        stubs: {
+          DataTable: { props: ['data'], template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-response_diagnostics" :row="row" /></div></div>' },
+          UsageResponseDialog: true, Teleport: true, Icon: true
+        }
+      }
+    })
+    expect(wrapper.findAll('.text-red-500')).toHaveLength(1)
+    expect(wrapper.get('.text-red-500').text()).toContain('admin.usage.response.status.extra_content')
+    expect(wrapper.text()).toContain('admin.usage.response.status.tail_symbols')
+    wrapper.unmount()
+  })
+})

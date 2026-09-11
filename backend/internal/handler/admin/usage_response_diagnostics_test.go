@@ -31,6 +31,7 @@ func TestAdminUsageResponseDiagnostics(t *testing.T) {
 		contains   string
 	}{
 		{"detail", "/1/response", json.RawMessage(`{"upstream":{"body":"{}tail"}}`), 200, `{}tail`},
+		{"historical truncated capture", "/1/response", json.RawMessage(`{"summary":{"downstream":"incomplete"},"downstream":{"status":"incomplete","body":"data: {\"text\":\"cut","content_type":"text/event-stream","truncated":true,"complete":true,"issues":[{"kind":"invalid_json","frame":1}]}}`), 200, `"kind":"capture_truncated"`},
 		{"historical", "/1/response", nil, 200, `"data":null`},
 		{"missing", "/404/response", nil, 404, "usage log not found"},
 		{"bad id", "/invalid/response", nil, 400, "Invalid usage id"},

@@ -263,7 +263,7 @@ func responsesSubpathSuffix(rawPath string) string {
 // the chain can read it via GetInboundEndpoint.
 //
 // Apply this middleware to all gateway route groups.
-func InboundEndpointMiddleware() gin.HandlerFunc {
+func InboundEndpointMiddleware(diagnosticLimits ...int) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := ""
 		if c.Request != nil && c.Request.URL != nil {
@@ -273,7 +273,7 @@ func InboundEndpointMiddleware() gin.HandlerFunc {
 			path = c.FullPath()
 		}
 		c.Set(ctxKeyInboundEndpoint, NormalizeInboundEndpoint(path))
-		startResponseDiagnostics(c)
+		startResponseDiagnostics(c, diagnosticLimits...)
 		c.Next()
 	}
 }
