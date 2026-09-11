@@ -182,6 +182,7 @@ type SystemSettings struct {
 	AffiliateRebatePerInviteeCap float64
 	AdminRechargeRebateEnabled   bool
 	CheckInEnabled               bool
+	CheckInMinRecharge           float64
 	CheckInRewardMin             float64
 	CheckInRewardMax             float64
 	DefaultUserRPMLimit          int

@@ -1,5 +1,11 @@
 export default {
   checkIn: {
+    rechargeRequiredTitle: 'Reach the recharge minimum to check in',
+    rechargeRequired: 'Cumulative recharge required: {required}. Recharged: {current}. Remaining: {remaining} (balance units).',
+    rechargeRequiredButton: 'Recharge minimum not reached',
+    rechargeRefresh: 'Recharged? Refresh status',
+    rechargeRule: 'Successful online balance purchases totaling {required} unlock daily check-in, without a fee. Gifts, referral credits, redeem codes, subscriptions and refunded amounts do not count.',
+    rechargeChanged: 'Your recharge total is below the current check-in requirement. Recharge and try again.',
     title: 'Daily Check-in',
     subtitle: 'Come back each day and collect a random balance reward.',
     badge: 'Once a day · Random reward',

@@ -57,19 +57,21 @@
                 </div>
                 <div class="min-w-0 flex-1">
                   <p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary-600 dark:text-primary-400">{{ t('checkIn.todayTitle') }}</p>
-                  <h2 class="mt-2 text-2xl font-bold text-gray-950 dark:text-white">{{ overview.checked_in_today ? t('checkIn.doneTitle') : t('checkIn.readyTitle') }}</h2>
-                  <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">{{ overview.checked_in_today ? t('checkIn.doneDescription') : t('checkIn.readyDescription') }}</p>
+                  <h2 class="mt-2 text-2xl font-bold text-gray-950 dark:text-white">{{ overview.checked_in_today ? t('checkIn.doneTitle') : rechargeBlocked ? t('checkIn.rechargeRequiredTitle') : t('checkIn.readyTitle') }}</h2>
+                  <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">{{ overview.checked_in_today ? t('checkIn.doneDescription') : rechargeBlocked ? rechargeRequirementText : t('checkIn.readyDescription') }}</p>
                   <p v-if="overview.checked_in_today" class="mt-4 text-3xl font-bold text-primary-600 dark:text-primary-400">+{{ formatReward(overview.today_reward) }} <span class="text-sm font-medium">{{ t('checkIn.currentBalance') }}</span></p>
                   <p v-else class="mt-4 text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('checkIn.rewardRange') }}：<span class="font-bold text-primary-600 dark:text-primary-400">{{ formatReward(overview.reward_min) }}–{{ formatReward(overview.reward_max) }}</span></p>
                 </div>
               </div>
             </div>
             <div class="flex flex-col justify-center border-t border-gray-100 p-6 dark:border-dark-700 lg:border-l lg:border-t-0">
-              <button type="button" class="btn btn-primary w-full py-3.5 text-base" :disabled="overview.checked_in_today || claiming" @click="claimReward">
+              <button type="button" class="btn btn-primary w-full py-3.5 text-base" :disabled="overview.checked_in_today || rechargeBlocked || claiming" data-testid="check-in-claim" @click="claimReward">
                 <svg v-if="claiming" class="mr-2 h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="9" stroke="currentColor" stroke-width="4"/><path class="opacity-80" fill="currentColor" d="M21 12a9 9 0 00-9-9v4a5 5 0 015 5h4z"/></svg>
                 <Icon v-else :name="overview.checked_in_today ? 'checkCircle' : 'sparkles'" size="md" class="mr-2" />
-                {{ claiming ? t('checkIn.claiming') : overview.checked_in_today ? t('checkIn.claimed') : t('checkIn.claim') }}
+                {{ claiming ? t('checkIn.claiming') : overview.checked_in_today ? t('checkIn.claimed') : rechargeBlocked ? t('checkIn.rechargeRequiredButton') : t('checkIn.claim') }}
               </button>
+              <button v-if="rechargeBlocked && !overview.checked_in_today" type="button" class="btn btn-secondary mt-3 w-full" @click="loadOverview()">{{ t('checkIn.rechargeRefresh') }}</button>
+              <p v-if="overview.min_recharge > 0" class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('checkIn.rechargeRule', { required: formatReward(overview.min_recharge) }) }}</p>
               <p class="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">{{ overview.today }} · {{ overview.timezone }}</p>
               <p v-if="claimError" class="mt-3 text-center text-xs text-red-600 dark:text-red-400">{{ claimError }}</p>
             </div>
@@ -160,6 +162,12 @@ const claiming = ref(false)
 const loadError = ref('')
 const claimError = ref('')
 const successMessage = ref('')
+const rechargeBlocked = computed(() => overview.value?.eligible === false)
+const rechargeRequirementText = computed(() => overview.value ? t('checkIn.rechargeRequired', {
+  required: formatReward(overview.value.min_recharge),
+  current: formatReward(overview.value.recharged_amount),
+  remaining: formatReward(overview.value.recharge_remaining),
+}) : '')
 
 const weekdayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 const weekdays = computed(() => weekdayKeys.map(key => t(`checkIn.weekdays.${key}`)))
@@ -223,7 +231,7 @@ async function loadOverview(useServerMonth = false) {
 }
 
 async function claimReward() {
-  if (!overview.value || overview.value.checked_in_today || claiming.value) return
+  if (!overview.value || overview.value.checked_in_today || rechargeBlocked.value || claiming.value) return
   claiming.value = true
   claimError.value = ''
   successMessage.value = ''
@@ -234,7 +242,12 @@ async function claimReward() {
       : t('checkIn.alreadyClaimed')
     await Promise.all([loadOverview(), authStore.refreshUser()])
   } catch (error) {
-    claimError.value = (error as { message?: string })?.message || t('checkIn.claimFailed')
+    if ((error as { reason?: string })?.reason === 'CHECK_IN_RECHARGE_REQUIRED') {
+      claimError.value = t('checkIn.rechargeChanged')
+      await loadOverview()
+    } else {
+      claimError.value = (error as { message?: string })?.message || t('checkIn.claimFailed')
+    }
   } finally {
     claiming.value = false
   }

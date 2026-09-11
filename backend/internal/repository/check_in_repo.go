@@ -18,7 +18,7 @@ func NewCheckInRepository(db *sql.DB) service.CheckInRepository {
 	return &checkInRepository{db: db}
 }
 
-func (r *checkInRepository) Claim(ctx context.Context, userID int64, businessDate time.Time, reward float64) (record service.CheckInRecord, balance float64, created bool, err error) {
+func (r *checkInRepository) Claim(ctx context.Context, userID int64, businessDate time.Time, reward, minRecharge float64) (record service.CheckInRecord, balance float64, created bool, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return record, 0, false, fmt.Errorf("begin check-in transaction: %w", err)
@@ -28,6 +28,18 @@ func (r *checkInRepository) Claim(ctx context.Context, userID int64, businessDat
 			_ = tx.Rollback()
 		}
 	}()
+
+	// Enforce eligibility in the reward transaction before creating a record or
+	// crediting balance. Never use users.total_recharged: it includes gifts.
+	if minRecharge > 0 {
+		var total float64
+		if err = tx.QueryRowContext(ctx, checkInPaidRechargeTotalQuery, userID).Scan(&total); err != nil {
+			return record, 0, false, fmt.Errorf("load check-in paid recharge total: %w", err)
+		}
+		if total < minRecharge {
+			return record, 0, false, service.ErrCheckInRechargeRequired
+		}
+	}
 
 	const insertQuery = `
 		INSERT INTO user_check_ins (user_id, business_date, reward_amount)
@@ -182,4 +194,25 @@ func (r *checkInRepository) AdminListRecords(ctx context.Context, page, pageSize
 		return nil, 0, err
 	}
 	return records, total, nil
+}
+
+// Use credited balance units, so orders paid in different currencies can be
+// compared. Only completed balance purchases count; successful partial refunds
+// reduce the eligible amount. Pending orders, gifts and subscriptions do not.
+const checkInPaidRechargeTotalQuery = `
+ SELECT COALESCE(SUM(CASE WHEN status = 'PARTIALLY_REFUNDED'
+  THEN CASE WHEN amount > refund_amount THEN amount - refund_amount ELSE 0 END
+  ELSE amount END), 0)
+ FROM payment_orders
+ WHERE user_id = $1 AND order_type = 'balance'
+  AND status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
+  AND paid_at IS NOT NULL AND pay_amount > 0
+`
+
+func (r *checkInRepository) PaidRechargeTotal(ctx context.Context, userID int64) (float64, error) {
+	var total float64
+	if err := r.db.QueryRowContext(ctx, checkInPaidRechargeTotalQuery, userID).Scan(&total); err != nil {
+		return 0, fmt.Errorf("load check-in paid recharge total: %w", err)
+	}
+	return total, nil
 }

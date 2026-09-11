@@ -478,6 +478,10 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
 
 	// Daily check-in settings
+	if math.IsNaN(settings.CheckInMinRecharge) || math.IsInf(settings.CheckInMinRecharge, 0) || settings.CheckInMinRecharge < 0 || settings.CheckInMinRecharge > 1e12 {
+		return nil, infraerrors.BadRequest("INVALID_CHECK_IN_MIN_RECHARGE", "minimum check-in recharge must be between 0 and 1000000000000")
+	}
+	updates[SettingKeyCheckInMinRecharge] = strconv.FormatFloat(settings.CheckInMinRecharge, 'f', 8, 64)
 	updates[SettingKeyCheckInEnabled] = strconv.FormatBool(settings.CheckInEnabled)
 	minReward, maxReward := normalizeCheckInRewardRange(settings.CheckInRewardMin, settings.CheckInRewardMax)
 	updates[SettingKeyCheckInRewardMin] = strconv.FormatFloat(minReward, 'f', 8, 64)

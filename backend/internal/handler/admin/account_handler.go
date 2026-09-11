@@ -2954,29 +2954,32 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 	// Handle OpenAI accounts
 	if account.IsOpenAI() {
-		// Prefer the shared, account-keyed upstream catalog. If discovery fails,
-		// retain the legacy local catalog below so the test dialog remains usable.
-		if h.accountTestService != nil {
-			if models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account); fetchErr == nil {
-				response.Success(c, models)
-				return
-			}
-		}
-		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
-		if account.IsOpenAIPassthroughEnabled() {
-			response.Success(c, openai.DefaultModels)
-			return
-		}
-
+		// Explicit account restrictions define the test picker, including in
+		// passthrough mode. Discovery may omit configured aliases or advertise
+		// models outside the account's whitelist.
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
+			// With no account restriction, prefer the shared upstream catalog and
+			// retain the local catalog as a fallback when discovery fails.
+			if h.accountTestService != nil {
+				if models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account); fetchErr == nil {
+					response.Success(c, models)
+					return
+				}
+			}
 			response.Success(c, openai.DefaultModels)
 			return
 		}
 
-		// Return mapped models
-		var models []openai.Model
+		// Keep the picker and its default selection stable across requests.
+		requestedModels := make([]string, 0, len(mapping))
 		for requestedModel := range mapping {
+			requestedModels = append(requestedModels, requestedModel)
+		}
+		sort.Strings(requestedModels)
+
+		var models []openai.Model
+		for _, requestedModel := range requestedModels {
 			var found bool
 			for _, dm := range openai.DefaultModels {
 				if dm.ID == requestedModel {

@@ -7438,6 +7438,11 @@
               <Toggle v-model="form.check_in_enabled" />
             </div>
             <div v-if="form.check_in_enabled" class="grid gap-4 sm:grid-cols-2">
+              <div class="sm:col-span-2">
+                <label for="check-in-min-recharge" class="input-label">{{ t('admin.settings.features.checkIn.minRecharge') }}</label>
+                <input id="check-in-min-recharge" v-model.number="form.check_in_min_recharge" type="number" min="0" max="1000000000000" step="0.01" placeholder="0" class="input mt-1" />
+                <p class="input-hint">{{ t('admin.settings.features.checkIn.minRechargeHint') }}</p>
+              </div>
               <div>
                 <label class="input-label">{{ t('admin.settings.features.checkIn.rewardMin') }}</label>
                 <input v-model.number="form.check_in_reward_min" type="number" min="0.00000001" max="100" step="0.00000001" class="input mt-1" />
@@ -10000,6 +10005,7 @@ const form = reactive<SettingsForm>({
   affiliate_enabled: false,
   // Daily check-in
   check_in_enabled: true,
+  check_in_min_recharge: 0,
   check_in_reward_min: 0.01,
   check_in_reward_max: 0.15,
   // Allow user view error requests
@@ -11694,6 +11700,7 @@ async function saveSettings() {
       affiliate_enabled: form.affiliate_enabled,
       // Daily check-in
       check_in_enabled: form.check_in_enabled,
+      check_in_min_recharge: Math.max(0, Number(form.check_in_min_recharge) || 0),
       check_in_reward_min: Math.max(0.00000001, Math.min(100, Number(form.check_in_reward_min) || 0.01)),
       check_in_reward_max: Math.max(
         Math.max(0.00000001, Math.min(100, Number(form.check_in_reward_min) || 0.01)),

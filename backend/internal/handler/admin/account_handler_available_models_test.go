@@ -183,7 +183,7 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthUsesExplicitModelMapping(t 
 	require.Equal(t, "gpt-5", resp.Data[0].ID)
 }
 
-func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefaults(t *testing.T) {
+func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughUsesExplicitModelMapping(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),
 		account: service.Account{
@@ -217,7 +217,8 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
-	require.NotEqual(t, "gpt-5", resp.Data[0].ID)
+	require.Len(t, resp.Data, 1)
+	require.Equal(t, "gpt-5", resp.Data[0].ID)
 }
 
 func TestAccountHandlerGetAvailableModels_OpenAIAPIKeyDefaultsToConcreteGPT56Sol(t *testing.T) {
@@ -525,4 +526,69 @@ func TestAccountHandlerSyncUpstreamModels_MetadataEnrichmentFailureReturnsWarnin
 	require.Equal(t, []string{"x-preview-f-free"}, resp.Data.Models)
 	require.Len(t, resp.Data.Warnings, 1)
 	require.Equal(t, "upstream_model_metadata_incomplete", resp.Data.Warnings[0].Code)
+}
+
+// Exercise the production discovery path: the legacy nil-service tests cannot
+// catch an upstream catalog bypassing the account's configured model list.
+func TestAccountHandlerGetAvailableModels_OpenAIModelCatalogPriority(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		passthrough bool
+		configured  bool
+	}{
+		{name: "configured", configured: true},
+		{name: "configured passthrough", configured: true, passthrough: true},
+		{name: "unrestricted"},
+		{name: "unrestricted passthrough", passthrough: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ids := []string{"codex-auto-review", "gpt-5.3-codex-spark", "gpt-5.5", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-astra"}
+			mapping := map[string]any{}
+			for _, id := range ids {
+				mapping[id] = id
+			}
+			// A custom request-side alias must remain selectable even if discovery
+			// only advertises its upstream target.
+			mapping["custom-alias"] = "gpt-6-astra"
+			ids = append(ids, "custom-alias")
+			if !tc.configured {
+				mapping = nil
+				ids = []string{"gpt-5.6-luna", "gpt-6-astra", "gpt-image-1"}
+			}
+			svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{
+				ID: 85, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "test-key", "base_url": "https://models.example", "model_mapping": mapping},
+				Extra:       map[string]any{"openai_passthrough": tc.passthrough},
+			}}
+			upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"gpt-5.6-luna"},{"id":"gpt-6-astra"},{"id":"gpt-image-1"}]}`))}}}
+			cfg := &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}
+			gateway := service.NewOpenAIGatewayService(nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil)
+			testSvc := service.NewAccountTestService(nil, nil, nil, nil, nil, upstream, cfg, nil)
+			testSvc.SetOpenAIGatewayService(gateway)
+			handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, testSvc, nil, nil, nil, nil, nil)
+			router := gin.New()
+			router.GET("/api/v1/admin/accounts/:id/models", handler.GetAvailableModels)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/85/models", nil))
+			require.Equal(t, http.StatusOK, rec.Code)
+			var resp struct {
+				Data []struct {
+					ID          string `json:"id"`
+					DisplayName string `json:"display_name"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			actual := []string{}
+			for _, model := range resp.Data {
+				actual = append(actual, model.ID)
+				require.NotEmpty(t, model.DisplayName)
+			}
+			require.ElementsMatch(t, ids, actual)
+			if tc.configured {
+				require.Len(t, upstream.responses, 1, "configured models should not require upstream discovery")
+			} else {
+				require.Empty(t, upstream.responses, "unrestricted accounts should use upstream discovery")
+			}
+		})
+	}
 }

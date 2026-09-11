@@ -1301,3 +1301,30 @@ func mergePlatformQuotaDefaults(dst, src *DefaultPlatformQuotaSetting) {
 		dst.MonthlyLimitUSD = src.MonthlyLimitUSD
 	}
 }
+
+// GetCheckInMinRecharge defaults only an absent setting to unrestricted. A
+// storage failure must not silently disable a configured eligibility gate.
+func (s *SettingService) GetCheckInMinRecharge(ctx context.Context) (float64, error) {
+	if s == nil || s.settingRepo == nil {
+		return 0, nil
+	}
+	raw, err := s.settingRepo.GetValue(ctx, SettingKeyCheckInMinRecharge)
+	if errors.Is(err, ErrSettingNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("load check-in recharge requirement: %w", err)
+	}
+	return parseCheckInMinRecharge(raw)
+}
+
+func parseCheckInMinRecharge(raw string) (float64, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, nil
+	}
+	amount, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount < 0 || amount > 1e12 {
+		return 0, fmt.Errorf("invalid check-in recharge requirement")
+	}
+	return amount, nil
+}

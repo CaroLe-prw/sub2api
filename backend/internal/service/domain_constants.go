@@ -218,6 +218,7 @@ const (
 	SettingKeyAffiliateAdminRechargeEnabled       = "affiliate_admin_recharge_enabled" // 管理员充值是否产生返利
 	SettingKeyCheckInEnabled                      = "check_in_enabled"                 // 每日签到功能总开关
 	SettingKeyCheckInRewardMin                    = "check_in_reward_min"              // 单次签到随机奖励下限
+	SettingKeyCheckInMinRecharge                  = "check_in_min_recharge"            // 签到最低累计充值到账金额，0 表示不限制
 	SettingKeyCheckInRewardMax                    = "check_in_reward_max"              // 单次签到随机奖励上限
 	SettingKeyLotteryEnabled                      = "lottery_enabled"                  // 幸运抽奖功能总开关
 	SettingKeyRiskControlEnabled                  = "risk_control_enabled"             // 是否启用风控中心入口与审计链路

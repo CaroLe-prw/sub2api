@@ -365,9 +365,10 @@ type UpdateSettingsRequest struct {
 	AffiliateEnabled *bool `json:"affiliate_enabled"`
 
 	// Daily check-in settings
-	CheckInEnabled   *bool    `json:"check_in_enabled"`
-	CheckInRewardMin *float64 `json:"check_in_reward_min"`
-	CheckInRewardMax *float64 `json:"check_in_reward_max"`
+	CheckInEnabled     *bool    `json:"check_in_enabled"`
+	CheckInMinRecharge *float64 `json:"check_in_min_recharge" binding:"omitempty,gte=0,lte=1000000000000"`
+	CheckInRewardMin   *float64 `json:"check_in_reward_min"`
+	CheckInRewardMax   *float64 `json:"check_in_reward_max"`
 
 	// 风控中心功能开关
 	RiskControlEnabled *bool `json:"risk_control_enabled"`
@@ -2046,6 +2047,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.CheckInEnabled
 		}(),
+		CheckInMinRecharge: func() float64 {
+			if req.CheckInMinRecharge != nil {
+				return *req.CheckInMinRecharge
+			}
+			return previousSettings.CheckInMinRecharge
+		}(),
 		CheckInRewardMin: func() float64 {
 			if req.CheckInRewardMin != nil {
 				return *req.CheckInRewardMin
@@ -2486,10 +2493,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ModelPlazaDescription:   updatedSettings.ModelPlazaDescription,
 		PluginManagementEnabled: updatedSettings.PluginManagementEnabled,
 
-		AffiliateEnabled: updatedSettings.AffiliateEnabled,
-		CheckInEnabled:   updatedSettings.CheckInEnabled,
-		CheckInRewardMin: updatedSettings.CheckInRewardMin,
-		CheckInRewardMax: updatedSettings.CheckInRewardMax,
+		AffiliateEnabled:   updatedSettings.AffiliateEnabled,
+		CheckInEnabled:     updatedSettings.CheckInEnabled,
+		CheckInMinRecharge: updatedSettings.CheckInMinRecharge,
+		CheckInRewardMin:   updatedSettings.CheckInRewardMin,
+		CheckInRewardMax:   updatedSettings.CheckInRewardMax,
 
 		RiskControlEnabled:          updatedSettings.RiskControlEnabled,
 		CyberSessionBlockEnabled:    updatedSettings.CyberSessionBlockEnabled,

@@ -1,5 +1,11 @@
 export default {
   checkIn: {
+    rechargeRequiredTitle: '充值达标后即可签到',
+    rechargeRequired: '累计成功充值需达到 {required}，当前已充值 {current}，还差 {remaining}（余额单位）。',
+    rechargeRequiredButton: '充值未达标',
+    rechargeRefresh: '已充值，刷新状态',
+    rechargeRule: '累计成功在线余额充值达到 {required} 后可每天签到，不会扣费。赠送、返利、兑换码、订阅和已退款金额不计入。',
+    rechargeChanged: '充值金额未达到当前签到门槛，请充值后重试。',
     title: '每日签到',
     subtitle: '每天回来打个卡，领取一份随机余额奖励。',
     badge: '每日一次 · 随机奖励',
