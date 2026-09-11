@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/responsediag"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -273,8 +274,9 @@ func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecord
 	if task == nil {
 		return nil
 	}
+	snapshot := responsediag.Snapshot(parent)
 	return func(ctx context.Context) {
-		task(usageRecordContext(parent, ctx))
+		task(responsediag.WithSnapshot(usageRecordContext(parent, ctx), snapshot))
 	}
 }
 

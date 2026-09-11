@@ -648,3 +648,19 @@ func (h *UsageHandler) CancelCleanupTask(c *gin.Context) {
 	logger.LegacyPrintf("handler.admin.usage", "[UsageCleanup] 清理任务已取消: task=%d operator=%d", taskID, subject.UserID)
 	response.Success(c, gin.H{"id": taskID, "status": service.UsageCleanupStatusCanceled})
 }
+
+// ResponseDiagnostics returns bounded response bodies only through the admin API.
+func (h *UsageHandler) ResponseDiagnostics(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid usage id")
+		return
+	}
+	log, err := h.usageService.GetByID(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	response.Success(c, log.ResponseDiagnostics)
+}

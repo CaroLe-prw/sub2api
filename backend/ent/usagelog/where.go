@@ -285,6 +285,16 @@ func CreatedAt(v time.Time) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldCreatedAt, v))
 }
 
+// ResponseDiagnosticsIsNil applies the IsNil predicate on the "response_diagnostics" field.
+func ResponseDiagnosticsIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldResponseDiagnostics))
+}
+
+// ResponseDiagnosticsNotNil applies the NotNil predicate on the "response_diagnostics" field.
+func ResponseDiagnosticsNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldResponseDiagnostics))
+}
+
 // UserIDEQ applies the EQ predicate on the "user_id" field.
 func UserIDEQ(v int64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldUserID, v))

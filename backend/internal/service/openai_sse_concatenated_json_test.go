@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/responsediag"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -317,6 +318,9 @@ func testOpenAIStreamingRepairsConcatenatedJSONDocuments(t *testing.T, passthrou
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	captureCtx, capture := responsediag.Start(c.Request.Context())
+	c.Request = c.Request.WithContext(captureCtx)
+	responsediag.WrapUpstream(captureCtx, resp)
 	svc := &OpenAIGatewayService{
 		cfg: &config.Config{Gateway: config.GatewayConfig{
 			MaxLineSize:               defaultMaxLineSize,
@@ -342,6 +346,13 @@ func testOpenAIStreamingRepairsConcatenatedJSONDocuments(t *testing.T, passthrou
 		}
 	}
 	require.NoError(t, err)
+	capture.WriteDownstream(recorder.Body.Bytes(), "text/event-stream", false)
+	var diagnostics responsediag.Record
+	require.NoError(t, json.Unmarshal(responsediag.Snapshot(captureCtx), &diagnostics))
+	require.Equal(t, "extra", diagnostics.Upstream.Status)
+	require.Equal(t, "ok", diagnostics.Downstream.Status)
+	require.Contains(t, diagnostics.Upstream.Body, largeInProgress+outputItemAdded)
+	require.Equal(t, recorder.Body.String(), diagnostics.Downstream.Body)
 	require.NotNil(t, usage)
 	require.Equal(t, 7, usage.InputTokens)
 	require.Equal(t, 9, usage.OutputTokens)

@@ -332,3 +332,13 @@ func TestUsageLogFromService_PreservesHistoricalMissingImageSize(t *testing.T) {
 func f64Ptr(value float64) *float64 {
 	return &value
 }
+
+func TestUsageResponseDiagnosticsAdminOnly(t *testing.T) {
+	log := &service.UsageLog{ResponseDiagnostics: json.RawMessage(`{"upstream":"extra","downstream":"ok"}`)}
+	user, err := json.Marshal(UsageLogFromService(log))
+	require.NoError(t, err)
+	require.NotContains(t, string(user), "response_diagnostics")
+	admin, err := json.Marshal(UsageLogFromServiceAdmin(log))
+	require.NoError(t, err)
+	require.Contains(t, string(admin), `"response_diagnostics":{"upstream":"extra","downstream":"ok"}`)
+}

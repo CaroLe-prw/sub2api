@@ -220,3 +220,24 @@ export const adminUsageAPI = {
 }
 
 export default adminUsageAPI
+
+export interface ResponseDiagnosticSide {
+  body: string
+  content_type: string
+  controls_escaped?: boolean
+  bytes: number
+  truncated: boolean
+  complete: boolean
+  status: string
+  json_documents: number
+  issues?: Array<{ kind: string; frame: number; json?: string; extra?: string }>
+}
+export interface ResponseDiagnostics {
+  summary: { upstream: string; downstream: string }
+  upstream?: ResponseDiagnosticSide
+  downstream: ResponseDiagnosticSide
+}
+export async function getResponseDiagnostics(id: number, signal?: AbortSignal): Promise<ResponseDiagnostics | null> {
+  const { data } = await apiClient.get<ResponseDiagnostics | null>(`/admin/usage/${id}/response`, { signal })
+  return data
+}

@@ -2,6 +2,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"time"
 
 	"entgo.io/ent"
@@ -31,6 +32,7 @@ func (UsageLog) Annotations() []schema.Annotation {
 // Fields 定义使用日志实体的所有字段。
 func (UsageLog) Fields() []ent.Field {
 	return []ent.Field{
+		field.JSON("response_diagnostics", json.RawMessage{}).Optional(),
 		// 关联字段
 		// System-owned channel probes are intentionally not attributed to a user
 		// or API key. Account attribution remains required for reconciliation.

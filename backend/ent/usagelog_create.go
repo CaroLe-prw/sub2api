@@ -4,6 +4,7 @@ package ent
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"time"
@@ -25,6 +26,12 @@ type UsageLogCreate struct {
 	mutation *UsageLogMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetResponseDiagnostics sets the "response_diagnostics" field.
+func (_c *UsageLogCreate) SetResponseDiagnostics(v jsontext.Value) *UsageLogCreate {
+	_c.mutation.SetResponseDiagnostics(v)
+	return _c
 }
 
 // SetUserID sets the "user_id" field.
@@ -971,6 +978,10 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 		_spec = sqlgraph.NewCreateSpec(usagelog.Table, sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64))
 	)
 	_spec.OnConflict = _c.conflict
+	if value, ok := _c.mutation.ResponseDiagnostics(); ok {
+		_spec.SetField(usagelog.FieldResponseDiagnostics, field.TypeJSON, value)
+		_node.ResponseDiagnostics = value
+	}
 	if value, ok := _c.mutation.RequestID(); ok {
 		_spec.SetField(usagelog.FieldRequestID, field.TypeString, value)
 		_node.RequestID = value
@@ -1231,7 +1242,7 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 // of the `INSERT` statement. For example:
 //
 //	client.UsageLog.Create().
-//		SetUserID(v).
+//		SetResponseDiagnostics(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -1240,7 +1251,7 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.UsageLogUpsert) {
-//			SetUserID(v+v).
+//			SetResponseDiagnostics(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *UsageLogCreate) OnConflict(opts ...sql.ConflictOption) *UsageLogUpsertOne {
@@ -1275,6 +1286,24 @@ type (
 		*sql.UpdateSet
 	}
 )
+
+// SetResponseDiagnostics sets the "response_diagnostics" field.
+func (u *UsageLogUpsert) SetResponseDiagnostics(v jsontext.Value) *UsageLogUpsert {
+	u.Set(usagelog.FieldResponseDiagnostics, v)
+	return u
+}
+
+// UpdateResponseDiagnostics sets the "response_diagnostics" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateResponseDiagnostics() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldResponseDiagnostics)
+	return u
+}
+
+// ClearResponseDiagnostics clears the value of the "response_diagnostics" field.
+func (u *UsageLogUpsert) ClearResponseDiagnostics() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldResponseDiagnostics)
+	return u
+}
 
 // SetUserID sets the "user_id" field.
 func (u *UsageLogUpsert) SetUserID(v int64) *UsageLogUpsert {
@@ -2141,6 +2170,27 @@ func (u *UsageLogUpsertOne) Update(set func(*UsageLogUpsert)) *UsageLogUpsertOne
 		set(&UsageLogUpsert{UpdateSet: update})
 	}))
 	return u
+}
+
+// SetResponseDiagnostics sets the "response_diagnostics" field.
+func (u *UsageLogUpsertOne) SetResponseDiagnostics(v jsontext.Value) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetResponseDiagnostics(v)
+	})
+}
+
+// UpdateResponseDiagnostics sets the "response_diagnostics" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateResponseDiagnostics() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateResponseDiagnostics()
+	})
+}
+
+// ClearResponseDiagnostics clears the value of the "response_diagnostics" field.
+func (u *UsageLogUpsertOne) ClearResponseDiagnostics() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearResponseDiagnostics()
+	})
 }
 
 // SetUserID sets the "user_id" field.
@@ -3237,7 +3287,7 @@ func (_c *UsageLogCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.UsageLogUpsert) {
-//			SetUserID(v+v).
+//			SetResponseDiagnostics(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *UsageLogCreateBulk) OnConflict(opts ...sql.ConflictOption) *UsageLogUpsertBulk {
@@ -3311,6 +3361,27 @@ func (u *UsageLogUpsertBulk) Update(set func(*UsageLogUpsert)) *UsageLogUpsertBu
 		set(&UsageLogUpsert{UpdateSet: update})
 	}))
 	return u
+}
+
+// SetResponseDiagnostics sets the "response_diagnostics" field.
+func (u *UsageLogUpsertBulk) SetResponseDiagnostics(v jsontext.Value) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetResponseDiagnostics(v)
+	})
+}
+
+// UpdateResponseDiagnostics sets the "response_diagnostics" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateResponseDiagnostics() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateResponseDiagnostics()
+	})
+}
+
+// ClearResponseDiagnostics clears the value of the "response_diagnostics" field.
+func (u *UsageLogUpsertBulk) ClearResponseDiagnostics() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearResponseDiagnostics()
+	})
 }
 
 // SetUserID sets the "user_id" field.

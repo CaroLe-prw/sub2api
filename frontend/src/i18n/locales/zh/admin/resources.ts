@@ -518,6 +518,17 @@ export default {
       account: '账户',
       group: '分组',
       requestId: '请求ID',
+      response: {
+        controlsEscaped: '原文含 NUL 控制字符，查看时以转义文本展示；检查结果基于原始内容。',
+        upstreamShort: '上游', downstreamShort: '下发',
+        title: '响应 JSON', view: '查看响应', upstream: '上游读取内容', downstream: '实际下发内容',
+        help: '逐个检查 JSON / SSE data 事件；正常的多个 SSE 事件不算额外内容。上游为最后一次 HTTP 转发读取到的内容，可能经过协议转换后下发；不能仅凭内容不同认定注入。',
+        unavailable: '未记录', loadError: '响应内容加载失败',
+        partial: '仅保留每侧前 256 KiB；超限、读取未结束或发送失败时，无法排除未记录部分还有额外内容。',
+        raw: '查看原始 JSON / SSE', firstJSON: '首个 JSON（最多展示 4 KiB）', extraSample: '额外内容（最多展示 4 KiB）',
+        status: { ok: '未发现额外内容', extra: '有额外内容', incomplete: '内容不完整', invalid: 'JSON 格式异常', non_json: '非 JSON 内容', unavailable: '未记录' },
+        issue: { trailing_content: '第 {frame} 个事件：JSON 后有额外内容', invalid_json: '第 {frame} 个事件：JSON 格式异常或不完整', after_done: '第 {frame} 个事件：[DONE] 后仍有内容' }
+      },
       upstreamRequestId: '上游ID',
       requestIdCopied: '请求ID已复制',
       upstreamRequestIdCopied: '上游ID已复制',

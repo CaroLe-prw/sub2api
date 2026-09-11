@@ -44940,6 +44940,8 @@ type UsageLogMutation struct {
 	op                           Op
 	typ                          string
 	id                           *int64
+	response_diagnostics         *jsontext.Value
+	appendresponse_diagnostics   jsontext.Value
 	request_id                   *string
 	model                        *string
 	requested_model              *string
@@ -45115,6 +45117,71 @@ func (m *UsageLogMutation) IDs(ctx context.Context) ([]int64, error) {
 	default:
 		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
 	}
+}
+
+// SetResponseDiagnostics sets the "response_diagnostics" field.
+func (m *UsageLogMutation) SetResponseDiagnostics(j jsontext.Value) {
+	m.response_diagnostics = &j
+	m.appendresponse_diagnostics = nil
+}
+
+// ResponseDiagnostics returns the value of the "response_diagnostics" field in the mutation.
+func (m *UsageLogMutation) ResponseDiagnostics() (r jsontext.Value, exists bool) {
+	v := m.response_diagnostics
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResponseDiagnostics returns the old "response_diagnostics" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldResponseDiagnostics(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResponseDiagnostics is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResponseDiagnostics requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResponseDiagnostics: %w", err)
+	}
+	return oldValue.ResponseDiagnostics, nil
+}
+
+// AppendResponseDiagnostics adds j to the "response_diagnostics" field.
+func (m *UsageLogMutation) AppendResponseDiagnostics(j jsontext.Value) {
+	m.appendresponse_diagnostics = append(m.appendresponse_diagnostics, j...)
+}
+
+// AppendedResponseDiagnostics returns the list of values that were appended to the "response_diagnostics" field in this mutation.
+func (m *UsageLogMutation) AppendedResponseDiagnostics() (jsontext.Value, bool) {
+	if len(m.appendresponse_diagnostics) == 0 {
+		return nil, false
+	}
+	return m.appendresponse_diagnostics, true
+}
+
+// ClearResponseDiagnostics clears the value of the "response_diagnostics" field.
+func (m *UsageLogMutation) ClearResponseDiagnostics() {
+	m.response_diagnostics = nil
+	m.appendresponse_diagnostics = nil
+	m.clearedFields[usagelog.FieldResponseDiagnostics] = struct{}{}
+}
+
+// ResponseDiagnosticsCleared returns if the "response_diagnostics" field was cleared in this mutation.
+func (m *UsageLogMutation) ResponseDiagnosticsCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldResponseDiagnostics]
+	return ok
+}
+
+// ResetResponseDiagnostics resets all changes to the "response_diagnostics" field.
+func (m *UsageLogMutation) ResetResponseDiagnostics() {
+	m.response_diagnostics = nil
+	m.appendresponse_diagnostics = nil
+	delete(m.clearedFields, usagelog.FieldResponseDiagnostics)
 }
 
 // SetUserID sets the "user_id" field.
@@ -47715,7 +47782,10 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 47)
+	fields := make([]string, 0, 48)
+	if m.response_diagnostics != nil {
+		fields = append(fields, usagelog.FieldResponseDiagnostics)
+	}
 	if m.user != nil {
 		fields = append(fields, usagelog.FieldUserID)
 	}
@@ -47865,6 +47935,8 @@ func (m *UsageLogMutation) Fields() []string {
 // schema.
 func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 	switch name {
+	case usagelog.FieldResponseDiagnostics:
+		return m.ResponseDiagnostics()
 	case usagelog.FieldUserID:
 		return m.UserID()
 	case usagelog.FieldAPIKeyID:
@@ -47968,6 +48040,8 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 // database failed.
 func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
 	switch name {
+	case usagelog.FieldResponseDiagnostics:
+		return m.OldResponseDiagnostics(ctx)
 	case usagelog.FieldUserID:
 		return m.OldUserID(ctx)
 	case usagelog.FieldAPIKeyID:
@@ -48071,6 +48145,13 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 // type.
 func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 	switch name {
+	case usagelog.FieldResponseDiagnostics:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResponseDiagnostics(v)
+		return nil
 	case usagelog.FieldUserID:
 		v, ok := value.(int64)
 		if !ok {
@@ -48685,6 +48766,9 @@ func (m *UsageLogMutation) AddField(name string, value ent.Value) error {
 // mutation.
 func (m *UsageLogMutation) ClearedFields() []string {
 	var fields []string
+	if m.FieldCleared(usagelog.FieldResponseDiagnostics) {
+		fields = append(fields, usagelog.FieldResponseDiagnostics)
+	}
 	if m.FieldCleared(usagelog.FieldUserID) {
 		fields = append(fields, usagelog.FieldUserID)
 	}
@@ -48771,6 +48855,9 @@ func (m *UsageLogMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *UsageLogMutation) ClearField(name string) error {
 	switch name {
+	case usagelog.FieldResponseDiagnostics:
+		m.ClearResponseDiagnostics()
+		return nil
 	case usagelog.FieldUserID:
 		m.ClearUserID()
 		return nil
@@ -48851,6 +48938,9 @@ func (m *UsageLogMutation) ClearField(name string) error {
 // It returns an error if the field is not defined in the schema.
 func (m *UsageLogMutation) ResetField(name string) error {
 	switch name {
+	case usagelog.FieldResponseDiagnostics:
+		m.ResetResponseDiagnostics()
+		return nil
 	case usagelog.FieldUserID:
 		m.ResetUserID()
 		return nil

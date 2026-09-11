@@ -273,6 +273,15 @@
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
         </template>
 
+        <template #cell-response_diagnostics="{ row }">
+          <button v-if="row.response_diagnostics" class="text-left text-xs hover:underline" @click="responseUsageId = row.id">
+            <span class="block text-primary-600">{{ t('admin.usage.response.view') }}</span>
+            <span v-for="side in (['upstream', 'downstream'] as const)" :key="side" class="block whitespace-nowrap" :class="row.response_diagnostics[side] === 'extra' ? 'text-red-500' : 'text-gray-500'">
+              {{ t(`admin.usage.response.${side}Short`) }}: {{ t(`admin.usage.response.status.${row.response_diagnostics[side]}`) }}
+            </span>
+          </button>
+          <span v-else class="text-xs text-gray-400">{{ t('admin.usage.response.unavailable') }}</span>
+        </template>
         <template #cell-upstream_request_id="{ row }">
           <div v-if="row.upstream_request_id" class="flex max-w-[160px] items-center gap-1.5">
             <span class="truncate font-mono text-xs text-gray-500 dark:text-gray-400" :title="row.upstream_request_id">
@@ -529,10 +538,13 @@
       </div>
     </div>
   </Teleport>
+  <UsageResponseDialog :usage-id="responseUsageId" @close="responseUsageId = null" />
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import UsageResponseDialog from './UsageResponseDialog.vue'
+const responseUsageId = ref<number | null>(null)
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { formatDateTime, formatReasoningEffort, reasoningEffortValuesEqual } from '@/utils/format'

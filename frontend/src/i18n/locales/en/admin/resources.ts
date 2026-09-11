@@ -521,6 +521,17 @@ export default {
       account: 'Account',
       group: 'Group',
       requestId: 'Request ID',
+      response: {
+        controlsEscaped: 'NUL control characters are escaped for display; validation uses the original bytes.',
+        upstreamShort: 'Upstream', downstreamShort: 'Client',
+        title: 'Response JSON', view: 'View response', upstream: 'Upstream bytes read', downstream: 'Bytes sent to client',
+        help: 'Checks each JSON / SSE data event separately; normal multiple SSE events are not extra content. Upstream capture covers the final HTTP attempt. Protocol conversion can change output; differences alone do not prove injection.',
+        unavailable: 'Not recorded', loadError: 'Failed to load response',
+        partial: 'Only the first 256 KiB per side is retained. Truncation, an unfinished read, or a failed write means extra content outside the capture cannot be ruled out.',
+        raw: 'View raw JSON / SSE', firstJSON: 'First JSON (up to 4 KiB)', extraSample: 'Extra content (up to 4 KiB)',
+        status: { ok: 'No extra content found', extra: 'Extra content', incomplete: 'Incomplete capture', invalid: 'Invalid JSON', non_json: 'Non-JSON content', unavailable: 'Not recorded' },
+        issue: { trailing_content: 'Event {frame}: content after JSON', invalid_json: 'Event {frame}: invalid or incomplete JSON', after_done: 'Event {frame}: content after [DONE]' }
+      },
       upstreamRequestId: 'Upstream ID',
       requestIdCopied: 'Request ID copied',
       upstreamRequestIdCopied: 'Upstream ID copied',

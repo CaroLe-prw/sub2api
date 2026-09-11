@@ -13,6 +13,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/responsediag"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -82,6 +83,7 @@ var usageLogInsertArgTypes = [...]string{
 	"text",        // billing_tier
 	"text",        // billing_mode
 	"numeric",     // account_stats_cost
+	"jsonb",       // response_diagnostics
 	"text",        // upstream_request_id
 	"text",        // session_id
 	"boolean",     // native_compaction_v2
@@ -154,6 +156,9 @@ func (r *usageLogRepository) Create(ctx context.Context, log *service.UsageLog) 
 	if log == nil {
 		return false, nil
 	}
+	if log.ResponseDiagnostics == nil {
+		log.ResponseDiagnostics = responsediag.Snapshot(ctx)
+	}
 
 	if tx := dbent.TxFromContext(ctx); tx != nil {
 		return r.createSingle(ctx, tx.Client(), log)
@@ -169,6 +174,9 @@ func (r *usageLogRepository) Create(ctx context.Context, log *service.UsageLog) 
 func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.UsageLog) error {
 	if log == nil {
 		return nil
+	}
+	if log.ResponseDiagnostics == nil {
+		log.ResponseDiagnostics = responsediag.Snapshot(ctx)
 	}
 
 	if tx := dbent.TxFromContext(ctx); tx != nil {
@@ -283,6 +291,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
+			response_diagnostics,
 			upstream_request_id,
 			session_id,
 			native_compaction_v2,
@@ -293,7 +302,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			$12, $13, $14, $15,
 			$16, $17, $18, $19,
 			$20, $21, $22, $23, $24, $25,
-			$26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62
+			$26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 		RETURNING id, created_at
@@ -743,6 +752,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
+			response_diagnostics,
 			upstream_request_id,
 			session_id,
 			native_compaction_v2,
@@ -838,6 +848,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				billing_tier,
 				billing_mode,
 				account_stats_cost,
+				response_diagnostics,
 				upstream_request_id,
 				session_id,
 				native_compaction_v2,
@@ -902,6 +913,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				billing_tier,
 				billing_mode,
 				account_stats_cost,
+				response_diagnostics,
 				upstream_request_id,
 				session_id,
 				native_compaction_v2,
@@ -1006,6 +1018,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
+			response_diagnostics,
 			upstream_request_id,
 			session_id,
 			native_compaction_v2,
@@ -1096,6 +1109,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
+			response_diagnostics,
 			upstream_request_id,
 			session_id,
 			native_compaction_v2,
@@ -1160,6 +1174,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
+			response_diagnostics,
 			upstream_request_id,
 			session_id,
 			native_compaction_v2,
@@ -1232,6 +1247,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			billing_tier,
 			billing_mode,
 			account_stats_cost,
+			response_diagnostics,
 			upstream_request_id,
 			session_id,
 			native_compaction_v2,
@@ -1242,7 +1258,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			$12, $13, $14, $15,
 			$16, $17, $18, $19,
 			$20, $21, $22, $23, $24, $25,
-			$26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62
+			$26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 	`, prepared.args...)
@@ -1373,8 +1389,9 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			billingTier,
 			billingMode,
 			log.AccountStatsCost, // account_stats_cost
-			upstreamRequestID,    // upstream_request_id
-			sessionID,            // session_id
+			diagnosticJSONArg(log.ResponseDiagnostics),
+			upstreamRequestID, // upstream_request_id
+			sessionID,         // session_id
 			log.NativeCompactionV2,
 			createdAt,
 		},
@@ -1401,4 +1418,11 @@ func (r *usageLogRepository) bestEffortRecentKey(requestID string, apiKeyID int6
 		return "", false
 	}
 	return usageLogBatchKey(requestID, apiKeyID), true
+}
+
+func diagnosticJSONArg(value []byte) any {
+	if len(value) == 0 {
+		return nil
+	}
+	return string(value)
 }
