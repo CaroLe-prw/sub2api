@@ -526,6 +526,50 @@ func TestGatewayServiceRecordUsage_DeepSeekAccountStatsUsesRequestPricingAtAndUp
 	}
 }
 
+func TestGatewayServiceRecordUsage_AccountStatsPreservesCacheCreationTTL(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		cache5m, cache1h int
+	}{
+		{"1h", 0, 110352},
+		{"5m", 110352, 0},
+		{"mixed", 100000, 10352},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			userRepo := &openAIRecordUsageUserRepoStub{}
+			svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+			groupID := int64(905)
+			svc.channelService = newTestChannelServiceForStats(t, &Channel{ID: 1, Status: StatusActive}, groupID, PlatformAnthropic)
+			svc.resolver = NewModelPricingResolver(svc.channelService, svc.billingService)
+			accountRate := 0.3
+			err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+				Result: &ForwardResult{
+					RequestID: "account_stats_cache_ttl_" + tc.name,
+					Model:     "claude-fable-5", UpstreamModel: "claude-fable-5",
+					Usage: ClaudeUsage{
+						InputTokens: 18, OutputTokens: 293, CacheReadInputTokens: 10710,
+						CacheCreationInputTokens: tc.cache5m + tc.cache1h,
+						CacheCreation5mTokens:    tc.cache5m, CacheCreation1hTokens: tc.cache1h,
+					},
+				},
+				APIKey: &APIKey{ID: 805, GroupID: &groupID, Group: &Group{ID: groupID, Platform: PlatformAnthropic, RateMultiplier: 0.3}},
+				User:   &User{ID: 605}, Account: &Account{ID: 705, Platform: PlatformAnthropic, RateMultiplier: &accountRate},
+			})
+			require.NoError(t, err)
+			log := usageRepo.lastLog
+			require.NotNil(t, log)
+			wantBase := 18*10e-6 + 293*50e-6 + 10710*1e-6 + float64(tc.cache5m)*12.5e-6 + float64(tc.cache1h)*20e-6
+			require.InDelta(t, wantBase, log.TotalCost, 1e-9)
+			require.InDelta(t, wantBase*0.3, log.ActualCost, 1e-9)
+			require.NotNil(t, log.AccountStatsCost)
+			require.InDelta(t, wantBase, *log.AccountStatsCost, 1e-9,
+				"account stats must keep 5m/1h cache usage when using the same model pricing")
+			require.InDelta(t, log.ActualCost, *log.AccountStatsCost**log.AccountRateMultiplier, 1e-9)
+		})
+	}
+}
+
 func TestGatewayServiceRecordUsage_UsageLogWriteErrorDoesNotSkipBilling(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: false, err: MarkUsageLogCreateNotPersisted(context.Canceled)}
 	userRepo := &openAIRecordUsageUserRepoStub{}
