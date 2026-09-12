@@ -664,6 +664,12 @@ func (_c *GroupCreate) SetNillableFallbackGroupIDOnInvalidRequest(v *int64) *Gro
 	return _c
 }
 
+// SetModelMapping sets the "model_mapping" field.
+func (_c *GroupCreate) SetModelMapping(v map[string]string) *GroupCreate {
+	_c.mutation.SetModelMapping(v)
+	return _c
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (_c *GroupCreate) SetModelRouting(v map[string][]int64) *GroupCreate {
 	_c.mutation.SetModelRouting(v)
@@ -1693,6 +1699,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.FallbackGroupIDOnInvalidRequest(); ok {
 		_spec.SetField(group.FieldFallbackGroupIDOnInvalidRequest, field.TypeInt64, value)
 		_node.FallbackGroupIDOnInvalidRequest = &value
+	}
+	if value, ok := _c.mutation.ModelMapping(); ok {
+		_spec.SetField(group.FieldModelMapping, field.TypeJSON, value)
+		_node.ModelMapping = value
 	}
 	if value, ok := _c.mutation.ModelRouting(); ok {
 		_spec.SetField(group.FieldModelRouting, field.TypeJSON, value)
@@ -2745,6 +2755,24 @@ func (u *GroupUpsert) AddFallbackGroupIDOnInvalidRequest(v int64) *GroupUpsert {
 // ClearFallbackGroupIDOnInvalidRequest clears the value of the "fallback_group_id_on_invalid_request" field.
 func (u *GroupUpsert) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsert {
 	u.SetNull(group.FieldFallbackGroupIDOnInvalidRequest)
+	return u
+}
+
+// SetModelMapping sets the "model_mapping" field.
+func (u *GroupUpsert) SetModelMapping(v map[string]string) *GroupUpsert {
+	u.Set(group.FieldModelMapping, v)
+	return u
+}
+
+// UpdateModelMapping sets the "model_mapping" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateModelMapping() *GroupUpsert {
+	u.SetExcluded(group.FieldModelMapping)
+	return u
+}
+
+// ClearModelMapping clears the value of the "model_mapping" field.
+func (u *GroupUpsert) ClearModelMapping() *GroupUpsert {
+	u.SetNull(group.FieldModelMapping)
 	return u
 }
 
@@ -4032,6 +4060,27 @@ func (u *GroupUpsertOne) UpdateFallbackGroupIDOnInvalidRequest() *GroupUpsertOne
 func (u *GroupUpsertOne) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearFallbackGroupIDOnInvalidRequest()
+	})
+}
+
+// SetModelMapping sets the "model_mapping" field.
+func (u *GroupUpsertOne) SetModelMapping(v map[string]string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetModelMapping(v)
+	})
+}
+
+// UpdateModelMapping sets the "model_mapping" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateModelMapping() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateModelMapping()
+	})
+}
+
+// ClearModelMapping clears the value of the "model_mapping" field.
+func (u *GroupUpsertOne) ClearModelMapping() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearModelMapping()
 	})
 }
 
@@ -5534,6 +5583,27 @@ func (u *GroupUpsertBulk) UpdateFallbackGroupIDOnInvalidRequest() *GroupUpsertBu
 func (u *GroupUpsertBulk) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearFallbackGroupIDOnInvalidRequest()
+	})
+}
+
+// SetModelMapping sets the "model_mapping" field.
+func (u *GroupUpsertBulk) SetModelMapping(v map[string]string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetModelMapping(v)
+	})
+}
+
+// UpdateModelMapping sets the "model_mapping" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateModelMapping() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateModelMapping()
+	})
+}
+
+// ClearModelMapping clears the value of the "model_mapping" field.
+func (u *GroupUpsertBulk) ClearModelMapping() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearModelMapping()
 	})
 }
 

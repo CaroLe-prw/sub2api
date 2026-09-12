@@ -1136,3 +1136,21 @@ func (s *GroupRepoSuite) TestDelete_SoftDeletedGroup_lockForUpdate() {
 	s.Require().Error(err, "should fail to get soft-deleted group")
 	s.Require().ErrorIs(err, service.ErrGroupNotFound)
 }
+
+func (s *GroupRepoSuite) TestModelMappingRoundTrip() {
+	group := &service.Group{Name: "model-mapping", Platform: service.PlatformOpenAI, Status: service.StatusActive, RateMultiplier: 1, SubscriptionType: service.SubscriptionTypeStandard, ModelMapping: map[string]string{"luna": "terra"}}
+	s.Require().NoError(s.repo.Create(s.ctx, group))
+	got, err := s.repo.GetByIDLite(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(group.ModelMapping, got.ModelMapping)
+	got.ModelMapping = map[string]string{"luna": "sol"}
+	s.Require().NoError(s.repo.Update(s.ctx, got))
+	got, err = s.repo.GetByIDLite(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(map[string]string{"luna": "sol"}, got.ModelMapping)
+	got.ModelMapping = map[string]string{}
+	s.Require().NoError(s.repo.Update(s.ctx, got))
+	got, err = s.repo.GetByIDLite(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().Empty(got.ModelMapping)
+}

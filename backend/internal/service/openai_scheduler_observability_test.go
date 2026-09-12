@@ -637,3 +637,17 @@ func schedulerObservabilityReasonKeys(reasons []OpenAISchedulerObservabilityReas
 	}
 	return keys
 }
+
+func TestBuildSchedulerSessionsOrdersDifferentTimestampPrecision(t *testing.T) {
+	fingerprint := "timestamp-precision"
+	firstTurn, secondTurn := 1, 2
+	sessions := buildSchedulerSessions([]OpenAISchedulerObservabilityTrace{
+		{CreatedAt: "2026-09-11T12:00:00.100001Z", SessionFingerprint: &fingerprint, SessionTurn: &secondTurn,
+			AccountPath: []OpenAISchedulerObservabilityAccount{{ID: 18}}, CacheReadTokens: 90, CacheEligibleTokens: 100},
+		{CreatedAt: "2026-09-11T12:00:00.1Z", SessionFingerprint: &fingerprint, SessionTurn: &firstTurn,
+			AccountPath: []OpenAISchedulerObservabilityAccount{{ID: 18}}},
+	})
+	require.Len(t, sessions, 1)
+	require.InDelta(t, 0.9, sessions[0].FollowUpCacheRate, 0.0001)
+	require.Equal(t, "2026-09-11T12:00:00.100001Z", sessions[0].LastActiveAt)
+}

@@ -38,12 +38,16 @@ func setupAvailableModelsRouter(adminSvc service.AdminService) *gin.Engine {
 }
 
 type syncUpstreamHTTPUpstream struct {
-	resp      *http.Response
-	responses []*http.Response
-	err       error
+	requests   []*http.Request
+	accountIDs []int64
+	resp       *http.Response
+	responses  []*http.Response
+	err        error
 }
 
 func (u *syncUpstreamHTTPUpstream) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
+	u.requests = append(u.requests, req)
+	u.accountIDs = append(u.accountIDs, accountID)
 	if u.err != nil {
 		return nil, u.err
 	}
@@ -53,6 +57,73 @@ func (u *syncUpstreamHTTPUpstream) Do(req *http.Request, proxyURL string, accoun
 		return resp, nil
 	}
 	return u.resp, nil
+}
+
+func TestAccountHandlerSyncUpstreamModelsPreviewUsesUnsavedCredentials(t *testing.T) {
+	for _, tc := range []struct {
+		name, overrides, wantURL, wantKey string
+	}{
+		{"key", `"api_key":"new-key"`, "https://old.example/v1/models", "new-key"},
+		{"address", `"base_url":"https://new.example/v1"`, "https://new.example/v1/models", "saved-key"},
+		{"both", `"base_url":"https://new.example/v1","api_key":"new-key"`, "https://new.example/v1/models", "new-key"},
+		{"blank key keeps saved key", `"base_url":"https://new.example/v1","api_key":" "`, "https://new.example/v1/models", "saved-key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &availableModelsAdminService{
+				stubAdminService: newStubAdminService(),
+				account: service.Account{
+					ID: 48, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+					Credentials: map[string]any{"api_key": "saved-key", "base_url": "https://old.example/v1"},
+				},
+			}
+			upstream := &syncUpstreamHTTPUpstream{resp: &http.Response{
+				StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(`{"models":[{"id":"new-model","reasoning":false,"input_modalities":["text"],"context_window":128000,"max_output_tokens":8192}]}`)),
+			}}
+			router := setupSyncUpstreamModelsRouter(svc, upstream)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/models/sync-upstream-preview",
+				strings.NewReader(`{"account_id":48,"platform":"openai","type":"apikey",`+tc.overrides+`}`))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			require.NotEmpty(t, upstream.requests)
+			require.Equal(t, tc.wantURL, upstream.requests[0].URL.String())
+			require.Equal(t, "Bearer "+tc.wantKey, upstream.requests[0].Header.Get("Authorization"))
+			require.Zero(t, upstream.accountIDs[0], "preview must not persist model metadata to the saved account")
+			require.Equal(t, "saved-key", svc.account.Credentials["api_key"])
+			require.Equal(t, "https://old.example/v1", svc.account.Credentials["base_url"])
+			require.NotContains(t, rec.Body.String(), tc.wantKey)
+		})
+	}
+}
+
+func TestAccountHandlerSyncUpstreamModelsPreviewRejectsInvalidAccountCredentials(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		status     int
+	}{
+		{"missing create key", `{"platform":"openai","type":"apikey"}`, http.StatusBadRequest},
+		{"invalid ID", `{"account_id":0,"platform":"openai","type":"apikey"}`, http.StatusBadRequest},
+		{"wrong platform", `{"account_id":48,"platform":"anthropic","type":"apikey"}`, http.StatusBadRequest},
+		{"wrong type", `{"account_id":48,"platform":"openai","type":"oauth"}`, http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &availableModelsAdminService{
+				stubAdminService: newStubAdminService(),
+				account:          service.Account{ID: 48, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey},
+			}
+			upstream := &syncUpstreamHTTPUpstream{}
+			router := setupSyncUpstreamModelsRouter(svc, upstream)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/models/sync-upstream-preview", strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(rec, req)
+			require.Equal(t, tc.status, rec.Code, rec.Body.String())
+			require.Empty(t, upstream.requests)
+		})
+	}
 }
 
 func (u *syncUpstreamHTTPUpstream) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {

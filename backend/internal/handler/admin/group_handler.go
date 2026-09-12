@@ -257,6 +257,7 @@ type CreateGroupRequest struct {
 	FallbackGroupID                 *int64                        `json:"fallback_group_id"`
 	FallbackGroupIDOnInvalidRequest *int64                        `json:"fallback_group_id_on_invalid_request"`
 	// 模型路由配置（仅 anthropic 平台使用）
+	ModelMapping        map[string]string  `json:"model_mapping"`
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled bool               `json:"model_routing_enabled"`
 	MCPXMLInject        *bool              `json:"mcp_xml_inject"`
@@ -335,6 +336,7 @@ type UpdateGroupRequest struct {
 	FallbackGroupID                 *int64                        `json:"fallback_group_id"`
 	FallbackGroupIDOnInvalidRequest *int64                        `json:"fallback_group_id_on_invalid_request"`
 	// 模型路由配置（仅 anthropic 平台使用）
+	ModelMapping        map[string]string  `json:"model_mapping"`
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled *bool              `json:"model_routing_enabled"`
 	MCPXMLInject        *bool              `json:"mcp_xml_inject"`
@@ -768,6 +770,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
 		FallbackGroupID:                 req.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
+		ModelMapping:                    req.ModelMapping,
 		ModelRouting:                    req.ModelRouting,
 		ModelRoutingEnabled:             req.ModelRoutingEnabled,
 		MCPXMLInject:                    req.MCPXMLInject,
@@ -918,6 +921,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
 		FallbackGroupID:                 req.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
+		ModelMapping:                    req.ModelMapping,
 		ModelRouting:                    req.ModelRouting,
 		ModelRoutingEnabled:             req.ModelRoutingEnabled,
 		MCPXMLInject:                    req.MCPXMLInject,

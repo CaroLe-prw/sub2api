@@ -3187,33 +3187,60 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 	response.Success(c, catalog)
 }
 
-// SyncUpstreamModelsPreview handles syncing live supported models using provided credentials (no account ID needed).
+// SyncUpstreamModelsPreview fetches models with unsaved credentials without updating an account.
 // POST /api/v1/admin/accounts/models/sync-upstream-preview
 func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 	var req struct {
+		AccountID    *int64            `json:"account_id" binding:"omitempty,gt=0"`
 		Platform     string            `json:"platform" binding:"required"`
 		Type         string            `json:"type" binding:"required"`
-		BaseURL      string            `json:"base_url"`
-		APIKey       string            `json:"api_key" binding:"required"`
+		BaseURL      *string           `json:"base_url"`
+		APIKey       string            `json:"api_key"`
 		ModelMapping map[string]string `json:"model_mapping"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	modelMapping := make(map[string]any, len(req.ModelMapping))
-	for sourceModel, upstreamModel := range req.ModelMapping {
-		modelMapping[sourceModel] = upstreamModel
-	}
-
 	tempAccount := &service.Account{
-		Platform: req.Platform,
-		Type:     req.Type,
-		Credentials: map[string]any{
-			"api_key":       req.APIKey,
-			"base_url":      req.BaseURL,
-			"model_mapping": modelMapping,
-		},
+		Platform:    req.Platform,
+		Type:        req.Type,
+		Credentials: make(map[string]any),
+	}
+	if req.AccountID != nil {
+		account, err := h.adminService.GetAccount(c.Request.Context(), *req.AccountID)
+		if err != nil {
+			response.NotFound(c, "Account not found")
+			return
+		}
+		if account.Type != service.AccountTypeAPIKey || req.Type != account.Type || req.Platform != account.Platform {
+			response.BadRequest(c, "Preview credentials must match an API key account")
+			return
+		}
+		// Keep the existing connection options and secret, but no ID: catalog
+		// discovery must not persist metadata for credentials that are not saved.
+		tempAccount.ProxyID = account.ProxyID
+		tempAccount.Proxy = account.Proxy
+		tempAccount.Concurrency = account.Concurrency
+		for key, value := range account.Credentials {
+			tempAccount.Credentials[key] = value
+		}
+	}
+	if apiKey := strings.TrimSpace(req.APIKey); apiKey != "" {
+		tempAccount.Credentials["api_key"] = apiKey
+	} else if req.AccountID == nil {
+		response.BadRequest(c, "API key is required")
+		return
+	}
+	if req.BaseURL != nil {
+		tempAccount.Credentials["base_url"] = strings.TrimSpace(*req.BaseURL)
+	}
+	if req.ModelMapping != nil {
+		modelMapping := make(map[string]any, len(req.ModelMapping))
+		for sourceModel, upstreamModel := range req.ModelMapping {
+			modelMapping[sourceModel] = upstreamModel
+		}
+		tempAccount.Credentials["model_mapping"] = modelMapping
 	}
 
 	if h.accountTestService == nil {

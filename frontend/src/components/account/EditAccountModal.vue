@@ -242,7 +242,13 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                :platform="account?.platform || 'anthropic'"
+                :account-id="account?.id"
+                :sync-credentials="syncPreviewCredentials"
+                @upstream-synced="upstreamModelsPreviewed = true"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -3189,6 +3195,7 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const upstreamModelsPreviewed = ref(false)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）account_mode / api_protocol 编辑 ──
 // account_mode 决定额度/余额监控路径，api_protocol 决定转发端点与格式；
@@ -3823,6 +3830,24 @@ const defaultBaseUrl = computed(() => {
   return 'https://api.anthropic.com'
 })
 
+const syncPreviewCredentials = computed(() => {
+  const account = props.account
+  if (!account || account.type !== 'apikey') return undefined
+  const baseUrl = isCNApiKeyAccount.value && editApiProtocol.value === 'adaptive'
+    ? editAdaptiveBaseUrls.value.chat_completions.trim() || defaultCNAdaptiveBaseUrls(cnPresetPlatform.value, editAccountMode.value).chat_completions
+    : editBaseUrl.value.trim() || defaultBaseUrl.value
+  const savedBaseUrl = String(account.credentials?.base_url || defaultBaseUrl.value).trim()
+  const apiKey = editApiKey.value.trim()
+  if (!apiKey && baseUrl === savedBaseUrl) return undefined
+  return {
+    account_id: account.id,
+    platform: account.platform,
+    type: account.type,
+    base_url: baseUrl,
+    api_key: apiKey || undefined
+  }
+})
+
 const mixedChannelWarningMessageText = computed(() => {
   if (mixedChannelWarningDetails.value) {
     return t('admin.accounts.mixedChannelWarning', mixedChannelWarningDetails.value)
@@ -3913,6 +3938,7 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
 }
 
 const syncFormFromAccount = (newAccount: Account | null) => {
+  upstreamModelsPreviewed.value = false
   if (!newAccount) {
     return
   }
@@ -4445,12 +4471,17 @@ const syncAntigravityUpstreamModels = async () => {
 
   isSyncingAntigravityUpstream.value = true
   try {
-    const result = await adminAPI.accounts.syncUpstreamModels(props.account.id)
+    const previewCredentials = syncPreviewCredentials.value
+    const result = previewCredentials
+      ? await adminAPI.accounts.syncUpstreamModelsPreview(previewCredentials)
+      : await adminAPI.accounts.syncUpstreamModels(props.account.id)
     const upstreamModels = result.models.map((model) => model.trim()).filter(Boolean)
     if (upstreamModels.length === 0) {
       appStore.showInfo(t('admin.accounts.syncUpstreamModelsEmpty'))
       return
     }
+
+    if (previewCredentials) upstreamModelsPreviewed.value = true
 
     let addedCount = 0
     for (const model of upstreamModels) {
@@ -4945,6 +4976,13 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
       return
     }
     const updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
+    if (upstreamModelsPreviewed.value) {
+      try {
+        await adminAPI.accounts.syncUpstreamModels(accountID)
+      } catch {
+        appStore.showWarning(t('admin.accounts.syncUpstreamModelsFailed'))
+      }
+    }
     await persistGrokMediaEligibility(accountID, updatedAccount)
     appStore.showSuccess(t('admin.accounts.accountUpdated'))
     emit('updated', {

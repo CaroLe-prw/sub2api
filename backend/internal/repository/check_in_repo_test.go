@@ -136,7 +136,7 @@ func TestCheckInRepositoryRechargeGate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer db.Close()
+			t.Cleanup(func() { _ = db.Close() })
 			repo := &checkInRepository{db: db}
 			now := time.Date(2026, 9, 11, 8, 0, 0, 0, time.UTC)
 			mock.ExpectBegin()
@@ -175,7 +175,7 @@ func TestCheckInRepositoryRechargeGate(t *testing.T) {
 func TestCheckInPaidRechargeTotalCountsOnlySuccessfulBalancePurchases(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`CREATE TABLE payment_orders (
   user_id INTEGER, order_type TEXT, status TEXT, amount NUMERIC,

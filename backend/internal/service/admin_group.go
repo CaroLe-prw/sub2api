@@ -408,6 +408,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	if normalizeCodexModelsManifestConfig(platform, input.CodexModelsManifestConfig).Enabled {
 		return nil, infraerrors.New(http.StatusBadRequest, "INVALID_CODEX_MODELS_MANIFEST_CONFIG", "codex models manifest config cannot be enabled at group creation; configure it after creation in the group editor")
 	}
+	modelMapping, err := NormalizeGroupModelMapping(platform, input.ModelMapping)
+	if err != nil {
+		return nil, err
+	}
 	modelPricing, err := normalizeGroupModelPricing(platform, input.ModelPricing)
 	if err != nil {
 		return nil, err
@@ -615,6 +619,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ClaudeCodeOnly:                  input.ClaudeCodeOnly,
 		FallbackGroupID:                 input.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: fallbackOnInvalidRequest,
+		ModelMapping:                    modelMapping,
 		ModelRouting:                    input.ModelRouting,
 		MCPXMLInject:                    mcpXMLInject,
 		SupportedModelScopes:            input.SupportedModelScopes,
@@ -997,6 +1002,13 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	group.FallbackGroupIDOnInvalidRequest = fallbackOnInvalidRequest
 
 	// 模型路由配置
+	if input.ModelMapping != nil {
+		mapping, err := NormalizeGroupModelMapping(group.Platform, input.ModelMapping)
+		if err != nil {
+			return nil, err
+		}
+		group.ModelMapping = mapping
+	}
 	if input.ModelRouting != nil {
 		group.ModelRouting = input.ModelRouting
 	}

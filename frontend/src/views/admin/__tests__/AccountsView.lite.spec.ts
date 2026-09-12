@@ -4,6 +4,8 @@ import { defineComponent } from 'vue'
 
 import AccountsView from '../AccountsView.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
+import { CreateAccountModal } from '@/components/account'
+import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 
 const {
   listAccounts,
@@ -39,7 +41,8 @@ vi.mock('@/api/admin', () => ({
       toggleSchedulable: vi.fn()
     },
     proxies: { getAll: getAllProxies },
-    groups: { getAll: getAllGroups }
+    groups: { getAll: getAllGroups },
+    schedulerProbes: { listOverview: vi.fn().mockResolvedValue({ items: [] }) }
   }
 }))
 
@@ -188,6 +191,33 @@ describe('admin AccountsView lite account list', () => {
 
     expect(wrapper.get('[data-test="account-groups"]').text()).toBe('codex')
     wrapper.unmount()
+  })
+
+  it.each([
+    { mode: 'single', account: fullAccount },
+    { mode: 'batch', account: undefined }
+  ])('refreshes after $mode account creation without opening edit', async ({ account }) => {
+    const wrapper = mountView()
+    try {
+      await flushPromises()
+      wrapper.getComponent(AccountTableActions).vm.$emit('create')
+      await flushPromises()
+
+      const createModal = wrapper.getComponent(CreateAccountModal)
+      expect(createModal.props('show')).toBe(true)
+      listAccounts.mockClear()
+
+      createModal.vm.$emit('created', account)
+      createModal.vm.$emit('close')
+      await flushPromises()
+
+      expect(listAccounts).toHaveBeenCalledTimes(1)
+      expect(createModal.props('show')).toBe(false)
+      expect(wrapper.getComponent(EditAccountModalStub).props('show')).toBe(false)
+      expect(getById).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+    }
   })
 
   it('keeps the action menu open during internal scrolling but closes it on table scrolling', async () => {

@@ -292,9 +292,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		return
 	}
 
-	// 解析渠道级模型映射
+	// Native Gemini selects and forwards using the mapped model, including countTokens.
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, modelName)
-	reqModel := modelName // 保存映射前的原始模型名
+	reqModel := clientRequestedModel(c, modelName)
 	if channelMapping.Mapped {
 		modelName = channelMapping.MappedModel
 	}

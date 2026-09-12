@@ -17,8 +17,12 @@ func ensureCompositeTargetPlatform(c *gin.Context, apiKey *service.APIKey, model
 	if _, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok {
 		return
 	}
+	publicModel := model
+	if target := apiKey.Group.ModelMapping[model]; target != "" {
+		model = target
+	}
 	if platform, ok := service.DetectModelPlatform(model); ok {
-		c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), platform))
+		c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), service.CompositeRouteDecision{Matched: true, GroupID: apiKey.Group.ID, PublicModel: publicModel, UpstreamModel: model, TargetPlatform: platform, Source: service.CompositeRouteSourceDetector}))
 	}
 }
 

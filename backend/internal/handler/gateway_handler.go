@@ -189,6 +189,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	routingModel := reqModel
+	if channelMapping.GroupMapped {
+		routingModel = channelMapping.MappedModel
+	}
 
 	// 设置 max_tokens=1 + haiku 探测请求标识到 context 中
 	// 必须在 SetClaudeCodeClientContext 之前设置，因为 ClaudeCodeValidator 需要读取此标识进行绕过判断
@@ -329,11 +333,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		}
 
 		for {
-			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
-			h.recordGatewaySchedulerSelection(c.Request.Context(), apiKey.GroupID, platform, sessionKey, reqModel, selection, err)
+			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, routingModel, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
+			h.recordGatewaySchedulerSelection(c.Request.Context(), apiKey.GroupID, platform, sessionKey, routingModel, selection, err)
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
-					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, service.PlatformGemini)
+					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, routingModel, service.PlatformGemini)
 					if !cls.ModelNotFound {
 						markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 					}
@@ -476,20 +480,25 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := service.GatewayResponseSemanticAdjustedWrittenSize(c)
+			forwardModel, forwardBody := reqModel, body
+			if channelMapping.GroupMapped {
+				forwardModel = channelMapping.MappedModel
+				forwardBody = h.gatewayService.ReplaceModelInBody(body, forwardModel)
+			}
 			if account.Platform == service.PlatformAntigravity {
 				result, err = h.antigravityGatewayService.ForwardGemini(
 					requestCtx,
 					c,
 					account,
-					reqModel,
+					forwardModel,
 					"generateContent",
 					reqStream,
-					body,
+					forwardBody,
 					hasBoundSession,
 					service.WithForwardGeminiSession(derefGroupID(apiKey.GroupID), sessionKey),
 				)
 			} else {
-				result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
+				result, err = h.geminiCompatService.Forward(requestCtx, c, account, forwardBody)
 			}
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
@@ -654,6 +663,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 				return
 			}
+			attemptParsedReq.GroupID = currentAPIKey.GroupID
 
 			// 选择支持该模型的账号
 			reqLog.Info("sticky.selecting_account",
@@ -662,11 +672,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				zap.Bool("has_bound_session", hasBoundSession),
 				zap.Int("failed_account_count", len(fs.FailedAccountIDs)),
 			)
-			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
-			h.recordGatewaySchedulerSelection(c.Request.Context(), currentAPIKey.GroupID, platform, sessionKey, reqModel, selection, err)
+			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, routingModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
+			h.recordGatewaySchedulerSelection(c.Request.Context(), currentAPIKey.GroupID, platform, sessionKey, routingModel, selection, err)
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
-					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, currentAPIKey, reqModel, reqModel, platform)
+					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, currentAPIKey, reqModel, routingModel, platform)
 					if !cls.ModelNotFound {
 						markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 					}
@@ -878,7 +888,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 			}
 			// Bedrock CC 兼容：清理 body 专有字段 + 过滤 anthropic-beta header，适用于所有转发路径
-			if err := attemptParsedReq.ReplaceBody(h.gatewayService.ApplyBedrockCCCompat(c, attemptParsedReq.Body.Bytes(), attemptParsedReq.Model, account, apiKey.GroupID)); err != nil {
+			if err := attemptParsedReq.ReplaceBody(h.gatewayService.ApplyBedrockCCCompat(c, attemptParsedReq.Body.Bytes(), attemptParsedReq.Model, account, currentAPIKey.GroupID)); err != nil {
 				h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 				return
 			}
@@ -1017,10 +1027,22 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 							return
 						}
 						// 兜底重试按"直接请求兜底分组"处理：清除强制平台，允许按分组平台调度
-						ctx := context.WithValue(c.Request.Context(), ctxkey.ForcePlatform, "")
+						ctx := service.WithoutCompositeRouteDecision(c.Request.Context())
+						ctx = context.WithValue(ctx, ctxkey.ForcePlatform, "")
+						ctx = context.WithValue(ctx, ctxkey.Group, fallbackGroup)
 						c.Request = c.Request.WithContext(ctx)
 						currentAPIKey = fallbackAPIKey
 						currentSubscription = nil
+						platform = fallbackGroup.Platform
+						// Composite ingress may have already rewritten the body; fallback
+						// rules still match the client's original public model.
+						reqModel = clientRequestedModel(c, reqModel)
+						body = h.gatewayService.ReplaceModelInBody(body, reqModel)
+						channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, currentAPIKey.GroupID, reqModel)
+						routingModel = reqModel
+						if channelMapping.GroupMapped {
+							routingModel = channelMapping.MappedModel
+						}
 						fallbackUsed = true
 						retryWithFallback = true
 						// 原分组账号已确定性失败（prompt too long），先释放其会话注册再走兜底分组
@@ -2163,6 +2185,16 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 
 	setOpsRequestContext(c, parsedReq.Model, parsedReq.Stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsedReq.Stream, false)))
+	reqModel := parsedReq.Model
+	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	routingModel := reqModel
+	if channelMapping.GroupMapped {
+		routingModel = channelMapping.MappedModel
+		if err := parsedReq.ReplaceBody(h.gatewayService.ReplaceModelInBody(body, routingModel)); err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to apply group model mapping")
+			return
+		}
+	}
 
 	// 获取订阅信息（可能为nil）
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
@@ -2187,10 +2219,10 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
 
 	// 选择支持该模型的账号
-	account, err := h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, sessionHash, parsedReq.Model)
+	account, err := h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, sessionHash, routingModel)
 	if err != nil {
 		reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
-		cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, parsedReq.Model, parsedReq.Model, service.PlatformAnthropic)
+		cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, routingModel, service.PlatformAnthropic)
 		if !cls.ModelNotFound {
 			markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 		}

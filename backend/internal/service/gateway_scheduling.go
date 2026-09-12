@@ -2755,8 +2755,17 @@ func summarizeSelectionFailureStats(stats selectionFailureStats) string {
 // 对于 Antigravity 平台，会先获取映射后的最终模型名（包括 thinking 后缀）再检查支持
 func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Context, account *Account, requestedModel string) bool {
 	if source, ok := CompositeRouteSourceFromContext(ctx); ok && source == CompositeRouteSourceAccount {
-		if publicModel, modelOK := RequestedPublicModelFromContext(ctx); modelOK && !explicitModelMappingClaims(*account, publicModel) {
-			return false
+		if publicModel, modelOK := RequestedPublicModelFromContext(ctx); modelOK {
+			ownershipModel := publicModel
+			routeGroupID, _ := ctx.Value(compositeRouteGroupIDContextKey{}).(int64)
+			if group, groupOK := ctx.Value(ctxkey.Group).(*Group); groupOK && group != nil && group.ID == routeGroupID && group.Platform == PlatformComposite {
+				if target := group.ModelMapping[publicModel]; target != "" {
+					ownershipModel = target
+				}
+			}
+			if !explicitModelMappingClaims(*account, ownershipModel) {
+				return false
+			}
 		}
 	}
 	if account.Platform == PlatformAntigravity {

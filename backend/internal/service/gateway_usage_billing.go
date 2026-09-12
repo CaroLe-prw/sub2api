@@ -776,12 +776,19 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 进入上面的来源覆盖：任意别名查无价会静默落 $0，含家族词的别名则被价格表的
 	// 家族模糊匹配错计（如 Opus 流量按 Sonnet 兜底价）。除非管理员为别名显式配置了
 	// 渠道定价（OpenRouter 式自定价），composite 请求一律按实际转发的具体模型计费。
-	if apiKey.Group != nil && apiKey.Group.Platform == PlatformComposite {
-		billingModel = s.compositeBillableModel(ctx, apiKey, billingModel, concreteBillingModel)
+	if input.GroupMapped && input.ChannelMappedModel != "" {
+		// A group target is an explicit choice of billing model, including on
+		// composite groups. Account aliases and missing target pricing must not
+		// silently switch the charge back to the requested or upstream model.
+		billingModel = input.ChannelMappedModel
+	} else {
+		if apiKey.Group != nil && apiKey.Group.Platform == PlatformComposite {
+			billingModel = s.compositeBillableModel(ctx, apiKey, billingModel, concreteBillingModel)
+		}
+		// 通用兜底（与 OpenAI 路径的 usageBillingModelCandidates 语义对齐）：
+		// 选定模型查不到任何价格时回退到实际转发的具体模型。已定价流量不受影响。
+		billingModel = s.billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)
 	}
-	// 通用兜底（与 OpenAI 路径的 usageBillingModelCandidates 语义对齐）：
-	// 选定模型查不到任何价格时回退到实际转发的具体模型。已定价流量不受影响。
-	billingModel = s.billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)
 
 	// 确定 RequestedModel（渠道映射前的原始模型）
 	requestedModel := result.Model
@@ -800,7 +807,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		result.UpstreamResponseModel,
 		result.UpstreamResponseModelConflict,
 		result.ImageCount > 0 || result.AudioUsage != nil || result.SearchCount > 0,
-	); responseModel != "" && !strings.EqualFold(responseModel, strings.TrimSpace(billingModel)) {
+	); !input.GroupMapped && responseModel != "" && !strings.EqualFold(responseModel, strings.TrimSpace(billingModel)) {
 		if identified, responseChannelPriced := s.hasIdentifiedResponseModelPricing(ctx, responseModel, apiKey); identified {
 			responseCost := s.calculateRecordUsageCost(ctx, result, apiKey, responseModel, multiplier, imageMultiplier, pricingAt)
 			baselineChannelPriced := s.resolveChannelPricing(ctx, billingModel, apiKey) != nil

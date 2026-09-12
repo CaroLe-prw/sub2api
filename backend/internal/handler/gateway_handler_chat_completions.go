@@ -101,6 +101,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	routingModel := reqModel
+	if channelMapping.GroupMapped {
+		routingModel = channelMapping.MappedModel
+	}
 
 	// Claude Code only restriction
 	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
@@ -172,11 +176,11 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		if c.Request.Context().Err() != nil {
 			return
 		}
-		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
-		h.recordGatewaySchedulerSelection(c.Request.Context(), apiKey.GroupID, groupPlatform, selectionSessionHash, reqModel, selection, err)
+		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, selectionSessionHash, routingModel, fs.FailedAccountIDs, "", int64(0))
+		h.recordGatewaySchedulerSelection(c.Request.Context(), apiKey.GroupID, groupPlatform, selectionSessionHash, routingModel, selection, err)
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
-				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, groupPlatform)
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, routingModel, groupPlatform)
 				cls = classifySelectionFailureError(err, cls)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)

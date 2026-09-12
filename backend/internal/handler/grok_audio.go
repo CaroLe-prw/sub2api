@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	coderws "github.com/coder/websocket"
@@ -49,6 +50,16 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 	if strings.TrimSpace(model) == "" {
 		model = "grok-voice-latest"
 	}
+	requestedModel := model
+	mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, model)
+	if mapping.GroupMapped {
+		model = mapping.MappedModel
+	}
+	selectionModel := ""
+	if mapping.GroupMapped {
+		selectionModel = model
+	}
+	actualUpstreamModel := model
 	// Keep the HTTP response uncommitted while selecting and probing an account.
 	// Realtime is not an HTTP streaming response; using reqStream=true here would
 	// let the wait queue flush an SSE ping before the WebSocket handshake succeeds.
@@ -59,13 +70,10 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 	var upstream *service.GrokRealtimeUpstream
 	var candidateSeen bool
 	for attempts := 0; attempts < 4; attempts++ {
-		// Realtime's voice model is not a text-model capability. Passing a
-		// concrete text model here would reject accounts mapped only to an
-		// older/default text model before the upstream handshake can decide.
-		// An empty requested model keeps account selection capability-based;
-		// the actual voice model remains in the upstream WS query below.
+		// Ordinary voice sessions retain capability-based selection. An explicit
+		// group mapping requires an account that supports its target model.
 		candidate, _, selectErr := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(), apiKey.GroupID, "", "", "", failed,
+			c.Request.Context(), apiKey.GroupID, "", "", selectionModel, failed,
 			service.OpenAIUpstreamTransportHTTPSSE,
 			service.OpenAIEndpointCapabilityChatCompletions,
 			false, false, false, service.PlatformGrok,
@@ -94,7 +102,11 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 			continue
 		}
 		probeCtx, cancelProbe := context.WithTimeout(c.Request.Context(), service.DefaultGrokRealtimeDialTimeout)
-		candidateUpstream, openErr := h.gatewayService.OpenGrokRealtime(probeCtx, account, token, model)
+		upstreamModel := model
+		if mapping.GroupMapped {
+			upstreamModel = account.GetMappedModel(model)
+		}
+		candidateUpstream, openErr := h.gatewayService.OpenGrokRealtime(probeCtx, account, token, upstreamModel)
 		cancelProbe()
 		if openErr != nil {
 			reqLog.Warn("grok_realtime.pre_accept_failed", zap.Int64("account_id", account.ID), zap.Error(openErr))
@@ -110,6 +122,7 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 			continue
 		}
 		selection, upstream = candidate, candidateUpstream
+		actualUpstreamModel = upstreamModel
 		break
 	}
 	if selection == nil || selection.Account == nil || release == nil || upstream == nil {
@@ -140,6 +153,11 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 		}
 	}
 	if result := grokRealtimeBillingResult(model, elapsed, audioObserved); result != nil {
+		if mapping.GroupMapped {
+			result.UpstreamModel = actualUpstreamModel
+			fields := clientRequestedUsageFields(c, mapping, requestedModel, actualUpstreamModel)
+			result.ModelMappingUsage = &fields
+		}
 		h.recordGrokVoiceUsage(c, apiKey, selection.Account, subscription, "realtime", nil, result)
 	}
 }
@@ -217,10 +235,22 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 		contentType = "application/json"
 	}
 
+	requestedModel := requestmodel.FromBody(contentType, body)
+	mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, requestedModel)
+	if mapping.GroupMapped {
+		body, contentType, err = service.RewriteMappedRequestModel(body, contentType, mapping.MappedModel)
+		if err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to apply group model mapping")
+			return
+		}
+	}
 	failed := map[int64]struct{}{}
 	var last *service.UpstreamFailoverError
 	reqLog := requestLogger(c, "handler.openai_gateway.grok_voice", zap.String("endpoint", endpoint))
 	selectionModel := "grok-4.5"
+	if mapping.GroupMapped {
+		selectionModel = mapping.MappedModel
+	}
 
 	for attempts := 0; attempts < 4; attempts++ {
 		selection, _, selectErr := h.gatewayService.SelectAccountWithSchedulerForCapability(
@@ -261,11 +291,28 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 			failed[account.ID] = struct{}{}
 			continue
 		}
+		upstreamModel := mapping.MappedModel
 		result, forwardErr := func() (*service.OpenAIForwardResult, error) {
 			defer release()
-			return h.gatewayService.ForwardGrokVoice(c.Request.Context(), c, account, endpoint, body, contentType)
+			forwardBody, forwardContentType := body, contentType
+			if mapping.GroupMapped {
+				upstreamModel = account.GetMappedModel(mapping.MappedModel)
+				if upstreamModel != mapping.MappedModel {
+					var rewriteErr error
+					forwardBody, forwardContentType, rewriteErr = service.RewriteMappedRequestModel(body, contentType, upstreamModel)
+					if rewriteErr != nil {
+						return nil, rewriteErr
+					}
+				}
+			}
+			return h.gatewayService.ForwardGrokVoice(c.Request.Context(), c, account, endpoint, forwardBody, forwardContentType)
 		}()
 		if forwardErr == nil {
+			if mapping.GroupMapped && result != nil {
+				result.UpstreamModel = upstreamModel
+				fields := clientRequestedUsageFields(c, mapping, requestedModel, result.UpstreamModel)
+				result.ModelMappingUsage = &fields
+			}
 			h.recordGrokVoiceUsage(c, apiKey, account, subscription, endpoint, body, result)
 			return
 		}
@@ -320,6 +367,10 @@ func (h *OpenAIGatewayHandler) recordGrokVoiceUsage(
 		model = endpoint
 	}
 
+	usageFields := clientRequestedUsageFields(c, service.ChannelMappingResult{}, model, result.UpstreamModel)
+	if result.ModelMappingUsage != nil {
+		usageFields = *result.ModelMappingUsage
+	}
 	h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result:             result,
@@ -335,7 +386,7 @@ func (h *OpenAIGatewayHandler) recordGrokVoiceUsage(
 			APIKeyService:      h.apiKeyService,
 			QuotaPlatform:      quotaPlatform,
 			SessionID:          sessionID,
-			ChannelUsageFields: clientRequestedUsageFields(c, service.ChannelMappingResult{}, model, result.UpstreamModel),
+			ChannelUsageFields: usageFields,
 		}); err != nil {
 			logger.L().With(
 				zap.String("component", "handler.openai_gateway.grok_voice"),

@@ -470,6 +470,7 @@ func formatMaxTokensLabel(max *int) string {
 
 // ChannelUsageFields 渠道相关的使用记录字段（嵌入到各平台的 RecordUsageInput 中）
 type ChannelUsageFields struct {
+	GroupMapped        bool   // Never fall back to the requested model price for a group mapping.
 	ChannelID          int64  // 渠道 ID（0 = 无渠道）
 	OriginalModel      string // 用户原始请求模型（渠道映射前）
 	ChannelMappedModel string // 渠道映射后的模型名（无映射时等于 OriginalModel）

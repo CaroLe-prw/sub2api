@@ -130,7 +130,17 @@ func openAIWSIngressEndedByClient(err error) bool {
 	return errors.Is(err, context.Canceled)
 }
 
+// WebSocket frames carry their own original model. Composite HTTP routing
+// metadata belongs to the initial frame and must not overwrite later turns.
+func openAIWSTurnMappingContext(ctx context.Context) context.Context {
+	ctx = context.WithValue(ctx, ctxkey.RequestedPublicModel, "")
+	return context.WithValue(ctx, ctxkey.ResolvedUpstreamModel, "")
+}
+
 func openAIWSTurnBillingModel(result *service.OpenAIForwardResult, mapping service.ChannelMappingResult, requestedModel, upstreamModel string) string {
+	if mapping.GroupMapped && mapping.GroupBillingModel != "" {
+		return mapping.GroupBillingModel
+	}
 	billingModel := ""
 	if result != nil {
 		billingModel = strings.TrimSpace(result.BillingModel)
@@ -1356,6 +1366,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMappingMsg, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	if channelMappingMsg.Mapped {
+		routingModel = channelMappingMsg.MappedModel
+		preferredMappedModel = channelMappingMsg.MappedModel
+	}
 	mappedBodyForMessages := newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
 
 	// 绑定错误透传服务，允许 service 层在非 failover 错误场景复用规则。
@@ -2698,7 +2712,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 
 	// 解析渠道级模型映射
-	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
+	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(openAIWSTurnMappingContext(ctx), apiKey.GroupID, reqModel)
 	wsForwardModel := openAIChannelForwardModel(channelMappingWS, reqModel)
 
 	var currentUserRelease func()
@@ -3105,7 +3119,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					model = reqModel
 				}
 				setOpsRequestContext(c, model, true)
-				mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, model)
+				mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(openAIWSTurnMappingContext(ctx), apiKey.GroupID, model)
 				mappedModelUnchanged := false
 				if previous := turnChannelMapping.Load(); previous != nil && previous.turn < turn {
 					mappedModelUnchanged = strings.TrimSpace(previous.mapping.MappedModel) == strings.TrimSpace(mapping.MappedModel)
@@ -3187,7 +3201,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if snapshot := turnChannelMapping.Load(); snapshot != nil && snapshot.turn == turn {
 					turnMapping = snapshot.mapping
 				} else {
-					turnMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, turnRequestedModel)
+					turnMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(openAIWSTurnMappingContext(ctx), apiKey.GroupID, turnRequestedModel)
 				}
 				if turnUpstreamModel == "" {
 					turnUpstreamModel = turnRequestedModel

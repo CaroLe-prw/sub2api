@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminGroup } from '@/types'
 import GroupsView from '@/views/admin/GroupsView.vue'
 import { adminAPI } from '@/api/admin'
+import { GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'
 
 const {
   listGroups,
@@ -184,6 +185,7 @@ describe('GroupsView duplicate action', () => {
       listGroups,
       duplicateGroup,
       updateGroup,
+      vi.mocked(adminAPI.groups.create),
       getModelAllowlistCandidates,
       getUsageSummary,
       getCapacitySummary,
@@ -388,6 +390,65 @@ describe('GroupsView duplicate action', () => {
       wrapper.unmount()
       vi.useRealTimers()
     }
+  })
+
+  it.each(GROUP_PLATFORM_OPTIONS.map(option => option.value))('loads, validates, edits and clears %s group model mappings', async (platform) => {
+    listGroups.mockResolvedValue({ items: [{ ...sourceGroup, platform, model_mapping: { luna: 'terra' } }], total: 1, page: 1, page_size: 20, pages: 1 })
+    updateGroup.mockResolvedValue(sourceGroup)
+    const wrapper = mountView()
+    await flushPromises()
+    const editButton = wrapper.findAll('button').find(button => button.text() === 'common.edit')!
+    await editButton.trigger('click')
+    await flushPromises()
+    const editor = wrapper.get('[data-testid="group-model-mapping"]')
+    const inputs = editor.findAll('input')
+    expect((inputs[0].element as HTMLInputElement).value).toBe('luna')
+    expect((inputs[1].element as HTMLInputElement).value).toBe('terra')
+    await inputs[1].setValue('')
+    await wrapper.get('#edit-group-form').trigger('submit')
+    await flushPromises()
+    expect(updateGroup).not.toHaveBeenCalled()
+    expect(showError).toHaveBeenCalledWith('admin.groups.modelMapping.invalid')
+    await inputs[1].setValue(' terra-updated ')
+    await wrapper.get('#edit-group-form').trigger('submit')
+    await flushPromises()
+    expect(updateGroup).toHaveBeenLastCalledWith(42, expect.objectContaining({ platform, model_mapping: { luna: 'terra-updated' } }))
+    await editButton.trigger('click')
+    await flushPromises()
+    const deleteButton = wrapper.get('[data-testid="group-model-mapping"]').findAll('button').find(button => button.text() === 'common.delete')!
+    await deleteButton.trigger('click')
+    await wrapper.get('#edit-group-form').trigger('submit')
+    await flushPromises()
+    expect(updateGroup).toHaveBeenLastCalledWith(42, expect.objectContaining({ model_mapping: {} }))
+    wrapper.unmount()
+  })
+
+  it.each(GROUP_PLATFORM_OPTIONS.map(option => option.value))('creates %s groups with validated model mappings', async (platform) => {
+    vi.mocked(adminAPI.groups.create).mockResolvedValue(sourceGroup)
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-tour="groups-create-btn"]').trigger('click')
+    await wrapper.get('[data-tour="group-form-name"]').setValue('Mapped group')
+    await wrapper.get('[data-testid="group-model-mapping"] button').trigger('click')
+    const inputs = wrapper.get('[data-testid="group-model-mapping"]').findAll('input')
+    await inputs[0].setValue(' luna ')
+    await inputs[1].setValue(' terra ')
+    wrapper.getComponent('[data-tour="group-form-platform"]').vm.$emit('update:modelValue', platform)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="group-model-mapping"]').findAll('input')).toHaveLength(2)
+
+    await inputs[1].setValue('')
+    await wrapper.get('#create-group-form').trigger('submit')
+    await flushPromises()
+    expect(adminAPI.groups.create).not.toHaveBeenCalled()
+    expect(showError).toHaveBeenCalledWith('admin.groups.modelMapping.invalid')
+    await inputs[1].setValue(' terra ')
+    await wrapper.get('#create-group-form').trigger('submit')
+    await flushPromises()
+    expect(adminAPI.groups.create).toHaveBeenCalledWith(expect.objectContaining({
+      platform, model_mapping: { luna: 'terra' }
+    }))
+    wrapper.unmount()
   })
 
 })

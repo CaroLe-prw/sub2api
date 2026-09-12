@@ -95,6 +95,7 @@ type APIKeyAuthGroupSnapshot struct {
 
 	// Model routing is used by gateway account selection, so it must be part of auth cache snapshot.
 	// Only anthropic groups use these fields; others may leave them empty.
+	ModelMapping        map[string]string  `json:"model_mapping"`
 	ModelRouting        map[string][]int64 `json:"model_routing,omitempty"`
 	ModelRoutingEnabled bool               `json:"model_routing_enabled"`
 	MCPXMLInject        bool               `json:"mcp_xml_inject"`

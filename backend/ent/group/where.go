@@ -2320,6 +2320,16 @@ func FallbackGroupIDOnInvalidRequestNotNil() predicate.Group {
 	return predicate.Group(sql.FieldNotNull(FieldFallbackGroupIDOnInvalidRequest))
 }
 
+// ModelMappingIsNil applies the IsNil predicate on the "model_mapping" field.
+func ModelMappingIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldModelMapping))
+}
+
+// ModelMappingNotNil applies the NotNil predicate on the "model_mapping" field.
+func ModelMappingNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldModelMapping))
+}
+
 // ModelRoutingIsNil applies the IsNil predicate on the "model_routing" field.
 func ModelRoutingIsNil() predicate.Group {
 	return predicate.Group(sql.FieldIsNull(FieldModelRouting))

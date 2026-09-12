@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 
-const { updateAccountMock, checkMixedChannelRiskMock, authIsSimpleMode } = vi.hoisted(() => ({
+const { updateAccountMock, checkMixedChannelRiskMock, syncPreviewMock, syncModelsMock, authIsSimpleMode } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
+  syncPreviewMock: vi.fn(),
+  syncModelsMock: vi.fn(),
   checkMixedChannelRiskMock: vi.fn(),
   authIsSimpleMode: { value: true }
 }))
@@ -12,6 +14,7 @@ vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
     showError: vi.fn(),
     showSuccess: vi.fn(),
+    showWarning: vi.fn(),
     showInfo: vi.fn()
   })
 }))
@@ -28,6 +31,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       update: updateAccountMock,
+      syncUpstreamModels: syncModelsMock,
       checkMixedChannelRisk: checkMixedChannelRiskMock
     },
     settings: {
@@ -41,7 +45,8 @@ vi.mock('@/api/admin', () => ({
 }))
 
 vi.mock('@/api/admin/accounts', () => ({
-  getAntigravityDefaultModelMapping: vi.fn()
+  getAntigravityDefaultModelMapping: vi.fn(),
+  accountsAPI: { syncUpstreamModelsPreview: syncPreviewMock, syncUpstreamModels: syncModelsMock }
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -319,7 +324,7 @@ function buildOpenAIOAuthParentAccount() {
   } as any
 }
 
-function mountModal(account = buildAccount(), renderGroupSelector = false) {
+function mountModal(account = buildAccount(), renderGroupSelector = false, renderModelSelector = false) {
   return mount(EditAccountModal, {
     props: {
       show: true,
@@ -334,7 +339,7 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
         Icon: true,
         ProxySelector: true,
         GroupSelector: renderGroupSelector ? false : GroupSelectorStub,
-        ModelWhitelistSelector: ModelWhitelistSelectorStub,
+        ModelWhitelistSelector: renderModelSelector ? false : ModelWhitelistSelectorStub,
         NewAPISyncSettings: NewAPISyncSettingsStub
       }
     }
@@ -344,6 +349,44 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+  })
+
+  it.each([
+    { name: 'key', key: 'sk-new', url: 'https://api.openai.com' },
+    { name: 'address', key: '', url: 'https://new.example/v1' },
+    { name: 'key and address', key: 'sk-new', url: 'https://new.example/v1' }
+  ])('fetches models using the unsaved $name without saving the account', async ({ key, url }) => {
+    syncPreviewMock.mockReset().mockResolvedValue({ models: ['new-upstream-model'] })
+    syncModelsMock.mockReset().mockResolvedValue({ models: ['new-upstream-model'] })
+    updateAccountMock.mockClear()
+    const account = buildAccount()
+    delete account.credentials.api_key // Existing secrets are redacted in edit responses.
+    account.credentials_status = { has_api_key: true }
+    const wrapper = mountModal(account, false, true)
+    try {
+      await wrapper.get('input[placeholder="sk-proj-..."]').setValue(key)
+      const baseUrl = wrapper.findAll('input').find(input => input.element.value === 'https://api.openai.com')!
+      await baseUrl.setValue(url)
+      await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
+      await flushPromises()
+
+      expect(syncPreviewMock).toHaveBeenCalledWith(expect.objectContaining({
+        account_id: account.id, platform: 'openai', type: 'apikey', base_url: url,
+        api_key: key || undefined
+      }))
+      expect(wrapper.text()).toContain('new-upstream-model')
+      expect(updateAccountMock).not.toHaveBeenCalled()
+      expect(syncModelsMock).not.toHaveBeenCalled()
+
+      updateAccountMock.mockResolvedValueOnce(account)
+      await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+      await flushPromises()
+      expect(updateAccountMock).toHaveBeenCalledTimes(1)
+      expect(syncModelsMock).toHaveBeenCalledWith(account.id)
+      expect(updateAccountMock.mock.invocationCallOrder[0]).toBeLessThan(syncModelsMock.mock.invocationCallOrder[0])
+    } finally {
+      wrapper.unmount()
+    }
   })
 
   it('accepts account rate multipliers with arbitrary decimal precision', async () => {

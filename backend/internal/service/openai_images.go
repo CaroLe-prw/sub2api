@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -227,11 +228,18 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	}
 
 	applyOpenAIImagesDefaults(req)
-	if err := validateOpenAIImagesModel(req.Model); err != nil {
+	effective := *req
+	if group, ok := c.Request.Context().Value(ctxkey.Group).(*Group); ok && group != nil {
+		mapping, _ := s.ResolveChannelMappingAndRestrict(c.Request.Context(), &group.ID, req.Model)
+		if mapping.GroupMapped {
+			effective.Model = mapping.MappedModel
+		}
+	}
+	if err := validateOpenAIImagesModel(effective.Model); err != nil {
 		return nil, err
 	}
 	req.SizeTier = normalizeOpenAIImageSizeTier(req.Size)
-	req.RequiredCapability = classifyOpenAIImagesCapability(req)
+	req.RequiredCapability = classifyOpenAIImagesCapability(&effective)
 	return req, nil
 }
 

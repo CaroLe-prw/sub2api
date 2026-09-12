@@ -137,6 +137,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetClaudeCodeOnly(groupIn.ClaudeCodeOnly).
 		SetNillableFallbackGroupID(groupIn.FallbackGroupID).
 		SetNillableFallbackGroupIDOnInvalidRequest(groupIn.FallbackGroupIDOnInvalidRequest).
+		SetModelMapping(groupIn.ModelMapping).
 		SetModelRoutingEnabled(groupIn.ModelRoutingEnabled).
 		SetMcpXMLInject(groupIn.MCPXMLInject).
 		SetAllowMessagesDispatch(groupIn.AllowMessagesDispatch).
@@ -319,6 +320,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetModelPricing(modelPricing).
 		SetDefaultValidityDays(groupIn.DefaultValidityDays).
 		SetClaudeCodeOnly(groupIn.ClaudeCodeOnly).
+		SetModelMapping(groupIn.ModelMapping).
 		SetModelRoutingEnabled(groupIn.ModelRoutingEnabled).
 		SetMcpXMLInject(groupIn.MCPXMLInject).
 		SetAllowMessagesDispatch(groupIn.AllowMessagesDispatch).

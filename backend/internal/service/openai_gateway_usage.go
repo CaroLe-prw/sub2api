@@ -229,7 +229,13 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		result.UpstreamModel,
 		result.Model,
 	)
-	billingModels = s.filterCNProviderBillingModelCandidates(ctx, account, apiKey, billingModels)
+	if input.GroupMapped && input.ChannelMappedModel != "" {
+		// The group target is an explicit billing choice, including when the
+		// provider calls it something else or its price is missing.
+		billingModels = []string{input.ChannelMappedModel}
+	} else {
+		billingModels = s.filterCNProviderBillingModelCandidates(ctx, account, apiKey, billingModels)
+	}
 	serviceTier := ""
 	if result.ServiceTier != nil {
 		serviceTier = strings.TrimSpace(*result.ServiceTier)
@@ -275,7 +281,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		result.UpstreamResponseModelConflict,
 		result.ImageCount > 0 || result.VideoCount > 0 || result.WebSearchCalls > 0 ||
 			result.AudioUsage != nil || result.SearchCount > 0,
-	); responseModel != "" && !strings.EqualFold(responseModel, baselineBillingModel) {
+	); !input.GroupMapped && responseModel != "" && !strings.EqualFold(responseModel, baselineBillingModel) {
 		if identified, responseChannelPriced := s.hasIdentifiedOpenAIResponsePricing(ctx, responseModel, apiKey); identified {
 			responseModels := s.filterCNProviderBillingModelCandidates(ctx, account, apiKey, usageBillingModelCandidates(responseModel))
 			responseCost, responseErr := s.calculateOpenAIRecordUsageCost(

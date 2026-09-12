@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -246,6 +247,10 @@ func TestCheckInOverviewRejectsFailedRechargeLookup(t *testing.T) {
 }
 
 func TestCheckInMinRechargeSettingsRoundTrip(t *testing.T) {
+	// Parsing system settings publishes process-wide Grok mapping defaults.
+	// Restore them so this settings test cannot alter later routing tests.
+	originalMapping := xai.RuntimeModelMappingOptions()
+	t.Cleanup(func() { xai.SetRuntimeModelMappingOptions(originalMapping) })
 	svc := NewSettingService(&checkInSettingsRepoStub{values: map[string]string{}}, &config.Config{})
 	require.Zero(t, svc.parseSettings(map[string]string{}).CheckInMinRecharge)
 	for _, amount := range []float64{10.25, 0} {

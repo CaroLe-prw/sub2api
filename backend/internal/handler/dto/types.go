@@ -190,6 +190,7 @@ type AdminGroup struct {
 	ModelPricing         []service.ChannelModelPricing `json:"model_pricing"`
 
 	// 模型路由配置（仅 anthropic 平台使用）
+	ModelMapping        map[string]string  `json:"model_mapping"`
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled bool               `json:"model_routing_enabled"`
 

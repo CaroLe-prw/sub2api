@@ -236,8 +236,9 @@ func (u OpenAIUsage) HasBillableUnits() bool {
 
 // OpenAIForwardResult represents the result of forwarding
 type OpenAIForwardResult struct {
-	RequestID  string
-	ResponseID string
+	ModelMappingUsage *ChannelUsageFields // Request-time mapping snapshot for media and deferred task billing.
+	RequestID         string
+	ResponseID        string
 	// UpstreamHeaders 是直接上游的响应头，用于按账户配置解析上游请求标识。
 	UpstreamHeaders http.Header
 	Usage           OpenAIUsage
@@ -587,12 +588,14 @@ func NewOpenAIGatewayService(
 	return svc
 }
 
-// ResolveChannelMapping 解析渠道级模型映射（代理到 ChannelService）
+// ResolveChannelMapping resolves channel aliases, then applies the group's
+// explicit forwarding and billing target for the original request model.
 func (s *OpenAIGatewayService) ResolveChannelMapping(ctx context.Context, groupID int64, model string) ChannelMappingResult {
-	if s.channelService == nil {
-		return ChannelMappingResult{MappedModel: model}
+	mapping := ChannelMappingResult{MappedModel: model}
+	if s.channelService != nil {
+		mapping = s.channelService.ResolveChannelMapping(ctx, groupID, model)
 	}
-	return s.channelService.ResolveChannelMapping(ctx, groupID, model)
+	return applyGroupModelMapping(ctx, &groupID, model, mapping)
 }
 
 // IsModelRestricted 检查模型是否被渠道限制（代理到 ChannelService）
@@ -603,13 +606,13 @@ func (s *OpenAIGatewayService) IsModelRestricted(ctx context.Context, groupID in
 	return s.channelService.IsModelRestricted(ctx, groupID, model)
 }
 
-// ResolveChannelMappingAndRestrict 解析渠道映射。
+// ResolveChannelMappingAndRestrict 解析渠道及分组模型映射。
 // 模型限制检查已移至调度阶段，restricted 始终返回 false。
 func (s *OpenAIGatewayService) ResolveChannelMappingAndRestrict(ctx context.Context, groupID *int64, model string) (ChannelMappingResult, bool) {
-	if s.channelService == nil {
+	if groupID == nil {
 		return ChannelMappingResult{MappedModel: model}, false
 	}
-	return s.channelService.ResolveChannelMappingAndRestrict(ctx, groupID, model)
+	return s.ResolveChannelMapping(ctx, *groupID, model), false
 }
 
 func (s *OpenAIGatewayService) isCodexImageGenerationBridgeEnabled(ctx context.Context, account *Account, apiKey *APIKey) bool {

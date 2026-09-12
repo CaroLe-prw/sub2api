@@ -5206,7 +5206,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
         })
         await adminAPI.accounts.syncNewAPIRatio(account.id)
       } catch {
-        // 账号已经创建成功，保留它并进入编辑页让管理员补齐或重试同步。
+        // 账号已经创建成功，保留它并提示管理员稍后编辑配置或重试同步。
         appStore.showWarning(t('admin.accounts.newapiSync.initialSetupFailed'))
       }
     }

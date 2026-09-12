@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
 type CompositeRouteResolver struct {
@@ -24,10 +26,16 @@ func (r *CompositeRouteResolver) SetModelOwnershipResolver(resolver CompositeMod
 
 func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, model, endpoint string) (CompositeRouteDecision, error) {
 	model = strings.TrimSpace(model)
+	publicModel := model
+	if group, ok := ctx.Value(ctxkey.Group).(*Group); ok && group != nil && group.ID == groupID {
+		if target := group.ModelMapping[model]; target != "" {
+			model = target
+		}
+	}
 	endpoint = normalizeCompositeRouteEndpoint(endpoint)
 	decision := CompositeRouteDecision{
 		GroupID:     groupID,
-		PublicModel: model,
+		PublicModel: publicModel,
 		Endpoint:    endpoint,
 	}
 	if model == "" {
@@ -49,7 +57,7 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 				Matched:        true,
 				Source:         CompositeRouteSourceExplicit,
 				GroupID:        groupID,
-				PublicModel:    model,
+				PublicModel:    publicModel,
 				TargetPlatform: route.TargetPlatform,
 				UpstreamModel:  upstreamModel,
 				Endpoint:       endpoint,
@@ -79,7 +87,7 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 				Matched:        true,
 				Source:         CompositeRouteSourceAccount,
 				GroupID:        groupID,
-				PublicModel:    model,
+				PublicModel:    publicModel,
 				TargetPlatform: platform,
 				UpstreamModel:  model,
 				Endpoint:       endpoint,
@@ -92,7 +100,7 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 			Matched:        true,
 			Source:         CompositeRouteSourceDetector,
 			GroupID:        groupID,
-			PublicModel:    model,
+			PublicModel:    publicModel,
 			TargetPlatform: platform,
 			UpstreamModel:  model,
 			Endpoint:       endpoint,

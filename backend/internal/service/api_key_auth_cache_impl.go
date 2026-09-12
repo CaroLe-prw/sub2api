@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 26 // v26: model allowlist enforcement plus local pricing, Fast policy, and scheduler fields
+const apiKeyAuthSnapshotVersion = 27 // v27: group request model mapping
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -419,6 +419,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			ClaudeCodeOnly:                  apiKey.Group.ClaudeCodeOnly,
 			FallbackGroupID:                 apiKey.Group.FallbackGroupID,
 			FallbackGroupIDOnInvalidRequest: apiKey.Group.FallbackGroupIDOnInvalidRequest,
+			ModelMapping:                    apiKey.Group.ModelMapping,
 			ModelRouting:                    apiKey.Group.ModelRouting,
 			ModelRoutingEnabled:             apiKey.Group.ModelRoutingEnabled,
 			MCPXMLInject:                    apiKey.Group.MCPXMLInject,
@@ -525,6 +526,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ClaudeCodeOnly:                  snapshot.Group.ClaudeCodeOnly,
 			FallbackGroupID:                 snapshot.Group.FallbackGroupID,
 			FallbackGroupIDOnInvalidRequest: snapshot.Group.FallbackGroupIDOnInvalidRequest,
+			ModelMapping:                    snapshot.Group.ModelMapping,
 			ModelRouting:                    snapshot.Group.ModelRouting,
 			ModelRoutingEnabled:             snapshot.Group.ModelRoutingEnabled,
 			MCPXMLInject:                    snapshot.Group.MCPXMLInject,

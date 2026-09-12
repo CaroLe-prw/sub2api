@@ -940,12 +940,14 @@ func modelSupportsAnthropicFastMode(model string) bool {
 	return strings.Contains(modelLower, "4.8") || strings.Contains(modelLower, "4-8")
 }
 
-// ResolveChannelMapping 委托渠道服务解析模型映射
+// ResolveChannelMapping resolves channel aliases, then applies the group's
+// explicit forwarding and billing target before account selection.
 func (s *GatewayService) ResolveChannelMapping(ctx context.Context, groupID int64, model string) ChannelMappingResult {
-	if s.channelService == nil {
-		return ChannelMappingResult{MappedModel: model}
+	mapping := ChannelMappingResult{MappedModel: model}
+	if s.channelService != nil {
+		mapping = s.channelService.ResolveChannelMapping(ctx, groupID, model)
 	}
-	return s.channelService.ResolveChannelMapping(ctx, groupID, model)
+	return applyGroupModelMapping(ctx, &groupID, model, mapping)
 }
 
 // ReplaceModelInBody 替换请求体中的模型名（导出供 handler 使用）
@@ -961,13 +963,13 @@ func (s *GatewayService) IsModelRestricted(ctx context.Context, groupID int64, m
 	return s.channelService.IsModelRestricted(ctx, groupID, model)
 }
 
-// ResolveChannelMappingAndRestrict 解析渠道映射。
+// ResolveChannelMappingAndRestrict 解析渠道及分组模型映射。
 // 模型限制检查已移至调度阶段（checkChannelPricingRestriction），restricted 始终返回 false。
 func (s *GatewayService) ResolveChannelMappingAndRestrict(ctx context.Context, groupID *int64, model string) (ChannelMappingResult, bool) {
-	if s.channelService == nil {
+	if groupID == nil {
 		return ChannelMappingResult{MappedModel: model}, false
 	}
-	return s.channelService.ResolveChannelMappingAndRestrict(ctx, groupID, model)
+	return s.ResolveChannelMapping(ctx, *groupID, model), false
 }
 
 // checkChannelPricingRestriction 根据渠道计费基准检查模型是否受定价列表限制。

@@ -1905,6 +1905,10 @@
           </p>
         </div>
 
+        <GroupModelMappingEditor
+          v-model="createModelMappingRows"
+        />
+
         <!-- 模型路由配置（仅 anthropic 平台） -->
         <div v-if="createForm.platform === 'anthropic'" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
@@ -3518,6 +3522,10 @@
           </p>
         </div>
 
+        <GroupModelMappingEditor
+          v-model="editModelMappingRows"
+        />
+
         <!-- 模型路由配置（仅 anthropic 平台） -->
         <div v-if="editForm.platform === 'anthropic'" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
@@ -4252,6 +4260,9 @@
 </template>
 
 <script setup lang="ts">
+import GroupModelMappingEditor from '@/components/group/GroupModelMappingEditor.vue'
+import { loadGroupModelMapping, validGroupModelMapping, serializeGroupModelMapping, type GroupModelMappingRow } from '@/utils/groupModelMapping'
+
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
@@ -5022,6 +5033,8 @@ interface ModelRoutingRule {
 }
 
 // 创建表单的模型路由规则
+const createModelMappingRows = ref<GroupModelMappingRow[]>([]);
+const editModelMappingRows = ref<GroupModelMappingRow[]>([]);
 const createModelRoutingRules = ref<ModelRoutingRule[]>([]);
 
 // 编辑表单的模型路由规则
@@ -5824,6 +5837,7 @@ const closeCreateModal = () => {
   createForm.reasoning_effort_mappings = [];
   createReasoningEffortPolicyRef.value?.resetValidation();
   resetModelAllowlistState(createModelAllowlistState);
+  createModelMappingRows.value = [];
   createModelRoutingRules.value = [];
 };
 
@@ -5881,6 +5895,10 @@ const handleCreateGroup = async () => {
   ) {
     return;
   }
+  if (!validGroupModelMapping(createModelMappingRows.value)) {
+    appStore.showError(t("admin.groups.modelMapping.invalid"));
+    return;
+  }
   if (!validateProfitControlForm(createForm)) {
     return;
   }
@@ -5928,6 +5946,7 @@ const handleCreateGroup = async () => {
       ...(Object.keys(videoModelPrices).length > 0
         ? { video_model_prices: videoModelPrices }
         : {}),
+      model_mapping: serializeGroupModelMapping(createModelMappingRows.value),
       model_routing: convertRoutingRulesToApiFormat(
         createModelRoutingRules.value,
       ),
@@ -6112,6 +6131,7 @@ const handleEdit = async (group: AdminGroup) => {
     messagesDispatchFormState.exact_model_mappings;
   editForm.require_oauth_only = group.require_oauth_only ?? false;
   editForm.require_privacy_set = group.require_privacy_set ?? false;
+  editModelMappingRows.value = loadGroupModelMapping(group.model_mapping);
   editForm.model_routing_enabled = group.model_routing_enabled || false;
   editForm.supported_model_scopes = group.supported_model_scopes || [
     "claude",
@@ -6174,6 +6194,7 @@ const closeEditModal = () => {
   editForm.max_reasoning_effort_over_limit = reasoningEffortOverLimitDowngrade;
   editForm.reasoning_effort_mappings = [];
   editReasoningEffortPolicyRef.value?.resetValidation();
+  editModelMappingRows.value = [];
   editModelRoutingRules.value = [];
   editForm.copy_accounts_from_group_ids = [];
   editForm.peak_rate_enabled = false;
@@ -6220,6 +6241,10 @@ const handleUpdateGroup = async () => {
     editReasoningEffortPolicyRef.value &&
     !editReasoningEffortPolicyRef.value.validate()
   ) {
+    return;
+  }
+  if (!validGroupModelMapping(editModelMappingRows.value)) {
+    appStore.showError(t("admin.groups.modelMapping.invalid"));
     return;
   }
   if (!validateProfitControlForm(editForm)) {
@@ -6279,6 +6304,7 @@ const handleUpdateGroup = async () => {
         editForm.fallback_group_id_on_invalid_request === null
           ? 0
           : editForm.fallback_group_id_on_invalid_request,
+      model_mapping: serializeGroupModelMapping(editModelMappingRows.value),
       model_routing: convertRoutingRulesToApiFormat(
         editModelRoutingRules.value,
       ),

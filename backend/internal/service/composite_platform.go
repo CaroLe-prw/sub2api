@@ -7,6 +7,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
+type compositeRouteGroupIDContextKey struct{}
+
 // WithResolvedTargetPlatform stores the concrete provider chosen for a request
 // made through a composite group.
 func WithResolvedTargetPlatform(ctx context.Context, platform string) context.Context {
@@ -36,6 +38,7 @@ func WithCompositeRouteDecision(ctx context.Context, decision CompositeRouteDeci
 		return ctx
 	}
 	ctx = WithResolvedTargetPlatform(ctx, decision.TargetPlatform)
+	ctx = context.WithValue(ctx, compositeRouteGroupIDContextKey{}, decision.GroupID)
 	if model := strings.TrimSpace(decision.UpstreamModel); model != "" {
 		ctx = context.WithValue(ctx, ctxkey.ResolvedUpstreamModel, model)
 	}
@@ -46,6 +49,18 @@ func WithCompositeRouteDecision(ctx context.Context, decision CompositeRouteDeci
 		ctx = context.WithValue(ctx, ctxkey.CompositeRouteSource, source)
 	}
 	return ctx
+}
+
+// WithoutCompositeRouteDecision removes the previous group's routing choice
+// before fallback resolution, retaining the original public model for logs.
+func WithoutCompositeRouteDecision(ctx context.Context) context.Context {
+	if ctx == nil {
+		return ctx
+	}
+	ctx = context.WithValue(ctx, ctxkey.ResolvedTargetPlatform, "")
+	ctx = context.WithValue(ctx, ctxkey.ResolvedUpstreamModel, "")
+	ctx = context.WithValue(ctx, ctxkey.CompositeRouteSource, "")
+	return context.WithValue(ctx, compositeRouteGroupIDContextKey{}, int64(0))
 }
 
 func ResolvedUpstreamModelFromContext(ctx context.Context) (string, bool) {
@@ -174,6 +189,10 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 		return CompositeRouteDecision{}, false, nil
 	}
 	if platform, ok := ResolvedTargetPlatformFromContext(ctx); ok {
+		publicModel := requestedModel
+		if original, modelOK := RequestedPublicModelFromContext(ctx); modelOK {
+			publicModel = original
+		}
 		upstreamModel := requestedModel
 		if resolvedModel, modelOK := ResolvedUpstreamModelFromContext(ctx); modelOK {
 			upstreamModel = resolvedModel
@@ -186,7 +205,7 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 			Matched:        true,
 			Source:         source,
 			GroupID:        group.ID,
-			PublicModel:    requestedModel,
+			PublicModel:    publicModel,
 			TargetPlatform: platform,
 			UpstreamModel:  upstreamModel,
 			Endpoint:       normalizeCompositeRouteEndpoint(endpoint),

@@ -107,6 +107,21 @@ describe('ModelWhitelistSelector', () => {
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 
+  it('reports invalid unsaved credentials without falling back to the saved key', async () => {
+    syncUpstreamModelsPreview.mockRejectedValue(new Error('Unauthorized'))
+    const wrapper = mountSelector({
+      accountId: 42,
+      syncCredentials: { account_id: 42, platform: 'openai', type: 'apikey', api_key: 'invalid-key' }
+    })
+    await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
+    await flushPromises()
+    expect(syncUpstreamModelsPreview).toHaveBeenCalledTimes(1)
+    expect(syncUpstreamModels).not.toHaveBeenCalled()
+    expect(showError).toHaveBeenCalled()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('keeps the existing model selection behavior', async () => {
     const wrapper = mountSelector()
     await wrapper.get('div.cursor-pointer').trigger('click')

@@ -56,6 +56,14 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		}
 		request.Session = rewrittenSession
 	}
+	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, model)
+	if channelMapping.GroupMapped {
+		request.Session, err = sjson.SetBytes(request.Session, "model", channelMapping.MappedModel)
+		if err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to apply group model mapping")
+			return
+		}
+	}
 	reqLog := requestLogger(
 		c,
 		"handler.openai_gateway.live",
@@ -113,6 +121,7 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 	defer userRelease()
 
 	identity := liveCallIdentity(c, apiKey, subject.UserID, subscription)
+	identity.ChannelUsageFields = clientRequestedUsageFields(c, channelMapping, model, "")
 	created, err := h.gatewayService.CreateLiveCall(c.Request.Context(), request, identity, subject.Concurrency)
 	if err != nil {
 		h.writeLiveCreateError(c, err)

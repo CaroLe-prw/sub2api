@@ -221,6 +221,11 @@ func (Group) Fields() []ent.Field {
 			Nillable().
 			Comment("无效请求兜底使用的分组 ID"),
 
+		field.JSON("model_mapping", map[string]string{}).
+			Optional().
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("分组请求模型映射：请求模型 -> 转发与计价模型（所有平台）"),
+
 		// 模型路由配置 (added by migration 040)
 		field.JSON("model_routing", map[string][]int64{}).
 			Optional().

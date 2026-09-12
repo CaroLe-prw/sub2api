@@ -101,7 +101,17 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	contentType := c.GetHeader("Content-Type")
 	requestInfo := service.ParseGrokMediaRequest(contentType, body)
 	requestModel := requestInfo.Model
-	routingModel := service.NormalizeGrokMediaModelForEndpoint(endpoint, requestModel, requestInfo.HasInputImage())
+	mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, requestModel)
+	forwardModel := requestModel
+	if mapping.GroupMapped {
+		forwardModel = mapping.MappedModel
+		body, contentType, err = service.RewriteMappedRequestModel(body, contentType, forwardModel)
+		if err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to apply group model mapping")
+			return
+		}
+	}
+	routingModel := service.NormalizeGrokMediaModelForEndpoint(endpoint, forwardModel, requestInfo.HasInputImage())
 	if endpoint.IsGenerationRequest() && strings.TrimSpace(requestModel) == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return
@@ -426,7 +436,13 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			// Defer billing until status polling observes video.url. Persist create-time
 			// model/duration/resolution so status can still price if upstream omits them.
 			// Retry once: missing pending causes silent underpricing (status omits resolution).
+			var modelMappingUsage *service.ChannelUsageFields
+			if mapping.GroupMapped {
+				fields := clientRequestedUsageFields(c, mapping, requestModel, result.UpstreamModel)
+				modelMappingUsage = &fields
+			}
 			pending := service.GrokVideoPendingBilling{
+				ModelMappingUsage:    modelMappingUsage,
 				Model:                requestModel,
 				BillingModel:         firstNonEmptyString(result.BillingModel, requestModel),
 				UpstreamModel:        result.UpstreamModel,
@@ -461,6 +477,10 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, billResult, billResult.Model, body, taskID)
 			}
 		} else if shouldRecordGrokMediaUsage(endpoint, requestModel, result) {
+			if mapping.GroupMapped {
+				fields := clientRequestedUsageFields(c, mapping, requestModel, result.UpstreamModel)
+				result.ModelMappingUsage = &fields
+			}
 			recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, result, requestModel, body, requestID)
 		}
 		reqLog.Debug("grok_media.request_completed",
@@ -588,6 +608,10 @@ func prepareGrokVideoCompletionBilling(
 	// Re-merge with pending: resolution is request-only; model/duration fill gaps.
 	merged := *statusResult
 	if pending != nil {
+		merged.ModelMappingUsage = pending.ModelMappingUsage
+		if pending.ModelMappingUsage != nil && pending.ModelMappingUsage.GroupMapped {
+			merged.BillingModel = pending.ModelMappingUsage.ChannelMappedModel
+		}
 		if strings.TrimSpace(merged.Model) == "" {
 			merged.Model = firstNonEmptyString(pending.BillingModel, pending.Model, pending.OriginalModel)
 		}
@@ -674,6 +698,9 @@ func recordGrokMediaUsage(
 	channelUsageFields := service.ChannelUsageFields{
 		OriginalModel:      clientRequestedModel(c, requestModel),
 		ChannelMappedModel: requestModel,
+	}
+	if result != nil && result.ModelMappingUsage != nil {
+		channelUsageFields = *result.ModelMappingUsage
 	}
 	// Async video: force durable task request id and release claim if billing fails.
 	videoTaskID := ""

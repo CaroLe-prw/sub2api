@@ -909,7 +909,7 @@ func (s *OpenAISchedulerObservabilityStore) snapshot(query OpenAISchedulerObserv
 		for _, group := range persisted.Groups {
 			groupsByID[group.ID] = group.Name
 		}
-		sort.SliceStable(traces, func(i, j int) bool { return traces[i].CreatedAt > traces[j].CreatedAt })
+		sort.SliceStable(traces, func(i, j int) bool { return compareSchedulerTraceTimes(traces[i].CreatedAt, traces[j].CreatedAt) > 0 })
 	}
 
 	models, accounts, apiKeys := buildSchedulerObservabilityFilterOptions(traces)
@@ -1445,8 +1445,8 @@ func buildSchedulerSessions(traces []OpenAISchedulerObservabilityTrace) []OpenAI
 	byKey := make(map[string]*schedulerSessionAccumulator)
 	chronological := append([]OpenAISchedulerObservabilityTrace(nil), traces...)
 	sort.SliceStable(chronological, func(i, j int) bool {
-		if chronological[i].CreatedAt != chronological[j].CreatedAt {
-			return chronological[i].CreatedAt < chronological[j].CreatedAt
+		if order := compareSchedulerTraceTimes(chronological[i].CreatedAt, chronological[j].CreatedAt); order != 0 {
+			return order < 0
 		}
 		leftTurn, rightTurn := 0, 0
 		if chronological[i].SessionTurn != nil {
@@ -1512,7 +1512,9 @@ func buildSchedulerSessions(traces []OpenAISchedulerObservabilityTrace) []OpenAI
 		}
 		sessions = append(sessions, acc.session)
 	}
-	sort.Slice(sessions, func(i, j int) bool { return sessions[i].LastActiveAt > sessions[j].LastActiveAt })
+	sort.Slice(sessions, func(i, j int) bool {
+		return compareSchedulerTraceTimes(sessions[i].LastActiveAt, sessions[j].LastActiveAt) > 0
+	})
 	return sessions
 }
 
@@ -1571,4 +1573,15 @@ func buildSchedulerMetrics(traces []OpenAISchedulerObservabilityTrace, sessions 
 		return reasons[i].Key < reasons[j].Key
 	})
 	return metrics, reasons
+}
+
+// RFC3339Nano omits trailing fractional zeros, so lexical order can reverse
+// timestamps within the same second. Parse before sorting request/session data.
+func compareSchedulerTraceTimes(left, right string) int {
+	leftTime, leftErr := time.Parse(time.RFC3339Nano, left)
+	rightTime, rightErr := time.Parse(time.RFC3339Nano, right)
+	if leftErr != nil || rightErr != nil {
+		return strings.Compare(left, right)
+	}
+	return leftTime.Compare(rightTime)
 }

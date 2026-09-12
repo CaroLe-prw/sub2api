@@ -61,7 +61,7 @@ func TestAPIKeyService_RejectsV15AuthSnapshotWithoutReasoningEffortPolicy(t *tes
 }
 
 func TestAPIKeyService_RejectsPreMergeAuthSnapshots(t *testing.T) {
-	for _, version := range []int{24, 25} {
+	for _, version := range []int{24, 25, 26} {
 		svc := &APIKeyService{}
 		apiKey, ok, err := svc.applyAuthCacheEntry("pre-merge", &APIKeyAuthCacheEntry{
 			Snapshot: &APIKeyAuthSnapshot{Version: version},

@@ -105,6 +105,8 @@ type channelCache struct {
 
 // ChannelMappingResult 渠道映射查找结果
 type ChannelMappingResult struct {
+	GroupBillingModel  string // Group target before any composite provider alias.
+	GroupMapped        bool   // Group mapping pins forwarding and billing to MappedModel.
 	MappedModel        string // 映射后的模型名（无映射时等于原始模型名）
 	ChannelID          int64  // 渠道 ID（0 = 无渠道关联）
 	Mapped             bool   // 是否发生了映射
@@ -116,6 +118,18 @@ type ChannelMappingResult struct {
 // upstreamModel: 上游实际使用的模型名（ForwardResult.UpstreamModel）。
 // 返回空字符串表示无映射。
 func (r ChannelMappingResult) BuildModelMappingChain(reqModel, upstreamModel string) string {
+	if r.GroupMapped && r.GroupBillingModel != "" {
+		chain := []string{reqModel}
+		for _, model := range []string{r.GroupBillingModel, r.MappedModel, upstreamModel} {
+			if model != "" && model != chain[len(chain)-1] {
+				chain = append(chain, model)
+			}
+		}
+		if len(chain) == 1 {
+			return ""
+		}
+		return strings.Join(chain, "→")
+	}
 	if !r.Mapped {
 		if upstreamModel != "" && upstreamModel != reqModel {
 			return reqModel + "→" + upstreamModel
@@ -134,7 +148,11 @@ func (r ChannelMappingResult) ToUsageFields(reqModel, upstreamModel string) Chan
 	if r.Mapped {
 		channelMappedModel = r.MappedModel
 	}
+	if r.GroupMapped && r.GroupBillingModel != "" {
+		channelMappedModel = r.GroupBillingModel
+	}
 	return ChannelUsageFields{
+		GroupMapped:        r.GroupMapped,
 		ChannelID:          r.ChannelID,
 		OriginalModel:      reqModel,
 		ChannelMappedModel: channelMappedModel,

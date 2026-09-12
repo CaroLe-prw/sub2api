@@ -1297,6 +1297,14 @@ export default {
         hint: 'Multiple groups can be selected, accounts will be deduplicated',
         hintEdit: '⚠️ Warning: This will replace all existing account bindings'
       },
+      modelMapping: {
+        title: 'Group model mapping',
+        hint: 'Available for all platforms and composite groups. Map the requested model before account selection and bill using the target model. For example, luna → terra only requires accounts to support terra. Group rules override channel mappings; account mappings can translate the target to an upstream ID. Exact matching; remove all rules to disable.',
+        from: 'Requested model, e.g. luna',
+        to: 'Forwarding and billing model, e.g. terra',
+        add: 'Add model mapping',
+        invalid: 'Enter up to 64 complete, unique model pairs. Names must be at most 200 characters, without wildcards or control characters.',
+      },
       modelRouting: {
         title: 'Model Routing',
         tooltip: 'Configure specific model requests to be routed to designated accounts. Supports wildcard matching, e.g., claude-opus-* matches all opus models.',

@@ -2021,11 +2021,8 @@ const handleEdit = async (a: AccountListItem) => {
   edAcc.value = account
   showEdit.value = true
 }
-const handleAccountCreated = async (account?: Account) => {
+const handleAccountCreated = async () => {
   await reload()
-  if (!account) return
-  edAcc.value = account
-  showEdit.value = true
 }
 const openMenu = (a: Account, e: MouseEvent) => {
   menu.acc = a
