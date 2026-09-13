@@ -14,7 +14,8 @@ func arr(v any) []any  { a, _ := v.([]any); return a }
 func str(v any) string { s, _ := v.(string); return s }
 
 // Request preserves message order and pairs tool responses with their call IDs.
-// Features without a Chat Completions equivalent fail explicitly before forwarding.
+// Safety settings use the upstream's defaults; unsupported generation features
+// fail explicitly before forwarding.
 func Request(body []byte, model string, stream bool) ([]byte, error) {
 	var in object
 	if err := json.Unmarshal(body, &in); err != nil {
@@ -23,11 +24,12 @@ func Request(body []byte, model string, stream bool) ([]byte, error) {
 	if len(arr(in["contents"])) == 0 {
 		return nil, fmt.Errorf("contents must not be empty")
 	}
-	for _, key := range []string{"cachedContent", "safetySettings"} {
-		if v := in[key]; v != nil && v != "" && (key != "safetySettings" || len(arr(v)) > 0) {
-			return nil, fmt.Errorf("%s is not supported by an OpenAI compatible upstream", key)
-		}
+	if v := in["cachedContent"]; v != nil && v != "" {
+		return nil, fmt.Errorf("cachedContent is not supported by an OpenAI compatible upstream")
 	}
+	// Gemini clients can include safetySettings (or safety_settings) on ordinary
+	// requests. Chat Completions has no portable equivalent, so omit these
+	// provider-specific overrides and let the upstream apply its default policy.
 	out := object{"model": model, "stream": stream}
 	if stream {
 		out["stream_options"] = object{"include_usage": true}

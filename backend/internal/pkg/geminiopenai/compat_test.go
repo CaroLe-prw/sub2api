@@ -57,13 +57,32 @@ func TestRequestSynthesizesToolIDs(t *testing.T) {
 func TestRequestUnsupportedFeatures(t *testing.T) {
 	for _, body := range []string{
 		`{"contents":[]}`,
+		`{"contents":[{"parts":[{"text":"hi"}]}],"cachedContent":"cachedContents/example"}`,
 		`{"contents":[{"parts":[{"functionResponse":{"name":"missing"}}]}]}`,
 		`{"contents":[{"parts":[{"text":"hi"}]}],"tools":[{"googleSearch":{}}]}`,
 		`{"contents":[{"parts":[{"text":"hi"}]}],"generationConfig":{"imageConfig":{}}}`,
-		`{"contents":[{"parts":[{"text":"hi"}]}],"safetySettings":[{"category":"HARM_CATEGORY_DANGEROUS_CONTENT","threshold":"BLOCK_NONE"}]}`,
 		`{"contents":[{"parts":[{"fileData":{"mimeType":"application/pdf","fileUri":"gs://bucket/file"}}]}]}`,
 	} {
 		t.Run(body, func(t *testing.T) { _, err := Request([]byte(body), "gemini", false); require.Error(t, err) })
+	}
+}
+
+func TestRequestAcceptsSafetySettingsUsingUpstreamDefaults(t *testing.T) {
+	for _, field := range []string{"safetySettings", "safety_settings"} {
+		for _, settings := range []string{
+			`null`, `[]`,
+			`[{"category":"HARM_CATEGORY_DANGEROUS_CONTENT","threshold":"BLOCK_NONE"}]`,
+			`[{"category":"HARM_CATEGORY_HARASSMENT","threshold":"BLOCK_LOW_AND_ABOVE"},{"category":"HARM_CATEGORY_HATE_SPEECH","threshold":"OFF"}]`,
+		} {
+			for _, stream := range []bool{false, true} {
+				body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"` + field + `":` + settings + `}`)
+				converted, err := Request(body, "gemini", stream)
+				require.NoError(t, err, string(body))
+				baseline, err := Request([]byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`), "gemini", stream)
+				require.NoError(t, err)
+				require.JSONEq(t, string(baseline), string(converted), "the upstream receives its standard request without Gemini-specific safety overrides")
+			}
+		}
 	}
 }
 

@@ -37,7 +37,7 @@ func TestGeminiOpenAIForwardNative(t *testing.T) {
 				upstream = "data: " + strings.Replace(upstream, `"message"`, `"delta"`, 1) + "\n\ndata: [DONE]\n\n"
 			}
 			svc, stub := geminiOpenAITestService(upstream, http.StatusOK)
-			body := []byte(`{"contents":[{"role":"user","parts":[{"text":"Hi"}]}]}`)
+			body := []byte(`{"contents":[{"role":"user","parts":[{"text":"Hi"}]}],"safetySettings":[{"category":"HARM_CATEGORY_HARASSMENT","threshold":"BLOCK_MEDIUM_AND_ABOVE"}]}`)
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-public:"+action, bytes.NewReader(body))
@@ -62,6 +62,8 @@ func TestGeminiOpenAIForwardNative(t *testing.T) {
 			require.NoError(t, json.Unmarshal(raw, &request))
 			require.Equal(t, "vendor/gemini", request["model"])
 			require.Equal(t, stream, request["stream"])
+			require.NotContains(t, request, "safetySettings")
+			require.NotContains(t, request, "safety_settings")
 		})
 	}
 }
@@ -180,4 +182,22 @@ func TestGeminiOpenAIHasNoAIStudioQuota(t *testing.T) {
 	require.Empty(t, geminiQuotaTierKeyForAccount(account))
 	account.Credentials["api_protocol"] = "gemini"
 	require.NotEmpty(t, geminiQuotaTierKeyForAccount(account))
+}
+
+func TestGeminiNativePreservesSafetySettings(t *testing.T) {
+	svc, stub := geminiOpenAITestService(`{"candidates":[{"content":{"parts":[{"text":"Hello"}]},"finishReason":"STOP"}]}`, http.StatusOK)
+	account := geminiOpenAITestAccount()
+	account.Credentials["api_protocol"] = "gemini"
+	delete(account.Credentials, "model_mapping")
+	body := []byte(`{"contents":[{"parts":[{"text":"Hi"}]}],"safetySettings":[{"category":"HARM_CATEGORY_HARASSMENT","threshold":"BLOCK_MEDIUM_AND_ABOVE"}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-public:generateContent", bytes.NewReader(body))
+	_, err := svc.ForwardNative(c.Request.Context(), c, account, "gemini-public", "generateContent", false, body)
+	require.NoError(t, err)
+	require.Equal(t, 1, stub.calls)
+	require.Contains(t, stub.lastReq.URL.Path, ":generateContent")
+	raw, err := io.ReadAll(stub.lastReq.Body)
+	require.NoError(t, err)
+	require.JSONEq(t, string(body), string(raw))
 }

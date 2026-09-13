@@ -1545,7 +1545,7 @@ export default {
         nativeProtocol: 'Gemini 原生',
         openaiProtocol: 'OpenAI 兼容（Chat Completions）',
         upstreamProtocolHint: 'Gemini 模型仍归属 Gemini 分组；按上游实际提供的接口格式选择。',
-        openaiBaseUrlHint: '填写 OpenAI 兼容上游地址，例如 https://upstream.example.com/v1。支持对话、图片输入和工具调用；不支持 Gemini 专属工具及音视频生成。Token 计数为本地估算。',
+        openaiBaseUrlHint: '填写 OpenAI 兼容上游地址，例如 https://upstream.example.com/v1。支持对话、图片输入和工具调用；不支持 Gemini 专属工具及音视频生成。安全设置使用上游默认策略。Token 计数为本地估算。',
         openaiBaseUrlRequired: '请填写 OpenAI 兼容上游地址。',
         baseUrlHint: '留空使用官方 Gemini API',
         apiKeyHint: '您的 Gemini API Key（以 AIza 开头）',

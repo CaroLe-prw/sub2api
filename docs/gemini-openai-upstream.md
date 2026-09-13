@@ -32,7 +32,9 @@ Gemini API Key 账号可以独立选择上游接口格式，不必将 Gemini 模
 - 沿用 Gemini 分组的调度、并发、错误切换及计费流程。缓存 Token 和思考 Token 转换后分别统计，避免重复计算思考 Token。OpenAI 兼容上游不套用 AI Studio 免费/付费档位的请求配额；账号与分组的通用限制仍生效。
 - `countTokens` 使用本地估算，不发送付费生成请求，估算结果不计为实际使用量。
 
-Gemini 专属能力没有标准 Chat Completions 等价项：搜索/代码执行等内置工具、缓存资源引用、自定义安全设置、非图片文件、音视频与图片生成、`topK` 和精确的 `thinkingBudget` 会返回明确的不支持错误。上游也必须支持所请求的图片、工具或 JSON Schema 功能。
+Gemini 专属能力没有标准 Chat Completions 等价项：搜索/代码执行等内置工具、缓存资源引用、非图片文件、音视频与图片生成、`topK` 和精确的 `thinkingBudget` 会返回明确的不支持错误。上游也必须支持所请求的图片、工具或 JSON Schema 功能。
+
+`safetySettings`（包括 `safety_settings` 写法）可随请求传入，但转换时会省略，使用 OpenAI 兼容上游自身的默认安全策略，不保证复现 Gemini 的自定义阈值。Gemini 原生账号仍原样转发该字段。
 
 断流、无效 JSON 和未完成的工具参数会报告失败。限流使用上游 `Retry-After`，缺省等待一分钟，不套用 AI Studio 每日配额重置时间。
 
