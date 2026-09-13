@@ -69,7 +69,7 @@ func TestRequestUnsupportedFeatures(t *testing.T) {
 
 func TestNonStreamingResponseAndUsage(t *testing.T) {
 	body := Body(io.NopCloser(strings.NewReader(`{"id":"req","model":"vendor/gemini","choices":[{"index":0,"message":{"content":"Hello","reasoning_content":"Think","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"city\":\"上海\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130,"prompt_tokens_details":{"cached_tokens":20},"completion_tokens_details":{"reasoning_tokens":10}}}`)), false)
-	defer body.Close()
+	defer func() { require.NoError(t, body.Close()) }()
 	raw, err := io.ReadAll(body)
 	require.NoError(t, err)
 	var out object
@@ -99,7 +99,7 @@ func TestStreamToolFragmentsAndUsage(t *testing.T) {
 		stream += "data: " + chunk + "\r\n\r\n"
 	}
 	body := Body(io.NopCloser(strings.NewReader(stream)), true)
-	defer body.Close()
+	defer func() { require.NoError(t, body.Close()) }()
 	raw, err := io.ReadAll(body)
 	require.NoError(t, err)
 	events := strings.Split(strings.TrimSpace(string(raw)), "\n\n")
@@ -125,7 +125,7 @@ func TestStreamRejectsBrokenUpstream(t *testing.T) {
 		b := Body(io.NopCloser(strings.NewReader(raw)), true)
 		_, err := io.ReadAll(b)
 		require.Error(t, err, raw)
-		b.Close()
+		require.NoError(t, b.Close())
 	}
 }
 

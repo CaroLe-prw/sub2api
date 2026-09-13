@@ -197,7 +197,7 @@ func (b *responseBody) Read(p []byte) (int, error) {
 			if err != nil {
 				return 0, err
 			}
-			b.pending.Write(data)
+			_, _ = b.pending.Write(data) // bytes.Buffer writes always return a nil error.
 			continue
 		}
 		payload := []string{}
@@ -240,9 +240,9 @@ func (b *responseBody) Read(p []byte) (int, error) {
 			return 0, err
 		}
 		if len(data) > 0 {
-			b.pending.WriteString("data: ")
-			b.pending.Write(data)
-			b.pending.WriteString("\n\n")
+			_, _ = b.pending.WriteString("data: ")
+			_, _ = b.pending.Write(data)
+			_, _ = b.pending.WriteString("\n\n")
 		}
 	}
 	return b.pending.Read(p)

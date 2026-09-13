@@ -153,7 +153,7 @@ func Request(body []byte, model string, stream bool) ([]byte, error) {
 		tool := obj(raw)
 		for key := range tool {
 			if key != "functionDeclarations" {
-				return nil, fmt.Errorf("Gemini tool %s is not supported by an OpenAI compatible upstream", key)
+				return nil, fmt.Errorf("unsupported Gemini tool %s for an OpenAI compatible upstream", key)
 			}
 		}
 		for _, rawFn := range arr(tool["functionDeclarations"]) {
