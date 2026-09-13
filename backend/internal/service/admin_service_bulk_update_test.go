@@ -634,3 +634,18 @@ func TestAdminServiceBulkUpdateAccounts_ValidatesFilterResolvedOpenAITargets(t *
 	require.Equal(t, []int64{7}, repo.getByIDsIDs)
 	require.Zero(t, repo.bulkUpdateCalls)
 }
+
+func TestAdminServiceBulkUpdateAccounts_ValidatesNonOpenAICalibration(t *testing.T) {
+	for _, platform := range []string{PlatformGemini, PlatformAnthropic, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformAntigravity} {
+		t.Run(platform, func(t *testing.T) {
+			repo := &accountRepoStubForBulkUpdate{getByIDsAccounts: []*Account{{ID: 1, Platform: platform, Type: AccountTypeAPIKey}}}
+			svc := &adminServiceImpl{accountRepo: repo}
+			_, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{AccountIDs: []int64{1}, Extra: map[string]any{OpenAIUpstreamRateCalibrationExtraKey: -0.1}})
+			require.Error(t, err)
+			require.Zero(t, repo.bulkUpdateCalls)
+			_, err = svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{AccountIDs: []int64{1}, Extra: map[string]any{OpenAIUpstreamRateCalibrationExtraKey: 0.1}})
+			require.NoError(t, err)
+			require.Equal(t, 1, repo.bulkUpdateCalls)
+		})
+	}
+}

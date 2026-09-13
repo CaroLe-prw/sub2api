@@ -901,22 +901,15 @@ func TestUpstreamBillingProbeSyncRateIgnoresEffectiveRate(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestUpstreamBillingProbeSyncRateAppliesOpenAICalibration(t *testing.T) {
-	account := &Account{
-		Platform: PlatformOpenAI,
-		Extra: map[string]any{
-			OpenAIUpstreamRateCalibrationExtraKey: 0.033,
-		},
+func TestUpstreamBillingProbeSyncRateCalibratesAllSupportedPlatforms(t *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax} {
+		t.Run(platform, func(t *testing.T) {
+			account := &Account{Platform: platform, Type: AccountTypeAPIKey, Extra: map[string]any{OpenAIUpstreamRateCalibrationExtraKey: 0.033}}
+			got, ok := upstreamBillingProbeSyncRate(account, map[string]any{"resolved_rate_multiplier": 1.0})
+			require.True(t, ok)
+			require.Equal(t, 0.033, got)
+		})
 	}
-
-	got, ok := upstreamBillingProbeSyncRate(account, map[string]any{"resolved_rate_multiplier": 1.0})
-	require.True(t, ok)
-	require.Equal(t, 0.033, got)
-
-	account.Platform = PlatformAnthropic
-	got, ok = upstreamBillingProbeSyncRate(account, map[string]any{"resolved_rate_multiplier": 1.0})
-	require.True(t, ok)
-	require.Equal(t, 1.0, got, "OpenAI calibration must not affect other platforms")
 }
 
 // 上游声明超出自动写回值域时保持原倍率，但探测本身是成功的：

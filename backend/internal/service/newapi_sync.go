@@ -455,7 +455,7 @@ func (s *UpstreamBillingProbeService) syncLoadedNewAPIAccount(
 			"old_ratio", writeResult.OldRatio,
 			"new_ratio", writeResult.NewRatio,
 			"upstream_ratio", *resolution.Ratio,
-			"calibration", openAIUpstreamRateCalibration(account),
+			"calibration", upstreamBillingProbeRateCalibration(account),
 			"user_group", resolution.UserGroup,
 			"token_group", resolution.TokenGroup,
 			"actual_group", resolution.ActualGroup,

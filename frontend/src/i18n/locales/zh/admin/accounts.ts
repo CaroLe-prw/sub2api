@@ -203,6 +203,7 @@ export default {
         },
         autoProbe: '自动探测上游计费信息',
         autoProbeHint: '启用后按全局探测周期查询此账号的上游倍率和余额；旧版上游不返回余额时仍可正常探测倍率。',
+        calibrationInvalid: '校准系数必须是大于或等于 0 的有效数字。',
         calibrationFactor: '上游倍率校准系数',
         calibrationHint: '有效调度倍率 = 上游声明倍率 × 此系数；声明不可用时回退账号计费倍率。充值 1 得 10 填 0.1。',
         schedulingRate: '调度成本倍率：{value}x',

@@ -440,9 +440,9 @@ func ValidateOpenAIForceFastModeExtra(platform string, extra map[string]any) err
 	return nil
 }
 
-// ValidateOpenAIUpstreamRateCalibrationExtra validates the multiplier applied to fresh upstream rates.
-func ValidateOpenAIUpstreamRateCalibrationExtra(platform string, extra map[string]any) error {
-	if platform != PlatformOpenAI {
+// ValidateUpstreamRateCalibrationExtra validates the multiplier applied to fresh upstream rates.
+func ValidateUpstreamRateCalibrationExtra(platform string, extra map[string]any) error {
+	if !IsUpstreamBillingProbeIdentity(platform, AccountTypeAPIKey) {
 		return nil
 	}
 	if _, exists := extra[OpenAIUpstreamRateCalibrationExtraKey]; !exists {
@@ -485,6 +485,9 @@ func ValidateOpenAIUpstreamBalanceAlertExtra(platform string, extra map[string]a
 }
 
 func normalizeOpenAILongContextBillingExtra(platform string, extra map[string]any) (map[string]any, error) {
+	if err := ValidateUpstreamRateCalibrationExtra(platform, extra); err != nil {
+		return nil, err
+	}
 	if platform != PlatformOpenAI {
 		return extra, nil
 	}
@@ -492,9 +495,6 @@ func normalizeOpenAILongContextBillingExtra(platform string, extra map[string]an
 		return nil, err
 	}
 	if err := ValidateOpenAIForceFastModeExtra(platform, extra); err != nil {
-		return nil, err
-	}
-	if err := ValidateOpenAIUpstreamRateCalibrationExtra(platform, extra); err != nil {
 		return nil, err
 	}
 	if err := ValidateOpenAIUpstreamBalanceAlertExtra(platform, extra); err != nil {
@@ -1121,7 +1121,7 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 		if err := ValidateOpenAIForceFastModeExtra(account.Platform, updates); err != nil {
 			return err
 		}
-		if err := ValidateOpenAIUpstreamRateCalibrationExtra(account.Platform, updates); err != nil {
+		if err := ValidateUpstreamRateCalibrationExtra(account.Platform, updates); err != nil {
 			return err
 		}
 		if err := ValidateOpenAIUpstreamBalanceAlertExtra(account.Platform, updates); err != nil {
@@ -1222,7 +1222,17 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			}
 		}
 	}
-	if hasLongContextBillingUpdate || hasForceFastModeUpdate || hasUpstreamRateCalibrationUpdate || hasUpstreamBalanceAlertEnabledUpdate || hasUpstreamBalanceAlertThresholdUpdate {
+	if hasUpstreamRateCalibrationUpdate {
+		for _, account := range cachedTargets {
+			if account == nil {
+				continue
+			}
+			if err := ValidateUpstreamRateCalibrationExtra(account.Platform, input.Extra); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if hasLongContextBillingUpdate || hasForceFastModeUpdate || hasUpstreamBalanceAlertEnabledUpdate || hasUpstreamBalanceAlertThresholdUpdate {
 		for _, account := range cachedTargets {
 			if account == nil || account.Platform != PlatformOpenAI {
 				continue
@@ -1231,9 +1241,6 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 				return nil, err
 			}
 			if err := ValidateOpenAIForceFastModeExtra(account.Platform, input.Extra); err != nil {
-				return nil, err
-			}
-			if err := ValidateOpenAIUpstreamRateCalibrationExtra(account.Platform, input.Extra); err != nil {
 				return nil, err
 			}
 			if err := ValidateOpenAIUpstreamBalanceAlertExtra(account.Platform, input.Extra); err != nil {

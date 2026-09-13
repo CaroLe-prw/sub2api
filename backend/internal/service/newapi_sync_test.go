@@ -243,6 +243,7 @@ func TestNewAPISyncBlankBaseURLUsesAccountEndpoint(t *testing.T) {
 		t.Run(platform, func(t *testing.T) {
 			account := newAPISyncTestAccount(1, 0.4)
 			account.Platform = platform
+			account.Extra[OpenAIUpstreamRateCalibrationExtraKey] = 2.0
 			accountEndpoint := "https://account-endpoint.example.test"
 			account.Credentials = map[string]any{
 				"base_url": accountEndpoint,
@@ -267,7 +268,8 @@ func TestNewAPISyncBlankBaseURLUsesAccountEndpoint(t *testing.T) {
 
 			result, err := service.SyncNewAPIAccount(t.Context(), 1)
 			require.NoError(t, err)
-			require.Equal(t, 0.0325, *result.NewRatio)
+			require.Equal(t, 0.065, *result.NewRatio)
+			require.Equal(t, 0.0325, *result.Resolution.Ratio)
 			require.NotEmpty(t, doer.requests)
 			for _, request := range doer.requests {
 				require.Equal(t, "account-endpoint.example.test", request.URL.Host)

@@ -351,6 +351,39 @@ describe('EditAccountModal', () => {
     authIsSimpleMode.value = true
   })
 
+  it.each(['openai', 'anthropic', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax'])('loads and updates calibration on %s API key accounts', async (platform) => {
+    const account = { ...buildAccount(), platform, extra: {
+      upstream_billing_probe_enabled: true, openai_upstream_rate_calibration: 0.1, retained_setting: 'keep'
+    } }
+    const wrapper = mountModal(account)
+    await flushPromises()
+    const field = wrapper.get<HTMLInputElement>('[data-testid="upstream-rate-calibration"]')
+    expect(field.element.value).toBe('0.1')
+    await field.setValue('0.25')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
+      extra: expect.objectContaining({ openai_upstream_rate_calibration: 0.25, retained_setting: 'keep' })
+    }))
+    wrapper.unmount()
+  })
+
+  it('preserves calibration when upstream sync is disabled', async () => {
+    const account = { ...buildAccount(), platform: 'gemini', extra: {
+      upstream_billing_probe_enabled: true, openai_upstream_rate_calibration: 0.1
+    } }
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="upstream-billing-mode"]').setValue('off')
+    expect(wrapper.find('[data-testid="upstream-rate-calibration"]').exists()).toBe(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
+      upstream_billing_probe_enabled: false,
+      extra: expect.objectContaining({ openai_upstream_rate_calibration: 0.1 })
+    }))
+    wrapper.unmount()
+  })
+
   it('loads and saves the Gemini upstream format while preserving the saved key and URL', async () => {
     const account = { ...buildAccount(), platform: 'gemini' as const, credentials: {
       api_protocol: 'chat_completions', base_url: 'https://upstream.example.com/v1', api_key: 'saved-key'

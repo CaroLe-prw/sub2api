@@ -308,6 +308,7 @@ export default {
         },
         autoProbe: 'Automatically probe upstream billing',
         autoProbeHint: 'Probe this account\'s upstream rate and balance on the global interval. Older upstreams can still return rates without a balance.',
+        calibrationInvalid: 'Calibration must be a finite number greater than or equal to 0.',
         calibrationFactor: 'Upstream rate calibration',
         calibrationHint: 'Scheduling rate = upstream declared rate × this value; falls back to the account billing rate when unavailable. Enter 0.1 when a recharge of 1 buys 10.',
         schedulingRate: 'Scheduling cost rate: {value}x',

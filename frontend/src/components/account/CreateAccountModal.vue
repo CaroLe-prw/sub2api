@@ -1071,6 +1071,11 @@
           <UpstreamBillingSourceField
             v-model:mode="upstreamBillingMode"
           />
+          <UpstreamRateCalibrationField
+            v-if="upstreamBillingMode !== 'off'"
+            v-model="upstreamRateCalibration"
+            class="mt-4"
+          />
         </div>
       </div>
 
@@ -1358,19 +1363,10 @@
           id-prefix="newapi-create"
           access-token-required
         />
-        <div v-if="form.platform === 'openai'">
-          <label class="input-label">{{ t('admin.accounts.upstreamBilling.calibrationFactor') }}</label>
-          <input
-            v-model.number="upstreamRateCalibration"
-            type="number"
-            min="0"
-            step="any"
-            required
-            class="input"
-            data-testid="upstream-rate-calibration"
-          />
-          <p class="input-hint">{{ t('admin.accounts.upstreamBilling.calibrationHint') }}</p>
-        </div>
+        <UpstreamRateCalibrationField
+          v-if="supportsUpstreamRateCalibration(form.platform, form.type) && upstreamBillingMode !== 'off'"
+          v-model="upstreamRateCalibration"
+        />
         <UpstreamBalanceAlertFields
           v-if="form.platform === 'openai' && upstreamBillingMode !== 'off'"
           v-model:enabled="upstreamBalanceAlertEnabled"
@@ -3908,9 +3904,11 @@ import ResponseModelMappingEditor from '@/components/account/ResponseModelMappin
 import { supportsResponseModelMapping, validResponseModelMapping, applyResponseModelMapping, type ResponseModelMappingRow } from '@/utils/responseModelMapping'
 import UpstreamBalanceAlertFields from '@/components/account/UpstreamBalanceAlertFields.vue'
 import UpstreamBillingSourceField from '@/components/account/UpstreamBillingSourceField.vue'
+import UpstreamRateCalibrationField from '@/components/account/UpstreamRateCalibrationField.vue'
 import NewAPISyncConfigFields from '@/components/account/NewAPISyncConfigFields.vue'
 import {
   supportsNewAPISyncPlatform,
+  supportsUpstreamRateCalibration,
   type UpstreamBillingMode
 } from '@/components/account/upstreamBilling'
 import {
@@ -5199,6 +5197,13 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
 }
 
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
+  if (supportsUpstreamRateCalibration(payload.platform, payload.type)) {
+    if (!Number.isFinite(upstreamRateCalibration.value) || upstreamRateCalibration.value < 0) {
+      appStore.showError(t('admin.accounts.upstreamBilling.calibrationInvalid'))
+      return
+    }
+    payload = { ...payload, extra: { ...payload.extra, openai_upstream_rate_calibration: upstreamRateCalibration.value } }
+  }
   const configureNewAPI = supportsNewAPISyncPlatform(payload.platform)
     && payload.type === 'apikey'
     && upstreamBillingMode.value === 'newapi'
@@ -5422,7 +5427,6 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   } else if (accountCategory.value === 'apikey') {
     extra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
     extra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
-    extra.openai_upstream_rate_calibration = upstreamRateCalibration.value
     if (upstreamBillingMode.value !== 'off') {
       extra.upstream_balance_alert_enabled = upstreamBalanceAlertEnabled.value
       if (

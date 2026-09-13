@@ -4019,18 +4019,8 @@ func openAICalibratedFreshUpstreamBillingRate(account *Account, now time.Time) (
 	if !ok {
 		return 0, false
 	}
-	rate *= openAIUpstreamRateCalibration(account)
+	rate *= upstreamBillingProbeRateCalibration(account)
 	return rate, rate >= 0 && !math.IsNaN(rate) && !math.IsInf(rate, 0)
-}
-
-func openAIUpstreamRateCalibration(account *Account) float64 {
-	if account != nil {
-		if value, exists := resolveAccountExtraNumber(account.Extra, OpenAIUpstreamRateCalibrationExtraKey); exists &&
-			value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0) {
-			return value
-		}
-	}
-	return 1
 }
 
 // compare returns -1 when a should be selected before b, 1 when b should be

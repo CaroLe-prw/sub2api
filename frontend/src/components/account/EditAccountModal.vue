@@ -1917,19 +1917,10 @@
           v-model:mode="upstreamBillingMode"
           :allow-new-api="supportsNewAPISyncPlatform(account?.platform)"
         />
-        <div v-if="account?.platform === 'openai' && upstreamBillingMode !== 'off'">
-          <label class="input-label">{{ t('admin.accounts.upstreamBilling.calibrationFactor') }}</label>
-          <input
-            v-model.number="upstreamRateCalibration"
-            type="number"
-            min="0"
-            step="any"
-            required
-            class="input"
-            data-testid="upstream-rate-calibration"
-          />
-          <p class="input-hint">{{ t('admin.accounts.upstreamBilling.calibrationHint') }}</p>
-        </div>
+        <UpstreamRateCalibrationField
+          v-if="supportsUpstreamRateCalibration(account?.platform, account?.type) && upstreamBillingMode !== 'off'"
+          v-model="upstreamRateCalibration"
+        />
         <UpstreamBalanceAlertFields
           v-if="account?.platform === 'openai' && upstreamBillingMode !== 'off'"
           v-model:enabled="upstreamBalanceAlertEnabled"
@@ -3067,9 +3058,11 @@ import { supportsResponseModelMapping, loadResponseModelMapping, validResponseMo
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
 import NewAPISyncSettings from '@/components/account/NewAPISyncSettings.vue'
 import UpstreamBillingSourceField from '@/components/account/UpstreamBillingSourceField.vue'
+import UpstreamRateCalibrationField from '@/components/account/UpstreamRateCalibrationField.vue'
 import {
   resolveUpstreamBillingMode,
   supportsNewAPISyncPlatform,
+  supportsUpstreamRateCalibration,
   type UpstreamBillingMode
 } from '@/components/account/upstreamBilling'
 import UpstreamBalanceAlertFields from '@/components/account/UpstreamBalanceAlertFields.vue'
@@ -5623,7 +5616,6 @@ const handleSubmit = async () => {
         } else {
           newExtra.openai_responses_mode = openAIResponsesMode.value
 			}
-			newExtra.openai_upstream_rate_calibration = upstreamRateCalibration.value
 			if (upstreamBillingMode.value !== 'off') {
 				newExtra.upstream_balance_alert_enabled = upstreamBalanceAlertEnabled.value
 				if (
@@ -5728,6 +5720,13 @@ const handleSubmit = async () => {
       const newExtra: Record<string, unknown> = { ...currentExtra }
       // 上游倍率自动探测对全部 API-key 平台开放（sub2api 上游即可应答），
       // Bedrock 凭证无静态 Key 不参与。
+      if (supportsUpstreamRateCalibration(props.account.platform, props.account.type)) {
+        if (!Number.isFinite(upstreamRateCalibration.value) || upstreamRateCalibration.value < 0) {
+          appStore.showError(t('admin.accounts.upstreamBilling.calibrationInvalid'))
+          return
+        }
+        newExtra.openai_upstream_rate_calibration = upstreamRateCalibration.value
+      }
       if (props.account.type === 'apikey') {
         delete newExtra.upstream_billing_probe_enabled
         delete newExtra.upstream_billing_rate_sync_enabled

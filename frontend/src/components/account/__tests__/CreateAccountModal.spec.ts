@@ -243,6 +243,38 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it.each([
+    ['OpenAI', 'API Key', 'openai'],
+    ['Anthropic', 'admin.accounts.claudeConsole', 'anthropic'],
+    ['Gemini', 'admin.accounts.gemini.accountType.apiKeyTitle', 'gemini'],
+    ['Antigravity', 'API Key', 'antigravity'],
+    ['Grok', 'API Key', 'grok'],
+    ['Kimi', '', 'kimi'],
+    ['Zhipu GLM', '', 'zhipu'],
+    ['DeepSeek', '', 'deepseek'],
+    ['MiniMax', '', 'minimax'],
+  ])('saves calibration when creating a %s API key account', async (label, typeLabel, platform) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, label)
+    if (platform === 'grok') {
+      await wrapper.get('[data-testid="grok-account-type-api-key"]').trigger('click')
+    } else if (typeLabel) {
+      await selectButtonByText(wrapper, typeLabel)
+    }
+    if (platform === 'antigravity') {
+      await wrapper.get('input[placeholder="https://cloudcode-pa.googleapis.com"]').setValue('https://upstream.example.com')
+    }
+    await wrapper.get('[data-testid="upstream-rate-calibration"]').setValue('0.1')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Calibrated account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      platform, type: 'apikey', extra: expect.objectContaining({ openai_upstream_rate_calibration: 0.1 })
+    }))
+    wrapper.unmount()
+  })
+
   it('creates a Gemini account with an OpenAI upstream without changing its platform', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'Gemini')

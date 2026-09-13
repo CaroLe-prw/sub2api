@@ -139,15 +139,17 @@ func TestOpenAISchedulingRateCalibratesFreshRateAndFallsBackToAccountRate(t *tes
 	require.Equal(t, fallback, rate)
 }
 
-func TestValidateOpenAIUpstreamRateCalibrationExtra(t *testing.T) {
-	require.NoError(t, ValidateOpenAIUpstreamRateCalibrationExtra(
-		PlatformOpenAI,
-		map[string]any{OpenAIUpstreamRateCalibrationExtraKey: 0.03},
-	))
-	require.Error(t, ValidateOpenAIUpstreamRateCalibrationExtra(
-		PlatformOpenAI,
-		map[string]any{OpenAIUpstreamRateCalibrationExtraKey: -0.01},
-	))
+func TestValidateUpstreamRateCalibrationExtra(t *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax} {
+		t.Run(platform, func(t *testing.T) {
+			for _, value := range []any{0.0, 0.03, 1.0, 2.0} {
+				require.NoError(t, ValidateUpstreamRateCalibrationExtra(platform, map[string]any{OpenAIUpstreamRateCalibrationExtraKey: value}))
+			}
+			for _, value := range []any{-0.01, math.NaN(), math.Inf(1), "wrong", nil} {
+				require.Error(t, ValidateUpstreamRateCalibrationExtra(platform, map[string]any{OpenAIUpstreamRateCalibrationExtraKey: value}))
+			}
+		})
+	}
 }
 
 func TestValidateOpenAIUpstreamBalanceAlertExtra(t *testing.T) {
@@ -950,4 +952,20 @@ func TestBuildOpenAIAccountSchedulerScoreSnapshotUsesUpstreamCostSignal(t *testi
 	scores := buildOpenAIAccountSchedulerScoreSnapshot(accounts, nil, weights, false, defaultOpenAIOAuthSchedulingRateMultiplier, nil)
 
 	require.Greater(t, scores[1].BaseScore, scores[2].BaseScore)
+}
+
+func TestUpstreamRateCalibrationRejectsInvalidAdminWrites(t *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformGemini, PlatformAnthropic, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformAntigravity} {
+		t.Run(platform, func(t *testing.T) {
+			repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{1: {ID: 1, Platform: platform, Type: AccountTypeAPIKey}}}
+			svc := &adminServiceImpl{accountRepo: repo}
+			extra := map[string]any{OpenAIUpstreamRateCalibrationExtraKey: -0.1}
+			_, err := svc.CreateAccount(context.Background(), &CreateAccountInput{Platform: platform, Type: AccountTypeAPIKey, Extra: extra})
+			require.ErrorContains(t, err, "openai_upstream_rate_calibration")
+			_, err = svc.UpdateAccount(context.Background(), 1, &UpdateAccountInput{Extra: extra})
+			require.ErrorContains(t, err, "openai_upstream_rate_calibration")
+			err = svc.UpdateAccountExtra(context.Background(), 1, extra)
+			require.ErrorContains(t, err, "openai_upstream_rate_calibration")
+		})
+	}
 }

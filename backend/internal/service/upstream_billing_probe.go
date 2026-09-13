@@ -33,9 +33,10 @@ const (
 	UpstreamBillingProbeExtraKey           = "upstream_billing_probe"
 	UpstreamBillingProbeEnabledExtraKey    = "upstream_billing_probe_enabled"
 	UpstreamBillingRateSyncEnabledExtraKey = "upstream_billing_rate_sync_enabled"
-	OpenAIUpstreamRateCalibrationExtraKey  = "openai_upstream_rate_calibration"
-	UpstreamBalanceAlertEnabledExtraKey    = "upstream_balance_alert_enabled"
-	UpstreamBalanceAlertThresholdExtraKey  = "upstream_balance_alert_threshold"
+	// Keep the historical JSON key so existing OpenAI calibrations remain valid.
+	OpenAIUpstreamRateCalibrationExtraKey = "openai_upstream_rate_calibration"
+	UpstreamBalanceAlertEnabledExtraKey   = "upstream_balance_alert_enabled"
+	UpstreamBalanceAlertThresholdExtraKey = "upstream_balance_alert_threshold"
 
 	upstreamBillingProbeDefaultIntervalMinutes = 30
 	upstreamBillingProbeMinIntervalMinutes     = 5
@@ -1311,7 +1312,7 @@ func upstreamBillingRateAt(data map[string]any, now time.Time) (float64, bool) {
 // accounts.rate_multiplier, at the precision that column supports
 // (DECIMAL(10,4)).
 //
-// It multiplies resolved_rate_multiplier by the OpenAI account calibration. It
+// It multiplies resolved_rate_multiplier by the account calibration. It
 // does not read effective_rate_multiplier: the effective value folds in the
 // peak coefficient that happened to apply at the instant of the probe, so
 // writing it would freeze one probe cycle's peak (or off-peak) factor into a
@@ -1344,10 +1345,13 @@ func upstreamBillingProbeSyncRate(account *Account, data map[string]any) (float6
 }
 
 func upstreamBillingProbeRateCalibration(account *Account) float64 {
-	if account == nil || account.Platform != PlatformOpenAI {
-		return 1
+	if account != nil && IsUpstreamBillingProbeIdentity(account.Platform, AccountTypeAPIKey) {
+		if value, exists := resolveAccountExtraNumber(account.Extra, OpenAIUpstreamRateCalibrationExtraKey); exists &&
+			value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0) {
+			return value
+		}
 	}
-	return openAIUpstreamRateCalibration(account)
+	return 1
 }
 
 func upstreamBillingPeakMultiplierAt(data map[string]any, now time.Time) (float64, bool) {
