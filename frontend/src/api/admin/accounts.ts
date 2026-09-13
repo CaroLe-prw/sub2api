@@ -777,6 +777,7 @@ export async function syncUpstreamModels(id: number): Promise<SyncUpstreamModels
 }
 
 export interface SyncUpstreamPreviewParams {
+  api_protocol?: string
   account_id?: number
   platform: string
   type: string

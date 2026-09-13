@@ -22,6 +22,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminiopenai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -834,6 +835,13 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		return nil, fmt.Errorf("unsupported account type: %s", account.Type)
 	}
 
+	if account.GeminiUsesOpenAI() {
+		buildReq, err = s.openAIUpstreamBuilder(account, mappedModel, geminiReq, useUpstreamStream)
+		if err != nil {
+			return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		}
+	}
+
 	var resp *http.Response
 	signatureRetryStage := 0
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
@@ -874,7 +882,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 		// Special-case: signature/thought_signature validation errors are not transient, but may be fixed by
 		// downgrading Claude thinking/tool history to plain text (conservative two-stage retry).
-		if resp.StatusCode == http.StatusBadRequest && signatureRetryStage < 2 {
+		if !account.GeminiUsesOpenAI() && resp.StatusCode == http.StatusBadRequest && signatureRetryStage < 2 {
 			respBody := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
 
@@ -941,6 +949,8 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			}
 			break
 		}
+
+		adaptGeminiOpenAIResponse(account, resp, useUpstreamStream)
 
 		// 错误策略优先：匹配则跳过重试直接处理。
 		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
@@ -1234,6 +1244,18 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		return nil, s.writeGoogleError(c, http.StatusNotFound, "Unsupported action: "+action)
 	}
 
+	if account.GeminiUsesOpenAI() && action == "countTokens" {
+		if !json.Valid(body) {
+			return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid JSON request")
+		}
+		countBody := body
+		if inner := gjson.GetBytes(body, "generateContentRequest"); inner.IsObject() {
+			countBody = []byte(inner.Raw)
+		}
+		c.JSON(http.StatusOK, map[string]any{"totalTokens": estimateGeminiCountTokens(countBody)})
+		return &ForwardResult{Model: originalModel, UpstreamModel: account.GetMappedModel(originalModel), Duration: time.Since(startTime)}, nil
+	}
+
 	// Some Gemini upstreams validate tool call parts strictly; ensure any `functionCall` part includes a
 	// `thoughtSignature` to avoid frequent INVALID_ARGUMENT 400s.
 	body = ensureGeminiFunctionCallThoughtSignatures(body)
@@ -1387,6 +1409,14 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		return nil, s.writeGoogleError(c, http.StatusBadGateway, "Unsupported account type: "+account.Type)
 	}
 
+	if account.GeminiUsesOpenAI() {
+		var err error
+		buildReq, err = s.openAIUpstreamBuilder(account, mappedModel, body, useUpstreamStream)
+		if err != nil {
+			return nil, s.writeGoogleError(c, http.StatusBadRequest, err.Error())
+		}
+	}
+
 	var resp *http.Response
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
 		upstreamReq, idHeader, err := buildReq(ctx)
@@ -1436,6 +1466,8 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			setOpsUpstreamError(c, 0, safeErr, "")
 			return nil, upstreamTransportFailoverError(ctx, err)
 		}
+
+		adaptGeminiOpenAIResponse(account, resp, useUpstreamStream)
 
 		// 错误策略优先：匹配则跳过重试直接处理。
 		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
@@ -1856,6 +1888,13 @@ func (s *GeminiMessagesCompatService) writeGeminiNativeUpstreamError(c *gin.Cont
 		Message:            upstreamMsg,
 		Detail:             upstreamDetail,
 	})
+
+	if account.GeminiUsesOpenAI() {
+		if upstreamMsg == "" {
+			upstreamMsg = http.StatusText(resp.StatusCode)
+		}
+		return s.writeGoogleError(c, resp.StatusCode, upstreamMsg)
+	}
 
 	contentType := resp.Header.Get("Content-Type")
 	if contentType == "" {
@@ -2923,6 +2962,25 @@ func (s *GeminiMessagesCompatService) ForwardAIStudioGET(ctx context.Context, ac
 		return nil, fmt.Errorf("unsupported account type: %s", account.Type)
 	}
 
+	if account.GeminiUsesOpenAI() {
+		req, err = buildOpenAIAPIKeyModelsRequest(ctx, account, s.validateUpstreamBaseURL)
+		if err != nil {
+			return nil, err
+		}
+		if path != "/v1beta/models" {
+			model := strings.TrimPrefix(path, "/v1beta/models/")
+			if model == path || !IsSafeGeminiModelPathSegment(model) {
+				return nil, errors.New("invalid model path")
+			}
+			mappedModel := account.GetMappedModel(model)
+			if _, safe := sanitizedUpstreamPathSuffix("/" + mappedModel); !safe {
+				return nil, errors.New("invalid mapped model path")
+			}
+			req.URL.Path = strings.TrimRight(req.URL.Path, "/") + "/" + mappedModel
+			req.URL.RawPath = ""
+		}
+	}
+
 	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		return nil, err
@@ -2930,6 +2988,19 @@ func (s *GeminiMessagesCompatService) ForwardAIStudioGET(ctx context.Context, ac
 	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if account.GeminiUsesOpenAI() {
+		if resp.StatusCode < 400 {
+			body, err = geminiopenai.Models(body, path != "/v1beta/models")
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			message := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(body))
+			body, _ = json.Marshal(map[string]any{"error": map[string]any{"code": resp.StatusCode, "message": message, "status": googleapi.HTTPStatusToGoogleStatus(resp.StatusCode)}})
+		}
+		resp.Header.Del("Content-Length")
+		resp.Header.Set("Content-Type", "application/json")
+	}
 	wwwAuthenticate := resp.Header.Get("Www-Authenticate")
 	filteredHeaders := responseheaders.FilterHeaders(resp.Header, s.responseHeaderFilter)
 	if wwwAuthenticate != "" {
@@ -3111,6 +3182,20 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 	// 池模式账号不写账号级限流：账号留在池内，由 failover / 同号重试消化 429。
 	// 自定义错误码优先级高于池模式，开启后仍按其命中结果标记。
 	if account.IsPoolMode() && !account.IsCustomErrorCodesEnabled() {
+		return
+	}
+
+	// OpenAI compatible relays use Retry-After, not AI Studio's daily quota reset.
+	if account.GeminiUsesOpenAI() {
+		now := time.Now()
+		resetAt := parseRetryAfterResetTime(headers, now)
+		if resetAt == nil || !resetAt.After(now) {
+			fallback := now.Add(time.Minute)
+			resetAt = &fallback
+		}
+		if s.accountRepo != nil {
+			_ = s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt)
+		}
 		return
 	}
 

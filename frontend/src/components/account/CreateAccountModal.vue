@@ -1284,6 +1284,11 @@
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+        <GeminiUpstreamProtocolFields
+          v-if="form.platform === 'gemini'"
+          v-model="geminiApiProtocol"
+          @update:model-value="onGeminiProtocolChange"
+        />
         <div v-if="!isCNPlatform || apiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -1373,7 +1378,7 @@
         />
 
         <!-- Gemini API Key tier selection -->
-        <div v-if="form.platform === 'gemini'">
+        <div v-if="form.platform === 'gemini' && geminiApiProtocol === 'gemini'">
           <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
           <select v-model="geminiTierAIStudio" class="input">
             <option value="aistudio_free">{{ t('admin.accounts.gemini.tier.aiStudio.free') }}</option>
@@ -3884,6 +3889,7 @@ import type {
   NewAPISyncConfigUpdate
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import GeminiUpstreamProtocolFields from '@/components/account/GeminiUpstreamProtocolFields.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
@@ -3983,9 +3989,18 @@ const withUpstreamRequestIdHeader = <T extends Record<string, unknown> | undefin
   return { ...(extra || {}), upstream_request_id_header: name }
 }
 
+const geminiApiProtocol = ref<'gemini' | 'chat_completions'>('gemini')
+function onGeminiProtocolChange(protocol: 'gemini' | 'chat_completions') {
+  if (protocol === 'chat_completions' && apiKeyBaseUrl.value.replace(/\/$/, '') === 'https://generativelanguage.googleapis.com') {
+    apiKeyBaseUrl.value = ''
+  } else if (protocol === 'gemini' && !apiKeyBaseUrl.value.trim()) {
+    apiKeyBaseUrl.value = 'https://generativelanguage.googleapis.com'
+  }
+}
+
 const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
-  if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
+  if (form.platform === 'gemini') return t(geminiApiProtocol.value === 'chat_completions' ? 'admin.accounts.gemini.openaiBaseUrlHint' : 'admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'grok') return ''
   return t('admin.accounts.baseUrlHint')
 })
@@ -4006,7 +4021,7 @@ const apiKeyBaseUrlPlaceholder = computed(() => {
     case 'openai':
       return 'https://api.openai.com'
     case 'gemini':
-      return 'https://generativelanguage.googleapis.com'
+      return geminiApiProtocol.value === 'chat_completions' ? 'https://upstream.example.com/v1' : 'https://generativelanguage.googleapis.com'
     case 'grok':
       return 'https://api.x.ai/v1'
     default:
@@ -4277,6 +4292,7 @@ const syncPreviewCredentials = computed(() => {
     type: form.type,
     base_url: baseUrl || undefined,
     api_key: apiKeyValue.value,
+    ...(form.platform === 'gemini' ? { api_protocol: geminiApiProtocol.value } : {}),
     ...(modelMapping ? { model_mapping: modelMapping } : {})
   }
 })
@@ -4776,6 +4792,7 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
+    geminiApiProtocol.value = 'gemini'
     // Reset base URL based on platform
     if (isCNProviderPlatform(newPlatform)) {
       apiKeyBaseUrl.value = defaultCNBaseUrl(newPlatform, accountMode.value, apiProtocol.value)
@@ -5280,6 +5297,7 @@ const resetForm = () => {
   accountMode.value = 'payg'
   apiProtocol.value = 'adaptive'
   adaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '' }
+  geminiApiProtocol.value = 'gemini'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
   upstreamBillingMode.value = 'sub2api'
@@ -5758,6 +5776,11 @@ const handleSubmit = async () => {
     return
   }
 
+  if (form.platform === 'gemini' && geminiApiProtocol.value === 'chat_completions' && !apiKeyBaseUrl.value.trim()) {
+    appStore.showError(t('admin.accounts.gemini.openaiBaseUrlRequired'))
+    return
+  }
+
   // Determine default base URL based on platform
   const defaultBaseUrl =
     form.platform === 'openai'
@@ -5775,6 +5798,7 @@ const handleSubmit = async () => {
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
+    credentials.api_protocol = geminiApiProtocol.value
   }
 
   // 国产供应商：账号模式 + 协议 + 对应端点写入凭据；后端按 account_mode 路由

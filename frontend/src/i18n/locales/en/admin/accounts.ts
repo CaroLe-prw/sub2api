@@ -1480,6 +1480,12 @@ export default {
         modelPassthrough: 'Gemini Model Passthrough',
         modelPassthroughDesc:
           'All model requests are forwarded directly to the Gemini API without model restrictions or mappings.',
+        upstreamProtocol: 'Upstream API format',
+        nativeProtocol: 'Gemini native',
+        openaiProtocol: 'OpenAI compatible (Chat Completions)',
+        upstreamProtocolHint: 'Keep Gemini models in Gemini groups. Choose the API format provided by your upstream.',
+        openaiBaseUrlHint: 'Enter the OpenAI compatible upstream URL, e.g. https://upstream.example.com/v1. Supports chat, image input and function calls. Gemini built-in tools and audio/video generation are unavailable. Token counting is estimated locally.',
+        openaiBaseUrlRequired: 'Enter the OpenAI compatible upstream URL.',
         baseUrlHint: 'Leave default for official Gemini API',
         apiKeyHint: 'Your Gemini API Key (starts with AIza)',
         tier: {

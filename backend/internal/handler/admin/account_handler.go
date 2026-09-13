@@ -3195,6 +3195,7 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		Platform     string            `json:"platform" binding:"required"`
 		Type         string            `json:"type" binding:"required"`
 		BaseURL      *string           `json:"base_url"`
+		APIProtocol  *string           `json:"api_protocol"`
 		APIKey       string            `json:"api_key"`
 		ModelMapping map[string]string `json:"model_mapping"`
 	}
@@ -3234,6 +3235,13 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 	}
 	if req.BaseURL != nil {
 		tempAccount.Credentials["base_url"] = strings.TrimSpace(*req.BaseURL)
+	}
+	if req.APIProtocol != nil && req.Platform == service.PlatformGemini {
+		if *req.APIProtocol != "gemini" && *req.APIProtocol != "chat_completions" {
+			response.BadRequest(c, "Unsupported Gemini upstream protocol")
+			return
+		}
+		tempAccount.Credentials["api_protocol"] = *req.APIProtocol
 	}
 	if req.ModelMapping != nil {
 		modelMapping := make(map[string]any, len(req.ModelMapping))

@@ -370,7 +370,7 @@ func geminiCooldownForTier(tierID string) time.Duration {
 }
 
 func geminiQuotaTierKeyForAccount(account *Account) string {
-	if account == nil || account.Platform != PlatformGemini {
+	if account == nil || account.Platform != PlatformGemini || account.GeminiUsesOpenAI() {
 		return ""
 	}
 

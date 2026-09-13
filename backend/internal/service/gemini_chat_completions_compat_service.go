@@ -112,6 +112,13 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		useUpstreamStream,
 	)
 
+	if account.GeminiUsesOpenAI() {
+		buildReq, err = s.openAIUpstreamBuilder(account, mappedModel, geminiReq, useUpstreamStream)
+		if err != nil {
+			return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		}
+	}
+
 	var resp *http.Response
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
 		upstreamReq, idHeader, err := buildReq(ctx)
@@ -144,6 +151,8 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			setOpsUpstreamError(c, 0, safeErr, "")
 			return nil, upstreamTransportFailoverError(ctx, err)
 		}
+
+		adaptGeminiOpenAIResponse(account, resp, useUpstreamStream)
 
 		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
 			resp = rebuilt

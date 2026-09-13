@@ -28,6 +28,11 @@
 
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
+        <GeminiUpstreamProtocolFields
+          v-if="account.platform === 'gemini'"
+          v-model="editGeminiApiProtocol"
+          @update:model-value="onGeminiProtocolChange"
+        />
         <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -38,7 +43,7 @@
               account.platform === 'openai'
                 ? 'https://api.openai.com'
                 : account.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
+                  ? (editGeminiApiProtocol === 'chat_completions' ? 'https://upstream.example.com/v1' : 'https://generativelanguage.googleapis.com')
                   : account.platform === 'antigravity'
                     ? 'https://cloudcode-pa.googleapis.com'
                     : account.platform === 'grok'
@@ -3042,6 +3047,7 @@ import type {
   GrokMediaEligibilityState
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import GeminiUpstreamProtocolFields from '@/components/account/GeminiUpstreamProtocolFields.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
@@ -3167,10 +3173,19 @@ const handleNewAPIRatioSynced = (ratio: number) => {
 }
 
 // Platform-specific hint for Base URL
+const editGeminiApiProtocol = ref<'gemini' | 'chat_completions'>('gemini')
+function onGeminiProtocolChange(protocol: 'gemini' | 'chat_completions') {
+  if (protocol === 'chat_completions' && editBaseUrl.value.replace(/\/$/, '') === 'https://generativelanguage.googleapis.com') {
+    editBaseUrl.value = ''
+  } else if (protocol === 'gemini' && !editBaseUrl.value.trim()) {
+    editBaseUrl.value = 'https://generativelanguage.googleapis.com'
+  }
+}
+
 const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
-  if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
+  if (props.account.platform === 'gemini') return t(editGeminiApiProtocol.value === 'chat_completions' ? 'admin.accounts.gemini.openaiBaseUrlHint' : 'admin.accounts.gemini.baseUrlHint')
   if (props.account.platform === 'grok') return ''
   return t('admin.accounts.baseUrlHint')
 })
@@ -3838,13 +3853,15 @@ const syncPreviewCredentials = computed(() => {
     : editBaseUrl.value.trim() || defaultBaseUrl.value
   const savedBaseUrl = String(account.credentials?.base_url || defaultBaseUrl.value).trim()
   const apiKey = editApiKey.value.trim()
-  if (!apiKey && baseUrl === savedBaseUrl) return undefined
+  const protocolChanged = account.platform === 'gemini' && editGeminiApiProtocol.value !== (account.credentials?.api_protocol || 'gemini')
+  if (!apiKey && baseUrl === savedBaseUrl && !protocolChanged) return undefined
   return {
     account_id: account.id,
     platform: account.platform,
     type: account.type,
     base_url: baseUrl,
-    api_key: apiKey || undefined
+    api_key: apiKey || undefined,
+    ...(account.platform === 'gemini' ? { api_protocol: editGeminiApiProtocol.value } : {})
   }
 })
 
@@ -4291,6 +4308,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         editZhipuProject.value = typeof credentials.zhipu_project === 'string' ? credentials.zhipu_project : ''
       }
     }
+    editGeminiApiProtocol.value = credentials.api_protocol === 'chat_completions' ? 'chat_completions' : 'gemini'
     const platformDefaultUrl =
       newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -5056,6 +5074,10 @@ const handleSubmit = async () => {
 
     // For apikey type, handle credentials update
     if (props.account.type === 'apikey') {
+      if (props.account.platform === 'gemini' && editGeminiApiProtocol.value === 'chat_completions' && !editBaseUrl.value.trim()) {
+        appStore.showError(t('admin.accounts.gemini.openaiBaseUrlRequired'))
+        return
+      }
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
       const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
@@ -5065,6 +5087,8 @@ const handleSubmit = async () => {
         ...currentCredentials,
         base_url: newBaseUrl
       }
+
+      if (props.account.platform === 'gemini') newCredentials.api_protocol = editGeminiApiProtocol.value
 
       if (supportsResponseModelMapping(props.account.platform, props.account.type)) {
         if (!validResponseModelMapping(responseModelMappingRows.value)) {

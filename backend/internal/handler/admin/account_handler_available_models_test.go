@@ -663,3 +663,23 @@ func TestAccountHandlerGetAvailableModels_OpenAIModelCatalogPriority(t *testing.
 		})
 	}
 }
+
+func TestAccountHandlerSyncUpstreamModelsPreviewGeminiOpenAIProtocol(t *testing.T) {
+	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{
+		ID: 48, Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "saved-key", "base_url": "https://old.example/v1"},
+	}}
+	upstream := &syncUpstreamHTTPUpstream{resp: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"gemini-3"}]}`)),
+	}}
+	router := setupSyncUpstreamModelsRouter(svc, upstream)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/models/sync-upstream-preview", strings.NewReader(`{"account_id":48,"platform":"gemini","type":"apikey","api_protocol":"chat_completions"}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, "https://old.example/v1/models", upstream.requests[0].URL.String())
+	require.Equal(t, "Bearer saved-key", upstream.requests[0].Header.Get("Authorization"))
+	require.NotContains(t, svc.account.Credentials, "api_protocol", "preview must not change saved protocol")
+}

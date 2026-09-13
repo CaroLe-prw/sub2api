@@ -29,6 +29,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminiopenai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
@@ -2598,6 +2599,8 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
 	}
 
+	adaptGeminiOpenAIResponse(account, resp, true)
+
 	// Process SSE stream
 	return s.processGeminiStream(c, resp.Body)
 }
@@ -2672,6 +2675,14 @@ func (s *AccountTestService) buildGeminiAPIKeyRequest(ctx context.Context, accou
 	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {
 		return nil, err
+	}
+
+	if account.GeminiUsesOpenAI() {
+		converted, err := geminiopenai.Request(payload, modelID, true)
+		if err != nil {
+			return nil, err
+		}
+		return newGeminiOpenAIRequest(ctx, normalizedBaseURL, apiKey, converted)
 	}
 
 	// Use streamGenerateContent for real-time feedback

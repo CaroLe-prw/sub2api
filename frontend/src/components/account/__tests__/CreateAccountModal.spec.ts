@@ -243,6 +243,25 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it('creates a Gemini account with an OpenAI upstream without changing its platform', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Gemini')
+    await selectButtonByText(wrapper, 'admin.accounts.gemini.accountType.apiKeyTitle')
+    await wrapper.get('[data-testid="gemini-upstream-protocol"]').setValue('chat_completions')
+    const base = wrapper.get<HTMLInputElement>('input[placeholder="https://upstream.example.com/v1"]')
+    expect(base.element.value).toBe('')
+    await base.setValue('https://upstream.example.com/v1')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Gemini upstream')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('upstream-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      platform: 'gemini', type: 'apikey',
+      credentials: expect.objectContaining({ api_protocol: 'chat_completions', base_url: 'https://upstream.example.com/v1', api_key: 'upstream-key' })
+    }))
+    wrapper.unmount()
+  })
+
   it('sets month and year expiry presets without submitting the account form', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-01-31T12:34:00'))

@@ -351,6 +351,39 @@ describe('EditAccountModal', () => {
     authIsSimpleMode.value = true
   })
 
+  it('loads and saves the Gemini upstream format while preserving the saved key and URL', async () => {
+    const account = { ...buildAccount(), platform: 'gemini' as const, credentials: {
+      api_protocol: 'chat_completions', base_url: 'https://upstream.example.com/v1', api_key: 'saved-key'
+    } }
+    const wrapper = mountModal(account)
+    await flushPromises()
+    expect(wrapper.get<HTMLSelectElement>('[data-testid="gemini-upstream-protocol"]').element.value).toBe('chat_completions')
+    expect(wrapper.get<HTMLInputElement>('input[placeholder="https://upstream.example.com/v1"]').element.value).toBe('https://upstream.example.com/v1')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
+      credentials: expect.objectContaining(account.credentials)
+    }))
+    wrapper.unmount()
+  })
+
+  it('defaults existing Gemini accounts to native and permits changing only the upstream format', async () => {
+    const account = { ...buildAccount(), platform: 'gemini' as const, credentials: {
+      base_url: 'https://upstream.example.com/v1', api_key: 'saved-key'
+    } }
+    const wrapper = mountModal(account)
+    await flushPromises()
+    const protocol = wrapper.get<HTMLSelectElement>('[data-testid="gemini-upstream-protocol"]')
+    expect(protocol.element.value).toBe('gemini')
+    await protocol.setValue('chat_completions')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
+      credentials: expect.objectContaining({ ...account.credentials, api_protocol: 'chat_completions' })
+    }))
+    wrapper.unmount()
+  })
+
   it.each([
     { name: 'key', key: 'sk-new', url: 'https://api.openai.com' },
     { name: 'address', key: '', url: 'https://new.example/v1' },
