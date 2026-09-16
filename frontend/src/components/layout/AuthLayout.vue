@@ -49,23 +49,29 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.auth-page.auth-page-paper {
+.auth-page {
   position: relative;
   display: flex;
   min-height: 100vh;
   min-height: 100svh;
   overflow-x: hidden;
   padding: 32px 18px;
-  color: #111827;
-  background: #f8fbfb;
   isolation: isolate;
 }
 
-.auth-page-paper .auth-backdrop {
+.auth-page.auth-page-paper {
+  color: #111827;
+  background: #f8fbfb;
+}
+
+.auth-backdrop {
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
+}
+
+.auth-page-paper .auth-backdrop {
   background:
     radial-gradient(circle at 98% 6%, rgba(45, 212, 191, 0.16), transparent 28rem),
     radial-gradient(circle at 4% 92%, rgba(45, 212, 191, 0.1), transparent 30rem),
@@ -74,10 +80,13 @@ onMounted(() => {
   background-size: auto, auto, 48px 48px, 48px 48px;
 }
 
-.auth-page-paper .auth-shell {
-  width: min(100%, 460px);
+.auth-shell {
   margin: auto;
   padding: 28px 0;
+}
+
+.auth-page-paper .auth-shell {
+  width: min(100%, 460px);
 }
 
 .auth-brand {
