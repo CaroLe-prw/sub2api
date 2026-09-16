@@ -86,7 +86,7 @@ func TestCallProvider_BasePath(t *testing.T) {
 		{"zhipu version", MonitorProviderZhipu, "", "/api/paas/v4", "/api/paas/v4/chat/completions"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, status, err := callProvider(context.Background(), tc.provider,
+			_, _, status, _, err := callProvider(context.Background(), tc.provider,
 				server.URL+tc.basePath, "test-key", "test-model", "hello", &CheckOptions{APIMode: tc.apiMode})
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, status)
