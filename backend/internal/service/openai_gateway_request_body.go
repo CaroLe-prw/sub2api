@@ -1199,6 +1199,12 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Ac
 			return body, false, err
 		}
 	}
+	if next, contentChanged, err := normalizeOpenAIResponsesMessageContent(normalized); err != nil {
+		return body, false, err
+	} else if contentChanged {
+		normalized = next
+		changed = true
+	}
 	if next, normalizedReasoningContent, err := normalizeOpenAIResponsesReasoningContentReplay(normalized); err != nil {
 		return body, false, err
 	} else if normalizedReasoningContent {

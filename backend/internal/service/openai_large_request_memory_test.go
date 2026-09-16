@@ -22,6 +22,7 @@ func TestLargeNativeResponsesRemainsByteIdentical(t *testing.T) {
 	body := largeNativeResponsesBody(2 << 20)
 	for _, fn := range []func([]byte) ([]byte, bool, error){
 		normalizeOpenAIResponsesLegacyIngress,
+		normalizeOpenAIResponsesMessageContent,
 		sanitizeOpenAIResponsesInputItemIDs,
 		normalizeOpenAIResponsesReasoningContentReplay,
 		func(body []byte) ([]byte, bool, error) {
