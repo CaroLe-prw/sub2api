@@ -2168,3 +2168,32 @@ func TestNormalizeOpsErrorType_KeepsGeminiInBandSignalTypes(t *testing.T) {
 		require.Equal(t, errType, normalizeOpsErrorType(errType, "PROHIBITED_CONTENT"), errType)
 	}
 }
+
+func TestOpsErrorLoggerMiddlewarePersistsRequestDiagnosticsOnlyForErrors(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusBadRequest} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			setupOpsErrorLogTestQueue(t, 2)
+			ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+			router := gin.New()
+			router.Use(OpsErrorLoggerMiddleware(ops))
+			router.POST("/v1/responses", func(c *gin.Context) {
+				raw, err := c.GetRawData()
+				require.NoError(t, err)
+				require.Contains(t, string(raw), "client-secret")
+				c.JSON(status, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "invalid content"}})
+			})
+			router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/responses", strings.NewReader(`{"input":[{"content":{"type":"input_text","text":"hello"}}],"api_key":"client-secret"}`)))
+			if status < 400 {
+				require.Zero(t, OpsErrorLogQueueLength())
+				return
+			}
+			require.Equal(t, int64(1), OpsErrorLogQueueLength())
+			job := <-opsErrorLogQueue
+			require.NotNil(t, job.entry.RequestDiagnosticsJSON)
+			require.Contains(t, *job.entry.RequestDiagnosticsJSON, "hello")
+			require.NotContains(t, *job.entry.RequestDiagnosticsJSON, "client-secret")
+			require.Contains(t, job.entry.ErrorBody, "invalid content")
+			require.GreaterOrEqual(t, estimateOpsErrorLogJobBytes(job.entry), int64(len(*job.entry.RequestDiagnosticsJSON)))
+		})
+	}
+}

@@ -97,6 +97,8 @@ type OpsInsertErrorLogInput struct {
 
 	ErrorMessage string
 	ErrorBody    string
+	// RequestDiagnosticsJSON contains bounded, redacted diagnostics, not replay data.
+	RequestDiagnosticsJSON *string
 
 	ErrorSource string
 	ErrorOwner  string

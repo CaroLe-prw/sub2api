@@ -1,6 +1,16 @@
 /** Channel Monitor V2 (user + admin passive monitor UI) */
 export default {
   channelMonitorV2: {
+    cards: {
+      availability: 'Availability',
+      showAnalysis: 'Detailed analysis',
+      hideAnalysis: 'Back to cards',
+      filtered: 'Filters applied',
+      intervals: 'Last {count} intervals',
+      refreshIn: 'Refresh in {seconds}s',
+      history: 'Channel history; select an interval for details',
+      states: { healthy: 'Healthy', warning: 'Degraded', critical: 'Critical', unknown: 'Insufficient data' },
+    },
     title: 'Channel Monitor',
     updating: 'Updating data',
     updatedTo: 'Updated to {time}',

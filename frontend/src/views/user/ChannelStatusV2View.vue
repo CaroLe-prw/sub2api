@@ -1,17 +1,17 @@
 <template>
   <component :is="pageShell">
-    <div class="space-y-6 pb-12">
-      <!-- Ops-style elevated shell: title toolbar + filters (mirrors OpsDashboardHeader) -->
+    <div class="channel-status-board space-y-6 pb-12">
+      <!-- Compact status header; analysis controls are available on demand. -->
       <section
-        class="card sticky top-0 z-20 !rounded-3xl !border-0 p-0 shadow-sm ring-1 ring-gray-900/5 backdrop-blur-sm dark:!bg-dark-800 dark:ring-dark-700 supports-[backdrop-filter]:bg-white/95 dark:supports-[backdrop-filter]:bg-dark-800/95"
+        class="card status-header !rounded-lg !border-0 !p-0 !shadow-none dark:!bg-dark-800"
       >
         <header class="page-header mb-0 flex flex-wrap items-start justify-between gap-4 border-b border-gray-100 px-5 py-4 dark:border-dark-700 sm:px-6">
           <div class="min-w-0">
             <h1 class="page-title flex items-center gap-2 text-xl font-black text-gray-900 dark:text-white">
-              <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-500 dark:bg-blue-900/30 dark:text-blue-400">
+              <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
                 <Icon name="chart" size="sm" />
               </span>
-              {{ t('channelMonitorV2.title') }}
+              {{ t('nav.channelStatus') }}
             </h1>
             <div class="page-description mt-1.5 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
               <span class="relative flex h-2 w-2 shrink-0">
@@ -44,13 +44,14 @@
             </div>
           </div>
           <button
-            class="btn btn-secondary btn-icon flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600"
+            class="btn btn-secondary btn-icon flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600"
             type="button"
             :title="t('common.refresh')"
-            :disabled="loading"
+            :aria-label="t('common.refresh')"
+            :disabled="loading || refreshing"
             @click="reload(false)"
           >
-            <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
+            <Icon name="refresh" size="sm" :class="loading || refreshing ? 'animate-spin' : ''" />
           </button>
         </header>
 
@@ -90,7 +91,7 @@
         </div>
 
         <!-- Single compact toolbar row: range · filters · view controls -->
-        <div class="monitor-toolbar flex flex-nowrap items-center gap-1.5 overflow-x-auto px-4 py-3 sm:gap-2 sm:px-5">
+        <div class="monitor-toolbar flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
           <div
             class="tabs inline-flex shrink-0"
             role="group"
@@ -102,12 +103,30 @@
               type="button"
               class="tab !px-2 !py-1 text-xs sm:!px-2.5"
               :class="filter.range === option.value ? 'tab-active' : ''"
+              :aria-pressed="filter.range === option.value"
               @click="setRange(option.value)"
             >
               {{ option.label }}
             </button>
           </div>
 
+          <p v-if="snapshot" class="status-summary text-xs text-gray-500 dark:text-gray-400 sm:ml-auto">
+            {{ t('channelMonitorV2.cards.availability') }} {{ monitorAvailability(snapshot.metrics) }}
+            <span class="mx-1.5" aria-hidden="true">·</span>
+            {{ t('channelMonitorV2.metrics.cacheRate') }} {{ monitorCacheRate(snapshot.metrics) }}
+          </p>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm !px-2 text-xs"
+            :aria-expanded="showAnalysis"
+            aria-controls="monitor-analysis-controls"
+            @click="showAnalysis = !showAnalysis"
+          >
+            {{ t(showAnalysis ? 'channelMonitorV2.cards.hideAnalysis' : 'channelMonitorV2.cards.showAnalysis') }}
+            <span v-if="hasDimensionFilter" class="ml-1 h-1.5 w-1.5 rounded-full bg-emerald-500" :title="t('channelMonitorV2.cards.filtered')"></span>
+          </button>
+        </div>
+        <div v-show="showAnalysis" id="monitor-analysis-controls" class="monitor-toolbar flex flex-wrap items-center gap-2 border-t border-gray-100 px-4 py-3 dark:border-dark-700 sm:px-5">
           <span class="mx-0.5 hidden h-5 w-px shrink-0 bg-gray-200 dark:bg-dark-700 sm:block" aria-hidden="true"></span>
 
           <FilterMultiSelect
@@ -195,7 +214,7 @@
 
       <!-- Overview KPI: success · TTFT · tokens/s(optional) · cache · (+ RPM when throughput visible) -->
       <section
-        v-if="snapshot"
+        v-if="showAnalysis && snapshot"
         class="grid grid-cols-2 gap-3 sm:grid-cols-3"
         :class="showThroughput ? 'xl:grid-cols-5' : 'xl:grid-cols-4'"
         :aria-label="t('channelMonitorV2.summaryAria')"
@@ -235,7 +254,7 @@
         />
       </section>
       <section
-        v-else-if="loading"
+        v-else-if="showAnalysis && loading"
         class="grid grid-cols-2 gap-3 sm:grid-cols-3"
         :class="showThroughput ? 'xl:grid-cols-5' : 'xl:grid-cols-4'"
         aria-hidden="true"
@@ -247,7 +266,22 @@
         />
       </section>
 
-      <div class="relative min-h-[320px]">
+      <MonitorChannelCards
+        v-if="!showAnalysis && matrix"
+        :rows="matrixRows"
+        :coverage="matrix.coverage"
+        :countdown="refreshCountdown"
+        :refreshing="refreshing"
+      />
+      <div v-else-if="!showAnalysis && loading" class="status-card-skeletons" aria-busy="true" :aria-label="t('common.loading')">
+        <div v-for="index in 8" :key="index" class="h-64 animate-pulse rounded-lg bg-white dark:bg-dark-800" />
+      </div>
+      <div v-else-if="!showAnalysis && !matrix" class="rounded-lg bg-white p-10 text-center text-sm text-gray-500 dark:bg-dark-800" role="status">
+        {{ t('channelMonitorV2.loadFailed') }}
+        <button type="button" class="btn btn-secondary mx-auto mt-4" @click="reload(false)">{{ t('common.refresh') }}</button>
+      </div>
+
+      <div v-if="showAnalysis" class="relative min-h-[320px]">
         <MonitorTrendChart
           v-if="trendView === 'line'"
           :trend="snapshot?.trend || []"
@@ -269,7 +303,7 @@
         </div>
       </div>
 
-      <section class="card flex min-h-0 flex-col overflow-hidden !rounded-3xl !border-0 shadow-sm ring-1 ring-gray-900/5 dark:!bg-dark-800 dark:ring-dark-700">
+      <section v-if="showAnalysis" class="card flex min-h-0 flex-col overflow-hidden !rounded-3xl !border-0 shadow-sm ring-1 ring-gray-900/5 dark:!bg-dark-800 dark:ring-dark-700">
         <div class="border-b border-gray-100 px-5 pt-4 dark:border-dark-700 sm:px-6">
           <nav class="tabs inline-flex max-w-full" role="tablist" :aria-label="t('channelMonitorV2.tabs.aria')">
             <button
@@ -471,6 +505,8 @@ import MetricCell from '@/features/channel-monitor-v2/MetricCell.vue'
 import MonitorRankBadge from '@/features/channel-monitor-v2/MonitorRankBadge.vue'
 import MonitorTrendChart from '@/features/channel-monitor-v2/MonitorTrendChart.vue'
 import RelayPulseMatrix from '@/features/channel-monitor-v2/RelayPulseMatrix.vue'
+import MonitorChannelCards from '@/features/channel-monitor-v2/MonitorChannelCards.vue'
+import { monitorAvailability, monitorCacheRate } from '@/features/channel-monitor-v2/monitorCards'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -559,6 +595,8 @@ const activeTab = ref<Tab>(parseTab(route.query.tab, showUserRanking.value))
 const matrixGroupBy = ref<MonitorMatrixGroupBy>(parseMatrixGroupBy(route.query.group_by))
 const healthMode = ref<HealthMode>(parseHealthMode(route.query.health_mode))
 const trendView = ref<TrendView>(parseTrendView(route.query.trend_view))
+const showAnalysis = ref(route.query.trend_view === 'line')
+const refreshCountdown = ref(300)
 const dimensions = ref<MonitorDimensions>({ platforms: [], groups: [], models: [] })
 const snapshot = ref<MonitorSnapshot | null>(null)
 const matrix = ref<MonitorMatrixResponse | null>(null)
@@ -729,7 +767,7 @@ async function loadMetrics(signal?: AbortSignal, id = sequence) {
   snapshot.value = nextSnapshot
   matrix.value = nextMatrix
   scheduleAutoRefresh()
-  await loadTab(signal, id)
+  if (showAnalysis.value) await loadTab(signal, id)
 }
 
 async function reload(silent = true) {
@@ -821,11 +859,14 @@ function scheduleAutoRefresh() {
   const seconds = bootstrapActive.value
     ? 10
     : snapshot.value?.config?.refresh_interval_seconds || 300
+  refreshCountdown.value = Math.max(bootstrapActive.value ? 10 : 60, seconds)
   autoRefreshTimer = window.setInterval(() => {
-    if (!loading.value && !refreshing.value) {
+    refreshCountdown.value = Math.max(0, refreshCountdown.value - 1)
+    if (refreshCountdown.value === 0 && !loading.value && !refreshing.value && !document.hidden) {
+      refreshCountdown.value = Math.max(bootstrapActive.value ? 10 : 60, seconds)
       void reload(true)
     }
-  }, Math.max(bootstrapActive.value ? 10 : 60, seconds) * 1000)
+  }, 1000)
 }
 function drillModel(row: MonitorModelRow) {
   filter.value.platforms = [row.platform]
@@ -917,6 +958,9 @@ watch(matrixGroupBy, () => {
   syncQuery()
   void reloadMetricsOnly(true)
 })
+watch(showAnalysis, (visible) => {
+  if (visible) void loadTab()
+})
 watch(healthMode, syncQuery)
 watch(trendView, syncQuery)
 watch(
@@ -946,6 +990,31 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.channel-status-board {
+  position: relative;
+  isolation: isolate;
+  min-height: calc(100vh - 9rem);
+}
+.channel-status-board::before {
+  content: '';
+  position: absolute;
+  inset: -2rem;
+  z-index: -1;
+  pointer-events: none;
+  background-color: #f6f8fc;
+  background-image: linear-gradient(#e9eef980 1px, transparent 1px), linear-gradient(90deg, #e9eef980 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+:global(.dark .channel-status-board::before) {
+  background-color: #0c1220;
+  background-image: linear-gradient(#26334850 1px, transparent 1px), linear-gradient(90deg, #26334850 1px, transparent 1px);
+}
+.status-card-skeletons { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 20px; }
+@media (max-width: 639px) {
+  .channel-status-board::before { inset: -1rem; }
+  .status-summary { order: 3; width: 100%; }
+}
+
 .status-dot {
   display: inline-block;
   height: 0.5rem;

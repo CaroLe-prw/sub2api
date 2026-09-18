@@ -1003,6 +1003,7 @@ export interface OpsErrorLog {
 
 export interface OpsErrorDetail extends OpsErrorLog {
   error_body: string
+  request_diagnostics?: string
 
   // Upstream context (optional; enriched by gateway services)
   upstream_status_code?: number | null

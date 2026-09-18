@@ -79,7 +79,8 @@ type OpsErrorLog struct {
 type OpsErrorLogDetail struct {
 	OpsErrorLog
 
-	ErrorBody string `json:"error_body"`
+	ErrorBody          string `json:"error_body"`
+	RequestDiagnostics string `json:"request_diagnostics,omitempty"`
 
 	// Upstream context (optional)
 	UpstreamStatusCode   *int   `json:"upstream_status_code,omitempty"`

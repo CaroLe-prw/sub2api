@@ -145,6 +145,7 @@ docs/*
 !docs/channel-monitor-v2-safe-defaults.md
 !docs/group-model-mapping.md
 !docs/gemini-openai-upstream.md
+!docs/ops-error-diagnostics.md
 !docs/legal/
 !docs/legal/*.md
 !docs/screenshots/

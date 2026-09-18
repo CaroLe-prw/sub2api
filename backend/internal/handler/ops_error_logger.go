@@ -416,6 +416,9 @@ func estimateOpsErrorLogJobBytes(entry *service.OpsInsertErrorLogInput) int64 {
 	if entry.UpstreamErrorsJSON != nil {
 		size += len(*entry.UpstreamErrorsJSON)
 	}
+	if entry.RequestDiagnosticsJSON != nil {
+		size += len(*entry.RequestDiagnosticsJSON)
+	}
 	return int64(size)
 }
 
@@ -1080,6 +1083,9 @@ func (state *opsCaptureWriterState) shouldCapture() bool {
 // - Streaming errors after the response has started (SSE) may still need explicit logging.
 func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if c.Request != nil && ops != nil && ops.IsMonitoringEnabled(c.Request.Context()) {
+			c.Request = service.EnableOpsRequestDiagnostics(c.Request)
+		}
 		originalWriter := c.Writer
 		w := acquireOpsCaptureWriter(originalWriter)
 		w.setContext(c)
@@ -1678,6 +1684,9 @@ func applyOpsLatencyFieldsFromContext(c *gin.Context, entry *service.OpsInsertEr
 func applyOpsUpstreamFieldsFromContext(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
 	if c == nil || entry == nil {
 		return
+	}
+	if c.Request != nil && entry.StatusCode >= 400 {
+		entry.RequestDiagnosticsJSON = service.BuildOpsRequestDiagnosticsJSON(c.Request.Context())
 	}
 	if v, ok := c.Get(service.OpsUpstreamStatusCodeKey); ok {
 		switch t := v.(type) {

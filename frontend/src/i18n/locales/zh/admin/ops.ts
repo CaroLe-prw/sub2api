@@ -347,6 +347,27 @@ export default {
         message: '消息',
         rootCause: '根因',
         diagnosticPayloads: '诊断载荷',
+        records: {
+          title: '请求 / 上游响应记录',
+          hint: '仅错误请求保存脱敏快照；凭据和二进制内容不展示。客户端错误响应见下方诊断详情。',
+          clientRequest: '客户端原始请求',
+          upstreamRequest: '实际发送给上游的请求',
+          upstreamResponse: '上游响应',
+          attempt: '尝试 {index} · 账号 {account} · HTTP {status}',
+          bytes: '已观察正文：{count} 字节',
+          truncated: '内容已截断或省略，不能视为完整请求 / 响应。',
+          dropped: '已省略较早的 {count} 次上游尝试，仅保留最近记录。',
+          notCollected: '未采集请求快照：旧记录或该请求路径未启用采集。',
+          omitted: {
+            too_large: '正文超过采集上限，未保存原文。',
+            non_json: '非完整 JSON 正文，为避免泄露敏感内容未保存原文。',
+            encoded_body: '压缩或编码正文未保存原文。',
+            empty_or_unread: '未观察到正文，可能为空或未被读取。',
+            read_error: '读取诊断副本失败，未保存正文。',
+            unavailable: '该请求无法取得正文副本，未采集。',
+            not_captured: '未采集该响应正文（例如成功状态的流式响应或网络失败）。'
+          }
+        },
         payloads: {
           client: '客户端响应',
           upstream_message: '上游消息',

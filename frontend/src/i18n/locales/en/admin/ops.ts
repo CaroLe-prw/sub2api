@@ -347,6 +347,27 @@ export default {
         message: 'Message',
         rootCause: 'Root Cause',
         diagnosticPayloads: 'Diagnostic Payloads',
+        records: {
+          title: 'Request / upstream response records',
+          hint: 'Redacted snapshots are stored only for errors. Credentials and binary data are omitted. Client error responses appear in the diagnostics below.',
+          clientRequest: 'Original client request',
+          upstreamRequest: 'Actual upstream request',
+          upstreamResponse: 'Upstream response',
+          attempt: 'Attempt {index} · Account {account} · HTTP {status}',
+          bytes: 'Observed body: {count} bytes',
+          truncated: 'Content was truncated or omitted; this is not a complete request / response.',
+          dropped: '{count} earlier upstream attempts were omitted; only the most recent are retained.',
+          notCollected: 'No request snapshot: older record or capture unavailable for this request path.',
+          omitted: {
+            too_large: 'Body exceeds the capture limit; raw content was not stored.',
+            non_json: 'Body is not complete JSON; raw content was omitted to avoid exposing sensitive data.',
+            encoded_body: 'Compressed or encoded body was not stored.',
+            empty_or_unread: 'No body observed; it may be empty or unread.',
+            read_error: 'Could not read a diagnostic copy; body was not stored.',
+            unavailable: 'A copy of the request body was unavailable.',
+            not_captured: 'Response body was not captured (for example, a successful streaming response or a network failure).'
+          }
+        },
         payloads: {
           client: 'Client Response',
           upstream_message: 'Upstream Message',

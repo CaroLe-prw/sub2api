@@ -1,6 +1,16 @@
 /** Channel Monitor V2 (user + admin passive monitor UI) */
 export default {
   channelMonitorV2: {
+    cards: {
+      availability: '可用率',
+      showAnalysis: '详细分析',
+      hideAnalysis: '返回卡片',
+      filtered: '已应用筛选',
+      intervals: '近 {count} 个时段',
+      refreshIn: '{seconds}s 后刷新',
+      history: '渠道历史状态，点击色块查看详情',
+      states: { healthy: '健康', warning: '需关注', critical: '异常', unknown: '样本不足' },
+    },
     title: '渠道监控',
     updating: '正在更新数据',
     updatedTo: '更新至 {time}',
