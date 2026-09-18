@@ -69,7 +69,9 @@ func TestOpsRequestDiagnosticsDoesNotPinLargeRequests(t *testing.T) {
 		return nil, nil
 	}
 	RecordOpsUpstreamExchange(request, &http.Response{StatusCode: 400}, nil, 1)
-	recorder := inbound.Context().Value(opsDiagnosticsKey{}).(*opsDiagnosticsRecorder)
+	recorder, ok := inbound.Context().Value(opsDiagnosticsKey{}).(*opsDiagnosticsRecorder)
+	require.True(t, ok)
+	require.NotNil(t, recorder)
 	require.Nil(t, recorder.attempts[0].request.Body)
 	require.Nil(t, recorder.attempts[0].request.GetBody)
 	require.Empty(t, recorder.attempts[0].requestBody)
