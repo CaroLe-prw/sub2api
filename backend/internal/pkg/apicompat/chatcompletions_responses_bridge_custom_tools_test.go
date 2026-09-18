@@ -542,17 +542,20 @@ func TestResponsesToChatCompletionsRequest_NamespaceToolFlattensChildren(t *test
 			Name: "gmail",
 			Tools: []ResponsesTool{
 				{Type: "function", Name: "send", Description: "Send mail", Parameters: json.RawMessage(`{"type":"object","properties":{}}`)},
-				{Type: "custom", Name: "ignored_child"},
+				{Type: "custom", Name: "exec"},
+				{Type: "web_search", Name: "ignored_child"},
 			},
 		}},
 	}
 
 	out, err := ResponsesToChatCompletionsRequest(req)
 	require.NoError(t, err)
-	require.Len(t, out.Tools, 1, "namespace 子工具中仅 function 类型被摊平")
+	require.Len(t, out.Tools, 2, "namespace 的 function/custom 子工具被摊平，服务端工具仍被忽略")
 
 	assert.Equal(t, "gmail__send", out.Tools[0].Function.Name)
 	assert.Equal(t, "Send mail", out.Tools[0].Function.Description)
+	assert.Equal(t, "gmail__exec", out.Tools[1].Function.Name)
+	assert.JSONEq(t, customToolInputSchema, string(out.Tools[1].Function.Parameters))
 }
 
 func TestResponsesToolsParsing_StringToolBecomesCustom(t *testing.T) {
@@ -767,7 +770,8 @@ func TestNamespaceToolNames_MapsFlattenedNames(t *testing.T) {
 	tools := []ResponsesTool{
 		{Type: "namespace", Name: "gmail", Tools: []ResponsesTool{
 			{Type: "function", Name: "send"},
-			{Type: "custom", Name: "skip_me"},
+			{Type: "custom", Name: "exec"},
+			{Type: "web_search", Name: "skip_me"},
 		}},
 		{Type: "namespace", Name: "crm", Children: []ResponsesTool{
 			{Type: "function", Name: "query"},
@@ -776,8 +780,9 @@ func TestNamespaceToolNames_MapsFlattenedNames(t *testing.T) {
 	}
 
 	m := NamespaceToolNames(tools)
-	require.Len(t, m, 2)
+	require.Len(t, m, 3)
 	assert.Equal(t, NamespacedToolName{Namespace: "gmail", Name: "send"}, m["gmail__send"])
+	assert.Equal(t, NamespacedToolName{Namespace: "gmail", Name: "exec", IsCustom: true}, m["gmail__exec"])
 	assert.Equal(t, NamespacedToolName{Namespace: "crm", Name: "query"}, m["crm__query"])
 
 	// 摊平名超长时截断加哈希，无法按字符串切分还原，必须经映射反查。
