@@ -241,6 +241,7 @@ type openAIAccountRuntimeStats struct {
 }
 
 type openAIAccountRuntimeStat struct {
+	slowFirstOutput   openAISlowFirstOutputHealth
 	errorRateEWMABits atomic.Uint64
 	ttftEWMABits      atomic.Uint64
 	consecutiveErrors atomic.Int64
@@ -305,6 +306,9 @@ func (s *openAIAccountRuntimeStats) reportTraffic(accountID int64, model string,
 	s.reportTrafficStat(s.loadOrCreate(accountID), success, firstTokenMs)
 	if stat := s.loadOrCreateModel(accountID, model); stat != nil {
 		s.reportTrafficStat(stat, success, firstTokenMs)
+		if success && firstTokenMs != nil {
+			stat.slowFirstOutput.record(*firstTokenMs, time.Now())
+		}
 	}
 }
 
@@ -875,6 +879,16 @@ func (s *defaultOpenAIAccountScheduler) Select(
 				selection = nil
 			}
 		}
+		if selection != nil && selection.Account != nil && req.PreviousResponseCanMove {
+			if slow, _ := s.slowAccountStatus(selection.Account, req); slow {
+				observation.recordStickyEscape(selection.Account.ID, openAISlowFirstOutputReason)
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+				selection = nil
+				req.PreserveStickyBinding = true
+			}
+		}
 		if selection != nil && selection.Account != nil {
 			decision.Layer = openAIAccountScheduleLayerPreviousResponse
 			decision.StickyPreviousHit = true
@@ -1022,6 +1036,10 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		return nil, "", nil
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
+	if slow, _ := s.slowAccountStatus(account, req); slow && !pinned && !req.DisableStickyEscape {
+		req.observation.recordStickyEscape(accountID, openAISlowFirstOutputReason)
+		return nil, openAISlowFirstOutputReason, nil
+	}
 	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); !pinned && !req.DisableStickyEscape && shouldEscape {
 		slog.Info("sticky_escape_triggered",
 			"account_id", accountID,
@@ -1126,17 +1144,20 @@ func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int6
 }
 
 type openAIAccountCandidateScore struct {
-	account      *Account
-	loadInfo     *AccountLoadInfo
-	loadKnown    bool
-	excluded     bool
-	primaryScore float64
-	baseScore    float64
-	score        float64
-	priority     int
-	errorRate    float64
-	ttft         float64
-	hasTTFT      bool
+	account           *Account
+	loadInfo          *AccountLoadInfo
+	loadKnown         bool
+	excluded          bool
+	primaryScore      float64
+	baseScore         float64
+	score             float64
+	priority          int
+	errorRate         float64
+	ttft              float64
+	hasTTFT           bool
+	slowDeprioritized bool
+	slowProbeDue      bool
+	slowRecoveryProbe bool
 }
 
 func (o *openAIAccountScheduleObservation) recordStickyEscape(accountID int64, reason string) {
@@ -1146,7 +1167,7 @@ func (o *openAIAccountScheduleObservation) recordStickyEscape(accountID int64, r
 	if o.stickyEscapeReason == "" {
 		o.stickyEscapeReason = reason
 	}
-	if accountID > 0 {
+	if accountID > 0 && reason != openAISlowFirstOutputReason {
 		if o.stickyEscapeAccountIDs == nil {
 			o.stickyEscapeAccountIDs = make(map[int64]struct{})
 		}
@@ -1190,6 +1211,9 @@ func (o *openAIAccountScheduleObservation) captureCandidates(candidates []openAI
 			continue
 		}
 		state := "eligible"
+		if candidate.slowDeprioritized {
+			state = "deprioritized"
+		}
 		if candidate.excluded {
 			state = "excluded"
 		}
@@ -1574,6 +1598,11 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			ttft:      ttft,
 			hasTTFT:   hasTTFT,
 		})
+		item := &allCandidates[len(allCandidates)-1]
+		item.slowDeprioritized, item.slowProbeDue = s.slowAccountStatus(account, req)
+		if item.slowDeprioritized {
+			req.observation.recordCandidateReason(account.ID, openAISlowFirstOutputReason)
+		}
 	}
 
 	candidates := allCandidates
@@ -1623,6 +1652,12 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		candidates:                candidates,
 		staleSnapshotCompactRetry: staleSnapshotCompactRetry,
 		candidateCount:            len(candidates),
+	}
+	for _, candidate := range candidates {
+		if candidate.slowDeprioritized {
+			plan.includeOverflowFallback = true
+			break
+		}
 	}
 	if len(candidates) == 0 {
 		plan.selectionOrder = s.buildOpenAISelectionOrder(req, plan)
@@ -1716,7 +1751,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			item := &candidates[i]
 			previousMatch := req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID
 			sessionMatch := req.StickyAccountID > 0 && item.account.ID == req.StickyAccountID
-			if item.excluded || (!previousMatch && !sessionMatch) {
+			if item.excluded || item.slowDeprioritized || (!previousMatch && !sessionMatch) {
 				continue
 			}
 			if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(item.account.ID, escapeCfg); shouldEscape {
@@ -1839,7 +1874,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		}
 		return selectable
 	}
-	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+	rankSelectionPool := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
 		pool = selectableCandidates(pool)
 		if len(pool) == 0 || plan.topK <= 0 {
 			return nil
@@ -1870,6 +1905,30 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 			return isOpenAIAccountCandidatePrimaryBetter(overflow[i], overflow[j])
 		})
 		return append(primary, overflow...)
+	}
+	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+		var healthy, slow []openAIAccountCandidateScore
+		for _, candidate := range selectableCandidates(pool) {
+			if candidate.slowDeprioritized {
+				slow = append(slow, candidate)
+			} else {
+				healthy = append(healthy, candidate)
+			}
+		}
+		// Each health tier runs its own TopK. A low-cost slow account cannot
+		// displace a healthy account before the latter gets a chance to acquire.
+		order := rankSelectionPool(healthy)
+		fallback := rankSelectionPool(slow)
+		if len(order) > 0 {
+			for _, candidate := range fallback {
+				if candidate.slowProbeDue {
+					candidate.slowRecoveryProbe = true
+					order = append([]openAIAccountCandidateScore{candidate}, order...)
+					break
+				}
+			}
+		}
+		return append(order, fallback...)
 	}
 
 	if req.RequireCompact {
@@ -2001,6 +2060,20 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 				continue
 			}
 		}
+		if candidate.slowRecoveryProbe {
+			health := s.slowAccountHealth(fresh, req)
+			if health != nil && !health.claimProbe(s.service.openAISlowAccountThreshold(), time.Now()) {
+				release(result)
+				continue
+			}
+			if req.observation != nil {
+				for i := range req.observation.candidates {
+					if req.observation.candidates[i].AccountID == fresh.ID {
+						req.observation.candidates[i].Reason = "slow_first_output_recovery_probe"
+					}
+				}
+			}
+		}
 		if req.SessionHash != "" && !req.PreserveStickyBinding {
 			_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, fresh.ID)
 		}
@@ -2063,6 +2136,9 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		}
 		account, err := s.service.getSchedulableAccount(ctx, accountID)
 		if err != nil || account == nil {
+			continue
+		}
+		if slow, _ := s.slowAccountStatus(account, req); slow {
 			continue
 		}
 		if !s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
@@ -2489,6 +2565,11 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 		wantKnownFull := pass >= 2
 		for _, candidate := range attempt.selectionOrder {
 			if candidate.account == nil {
+				continue
+			}
+			// Recovery probes are opportunistic; do not queue ahead of healthy
+			// accounts when the probe cannot immediately acquire capacity.
+			if candidate.slowRecoveryProbe {
 				continue
 			}
 			if budget != nil && budget.limited {
@@ -3000,6 +3081,12 @@ func (s *OpenAIGatewayService) getOpenAIAccountScheduler(ctx context.Context) Op
 	if !hasOpenAIGroupSchedulerPolicy(ctx) && !s.isOpenAIAdvancedSchedulerEnabled(ctx) {
 		return nil
 	}
+	return s.ensureOpenAIAccountScheduler()
+}
+
+// Real-traffic feedback must not depend on the global switch: a group can
+// enable its own scheduler, and feedback runs outside the group's context.
+func (s *OpenAIGatewayService) ensureOpenAIAccountScheduler() OpenAIAccountScheduler {
 	s.openaiSchedulerOnce.Do(func() {
 		if s.openaiAccountStats == nil {
 			s.openaiAccountStats = s.sharedSchedulerHealthStats()
@@ -3036,6 +3123,11 @@ func (s *OpenAIGatewayService) ReportChannelMonitorProbe(accountID int64, model 
 		}
 	})
 	s.openaiAccountStats.reportProbe(accountID, model, success, firstTokenMs)
+	if success && firstTokenMs != nil {
+		if stat := s.openaiAccountStats.loadOrCreateModel(accountID, model); stat != nil {
+			stat.slowFirstOutput.recover(*firstTokenMs, s.openAISlowAccountThreshold(), time.Now())
+		}
+	}
 	modelState := s.getOpenAIAccountModelTransientState()
 	if success {
 		modelState.recordSuccess(accountID, model)
@@ -3096,6 +3188,15 @@ func (s *OpenAIGatewayService) RefreshOpenAISchedulerHealth(ctx context.Context)
 		}
 	})
 	s.openaiAccountStats.replaceHistory(snapshots)
+	if repo, ok := s.usageLogRepo.(openAISchedulerTrafficEventsRepository); ok {
+		events, err := repo.GetSchedulerFirstOutputEvents(ctx, now.Add(-openAISchedulerHealthHistoryWindow))
+		if err != nil {
+			s.openaiSchedulerHealthHydratedAt.Store(0)
+			slog.Warn("openai_scheduler_first_output_history_refresh_failed", "error", err)
+		} else {
+			s.openaiAccountStats.restoreSlowFirstOutputHistory(events)
+		}
+	}
 }
 
 func resetOpenAIAdvancedSchedulerSettingCacheForTest() {
@@ -3486,10 +3587,7 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 		s.openaiOAuth429RetryStartedAt.Delete(accountID)
 		s.clearOpenAIAccountModelTransientState(accountID, normalizeOpenAIAccountModelTransientModel(model))
 	}
-	scheduler := s.getOpenAIAccountScheduler(context.Background())
-	if scheduler == nil {
-		return healthTripped
-	}
+	scheduler := s.ensureOpenAIAccountScheduler()
 	scheduler.ReportResult(accountID, model, success, firstTokenMs)
 	return healthTripped
 }

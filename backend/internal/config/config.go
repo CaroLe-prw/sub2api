@@ -958,7 +958,8 @@ type GatewayConfig struct {
 	// A zero value uses the provider-safe default instead of the generic gateway timeout.
 	GrokResponseHeaderTimeout int `mapstructure:"grok_response_header_timeout"`
 	// OpenAIFirstOutputTimeoutSeconds: OpenAI HTTP/SSE 首个语义输出慢响应阈值（秒），0表示禁用。
-	// 默认只记录告警和首字耗时；仅在 DisableOpenAIFirstOutputFailover=false 时用于取消请求并切号。
+	// 同账号/模型连续三次真实调用超过此阈值时，后续调度降级为兜底候选。
+	// 仅在 DisableOpenAIFirstOutputFailover=false 时用于取消当前请求并切号。
 	OpenAIFirstOutputTimeoutSeconds int `mapstructure:"openai_first_output_timeout_seconds"`
 	// OpenAIHighEffortFirstOutputTimeoutSeconds: high/xhigh/max 推理的首个语义输出慢响应阈值（秒）。
 	// 0 表示回退到 OpenAIFirstOutputTimeoutSeconds。

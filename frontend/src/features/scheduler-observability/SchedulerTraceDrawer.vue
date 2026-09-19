@@ -38,6 +38,7 @@ const stateClasses: Record<SchedulerCandidateState, string> = {
   selected: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/20",
   tried: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/20",
   eligible: "bg-gray-100 text-gray-600 ring-gray-200 dark:bg-dark-700 dark:text-dark-300 dark:ring-dark-600",
+  deprioritized: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/20",
   excluded: "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/20",
   rejected: "bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:ring-orange-500/20",
 };
@@ -182,8 +183,10 @@ function outcomeExplanation(trace: SchedulerTrace): string {
   if (["failed", "canceled", "pending"].includes(trace.status)) {
     return t(`admin.schedulerObservability.outcomeDetails.${trace.status}`);
   }
+  const sticky = trace.attempts.find((attempt) => ["sticky_detected", "sticky_match"].includes(attempt.kind));
+  const firstId = sticky?.accountId ?? trace.accountPath[0]?.id;
   return t(`admin.schedulerObservability.summaryDetails.${trace.summary}`, {
-    first: trace.accountPath[0]?.id ? `#${trace.accountPath[0].id}` : "—",
+    first: firstId ? `#${firstId}` : "—",
     final: trace.accountPath.at(-1)?.id ? `#${trace.accountPath.at(-1)?.id}` : "—",
   });
 }

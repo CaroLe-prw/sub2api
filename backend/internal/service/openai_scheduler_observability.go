@@ -1291,8 +1291,14 @@ func parseSchedulerTraceTime(value string) time.Time {
 
 func schedulerObservabilitySummary(decision OpenAIAccountScheduleDecision) string {
 	switch decision.StickyEscapeReason {
-	case "consecutive_errors", "error_rate", "ttft":
+	case "consecutive_errors":
 		return "sticky_escaped_consecutive_errors"
+	case "error_rate":
+		return "sticky_escaped_error_rate"
+	case "ttft":
+		return "sticky_escaped_ttft"
+	case openAISlowFirstOutputReason:
+		return "sticky_escaped_slow_first_output"
 	case "concurrency_full":
 		return "sticky_escaped_concurrency"
 	}
@@ -1383,6 +1389,8 @@ func markSchedulerCandidateStates(candidates []OpenAISchedulerObservabilityCandi
 			// upstream attempts. Preserve them after another candidate is selected.
 		case containsSchedulerAccount(tried, candidates[index].AccountID):
 			candidates[index].State = "tried"
+		case candidates[index].State == "deprioritized":
+			// A soft health demotion remains visible after another account wins.
 		default:
 			candidates[index].State = "eligible"
 		}

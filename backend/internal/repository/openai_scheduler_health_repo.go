@@ -8,6 +8,41 @@ import (
 	"github.com/lib/pq"
 )
 
+// GetSchedulerFirstOutputEvents restores the last three measured real requests
+// per account/model. This deliberately excludes synthetic probes and unmeasured
+// calls: neither is evidence of three slow user requests.
+func (r *usageLogRepository) GetSchedulerFirstOutputEvents(ctx context.Context, since time.Time) ([]service.ChannelMonitorUserTrafficEvent, error) {
+	rows, err := r.sql.QueryContext(ctx, `
+		WITH measured AS (
+			SELECT id, account_id,
+			       lower(COALESCE(NULLIF(TRIM(upstream_model), ''), NULLIF(TRIM(requested_model), ''), NULLIF(TRIM(model), ''), '')) AS model,
+			       first_token_ms, created_at
+			FROM usage_logs
+			WHERE created_at >= $1 AND account_id > 0 AND user_id > 0
+			  AND request_type NOT IN (4, 6) AND first_token_ms > 0
+		), ranked AS (
+			SELECT *, ROW_NUMBER() OVER (PARTITION BY account_id, model ORDER BY created_at DESC, id DESC) AS rn
+			FROM measured
+		)
+		SELECT account_id, model, first_token_ms, created_at
+		FROM ranked WHERE rn <= 3
+		ORDER BY account_id, model, created_at ASC, id ASC
+	`, since.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var events []service.ChannelMonitorUserTrafficEvent
+	for rows.Next() {
+		event := service.ChannelMonitorUserTrafficEvent{Status: "success"}
+		if err := rows.Scan(&event.AccountID, &event.Model, &event.TTFTMs, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
 // GetOpenAISchedulerHealthSnapshots returns a small account/model aggregate for
 // scheduler startup and periodic hydration. Error rows are deliberately scoped
 // to provider-owned upstream failures; request validation, auth, policy and

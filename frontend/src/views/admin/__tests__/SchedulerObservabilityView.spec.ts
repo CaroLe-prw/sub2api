@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { schedulerSessions, schedulerTraces } from "@/features/scheduler-observability/mockData";
 import SchedulerObservabilityView from "../SchedulerObservabilityView.vue";
+import SchedulerTraceDrawer from "@/features/scheduler-observability/SchedulerTraceDrawer.vue";
 
 const getSnapshotMock = vi.hoisted(() => vi.fn());
 
@@ -65,6 +66,9 @@ const messages = vi.hoisted<Record<string, string>>(() => ({
   "admin.schedulerObservability.filterReasons.model_not_supported": "模型不支持或不在白名单",
   "admin.schedulerObservability.filterReasons.runtime_blocked": "运行时熔断",
   "admin.schedulerObservability.candidateStates.rejected": "本地否决",
+  "admin.schedulerObservability.candidateStates.deprioritized": "已降级（兜底）",
+  "admin.schedulerObservability.reasons.consecutive_slow_first_output": "连续三次真实调用首字超标",
+  "admin.schedulerObservability.summaryDetails.sticky_escaped_slow_first_output": "原绑定账号 {first} 连续三次首字超标，已降级；最终由 {final} 提供服务。",
 }));
 
 vi.mock("vue-i18n", async (importOriginal) => {
@@ -171,6 +175,29 @@ beforeEach(() => {
 });
 
 describe("SchedulerObservabilityView", () => {
+  it("explains slow demotion using the original binding rather than the selected account", async () => {
+    const wrapper = mount(SchedulerTraceDrawer, {
+      attachTo: document.body,
+      props: {
+        trace: {
+          ...schedulerTraces[0],
+          status: "success",
+          summary: "sticky_escaped_slow_first_output",
+          accountPath: [{ id: 478, name: "ttapi" }],
+          attempts: [{ id: "detected", kind: "sticky_detected", accountId: 390, offsetMs: 0 }],
+          candidates: [{ accountId: 390, accountName: "original", rank: 1, baseScore: 9, stickyBonus: 0, totalScore: 9, state: "deprioritized", reason: "consecutive_slow_first_output" }],
+        },
+      },
+    });
+    mountedWrappers.push(wrapper);
+    await flushPromises();
+    const text = document.body.querySelector('[role="dialog"]')?.textContent ?? "";
+    expect(text).toContain("原绑定账号 #390 连续三次首字超标");
+    expect(text).toContain("最终由 #478 提供服务");
+    expect(text).toContain("已降级（兜底）");
+    expect(text).not.toContain("连续两次失败");
+  });
+
   it("hosts account-pool probes as a dedicated scheduler observability view", async () => {
     const wrapper = mountView();
     await flushPromises();

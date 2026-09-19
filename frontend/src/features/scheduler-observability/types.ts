@@ -19,6 +19,9 @@ export type SchedulerSessionSource =
 
 export type SchedulerDecisionSummary =
   | "sticky_escaped_consecutive_errors"
+  | "sticky_escaped_error_rate"
+  | "sticky_escaped_ttft"
+  | "sticky_escaped_slow_first_output"
   | "sticky_escaped_concurrency"
   | "sticky_failed_over_upstream_error"
   | "session_sticky_kept"
@@ -62,7 +65,7 @@ export interface SchedulerAttempt {
   selectionConstraint?: string;
 }
 
-export type SchedulerCandidateState = "selected" | "tried" | "eligible" | "excluded" | "rejected";
+export type SchedulerCandidateState = "selected" | "tried" | "eligible" | "excluded" | "rejected" | "deprioritized";
 
 export interface SchedulerCandidate {
   accountId: number;

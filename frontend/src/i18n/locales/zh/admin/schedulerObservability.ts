@@ -95,6 +95,9 @@ export default {
         load_balance: '评分调度',
       },
       summaries: {
+        sticky_escaped_error_rate: '粘性账号错误率过高，重新选号',
+        sticky_escaped_ttft: '粘性账号首字过慢，重新选号',
+        sticky_escaped_slow_first_output: '粘性账号连续三次首字过慢，降级后重新选号',
         sticky_escaped_consecutive_errors: '粘性账号连续失败，解除绑定后切号',
         sticky_escaped_concurrency: '粘性账号并发已满，转入候选池',
         sticky_failed_over_upstream_error: '粘性账号上游失败，切号成功并迁移绑定',
@@ -105,6 +108,9 @@ export default {
         no_available_account: '所有候选均被过滤，无法完成调度',
       },
       summaryDetails: {
+        sticky_escaped_error_rate: '原绑定账号 {first} 的近期错误率过高，本轮重新选号，最终由 {final} 提供服务。',
+        sticky_escaped_ttft: '原绑定账号 {first} 的历史首字超过避让阈值，本轮重新选号，最终由 {final} 提供服务。',
+        sticky_escaped_slow_first_output: '原绑定账号 {first} 在该模型上连续三次真实调用首字超标，已降为兜底候选；最终由 {final} 提供服务，恢复试用或健康候选不可用时仍可能采用慢账号。',
         sticky_escaped_consecutive_errors: '账号 {first} 命中 session_hash，但连续两次失败触发粘性逃逸；排除故障账号后，{final} 在剩余候选中评分最高并完成请求。',
         sticky_escaped_concurrency: '账号 {first} 命中 session_hash，但实时并发槽位已满；调度器没有等待粘性账号，改选 {final} 完成请求。',
         sticky_failed_over_upstream_error: '账号 {first} 命中粘性绑定，但上游请求失败；切换到 {final} 完成请求，并将后续粘性绑定迁移到该账号。',
@@ -145,6 +151,8 @@ export default {
         description: '尝试调整筛选条件或搜索关键词。',
       },
       reasons: {
+        consecutive_slow_first_output: '该模型连续三次真实调用首字超标，已降低调度优先级',
+        slow_first_output_recovery_probe: '慢账号恢复试用，每个账号、模型每分钟最多一次',
         concurrency_full: '粘性账号并发已满',
         rate_limit: '上游限流 / 429',
         consecutive_errors: '连续失败两次',
@@ -213,7 +221,7 @@ export default {
         upstream_failure_without_status: '账号 {account} 连接上游失败（未收到 HTTP 响应）',
         same_account_retry: '同账号重试 {retry}/{limit}',
         same_account_retry_without_limit: '同账号第 {retry} 次重试（账号 {account}）',
-        sticky_escape: '解除粘性绑定',
+        sticky_escape: '本轮避让粘性账号',
         account_switch: '切换到账号 {account}',
         account_reselected: '本地重新选择账号 {account}',
         admission_rejected: '账号 {account} 本地准入未通过',
@@ -225,6 +233,7 @@ export default {
         noExtraDetail: '没有额外说明',
       },
       candidateStates: {
+        deprioritized: '已降级（兜底）',
         selected: '最终选中',
         tried: '已尝试',
         eligible: '可候选',

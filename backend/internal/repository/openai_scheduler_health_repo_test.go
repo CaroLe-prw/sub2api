@@ -68,3 +68,25 @@ func TestUsageLogRepository_GetSchedulerUserTrafficEvents(t *testing.T) {
 	require.Equal(t, failureAt, events[1].CreatedAt)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestUsageLogRepository_GetSchedulerFirstOutputEvents(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	repo := newUsageLogRepositoryWithSQL(nil, db)
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{"account_id", "model", "first_token_ms", "created_at"}).
+		AddRow(int64(478), "gpt-5.6-sol", int64(57130), now)
+	// Check both the evidence boundary and the per-model latest-three limit.
+	mock.ExpectQuery(`(?s)WITH measured AS.*user_id > 0.*request_type NOT IN \(4, 6\) AND first_token_ms > 0.*PARTITION BY account_id, model ORDER BY created_at DESC, id DESC.*rn <= 3`).
+		WithArgs(sqlmock.AnyArg()).WillReturnRows(rows)
+	events, err := repo.GetSchedulerFirstOutputEvents(context.Background(), now.Add(-30*time.Minute))
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, int64(478), events[0].AccountID)
+	require.Equal(t, "gpt-5.6-sol", events[0].Model)
+	require.Equal(t, "success", events[0].Status)
+	require.Equal(t, int64(57130), *events[0].TTFTMs)
+	require.Equal(t, now, events[0].CreatedAt)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

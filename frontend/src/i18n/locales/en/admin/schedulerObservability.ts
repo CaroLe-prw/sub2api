@@ -95,6 +95,9 @@ export default {
         load_balance: 'Scored selection',
       },
       summaries: {
+        sticky_escaped_error_rate: 'Sticky account error rate was high; selected again',
+        sticky_escaped_ttft: 'Sticky account first output was slow; selected again',
+        sticky_escaped_slow_first_output: 'Sticky account had three slow first outputs; deprioritized',
         sticky_escaped_consecutive_errors: 'Sticky account failed repeatedly; binding escaped and switched',
         sticky_escaped_concurrency: 'Sticky account was full; returned to the candidate pool',
         sticky_failed_over_upstream_error: 'Sticky upstream failed; switched successfully and moved the binding',
@@ -105,6 +108,9 @@ export default {
         no_available_account: 'Every candidate was filtered out',
       },
       summaryDetails: {
+        sticky_escaped_error_rate: 'The original binding {first} had a high recent error rate. This request selected again and was served by {final}.',
+        sticky_escaped_ttft: 'The original binding {first} exceeded the historical first-output threshold. This request selected again and was served by {final}.',
+        sticky_escaped_slow_first_output: 'The original binding {first} exceeded the first-output threshold on three consecutive real calls to this model and was moved to the fallback tier. This request was served by {final}; a slow account can still serve recovery trials or requests without available healthy capacity.',
         sticky_escaped_consecutive_errors: 'Account {first} matched session_hash but two consecutive failures triggered sticky escape. After exclusion, {final} ranked highest among remaining candidates and completed the request.',
         sticky_escaped_concurrency: 'Account {first} matched session_hash but had no free concurrency slot. The scheduler skipped waiting and selected {final}.',
         sticky_failed_over_upstream_error: 'Account {first} matched a sticky binding but the upstream request failed. The request switched to {final}, completed successfully, and moved subsequent stickiness to that account.',
@@ -145,6 +151,8 @@ export default {
         description: 'Try adjusting the filters or search query.',
       },
       reasons: {
+        consecutive_slow_first_output: 'Three consecutive real calls to this model exceeded the first-output threshold; scheduling priority reduced',
+        slow_first_output_recovery_probe: 'Slow-account recovery trial, at most once per account and model per minute',
         concurrency_full: 'Sticky account concurrency was full',
         rate_limit: 'Upstream rate limit / 429',
         consecutive_errors: 'Two consecutive failures',
@@ -213,7 +221,7 @@ export default {
         upstream_failure_without_status: 'Account {account} failed to connect upstream (no HTTP response received)',
         same_account_retry: 'Same-account retry {retry}/{limit}',
         same_account_retry_without_limit: 'Same-account retry {retry} on {account}',
-        sticky_escape: 'Sticky binding escaped',
+        sticky_escape: 'Bypassed sticky account for this request',
         account_switch: 'Switched to account {account}',
         account_reselected: 'Locally reselected account {account}',
         admission_rejected: 'Account {account} failed local admission',
@@ -225,6 +233,7 @@ export default {
         noExtraDetail: 'No additional detail',
       },
       candidateStates: {
+        deprioritized: 'Deprioritized (fallback)',
         selected: 'Selected',
         tried: 'Tried',
         eligible: 'Eligible',

@@ -219,7 +219,10 @@ gateway:
   # Grok text Responses first-byte timeout (seconds, 0=disabled; default 120)
   grok_response_header_timeout: 120
   # OpenAI HTTP/SSE first semantic output slow-response threshold (seconds, 0=disabled).
-  # OpenAI HTTP/SSE 首个语义输出慢响应阈值（秒，0=禁用）。默认只告警并继续等待当前账号。
+  # OpenAI HTTP/SSE 首个语义输出慢响应阈值（秒，0=禁用）。默认继续等待当前请求。
+  # 同账号/模型最近 30 分钟内连续三次有效真实调用首字超过此阈值，后续选号先于 TopK 降级。
+  # 有健康账号时优先健康账号；慢账号保留容量兜底，以及每个进程每分钟一次的账号/模型恢复试用。
+  # 一次正常首字的真实调用或成功探测解除降级；此调度阈值使用基础值，不使用 high-effort 覆盖值。
   openai_first_output_timeout_seconds: 15
   # Optional high/xhigh/max slow-response threshold (seconds, 0=use the standard threshold).
   openai_high_effort_first_output_timeout_seconds: 30
