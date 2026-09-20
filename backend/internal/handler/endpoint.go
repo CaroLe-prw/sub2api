@@ -277,6 +277,7 @@ func InboundEndpointMiddleware(diagnosticLimits ...int) gin.HandlerFunc {
 		}
 		c.Set(ctxKeyInboundEndpoint, NormalizeInboundEndpoint(path))
 		startResponseDiagnostics(c, diagnosticLimits...)
+		defer logResponseStreamTiming(c)
 		c.Next()
 	}
 }

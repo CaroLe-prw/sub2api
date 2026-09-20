@@ -147,6 +147,7 @@ docs/*
 !docs/group-model-mapping.md
 !docs/gemini-openai-upstream.md
 !docs/ops-error-diagnostics.md
+!docs/response-stream-timing.md
 !docs/legal/
 !docs/legal/*.md
 !docs/screenshots/

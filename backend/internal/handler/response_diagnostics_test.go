@@ -9,10 +9,54 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/responsediag"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
+
+func TestResponseStreamTimingLogsCorrelatedLocalWriteAndFlush(t *testing.T) {
+	core, logs := observer.New(zap.InfoLevel)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		ctx := logger.IntoContext(c.Request.Context(), zap.New(core).With(zap.String("request_id", "timing-request"), zap.String("client_request_id", "timing-client")))
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	})
+	router.Use(InboundEndpointMiddleware())
+	frame := "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":4,\"delta\":\"private answer\"}\n\n"
+	router.POST("/v1/responses", func(c *gin.Context) {
+		resp := &http.Response{Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(frame))}
+		responsediag.WrapUpstream(c.Request.Context(), resp)
+		p, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		c.Header("Content-Type", "text/event-stream")
+		_, err = c.Writer.Write(p)
+		require.NoError(t, err)
+		c.Writer.Flush()
+	})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+	require.Equal(t, frame, recorder.Body.String())
+	require.True(t, recorder.Flushed)
+	entries := logs.FilterMessage("gateway.response_stream_timing").All()
+	require.Len(t, entries, 1)
+	fields := entries[0].ContextMap()
+	require.Equal(t, "timing-request", fields["request_id"])
+	require.Equal(t, "timing-client", fields["client_request_id"])
+	raw, err := json.Marshal(fields["stream_timing"])
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "private answer")
+	var timing responsediag.StreamTimingRecord
+	require.NoError(t, json.Unmarshal(raw, &timing))
+	require.EqualValues(t, 4, *timing.Upstream.FirstContent.SequenceNumber)
+	require.EqualValues(t, 4, *timing.Downstream.FirstContent.SequenceNumber)
+	require.NotNil(t, timing.Downstream.FirstContent.WriteStartedMS)
+	require.NotNil(t, timing.Downstream.FirstContent.FlushCompletedMS)
+	require.GreaterOrEqual(t, *timing.Downstream.FirstContent.FlushCompletedMS, timing.Downstream.FirstContent.ObservedMS)
+}
 
 func TestResponseDiagnosticsWriterAndUsageSnapshot(t *testing.T) {
 	gin.SetMode(gin.TestMode)

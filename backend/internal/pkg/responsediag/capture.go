@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -19,13 +20,17 @@ type contextKey struct{}
 type snapshotKey struct{}
 
 type Capture struct {
-	mu              sync.Mutex
-	maxBodyBytes    int
-	incomingRequest *requestCapture
-	upstreamRequest *requestCapture
-	secrets         []string
-	upstream        *bodyCapture
-	downstream      bodyCapture
+	mu                   sync.Mutex
+	started              time.Time
+	upstreamResponses    int
+	flushes              []flushTiming
+	flushTimingTruncated bool
+	maxBodyBytes         int
+	incomingRequest      *requestCapture
+	upstreamRequest      *requestCapture
+	secrets              []string
+	upstream             *bodyCapture
+	downstream           bodyCapture
 }
 type bodyCapture struct {
 	Body            string `json:"body"`
@@ -37,6 +42,8 @@ type bodyCapture struct {
 	ControlsEscaped bool   `json:"controls_escaped,omitempty"`
 	buffer          []byte
 	failed          bool
+	timing          []chunkTiming
+	timingTruncated bool
 }
 type Side struct {
 	bodyCapture
@@ -67,7 +74,7 @@ func Start(ctx context.Context, configured ...int) (context.Context, *Capture) {
 	if len(configured) > 0 && configured[0] > 0 {
 		limit = min(configured[0], MaxConfiguredBodyBytes)
 	}
-	c := &Capture{maxBodyBytes: limit, downstream: bodyCapture{LimitBytes: limit}}
+	c := &Capture{started: time.Now(), maxBodyBytes: limit, downstream: bodyCapture{LimitBytes: limit}}
 	return context.WithValue(ctx, contextKey{}, c), c
 }
 func (b *bodyCapture) append(p []byte) {
@@ -84,13 +91,18 @@ func (b *bodyCapture) append(p []byte) {
 	b.buffer = append(b.buffer, p...)
 }
 func (c *Capture) WriteDownstream(p []byte, contentType string, failed bool) {
+	c.WriteDownstreamTimed(p, contentType, failed, time.Now())
+}
+
+func (c *Capture) WriteDownstreamTimed(p []byte, contentType string, failed bool, started time.Time) {
+	finished := time.Now()
 	if contentType != "" && !strings.Contains(contentType, "json") && !strings.Contains(contentType, "event-stream") && !strings.HasPrefix(contentType, "text/") {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.downstream.ContentType = contentType
-	c.downstream.append(p)
+	c.downstream.appendTimed(p, started.Sub(c.started), finished.Sub(c.started))
 	if failed {
 		c.downstream.failed = true
 	}
@@ -106,6 +118,7 @@ func WrapUpstream(ctx context.Context, resp *http.Response) {
 	}
 	c.mu.Lock()
 	c.upstream = nil
+	c.upstreamResponses++
 	c.mu.Unlock()
 	ct := resp.Header.Get("Content-Type")
 	if ct != "" && !strings.Contains(ct, "json") && !strings.Contains(ct, "event-stream") && !strings.HasPrefix(ct, "text/") {
@@ -126,9 +139,11 @@ type reader struct {
 }
 
 func (r *reader) Read(p []byte) (int, error) {
+	started := time.Now()
 	n, err := r.ReadCloser.Read(p)
+	finished := time.Now()
 	r.capture.mu.Lock()
-	r.body.append(p[:n])
+	r.body.appendTimed(p[:n], started.Sub(r.capture.started), finished.Sub(r.capture.started))
 	if err == io.EOF || (r.length > 0 && r.body.Bytes == r.length) {
 		r.body.Complete = true
 	}
