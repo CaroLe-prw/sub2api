@@ -3,7 +3,7 @@ FROM golang:1.27.0-alpine
 WORKDIR /app
 
 # 安装必要的工具
-RUN apk add --no-cache git
+RUN apk add --no-cache git font-noto-cjk
 
 # 复制go.mod和go.sum
 COPY go.mod go.sum ./

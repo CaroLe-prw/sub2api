@@ -8928,7 +8928,8 @@
         </div>
         <!-- /Tab: Email -->
 
-        <div v-show="activeTab === 'notifications'">
+        <div v-show="activeTab === 'notifications'" class="space-y-6">
+          <QQBotSettings />
           <TelegramNotificationSettings />
         </div>
 
@@ -9074,6 +9075,7 @@ import OpenAISchedulerTemplateEditor from "@/views/admin/settings/OpenAISchedule
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import TelegramNotificationSettings from "@/views/admin/settings/TelegramNotificationSettings.vue";
+import QQBotSettings from "@/views/admin/settings/QQBotSettings.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import {

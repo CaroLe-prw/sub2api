@@ -152,6 +152,9 @@ type CheckResult struct {
 
 // UserMonitorView 用户只读视图：监控概览（含主模型最近状态 + 7d 可用率 + 附加模型最近状态）。
 type UserMonitorView struct {
+	// Internal presentation metadata; handlers keep their explicit public DTOs.
+	CheckMode            string
+	IntervalSeconds      int
 	ID                   int64
 	Name                 string
 	Provider             string

@@ -559,6 +559,7 @@ function mountView() {
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
+        QQBotSettings: true,
       },
     },
   });
@@ -1301,6 +1302,7 @@ describe("admin SettingsView payment visible method controls", () => {
           ProxySelector: true,
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
+        QQBotSettings: true,
         },
       },
     });
@@ -1599,6 +1601,7 @@ describe("admin SettingsView payment visible method controls", () => {
           ProxySelector: true,
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
+        QQBotSettings: true,
         },
       },
     });

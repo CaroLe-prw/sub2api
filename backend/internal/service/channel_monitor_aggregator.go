@@ -306,6 +306,8 @@ func buildUserViewFromSummary(
 	timelineEntries []*ChannelMonitorHistoryEntry,
 ) *UserMonitorView {
 	view := &UserMonitorView{
+		CheckMode:        m.CheckMode,
+		IntervalSeconds:  m.IntervalSeconds,
 		ID:               m.ID,
 		Name:             m.Name,
 		Provider:         m.Provider,

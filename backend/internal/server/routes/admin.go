@@ -75,6 +75,9 @@ func RegisterAdminRoutes(
 
 		// 系统设置
 		registerSettingsRoutes(admin, h)
+		admin.GET("/qq-bot", h.Admin.QQBot.Get)
+		admin.GET("/qq-bot/preview", h.Admin.QQBot.Preview)
+		admin.PUT("/qq-bot", h.Admin.QQBot.Update)
 
 		// 数据管理
 		registerDataManagementRoutes(admin, h, stepUpAuth)
