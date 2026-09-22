@@ -61,14 +61,16 @@ func TestQQWebSocketDispatchHeartbeatAndResume(t *testing.T) {
 			require.NoError(t, json.NewDecoder(req.Body).Decode(&body))
 			require.Equal(t, "message-a", body["msg_id"])
 			require.EqualValues(t, 1, body["msg_seq"])
-			replies <- body["content"].(string)
+			content, ok := body["content"].(string)
+			require.True(t, ok)
+			replies <- content
 			fmt.Fprint(w, `{"id":"reply-a"}`)
 		case "/ws":
 			conn, err := websocket.Accept(w, req, nil)
 			if err != nil {
 				return
 			}
-			defer conn.CloseNow()
+			defer func() { _ = conn.CloseNow() }()
 			n := connections.Add(1)
 			_ = wsjson.Write(ctx, conn, map[string]any{"op": 10, "d": map[string]int{"heartbeat_interval": 100}})
 			var identify struct {
@@ -194,7 +196,7 @@ func TestQQMissingHeartbeatAckDisconnects(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		_ = wsjson.Write(ctx, conn, map[string]any{"op": 10, "d": map[string]int{"heartbeat_interval": 100}})
 		var p payload
 		if wsjson.Read(ctx, conn, &p) != nil {

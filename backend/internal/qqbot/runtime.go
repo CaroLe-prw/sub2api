@@ -142,7 +142,7 @@ func (r *Runtime) connect(ctx context.Context) error {
 		return err
 	}
 	u, err := url.Parse(gateway.URL)
-	if err != nil || u.User != nil || (!r.allowTestWS && (u.Scheme != "wss" || !(u.Hostname() == "qq.com" || strings.HasSuffix(u.Hostname(), ".qq.com")))) {
+	if err != nil || u.User != nil || (!r.allowTestWS && (u.Scheme != "wss" || (u.Hostname() != "qq.com" && !strings.HasSuffix(u.Hostname(), ".qq.com")))) {
 		return errors.New("invalid QQ gateway")
 	}
 	conn, resp, err := websocket.Dial(setupCtx, gateway.URL, &websocket.DialOptions{HTTPClient: r.api.http})
@@ -152,7 +152,7 @@ func (r *Runtime) connect(ctx context.Context) error {
 		}
 		return err
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	conn.SetReadLimit(64 * 1024)
 	var hello payload
 	if err := wsjson.Read(setupCtx, conn, &hello); err != nil {

@@ -99,6 +99,7 @@ var ProviderSet = wire.NewSet(
 	NewTLSFingerprintProfileRepository,
 	NewPluginRepository,
 	NewPluginKVStore,
+	NewQQBotCache,
 	NewChannelRepository,
 	NewChannelMonitorRepository,
 	NewChannelMonitorV2Repository,

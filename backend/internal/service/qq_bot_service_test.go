@@ -8,8 +8,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/qqbot"
-	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,31 +42,6 @@ func TestQQBotConfigSecretAndScope(t *testing.T) {
 	stored, err = s.stored(ctx)
 	require.NoError(t, err)
 	require.Empty(t, stored.SecretEncrypted)
-}
-
-func TestQQBotRedisDeduplicationAndCooldown(t *testing.T) {
-	mr := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer rdb.Close()
-	s := &QQBotService{redis: rdb}
-	ctx := context.Background()
-	ok, err := s.Claim(ctx, "message-a", "group-a", true)
-	require.NoError(t, err)
-	require.True(t, ok)
-	mr.FastForward(6 * time.Second)
-	ok, err = s.Claim(ctx, "message-a", "group-a", false)
-	require.NoError(t, err)
-	require.False(t, ok)
-	ok, err = s.Claim(ctx, "message-b", "group-a", true)
-	require.NoError(t, err)
-	require.False(t, ok)
-	ok, err = s.Claim(ctx, "message-c", "group-a", false)
-	require.NoError(t, err)
-	require.True(t, ok)
-	mr.FastForward(time.Minute)
-	ok, err = s.Claim(ctx, "message-d", "group-a", true)
-	require.NoError(t, err)
-	require.True(t, ok)
 }
 
 func TestQQBotV2OnlySelectedGroupsAndOldData(t *testing.T) {

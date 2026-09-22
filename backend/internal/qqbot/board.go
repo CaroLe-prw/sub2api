@@ -56,7 +56,9 @@ func loadBoardFont() (*opentype.Font, error) {
 			if path == "" {
 				continue
 			}
-			data, err := os.ReadFile(path)
+			// Font paths come only from deployment configuration and fixed system
+			// directories, never from QQ messages, HTTP requests or admin settings.
+			data, err := os.ReadFile(path) //nolint:gosec // G703: operator-controlled local font path.
 			if err != nil {
 				continue
 			}
@@ -225,7 +227,7 @@ func renderBoardPage(board Board, cards []Card, f *opentype.Font, page, pages, t
 			return nil, err
 		}
 		c.faces[size] = face
-		defer face.Close()
+		defer func() { _ = face.Close() }()
 	}
 	draw.Draw(c.image, c.image.Bounds(), image.NewUniform(boardBG), image.Point{}, draw.Src)
 	grid := color.RGBA{237, 241, 248, 255}

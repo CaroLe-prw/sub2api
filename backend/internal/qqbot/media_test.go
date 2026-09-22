@@ -52,7 +52,9 @@ func TestQQImageUploadAndPassiveReply(t *testing.T) {
 				require.EqualValues(t, 7, body["msg_type"])
 				require.EqualValues(t, 2, body["msg_seq"])
 				require.Equal(t, "message", body["msg_id"])
-				require.Equal(t, "media-info", body["media"].(map[string]any)["file_info"])
+				media, ok := body["media"].(map[string]any)
+				require.True(t, ok)
+				require.Equal(t, "media-info", media["file_info"])
 				replied = true
 				result = `{"id":"reply"}`
 			default:

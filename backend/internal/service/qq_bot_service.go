@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,12 +13,20 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/qqbot"
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 )
 
 const qqBotSettingKey = "qq_bot_config"
-const qqBotLeaseKey = "qqbot:leader"
-const qqBotStatusKey = "qqbot:status"
+
+// QQBotCache coordinates connection ownership, command deduplication and status
+// across replicas. Storage details belong to the repository implementation.
+type QQBotCache interface {
+	qqbot.Guard
+	AcquireOrRenewLease(context.Context, string) (bool, error)
+	ReleaseLease(context.Context, string) error
+	GetStatus(context.Context) (qqbot.Status, error)
+	SetStatus(context.Context, qqbot.Status) error
+	RefreshStatus(context.Context) error
+}
 
 type qqBotStored struct {
 	qqbot.Config
@@ -41,7 +47,7 @@ type QQBotView struct {
 type QQBotService struct {
 	repo      SettingRepository
 	encryptor SecretEncryptor
-	redis     *redis.Client
+	cache     QQBotCache
 	settings  *SettingService
 	v1        *ChannelMonitorService
 	v2        *ChannelMonitorV2Service
@@ -50,12 +56,12 @@ type QQBotService struct {
 	done      chan struct{}
 }
 
-func NewQQBotService(repo SettingRepository, encryptor SecretEncryptor, rdb *redis.Client, settings *SettingService, v1 *ChannelMonitorService, v2 *ChannelMonitorV2Service) *QQBotService {
-	return &QQBotService{repo: repo, encryptor: encryptor, redis: rdb, settings: settings, v1: v1, v2: v2}
+func NewQQBotService(repo SettingRepository, encryptor SecretEncryptor, cache QQBotCache, settings *SettingService, v1 *ChannelMonitorService, v2 *ChannelMonitorV2Service) *QQBotService {
+	return &QQBotService{repo: repo, encryptor: encryptor, cache: cache, settings: settings, v1: v1, v2: v2}
 }
 
-func ProvideQQBotService(repo SettingRepository, encryptor SecretEncryptor, rdb *redis.Client, settings *SettingService, v1 *ChannelMonitorService, v2 *ChannelMonitorV2Service) *QQBotService {
-	s := NewQQBotService(repo, encryptor, rdb, settings, v1, v2)
+func ProvideQQBotService(repo SettingRepository, encryptor SecretEncryptor, cache QQBotCache, settings *SettingService, v1 *ChannelMonitorService, v2 *ChannelMonitorV2Service) *QQBotService {
+	s := NewQQBotService(repo, encryptor, cache, settings, v1, v2)
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.done = make(chan struct{})
@@ -97,10 +103,10 @@ func (s *QQBotService) Get(ctx context.Context) (*QQBotView, error) {
 	view.Status = qqbot.Status{State: "disabled", Detail: "未启用"}
 	if cfg.Enabled {
 		view.Status = qqbot.Status{State: "connecting", Detail: "等待连接，配置最多约 5 秒生效"}
-		if s.redis != nil {
-			raw, err := s.redis.Get(ctx, qqBotStatusKey).Bytes()
+		if s.cache != nil {
+			status, err := s.cache.GetStatus(ctx)
 			if err == nil {
-				_ = json.Unmarshal(raw, &view.Status)
+				view.Status = status
 			}
 		}
 	}
@@ -194,24 +200,6 @@ func (s *QQBotService) Update(ctx context.Context, input QQBotUpdate) (*QQBotVie
 	return s.Get(ctx)
 }
 
-// Redis both elects one connection owner and deduplicates commands. On cache
-// failure the bot stops accepting work, rather than risking duplicate probes.
-func (s *QQBotService) Claim(ctx context.Context, id, group string, probe bool) (bool, error) {
-	hash := func(value string) string { sum := sha256.Sum256([]byte(value)); return hex.EncodeToString(sum[:]) }
-	probeFlag := 0
-	if probe {
-		probeFlag = 1
-	}
-	value, err := s.redis.Eval(ctx, `
-if redis.call('EXISTS', KEYS[1]) == 1 or redis.call('EXISTS', KEYS[2]) == 1 then return 0 end
-if ARGV[1] == '1' and redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
-redis.call('SET', KEYS[1], '1', 'EX', 600)
-redis.call('SET', KEYS[2], '1', 'EX', 5)
-if ARGV[1] == '1' then redis.call('SET', KEYS[3], '1', 'EX', 60) end
-return 1`, []string{"qqbot:seen:" + hash(id), "qqbot:cooldown:" + hash(group), "qqbot:probe:" + hash(group)}, probeFlag).Int()
-	return value == 1, err
-}
-
 func (s *QQBotService) loop(ctx context.Context) {
 	token := uuid.NewString()
 	var activeCancel context.CancelFunc
@@ -229,7 +217,7 @@ func (s *QQBotService) loop(ctx context.Context) {
 		stop()
 		c, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_, _ = s.redis.Eval(c, `if redis.call('GET',KEYS[1]) == ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0`, []string{qqBotLeaseKey}, token).Result()
+		_ = s.cache.ReleaseLease(c, token)
 	}()
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -238,8 +226,8 @@ func (s *QQBotService) loop(ctx context.Context) {
 		cfg, err := s.stored(checkCtx)
 		owned := false
 		if err == nil && cfg.Enabled {
-			lease, e := s.redis.Eval(checkCtx, `if redis.call('GET',KEYS[1]) == ARGV[1] then redis.call('EXPIRE',KEYS[1],20);return 1 end if redis.call('SET',KEYS[1],ARGV[1],'NX','EX',20) then return 1 end return 0`, []string{qqBotLeaseKey}, token).Int()
-			owned = e == nil && lease == 1
+			lease, e := s.cache.AcquireOrRenewLease(checkCtx, token)
+			owned = e == nil && lease
 		}
 		cancel()
 		if !owned {
@@ -252,8 +240,7 @@ func (s *QQBotService) loop(ctx context.Context) {
 				report := func(status qqbot.Status) {
 					c, cancel := context.WithTimeout(ctx, 2*time.Second)
 					defer cancel()
-					data, _ := json.Marshal(status)
-					_ = s.redis.Set(c, qqBotStatusKey, data, 30*time.Second).Err()
+					_ = s.cache.SetStatus(c, status)
 				}
 				if e != nil || secret == "" {
 					report(qqbot.Status{State: "error", Detail: "凭据解密失败，请重新填写 AppSecret", UpdatedAt: time.Now()})
@@ -262,13 +249,13 @@ func (s *QQBotService) loop(ctx context.Context) {
 					activeCancel = c
 					activeDone = make(chan struct{})
 					activeConfig = string(encoded)
-					runtime := qqbot.New(cfg.Config, secret, s, s, report)
+					runtime := qqbot.New(cfg.Config, secret, s, s.cache, report)
 					go func(done chan struct{}) { defer close(done); runtime.Run(runCtx) }(activeDone)
 				}
 			}
 			// Keep an online/error snapshot visible on every application replica.
 			c, cancel := context.WithTimeout(ctx, 2*time.Second)
-			_ = s.redis.Expire(c, qqBotStatusKey, 30*time.Second).Err()
+			_ = s.cache.RefreshStatus(c)
 			cancel()
 		}
 		select {

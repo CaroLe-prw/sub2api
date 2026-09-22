@@ -51,7 +51,7 @@ func doJSON(ctx context.Context, client *http.Client, method, endpoint string, h
 	if err != nil {
 		return fmt.Errorf("request failed (network or timeout)")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return httpStatusError(resp.StatusCode)
 	}
