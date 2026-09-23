@@ -192,3 +192,16 @@ func (q *client) replyText(ctx context.Context, group, messageID, content string
 func httpClient() *http.Client {
 	return &http.Client{Timeout: 125 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 }
+
+func (q *client) recallGroupMessage(ctx context.Context, group, messageID string) error {
+	token, err := q.accessToken(ctx)
+	if err != nil {
+		return err
+	}
+	var result apiResult
+	err = doJSON(ctx, q.http, http.MethodDelete, q.baseURL+"/v2/groups/"+url.PathEscape(group)+"/messages/"+url.PathEscape(messageID), map[string]string{"Authorization": "QQBot " + token}, nil, &result)
+	if err != nil {
+		return err
+	}
+	return result.check()
+}

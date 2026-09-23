@@ -14,6 +14,7 @@ import (
 
 const qqBotLeaseKey = "qqbot:leader"
 const qqBotStatusKey = "qqbot:status"
+const qqBotModerationLogKey = "qqbot:moderation:records"
 
 type qqBotCache struct{ client *redis.Client }
 
@@ -69,4 +70,32 @@ func (c *qqBotCache) SetStatus(ctx context.Context, status qqbot.Status) error {
 
 func (c *qqBotCache) RefreshStatus(ctx context.Context) error {
 	return c.client.Expire(ctx, qqBotStatusKey, 30*time.Second).Err()
+}
+
+func (c *qqBotCache) ClaimModeration(ctx context.Context, id string) (bool, error) {
+	hash := sha256.Sum256([]byte(id))
+	return c.client.SetNX(ctx, "qqbot:moderation:seen:"+hex.EncodeToString(hash[:]), "1", 10*time.Minute).Result()
+}
+
+func (c *qqBotCache) RecordModeration(ctx context.Context, record qqbot.ModerationRecord) error {
+	data, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	return c.client.Eval(ctx, `redis.call('LPUSH',KEYS[1],ARGV[1]);redis.call('LTRIM',KEYS[1],0,199);redis.call('EXPIRE',KEYS[1],604800);return 1`, []string{qqBotModerationLogKey}, data).Err()
+}
+
+func (c *qqBotCache) ModerationRecords(ctx context.Context) ([]qqbot.ModerationRecord, error) {
+	values, err := c.client.LRange(ctx, qqBotModerationLogKey, 0, 199).Result()
+	if err != nil {
+		return nil, err
+	}
+	records := make([]qqbot.ModerationRecord, 0, len(values))
+	for _, value := range values {
+		var record qqbot.ModerationRecord
+		if json.Unmarshal([]byte(value), &record) == nil {
+			records = append(records, record)
+		}
+	}
+	return records, nil
 }

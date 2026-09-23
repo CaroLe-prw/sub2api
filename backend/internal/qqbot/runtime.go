@@ -19,24 +19,30 @@ import (
 )
 
 type Config struct {
-	Enabled          bool     `json:"enabled"`
-	AppID            string   `json:"app_id"`
-	Groups           []string `json:"groups"`
-	Admins           []string `json:"admins"`
-	MonitorIDs       []int64  `json:"monitor_ids"`
-	GroupIDs         []int64  `json:"group_ids"`
-	AllowProbe       bool     `json:"allow_probe"`
-	AllowUnmentioned bool     `json:"allow_unmentioned"`
+	Enabled          bool             `json:"enabled"`
+	AppID            string           `json:"app_id"`
+	Groups           []string         `json:"groups"`
+	Admins           []string         `json:"admins"`
+	MonitorIDs       []int64          `json:"monitor_ids"`
+	GroupIDs         []int64          `json:"group_ids"`
+	AllowProbe       bool             `json:"allow_probe"`
+	AllowUnmentioned bool             `json:"allow_unmentioned"`
+	Moderation       ModerationConfig `json:"moderation"`
 }
 
 type Message struct {
-	ID        string    `json:"id"`
-	Group     string    `json:"group_openid"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
-	Author    struct {
-		ID  string `json:"member_openid"`
-		Bot bool   `json:"bot"`
+	ID          string    `json:"id"`
+	Group       string    `json:"group_openid"`
+	Content     string    `json:"content"`
+	Timestamp   time.Time `json:"timestamp"`
+	Attachments []struct {
+		ContentType string `json:"content_type"`
+		URL         string `json:"url"`
+	} `json:"attachments"`
+	Author struct {
+		ID   string `json:"member_openid"`
+		Bot  bool   `json:"bot"`
+		Role string `json:"member_role"`
 	} `json:"author"`
 }
 
@@ -60,20 +66,23 @@ type Guard interface {
 }
 
 type Runtime struct {
-	cfg         Config
-	api         *client
-	source      Source
-	guard       Guard
-	report      func(Status)
-	session     string
-	seq         *int64
-	work        chan struct{}
-	wg          sync.WaitGroup
-	allowTestWS bool
+	cfg             Config
+	api             *client
+	source          Source
+	guard           Guard
+	report          func(Status)
+	session         string
+	seq             *int64
+	work            chan struct{}
+	wg              sync.WaitGroup
+	allowTestWS     bool
+	moderationSlots chan struct{}
+	recallGate      chan struct{}
+	nextRecall      time.Time
 }
 
 func New(cfg Config, secret string, source Source, guard Guard, report func(Status)) *Runtime {
-	return &Runtime{cfg: cfg, api: &client{http: httpClient(), baseURL: "https://api.bot.qq.com", appID: cfg.AppID, secret: secret}, source: source, guard: guard, report: report, work: make(chan struct{}, 4)}
+	return &Runtime{cfg: cfg, api: &client{http: httpClient(), baseURL: "https://api.bot.qq.com", appID: cfg.AppID, secret: secret}, source: source, guard: guard, report: report, work: make(chan struct{}, 4), moderationSlots: make(chan struct{}, 16), recallGate: make(chan struct{}, 1)}
 }
 
 func (r *Runtime) status(state, detail string) {
@@ -286,6 +295,7 @@ func (r *Runtime) dispatchGroupEvent(ctx context.Context, event payload) error {
 	if json.Unmarshal(event.Data, &message) != nil {
 		return nil
 	}
+	r.startModeration(ctx, message)
 	if event.Type == "GROUP_MESSAGE_CREATE" {
 		if !r.cfg.AllowUnmentioned {
 			return nil

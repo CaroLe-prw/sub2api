@@ -123,6 +123,9 @@ LABEL org.opencontainers.image.source="https://github.com/Wei-Shaw/sub2api"
 # Install runtime dependencies
 RUN apk add --no-cache \
     font-noto-cjk \
+    tesseract-ocr \
+    tesseract-ocr-data-chi_sim \
+    tesseract-ocr-data-eng \
     ca-certificates \
     tzdata \
     su-exec \

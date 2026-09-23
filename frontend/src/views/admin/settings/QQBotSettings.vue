@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { qqBotAPI, type QQBotView } from '@/api/admin/qqBot'
+import { qqBotAPI, type QQBotView, type QQModerationRecord } from '@/api/admin/qqBot'
 import { groupsAPI } from '@/api/admin/groups'
 import type { AdminGroup } from '@/types'
 import { useAppStore } from '@/stores'
@@ -17,6 +17,9 @@ const clearSecret = ref(false)
 const groups = ref('')
 const admins = ref('')
 const monitors = ref('')
+const trustedMembers = ref('')
+const moderationRecords = ref<QQModerationRecord[]>([])
+const recordsLoading = ref(false)
 const saving = ref(false)
 const loading = ref(true)
 const refreshing = ref(false)
@@ -28,10 +31,11 @@ let disposed = false
 const online = computed(() => config.value?.status.state === 'online')
 
 function assign(value: QQBotView) {
-  config.value = { ...value, allow_unmentioned: value.allow_unmentioned ?? false, groups: value.groups ?? [], admins: value.admins ?? [], group_ids: value.group_ids ?? [], monitor_ids: value.monitor_ids ?? [] }
+  config.value = { ...value, moderation: value.moderation ?? { enabled: false, observe_only: false, scan_images: true, trusted_members: [] }, allow_unmentioned: value.allow_unmentioned ?? false, groups: value.groups ?? [], admins: value.admins ?? [], group_ids: value.group_ids ?? [], monitor_ids: value.monitor_ids ?? [] }
   groups.value = (value.groups ?? []).join('\n')
   admins.value = (value.admins ?? []).join('\n')
   monitors.value = (value.monitor_ids ?? []).join(', ')
+  trustedMembers.value = (value.moderation?.trusted_members ?? []).join('\n')
   secret.value = ''
   clearSecret.value = false
 }
@@ -60,7 +64,7 @@ async function save() {
   try {
     const c = config.value
     assign(await qqBotAPI.update({ enabled: c.enabled, app_id: c.app_id, groups: split(groups.value), admins: split(admins.value), monitor_ids: ids,
-      group_ids: c.group_ids, allow_probe: c.allow_probe, allow_unmentioned: c.allow_unmentioned, app_secret: secret.value || undefined, clear_secret: clearSecret.value }))
+      group_ids: c.group_ids, allow_probe: c.allow_probe, allow_unmentioned: c.allow_unmentioned, moderation: { ...c.moderation, trusted_members: split(trustedMembers.value) }, app_secret: secret.value || undefined, clear_secret: clearSecret.value }))
     app.showSuccess(text('已保存，连接配置将在约 5 秒内生效', 'Saved. Connection settings apply within about 5 seconds.'))
   } catch {
     app.showError(text('保存失败，请检查凭据、OpenID 和展示分组是否已填写', 'Save failed. Check credentials, OpenIDs and selected groups.'))
@@ -92,6 +96,19 @@ async function preview(page = 1) {
     previewPages.value = result.pages
   } catch { app.showError(text('无法生成图片，请先保存展示分组并确认 V2 监控已开启', 'Could not render image. Save the selected groups and enable V2 monitoring first.')) }
   finally { previewing.value = false }
+}
+
+async function loadModerationRecords() {
+  recordsLoading.value = true
+  try { moderationRecords.value = await qqBotAPI.moderationRecords() }
+  catch { app.showError(text('无法读取广告处理记录', 'Could not load moderation records')) }
+  finally { recordsLoading.value = false }
+}
+
+function moderationAction(action: string) {
+  if (action === 'recalled') return text('已撤回', 'Recalled')
+  if (action === 'failed') return text('撤回失败', 'Recall failed')
+  return text('仅记录', 'Recorded only')
 }
 </script>
 
@@ -140,6 +157,30 @@ async function preview(page = 1) {
       </fieldset>
       <div v-else><label for="qq-bot-monitors" class="mb-1 block text-sm font-medium">{{ text('允许展示的监控编号（可选）', 'Visible monitor IDs (optional)') }}</label><input id="qq-bot-monitors" v-model="monitors" class="input w-full" :disabled="saving" @keydown.enter.prevent="save" /><p class="mt-1 text-xs text-gray-500">{{ text('用逗号分隔；留空展示所有已启用且已公开的 V1 监控。', 'Comma-separated; empty shows all enabled, published V1 monitors.') }}</p></div>
       <div v-if="config.monitor_mode === 'v1'" class="flex items-center justify-between gap-4"><div><label for="qq-bot-probe" class="font-medium">{{ text('允许即时检测', 'Allow live checks') }}</label><p class="text-xs text-gray-500">{{ text('可能产生模型调用费用；每群至少间隔 60 秒。', 'May incur model usage charges; at least 60 seconds between checks per group.') }}</p></div><Toggle id="qq-bot-probe" v-model="config.allow_probe" :disabled="saving" /></div>
+      <div class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600">
+        <div class="flex items-center justify-between gap-4">
+          <div><label for="qq-bot-ad-filter" class="font-medium">{{ text('群广告拦截', 'Group ad moderation') }}</label><p class="mt-1 text-xs text-gray-500">{{ text('仅处理上方允许的 QQ 群。机器人需为群管理员，并获准接收全部消息。明确命中自动撤回，疑似只记录。', 'Only applies to the allowed QQ groups above. The bot must be a group admin and receive all messages. Clear ads are recalled; uncertain cases are recorded.') }}</p></div>
+          <Toggle id="qq-bot-ad-filter" v-model="config.moderation.enabled" :disabled="saving" />
+        </div>
+        <div v-if="config.moderation.enabled" class="space-y-4">
+          <p class="text-sm text-gray-500">{{ text('默认识别：收益诱导＋扫码/注册引流；产品推广＋代理招募；求购上游＋私聊引流。单独出现 AI、并发、倍率或二维码不直接撤回。', 'Rules combine earnings claims with lead generation, product promotions with reseller recruitment, or supplier requests with private-contact solicitation. Generic AI, pricing or QR mentions alone are not recalled.') }}</p>
+          <div class="flex items-center justify-between"><label for="qq-bot-ad-observe">{{ text('全部仅记录（暂停自动撤回）', 'Record only (pause automatic recall)') }}</label><Toggle id="qq-bot-ad-observe" v-model="config.moderation.observe_only" :disabled="saving" /></div>
+          <div class="flex items-center justify-between"><label for="qq-bot-ad-images">{{ text('识别图片中的广告文字', 'Inspect text in images') }}</label><Toggle id="qq-bot-ad-images" v-model="config.moderation.scan_images" :disabled="saving" /></div>
+          <p class="text-xs text-gray-500">{{ text('图片在服务器本地识别，不调用收费 AI。需使用包含 OCR 的新版镜像；识别失败时只记录。群主、管理员及白名单成员不自动处理。', 'Images are processed locally without paid AI calls. Requires the updated image with OCR. Recognition failures are recorded only. Group owners, admins and trusted members are exempt.') }}</p>
+          <p v-if="config.moderation.scan_images && !config.image_ocr_available" role="status" class="text-sm text-amber-600">{{ text('服务器图片文字识别组件尚未就绪，图片目前只会记录。请部署包含 OCR 的新版镜像后重新加载此页。', 'Image OCR is not ready on this server. Images will only be recorded. Deploy the updated image with OCR and reload this page.') }}</p>
+          <div><label for="qq-bot-ad-trusted" class="mb-1 block text-sm">{{ text('白名单成员 OpenID（每行一个）', 'Trusted member OpenIDs (one per line)') }}</label><textarea id="qq-bot-ad-trusted" v-model="trustedMembers" rows="2" class="input w-full" :disabled="saving" /></div>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="recordsLoading" @click="loadModerationRecords">{{ text('查看广告处理记录', 'View moderation records') }}</button>
+        <div v-if="moderationRecords.length" class="max-h-96 space-y-2 overflow-y-auto">
+          <article v-for="(record, index) in moderationRecords" :key="`${record.message_id}-${index}`" class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-800">
+            <div class="flex justify-between gap-3"><strong>{{ moderationAction(record.action) }}</strong><time>{{ new Date(record.at).toLocaleString() }}</time></div>
+            <p>{{ record.reason }}</p>
+            <p v-if="record.evidence?.length" class="text-xs text-gray-500">{{ record.evidence.join('、') }}</p>
+            <p class="mt-1 break-all text-xs text-gray-400">{{ text('群', 'Group') }}: {{ record.group }} · {{ text('成员', 'Member') }}: {{ record.member }}</p>
+          </article>
+        </div>
+        <p class="text-xs text-gray-500">{{ text('保留最近 200 条记录，列表无新增 7 天后过期；不保存原始聊天正文或图片。', 'Keeps the latest 200 records; expires after 7 days with no new entries. Original message text and images are not stored.') }}</p>
+      </div>
       <div class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-800"><code>@机器人 渠道状态</code> · <code>@机器人 渠道状态 OpenAI</code> · <code>@机器人 渠道状态文字</code></div>
       <p v-if="config.allow_unmentioned" class="text-sm text-gray-500">{{ text('免 @ 示例：渠道监测 · 渠道监测 OpenAI', 'Without a mention: 渠道监测 · 渠道监测 OpenAI') }}</p>
       <div class="flex flex-wrap justify-end gap-3">

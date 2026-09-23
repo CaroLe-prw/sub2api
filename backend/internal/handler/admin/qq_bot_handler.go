@@ -31,6 +31,15 @@ func (h *QQBotHandler) Preview(c *gin.Context) {
 type QQBotHandler struct{ service *service.QQBotService }
 
 func NewQQBotHandler(s *service.QQBotService) *QQBotHandler { return &QQBotHandler{service: s} }
+
+func (h *QQBotHandler) ModerationRecords(c *gin.Context) {
+	records, err := h.service.ModerationRecords(c.Request.Context())
+	if err != nil {
+		response.InternalError(c, "无法读取广告处理记录")
+		return
+	}
+	response.Success(c, records)
+}
 func (h *QQBotHandler) Get(c *gin.Context) {
 	result, err := h.service.Get(c.Request.Context())
 	if err != nil {

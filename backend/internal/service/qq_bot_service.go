@@ -21,6 +21,9 @@ const qqBotSettingKey = "qq_bot_config"
 // across replicas. Storage details belong to the repository implementation.
 type QQBotCache interface {
 	qqbot.Guard
+	qqbot.ModerationGuard
+	RecordModeration(context.Context, qqbot.ModerationRecord) error
+	ModerationRecords(context.Context) ([]qqbot.ModerationRecord, error)
 	AcquireOrRenewLease(context.Context, string) (bool, error)
 	ReleaseLease(context.Context, string) error
 	GetStatus(context.Context) (qqbot.Status, error)
@@ -39,9 +42,10 @@ type QQBotUpdate struct {
 }
 type QQBotView struct {
 	qqbot.Config
-	SecretConfigured bool         `json:"secret_configured"`
-	MonitorMode      string       `json:"monitor_mode"`
-	Status           qqbot.Status `json:"status"`
+	SecretConfigured  bool         `json:"secret_configured"`
+	MonitorMode       string       `json:"monitor_mode"`
+	Status            qqbot.Status `json:"status"`
+	ImageOCRAvailable bool         `json:"image_ocr_available"`
 }
 
 type QQBotService struct {
@@ -78,6 +82,7 @@ func (s *QQBotService) Stop() {
 
 func (s *QQBotService) stored(ctx context.Context) (qqBotStored, error) {
 	var cfg qqBotStored
+	cfg.Moderation.ScanImages = true
 	raw, err := s.repo.GetValue(ctx, qqBotSettingKey)
 	if errors.Is(err, ErrSettingNotFound) {
 		return cfg, nil
@@ -100,6 +105,7 @@ func (s *QQBotService) Get(ctx context.Context) (*QQBotView, error) {
 		return nil, err
 	}
 	view := &QQBotView{Config: cfg.Config, SecretConfigured: cfg.SecretEncrypted != "", MonitorMode: s.settings.GetChannelMonitorRuntime(ctx).Mode}
+	view.ImageOCRAvailable = qqOCRAvailable(ctx)
 	view.Status = qqbot.Status{State: "disabled", Detail: "未启用"}
 	if cfg.Enabled {
 		view.Status = qqbot.Status{State: "connecting", Detail: "等待连接，配置最多约 5 秒生效"}
@@ -156,6 +162,10 @@ func (s *QQBotService) Update(ctx context.Context, input QQBotUpdate) (*QQBotVie
 		return bad(err.Error())
 	}
 	input.Admins, err = normalizeQQIDs(input.Admins)
+	if err != nil {
+		return bad(err.Error())
+	}
+	input.Moderation.TrustedMembers, err = normalizeQQIDs(input.Moderation.TrustedMembers)
 	if err != nil {
 		return bad(err.Error())
 	}

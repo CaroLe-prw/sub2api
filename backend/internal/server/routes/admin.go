@@ -77,6 +77,7 @@ func RegisterAdminRoutes(
 		registerSettingsRoutes(admin, h)
 		admin.GET("/qq-bot", h.Admin.QQBot.Get)
 		admin.GET("/qq-bot/preview", h.Admin.QQBot.Preview)
+		admin.GET("/qq-bot/moderation-records", h.Admin.QQBot.ModerationRecords)
 		admin.PUT("/qq-bot", h.Admin.QQBot.Update)
 
 		// 数据管理

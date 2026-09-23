@@ -3,8 +3,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import QQBotSettings from '../QQBotSettings.vue'
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn(), preview: vi.fn(), groups: vi.fn(), error: vi.fn(), success: vi.fn(), createURL: vi.fn(), revokeURL: vi.fn() }))
-vi.mock('@/api/admin/qqBot', () => ({ qqBotAPI: { get: mocks.get, update: mocks.update, preview: mocks.preview } }))
+const mocks = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn(), preview: vi.fn(), records: vi.fn(), groups: vi.fn(), error: vi.fn(), success: vi.fn(), createURL: vi.fn(), revokeURL: vi.fn() }))
+vi.mock('@/api/admin/qqBot', () => ({ qqBotAPI: { get: mocks.get, update: mocks.update, preview: mocks.preview, moderationRecords: mocks.records } }))
 vi.mock('@/api/admin/groups', () => ({ groupsAPI: { getAllIncludingInactive: mocks.groups } }))
 vi.mock('@/stores', () => ({ useAppStore: () => ({ showError: mocks.error, showSuccess: mocks.success }) }))
 
@@ -27,6 +27,7 @@ describe('QQ bot settings', () => {
     mocks.update.mockResolvedValue(fixture())
     mocks.preview.mockResolvedValue({ image: new Blob(['png'], { type: 'image/png' }), pages: 2 })
     mocks.createURL.mockReturnValue('blob:board-preview')
+    mocks.records.mockResolvedValue([])
     vi.stubGlobal('URL', Object.assign(class extends URL {}, { createObjectURL: mocks.createURL, revokeObjectURL: mocks.revokeURL }))
   })
   afterEach(() => vi.unstubAllGlobals())
@@ -78,6 +79,31 @@ describe('QQ bot settings', () => {
     await wrapper.findAll('button').find(button => button.text() === '保存 QQ 机器人设置')!.trigger('click')
     await flushPromises()
     expect(mocks.update.mock.calls[0][0].allow_unmentioned).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps moderation disabled by default and saves automatic recall with a trusted member list', async () => {
+    const wrapper = await render()
+    expect(wrapper.find('#qq-bot-ad-filter').attributes('aria-checked')).toBe('false')
+    await wrapper.find('#qq-bot-ad-filter').trigger('click')
+    expect(wrapper.find('#qq-bot-ad-observe').attributes('aria-checked')).toBe('false')
+    expect(wrapper.find('#qq-bot-ad-images').attributes('aria-checked')).toBe('true')
+    expect(wrapper.text()).toContain('组件尚未就绪')
+    await wrapper.find('#qq-bot-ad-trusted').setValue('member-a\nmember-b')
+    await wrapper.findAll('button').find(button => button.text() === '保存 QQ 机器人设置')!.trigger('click')
+    await flushPromises()
+    expect(mocks.update.mock.calls[0][0].moderation).toEqual({ enabled: true, observe_only: false, scan_images: true, trusted_members: ['member-a', 'member-b'] })
+    wrapper.unmount()
+  })
+
+  it('displays records without triggering a moderation action', async () => {
+    mocks.records.mockResolvedValue([{ at: '2026-09-23T10:00:00Z', group: 'g', member: 'm', message_id: 'id', action: 'recorded', reason: '存在引流特征，但证据不足', verdict: 'suspected', evidence: ['私聊我'] }])
+    const wrapper = await render()
+    await wrapper.findAll('button').find(button => button.text() === '查看广告处理记录')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('仅记录')
+    expect(wrapper.text()).toContain('证据不足')
+    expect(mocks.update).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 

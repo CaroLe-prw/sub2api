@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"github.com/Wei-Shaw/sub2api/internal/qqbot"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -9,6 +10,37 @@ import (
 	"testing"
 	"time"
 )
+
+func TestQQModerationDedupIsIndependentOfQueryCooldown(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	cache := NewQQBotCache(client)
+	ctx := context.Background()
+	ok, err := cache.Claim(ctx, "query", "group", false)
+	require.NoError(t, err)
+	require.True(t, ok)
+	ok, err = cache.ClaimModeration(ctx, "ad-a")
+	require.NoError(t, err)
+	require.True(t, ok)
+	ok, err = cache.ClaimModeration(ctx, "ad-b")
+	require.NoError(t, err)
+	require.True(t, ok)
+	ok, err = cache.ClaimModeration(ctx, "ad-a")
+	require.NoError(t, err)
+	require.False(t, ok)
+	for i := 0; i < 205; i++ {
+		require.NoError(t, cache.RecordModeration(ctx, qqbot.ModerationRecord{MessageID: fmt.Sprint(i), Action: "recorded"}))
+	}
+	rows, err := cache.ModerationRecords(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 200)
+	require.Equal(t, "204", rows[0].MessageID)
+	mr.FastForward(8 * 24 * time.Hour)
+	rows, err = cache.ModerationRecords(ctx)
+	require.NoError(t, err)
+	require.Empty(t, rows)
+}
 
 func TestQQBotCacheLeaseOwnershipAndStatus(t *testing.T) {
 	mr := miniredis.RunT(t)
