@@ -342,7 +342,7 @@ func (r *Runtime) dispatch(ctx context.Context, msg Message) error {
 		case name == "帮助":
 			reply = "@我 渠道状态 [平台或分组名]：状态看板图片\n@我 渠道状态文字 [名称]：文字结果\n@我 检测 编号：V1 即时检测（需授权，可能计费）\n@我 绑定信息：查看本群和成员标识\n只响应指令，不定时播报。"
 			if r.cfg.AllowUnmentioned {
-				reply += "\n免 @ 查询已开启：直接发送 渠道监测（需 QQ 已开启接收所有消息）。"
+				reply += "\n免 @ 查询已开启：直接发送 渠道监测（需群主在手机 QQ 群内的机器人设置中允许查看所有消息）。"
 			}
 		case name == "检测" && !isProbe:
 			reply = "即时检测需在后台开启并指定管理员，同时提供渠道编号。可先查询“渠道状态”。"

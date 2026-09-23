@@ -114,7 +114,7 @@ async function preview(page = 1) {
       <div class="flex items-center justify-between gap-4">
         <div>
           <label for="qq-bot-unmentioned" class="font-medium">{{ text('免 @ 查询', 'Query without mentioning the bot') }}</label>
-          <p class="mt-1 text-xs text-gray-500">{{ text('需先在 QQ 平台开启“接收所有消息”。开启后，在允许的群里直接发送“渠道监测”或“渠道状态”即可；普通聊天不触发，检测指令仍需 @。', 'Requires “Receive all messages” in QQ. Allowed groups can send 渠道监测 or 渠道状态 directly. Ordinary chat is ignored; live checks still require a mention.') }}</p>
+          <p class="mt-1 text-xs text-gray-500">{{ text('请用群主账号在手机 QQ 群内打开机器人的资料页，进入设置，查找“允许查看所有消息／接收所有消息”（入口随 QQ 版本而异）。授权后，在允许的群里直接发送“渠道监测”或“渠道状态”即可；普通聊天不触发，检测指令仍需 @。', 'Using the group owner account in mobile QQ, open the bot profile from the group, then its settings, and look for permission to receive all messages (availability varies by QQ version). Allowed groups can then send 渠道监测 or 渠道状态 directly. Ordinary chat is ignored; live checks still require a mention.') }}</p>
         </div>
         <Toggle id="qq-bot-unmentioned" v-model="config.allow_unmentioned" :disabled="saving" />
       </div>

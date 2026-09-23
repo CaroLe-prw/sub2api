@@ -41,7 +41,7 @@ func (r *Runtime) replyBoard(ctx context.Context, msg Message, query string) boo
 		return true
 	}
 	for i, data := range images {
-		if err := r.api.replyImage(sendCtx, msg.Group, msg.ID, data, i+1); err != nil {
+		if err := r.api.replyImage(sendCtx, msg.Group, msg.ID, msg.Author.ID, data, i+1); err != nil {
 			slog.Warn("qq_bot: image delivery failed", "page", i+1, "error", err)
 			// Same sequence as the failed send avoids a second visible reply if
 			// QQ accepted the image but its HTTP response was lost.

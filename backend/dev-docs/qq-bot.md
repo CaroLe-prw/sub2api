@@ -21,7 +21,9 @@
 
 ## 指令
 
-需要免 @ 查询时，在 QQ 平台为机器人开启“接收所有消息”，然后在 Sub2API 的 QQ 机器人设置中打开
+需要免 @ 查询时，请使用群主账号在**手机 QQ 群内**打开机器人的资料页，进入右上角设置，
+查找“允许查看所有消息／接收所有消息”等消息范围选项；具体入口和可用性随 QQ 版本而异。
+这不是开发者网页中选择 WebSocket/Webhook 的页面。授权后，在 Sub2API 的 QQ 机器人设置中打开
 “免 @ 查询”并保存。在已允许的群里直接发送 `渠道监测`、`渠道状态`、`渠道监测 OpenAI` 即可。
 `渠道监测` 是 `渠道状态` 的别名，也支持 `@机器人 渠道监测`。
 此开关默认关闭；平台没有下发 `GROUP_MESSAGE_CREATE` 时，仅打开本站开关也无法收到未 @ 的消息。
@@ -49,6 +51,8 @@ QQ 官方全量群消息事件使用与现有连接相同的 `GROUP_AND_C2C_EVEN
   使用二进制部署时请安装 Noto CJK，或通过 `QQ_BOT_FONT_PATH` 指定包含中文的 TTF/OTF/TTC 字体，安装后重启服务。
 - 图片直接使用 QQ 官方预上传、分片 PUT、完成合并接口上传，再以富媒体被动回复发送。
   无需配置公网图片域名，文件上传不会主动向群发送消息。
+- 每张看板图片的图文正文会 @ 发起查询的群成员，使用原消息中的成员 OpenID；
+  免 @ 查询和 @ 查询都一样，不额外发送通知消息，分页仍最多 4 条回复。
 - 图片生成或发送失败会尝试文字摘要；若 QQ 账号尚未开放富媒体权限，需在平台完成相应配置。
 - 数据过期或缺失会明确提示，接口错误不会当作“全部正常”。
 - 回复不包含上游密钥、上游 URL、请求量、余额或原始错误正文。
@@ -97,3 +101,4 @@ go test ./cmd/server -run TestProvideCleanup
 [访问凭据](https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/access-token.html)、
 [图片上传](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/rich-media.html)。
 [全量群消息](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_message_create.html)。
+群内授权操作参考：[机器人维护方的群设置说明](https://wiki.awmc.team/guide/bot/intro#十一、把-bot-拉进自己的群-群主-管理员)。

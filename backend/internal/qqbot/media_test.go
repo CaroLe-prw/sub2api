@@ -52,6 +52,7 @@ func TestQQImageUploadAndPassiveReply(t *testing.T) {
 				require.EqualValues(t, 7, body["msg_type"])
 				require.EqualValues(t, 2, body["msg_seq"])
 				require.Equal(t, "message", body["msg_id"])
+				require.Equal(t, `<qqbot-at-user id="requesting-member" /> 渠道状态看板`, body["content"])
 				media, ok := body["media"].(map[string]any)
 				require.True(t, ok)
 				require.Equal(t, "media-info", media["file_info"])
@@ -63,7 +64,7 @@ func TestQQImageUploadAndPassiveReply(t *testing.T) {
 		}
 		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(result))}, nil
 	})
-	require.NoError(t, q.replyImage(context.Background(), "g", "message", []byte("0123456789"), 2))
+	require.NoError(t, q.replyImage(context.Background(), "g", "message", "requesting-member", []byte("0123456789"), 2))
 	require.Equal(t, []string{"01234", "56789"}, chunks)
 	require.Equal(t, 2, finishes)
 	require.True(t, replied)
@@ -90,7 +91,15 @@ func TestQQUploadBusinessFailureNeverSends(t *testing.T) {
 		}
 		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
 	})
-	require.Error(t, q.replyImage(context.Background(), "g", "id", []byte("image"), 1))
+	require.Error(t, q.replyImage(context.Background(), "g", "id", "requesting-member", []byte("image"), 1))
+}
+
+func TestQQImageCaptionOnlyMentionsTheRequestingMember(t *testing.T) {
+	require.Equal(t, `<qqbot-at-user id="member-a" /> 渠道状态看板`, imageReplyCaption("member-a"))
+	require.Equal(t, `<qqbot-at-user id="member-b" /> 渠道状态看板`, imageReplyCaption("member-b"))
+	for _, invalid := range []string{"", `user" /><qqbot-at-everyone /><!--`, "@everyone", "昵称", strings.Repeat("x", 129)} {
+		require.Equal(t, "渠道状态看板", imageReplyCaption(invalid))
+	}
 }
 
 // Tencent's SDK defines one-based part indices and zero per-part block_size as
