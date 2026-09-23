@@ -135,6 +135,38 @@ func (q *client) reply(ctx context.Context, group, messageID, content string) er
 	return q.replyText(ctx, group, messageID, content, 1)
 }
 
+var qqMemberOpenID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+
+// Native image messages display interaction tags literally on some QQ clients.
+// Send the mention in a separate Markdown reply, never in image/plain-text content.
+func (q *client) replyBoardMention(ctx context.Context, group, messageID, memberOpenID string) error {
+	if !qqMemberOpenID.MatchString(memberOpenID) {
+		return fmt.Errorf("invalid QQ member OpenID for mention")
+	}
+	token, err := q.accessToken(ctx)
+	if err != nil {
+		return err
+	}
+	var result struct {
+		apiResult
+		ID string `json:"id"`
+	}
+	content := `<qqbot-at-user id="` + memberOpenID + `" /> 已为你查询渠道状态，见下方图片。`
+	err = doJSON(ctx, q.http, http.MethodPost, q.baseURL+"/v2/groups/"+url.PathEscape(group)+"/messages",
+		map[string]string{"Authorization": "QQBot " + token},
+		map[string]any{"msg_type": 2, "msg_id": messageID, "msg_seq": 1, "markdown": map[string]string{"content": content}}, &result)
+	if err != nil {
+		return fmt.Errorf("send_board_mention: %w", err)
+	}
+	if err := result.check(); err != nil {
+		return err
+	}
+	if result.ID == "" {
+		return fmt.Errorf("QQ mention reply missing ID")
+	}
+	return nil
+}
+
 func (q *client) replyText(ctx context.Context, group, messageID, content string, sequence int) error {
 	token, err := q.accessToken(ctx)
 	if err != nil {

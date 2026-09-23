@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -181,19 +180,7 @@ func trustedUploadURL(u *url.URL) bool {
 	return false
 }
 
-var qqMemberOpenID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
-
-func imageReplyCaption(memberOpenID string) string {
-	caption := "渠道状态看板"
-	if !qqMemberOpenID.MatchString(memberOpenID) {
-		return caption
-	}
-	// QQ's text-interaction syntax supports an @ tag in mixed image/text
-	// messages. Use the triggering member's OpenID, never a nickname/QQ number.
-	return `<qqbot-at-user id="` + memberOpenID + `" /> ` + caption
-}
-
-func (q *client) replyImage(ctx context.Context, group, messageID, memberOpenID string, data []byte, sequence int) error {
+func (q *client) replyImage(ctx context.Context, group, messageID string, data []byte, sequence int) error {
 	info, err := q.uploadImage(ctx, group, data)
 	if err != nil {
 		return err
@@ -206,7 +193,7 @@ func (q *client) replyImage(ctx context.Context, group, messageID, memberOpenID 
 		apiResult
 		ID string `json:"id"`
 	}
-	err = doJSON(ctx, q.http, http.MethodPost, q.baseURL+"/v2/groups/"+url.PathEscape(group)+"/messages", map[string]string{"Authorization": "QQBot " + token}, map[string]any{"msg_type": 7, "msg_id": messageID, "msg_seq": sequence, "content": imageReplyCaption(memberOpenID), "media": map[string]string{"file_info": info}}, &result)
+	err = doJSON(ctx, q.http, http.MethodPost, q.baseURL+"/v2/groups/"+url.PathEscape(group)+"/messages", map[string]string{"Authorization": "QQBot " + token}, map[string]any{"msg_type": 7, "msg_id": messageID, "msg_seq": sequence, "media": map[string]string{"file_info": info}}, &result)
 	if err != nil {
 		return fmt.Errorf("send_image_message: %w", err)
 	}
