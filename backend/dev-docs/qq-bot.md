@@ -21,6 +21,13 @@
 
 ## 指令
 
+需要免 @ 查询时，在 QQ 平台为机器人开启“接收所有消息”，然后在 Sub2API 的 QQ 机器人设置中打开
+“免 @ 查询”并保存。在已允许的群里直接发送 `渠道监测`、`渠道状态`、`渠道监测 OpenAI` 即可。
+`渠道监测` 是 `渠道状态` 的别名，也支持 `@机器人 渠道监测`。
+此开关默认关闭；平台没有下发 `GROUP_MESSAGE_CREATE` 时，仅打开本站开关也无法收到未 @ 的消息。
+普通聊天忽略，不保存聊天内容；绑定和即时检测仍使用 @ 指令。全量消息与 @ 消息沿用同一套消息去重。
+QQ 官方全量群消息事件使用与现有连接相同的 `GROUP_AND_C2C_EVENT (1<<25)` 订阅。
+
 | 指令 | 作用 |
 | --- | --- |
 | `@机器人 渠道状态` | V2 默认返回分组卡片看板图片，含缓存率、可用率、首 Token 和历史状态条 |
@@ -64,6 +71,17 @@
 AppID/AppSecret、QQ 服务器 IP 白名单和机器人使用权限。
 本地测试不会调用真实 QQ 账号；实际登录和加群仍需在部署后联调。
 
+### 后台能预览，群里只能收到文字摘要
+
+这说明图片已经生成，失败在 QQ 上传或发送阶段，不需要重复安装字体。
+先在群里发一次“渠道状态”，再点击后台“刷新连接状态”。失败状态会显示阶段、HTTP 状态码、
+QQ `code` / `err_code` 和可用的 `trace_id`；服务器日志可搜索 `qq_bot: image delivery failed`。
+记录这些诊断信息即可，不要分享 AppSecret、access token 或存储预签名 URL。
+
+上传兼容当前官方 SDK 的 1 起始分片编号和早期文档的 0 起始编号；逐片确认时保留 QQ 返回的编号，
+分片大小为 0 时使用整体分片大小，确认接口的空成功响应也视为成功。
+只有真正收到富媒体消息 ID 才显示“状态看板图片发送成功”。
+
 ## 验证
 
 ```sh
@@ -78,3 +96,4 @@ go test ./cmd/server -run TestProvideCleanup
 官方协议参考：[WebSocket 接入](https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/event-emit/websocket.html)、
 [访问凭据](https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/access-token.html)、
 [图片上传](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/rich-media.html)。
+[全量群消息](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_message_create.html)。

@@ -46,10 +46,17 @@ func md5hex(data []byte) string { sum := md5.Sum(data); return hex.EncodeToStrin
 
 // uploadImage sends local bytes directly using QQ's presigned upload protocol.
 // No public image URL or new application endpoint is needed.
-func (q *client) uploadImage(ctx context.Context, group string, data []byte) (string, error) {
+func (q *client) uploadImage(ctx context.Context, group string, data []byte) (info string, err error) {
+	stage := "validate_image"
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("%s: %w", stage, err)
+		}
+	}()
 	if len(data) == 0 || len(data) > 8*1024*1024 {
 		return "", errors.New("invalid board image size")
 	}
+	stage = "access_token"
 	token, err := q.accessToken(ctx)
 	if err != nil {
 		return "", err
@@ -63,6 +70,7 @@ func (q *client) uploadImage(ctx context.Context, group string, data []byte) (st
 		BlockSize json.RawMessage `json:"block_size"`
 		Parts     []uploadPart    `json:"parts"`
 	}
+	stage = "upload_prepare"
 	err = doJSON(ctx, q.http, http.MethodPost, base+"/upload_prepare", headers, map[string]any{"file_type": 1, "file_size": strconv.Itoa(len(data)), "file_name": "channel-status.png", "md5": md5hex(data), "sha1": hex.EncodeToString(sha[:]), "md5_10m": md5hex(data)}, &prepare)
 	if err != nil {
 		return "", err
@@ -70,10 +78,17 @@ func (q *client) uploadImage(ctx context.Context, group string, data []byte) (st
 	if err = prepare.check(); err != nil {
 		return "", err
 	}
+	stage = "validate_upload_plan"
 	if prepare.ID == "" || len(prepare.Parts) == 0 || len(prepare.Parts) > 32 {
 		return "", errors.New("invalid QQ upload plan")
 	}
 	sort.Slice(prepare.Parts, func(i, j int) bool { return prepare.Parts[i].Index < prepare.Parts[j].Index })
+	// The current official SDK uses one-based indices; older wiki examples
+	// use zero-based indices. Preserve whichever valid sequence QQ returned.
+	firstIndex := prepare.Parts[0].Index
+	if firstIndex != 0 && firstIndex != 1 {
+		return "", errors.New("invalid QQ upload starting index")
+	}
 	// Validate the complete plan before transmitting any bytes. No credentials
 	// are forwarded to the storage host, and redirects are never followed.
 	type chunk struct {
@@ -84,11 +99,12 @@ func (q *client) uploadImage(ctx context.Context, group string, data []byte) (st
 	chunks := make([]chunk, 0, len(prepare.Parts))
 	offset := 0
 	for i, part := range prepare.Parts {
-		if part.Index != i || offset >= len(data) {
+		if part.Index != firstIndex+i || offset >= len(data) {
 			return "", errors.New("invalid QQ upload part order")
 		}
 		raw := part.Size
-		if len(raw) == 0 {
+		sizeValue := strings.Trim(strings.TrimSpace(string(raw)), "\"")
+		if sizeValue == "" || sizeValue == "0" || sizeValue == "null" {
 			raw = prepare.BlockSize
 		}
 		size, e := mediaSize(raw)
@@ -103,13 +119,14 @@ func (q *client) uploadImage(ctx context.Context, group string, data []byte) (st
 		if e != nil || u.User != nil || !trustedUploadURL(u) {
 			return "", errors.New("untrusted QQ storage URL")
 		}
-		chunks = append(chunks, chunk{part.URL, data[offset:end], i})
+		chunks = append(chunks, chunk{part.URL, data[offset:end], part.Index})
 		offset = end
 	}
 	if offset != len(data) {
 		return "", errors.New("incomplete QQ upload plan")
 	}
 	for _, part := range chunks {
+		stage = fmt.Sprintf("upload_part_%d", part.index)
 		req, err := http.NewRequestWithContext(ctx, http.MethodPut, part.url, bytes.NewReader(part.data))
 		if err != nil {
 			return "", errors.New("invalid QQ storage request")
@@ -125,6 +142,7 @@ func (q *client) uploadImage(ctx context.Context, group string, data []byte) (st
 			return "", httpStatusError(resp.StatusCode)
 		}
 		var finish apiResult
+		stage = fmt.Sprintf("upload_part_finish_%d", part.index)
 		if err := doJSON(ctx, q.http, http.MethodPost, base+"/upload_part_finish", headers, map[string]any{"upload_id": prepare.ID, "part_index": part.index, "block_size": strconv.Itoa(len(part.data)), "md5": md5hex(part.data)}, &finish); err != nil {
 			return "", err
 		}
@@ -136,6 +154,7 @@ func (q *client) uploadImage(ctx context.Context, group string, data []byte) (st
 		apiResult
 		Info string `json:"file_info"`
 	}
+	stage = "complete_upload"
 	if err := doJSON(ctx, q.http, http.MethodPost, base+"/files", headers, map[string]any{"file_type": 1, "upload_id": prepare.ID, "srv_send_msg": false, "file_name": "channel-status.png"}, &merged); err != nil {
 		return "", err
 	}
@@ -176,7 +195,7 @@ func (q *client) replyImage(ctx context.Context, group, messageID string, data [
 	}
 	err = doJSON(ctx, q.http, http.MethodPost, q.baseURL+"/v2/groups/"+url.PathEscape(group)+"/messages", map[string]string{"Authorization": "QQBot " + token}, map[string]any{"msg_type": 7, "msg_id": messageID, "msg_seq": sequence, "media": map[string]string{"file_info": info}}, &result)
 	if err != nil {
-		return err
+		return fmt.Errorf("send_image_message: %w", err)
 	}
 	if err = result.check(); err != nil {
 		return err

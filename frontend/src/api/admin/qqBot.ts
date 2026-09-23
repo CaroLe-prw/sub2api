@@ -8,6 +8,7 @@ export interface QQBotConfig {
   monitor_ids: number[]
   group_ids: number[]
   allow_probe: boolean
+  allow_unmentioned: boolean
 }
 
 export interface QQBotView extends QQBotConfig {

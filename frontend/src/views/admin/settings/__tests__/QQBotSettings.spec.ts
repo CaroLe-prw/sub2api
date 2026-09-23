@@ -69,6 +69,18 @@ describe('QQ bot settings', () => {
     wrapper.unmount()
   })
 
+  it('keeps unmentioned queries off for old settings and saves explicit opt-in', async () => {
+    const wrapper = await render()
+    expect(wrapper.find('#qq-bot-unmentioned').attributes('aria-checked')).toBe('false')
+    await wrapper.find('#qq-bot-unmentioned').trigger('click')
+    expect(wrapper.text()).toContain('渠道监测')
+    expect(wrapper.text()).toContain('接收所有消息')
+    await wrapper.findAll('button').find(button => button.text() === '保存 QQ 机器人设置')!.trigger('click')
+    await flushPromises()
+    expect(mocks.update.mock.calls[0][0].allow_unmentioned).toBe(true)
+    wrapper.unmount()
+  })
+
   it('refreshes status without discarding unsaved form edits', async () => {
     const wrapper = await render()
     await wrapper.find('#qq-bot-appid').setValue('456')

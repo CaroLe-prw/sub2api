@@ -217,3 +217,60 @@ func TestQQMissingHeartbeatAckDisconnects(t *testing.T) {
 	require.ErrorContains(t, err, "heartbeat timeout")
 	require.NoError(t, ctx.Err())
 }
+
+func TestQQChannelMonitorCommandAlias(t *testing.T) {
+	for _, text := range []string{"渠道监测", "/渠道监测", "<@bot> 渠道监测"} {
+		command, query := Command(text)
+		require.Equal(t, "渠道状态", command)
+		require.Empty(t, query)
+	}
+	command, query := Command("渠道监测 OpenAI")
+	require.Equal(t, "渠道状态", command)
+	require.Equal(t, "OpenAI", query)
+	command, _ = Command("今天渠道监测怎么样")
+	require.Empty(t, command)
+}
+
+func TestQQUnmentionedQueriesAreOptInScopedAndDeduplicated(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "getAppAccessToken") {
+			fmt.Fprint(w, `{"access_token":"token","expires_in":7200}`)
+		} else {
+			fmt.Fprint(w, `{"id":"reply"}`)
+		}
+	}))
+	defer server.Close()
+	for _, tc := range []struct {
+		name, event, group, content string
+		enabled                     bool
+		calls                       int32
+	}{
+		{"off", "GROUP_MESSAGE_CREATE", "group-a", "渠道监测", false, 0},
+		{"on", "GROUP_MESSAGE_CREATE", "group-a", "渠道监测", true, 1},
+		{"other-group", "GROUP_MESSAGE_CREATE", "group-b", "渠道监测", true, 0},
+		{"ordinary-chat", "GROUP_MESSAGE_CREATE", "group-a", "大家好", true, 0},
+		{"probe-needs-at", "GROUP_MESSAGE_CREATE", "group-a", "检测 1", true, 0},
+		{"at-still-works", "GROUP_AT_MESSAGE_CREATE", "group-a", "渠道监测", false, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := &testSource{}
+			r := New(Config{AppID: "test", Groups: []string{"group-a"}, Admins: []string{"admin"}, AllowProbe: true, AllowUnmentioned: tc.enabled}, "secret", source, &testGuard{seen: map[string]bool{}}, nil)
+			r.api.baseURL = server.URL
+			message := Message{ID: "same-id", Group: tc.group, Content: tc.content, Timestamp: time.Now()}
+			message.Author.ID = "admin"
+			data, err := json.Marshal(message)
+			require.NoError(t, err)
+			event := payload{Type: tc.event, Data: data}
+			require.NoError(t, r.dispatchGroupEvent(context.Background(), event))
+			r.wg.Wait()
+			require.Equal(t, tc.calls, source.calls.Load())
+			if tc.calls > 0 {
+				// The same command arriving through both event streams is one reply.
+				event.Type = "GROUP_AT_MESSAGE_CREATE"
+				require.NoError(t, r.dispatchGroupEvent(context.Background(), event))
+				r.wg.Wait()
+				require.EqualValues(t, 1, source.calls.Load())
+			}
+		})
+	}
+}

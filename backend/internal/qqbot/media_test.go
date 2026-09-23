@@ -92,3 +92,45 @@ func TestQQUploadBusinessFailureNeverSends(t *testing.T) {
 	})
 	require.Error(t, q.replyImage(context.Background(), "g", "id", []byte("image"), 1))
 }
+
+// Tencent's SDK defines one-based part indices and zero per-part block_size as
+// "use the response-level size". The older wiki examples used zero-based parts.
+func TestQQUploadOfficialOneBasedParts(t *testing.T) {
+	var uploaded []string
+	var completed []int
+	q := &client{baseURL: "https://api.bot.qq.com", http: httpClient()}
+	q.http.Transport = mediaTransport(func(r *http.Request) (*http.Response, error) {
+		raw, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		result := "{}"
+		if r.URL.Host == "storage.qq.com" {
+			require.Empty(t, r.Header.Get("Authorization"))
+			uploaded = append(uploaded, string(raw))
+		} else {
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(raw, &body))
+			switch r.URL.Path {
+			case "/app/getAppAccessToken":
+				result = `{"access_token":"token","expires_in":7200}`
+			case "/v2/groups/g/upload_prepare":
+				result = `{"upload_id":"u","block_size":5,"parts":[{"index":2,"presigned_url":"https://storage.qq.com/2","block_size":"0"},{"index":1,"presigned_url":"https://storage.qq.com/1","block_size":0}]}`
+			case "/v2/groups/g/upload_part_finish":
+				index, ok := body["part_index"].(float64)
+				require.True(t, ok)
+				completed = append(completed, int(index))
+				result = "" // Official SDK also accepts an empty successful finish response.
+			case "/v2/groups/g/files":
+				require.Equal(t, false, body["srv_send_msg"])
+				result = `{"file_info":"media-info"}`
+			default:
+				t.Fatalf("unexpected API path %s", r.URL.Path)
+			}
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(result))}, nil
+	})
+	info, err := q.uploadImage(context.Background(), "g", []byte("0123456789"))
+	require.NoError(t, err)
+	require.Equal(t, "media-info", info)
+	require.Equal(t, []string{"01234", "56789"}, uploaded)
+	require.Equal(t, []int{1, 2}, completed)
+}

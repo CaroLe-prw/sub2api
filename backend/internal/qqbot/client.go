@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,25 @@ type client struct {
 type httpStatusError int
 
 func (e httpStatusError) Error() string { return fmt.Sprintf("HTTP %d", int(e)) }
+
+// Keep only diagnostic identifiers, never platform message/body fields which
+// could echo credentials, presigned URLs or other private request data.
+type apiResponseError struct {
+	Status, Code, ErrCode int
+	TraceID               string
+}
+
+func (e *apiResponseError) Error() string {
+	text := fmt.Sprintf("HTTP %d code=%d err_code=%d", e.Status, e.Code, e.ErrCode)
+	if e.TraceID != "" {
+		text += " trace_id=" + e.TraceID
+	}
+	return text
+}
+
+func (e *apiResponseError) Unwrap() error { return httpStatusError(e.Status) }
+
+var qqTraceID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // doJSON never follows redirects or includes response bodies in errors: those may
 // contain credentials or upstream details inappropriate for a group or log.
@@ -52,12 +72,30 @@ func doJSON(ctx context.Context, client *http.Client, method, endpoint string, h
 		return fmt.Errorf("request failed (network or timeout)")
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return httpStatusError(resp.StatusCode)
-	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024+1))
 	if err != nil || len(data) > 2*1024*1024 {
 		return fmt.Errorf("invalid or oversized response")
+	}
+	var diagnostics struct {
+		Code    int    `json:"code"`
+		ErrCode int    `json:"err_code"`
+		TraceID string `json:"trace_id"`
+	}
+	_ = json.Unmarshal(data, &diagnostics)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || diagnostics.Code != 0 || diagnostics.ErrCode != 0 {
+		trace := resp.Header.Get("X-Tps-Trace-ID")
+		if trace == "" {
+			trace = diagnostics.TraceID
+		}
+		if !qqTraceID.MatchString(trace) {
+			trace = ""
+		}
+		return &apiResponseError{Status: resp.StatusCode, Code: diagnostics.Code, ErrCode: diagnostics.ErrCode, TraceID: trace}
+	}
+	// upload_part_finish has no response payload on some QQ gateways. APIs
+	// requiring data still validate their token/upload_id/file_info/message ID.
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil
 	}
 	if err := json.Unmarshal(data, output); err != nil {
 		return fmt.Errorf("invalid JSON response")

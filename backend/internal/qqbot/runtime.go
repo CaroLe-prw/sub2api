@@ -19,13 +19,14 @@ import (
 )
 
 type Config struct {
-	Enabled    bool     `json:"enabled"`
-	AppID      string   `json:"app_id"`
-	Groups     []string `json:"groups"`
-	Admins     []string `json:"admins"`
-	MonitorIDs []int64  `json:"monitor_ids"`
-	GroupIDs   []int64  `json:"group_ids"`
-	AllowProbe bool     `json:"allow_probe"`
+	Enabled          bool     `json:"enabled"`
+	AppID            string   `json:"app_id"`
+	Groups           []string `json:"groups"`
+	Admins           []string `json:"admins"`
+	MonitorIDs       []int64  `json:"monitor_ids"`
+	GroupIDs         []int64  `json:"group_ids"`
+	AllowProbe       bool     `json:"allow_probe"`
+	AllowUnmentioned bool     `json:"allow_unmentioned"`
 }
 
 type Message struct {
@@ -245,12 +246,9 @@ func (r *Runtime) connect(ctx context.Context) error {
 				case "RESUMED":
 					readyTimer.Stop()
 					r.status("online", "QQ 连接已恢复")
-				case "GROUP_AT_MESSAGE_CREATE":
-					var msg Message
-					if json.Unmarshal(p.Data, &msg) == nil {
-						if err := r.dispatch(ctx, msg); err != nil {
-							return err
-						}
+				case "GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE":
+					if err := r.dispatchGroupEvent(ctx, p); err != nil {
+						return err
 					}
 				}
 				if p.Seq != nil {
@@ -272,10 +270,34 @@ func Command(content string) (string, string) {
 		return "", ""
 	}
 	switch parts[0] {
+	case "渠道监测":
+		return "渠道状态", strings.Join(parts[1:], " ")
 	case "渠道状态", "渠道状态文字", "检测", "帮助", "绑定信息":
 		return parts[0], strings.Join(parts[1:], " ")
 	}
 	return "", ""
+}
+
+func (r *Runtime) dispatchGroupEvent(ctx context.Context, event payload) error {
+	if event.Type != "GROUP_AT_MESSAGE_CREATE" && event.Type != "GROUP_MESSAGE_CREATE" {
+		return nil
+	}
+	var message Message
+	if json.Unmarshal(event.Data, &message) != nil {
+		return nil
+	}
+	if event.Type == "GROUP_MESSAGE_CREATE" {
+		if !r.cfg.AllowUnmentioned {
+			return nil
+		}
+		command, _ := Command(message.Content)
+		// Full-group delivery is opt-in and only allows read-only queries.
+		// Binding and potentially billable probes still require an @ event.
+		if command != "渠道状态" && command != "渠道状态文字" {
+			return nil
+		}
+	}
+	return r.dispatch(ctx, message)
 }
 
 func contains(values []string, value string) bool {
@@ -319,6 +341,9 @@ func (r *Runtime) dispatch(ctx context.Context, msg Message) error {
 			reply = "本群 OpenID：" + msg.Group + "\n你的成员 OpenID：" + msg.Author.ID + "\n请管理员在后台 QQ 机器人设置中填写。OpenID 不是 QQ 群号。"
 		case name == "帮助":
 			reply = "@我 渠道状态 [平台或分组名]：状态看板图片\n@我 渠道状态文字 [名称]：文字结果\n@我 检测 编号：V1 即时检测（需授权，可能计费）\n@我 绑定信息：查看本群和成员标识\n只响应指令，不定时播报。"
+			if r.cfg.AllowUnmentioned {
+				reply += "\n免 @ 查询已开启：直接发送 渠道监测（需 QQ 已开启接收所有消息）。"
+			}
 		case name == "检测" && !isProbe:
 			reply = "即时检测需在后台开启并指定管理员，同时提供渠道编号。可先查询“渠道状态”。"
 		default:

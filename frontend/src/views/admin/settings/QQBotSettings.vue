@@ -28,7 +28,7 @@ let disposed = false
 const online = computed(() => config.value?.status.state === 'online')
 
 function assign(value: QQBotView) {
-  config.value = { ...value, groups: value.groups ?? [], admins: value.admins ?? [], group_ids: value.group_ids ?? [], monitor_ids: value.monitor_ids ?? [] }
+  config.value = { ...value, allow_unmentioned: value.allow_unmentioned ?? false, groups: value.groups ?? [], admins: value.admins ?? [], group_ids: value.group_ids ?? [], monitor_ids: value.monitor_ids ?? [] }
   groups.value = (value.groups ?? []).join('\n')
   admins.value = (value.admins ?? []).join('\n')
   monitors.value = (value.monitor_ids ?? []).join(', ')
@@ -60,7 +60,7 @@ async function save() {
   try {
     const c = config.value
     assign(await qqBotAPI.update({ enabled: c.enabled, app_id: c.app_id, groups: split(groups.value), admins: split(admins.value), monitor_ids: ids,
-      group_ids: c.group_ids, allow_probe: c.allow_probe, app_secret: secret.value || undefined, clear_secret: clearSecret.value }))
+      group_ids: c.group_ids, allow_probe: c.allow_probe, allow_unmentioned: c.allow_unmentioned, app_secret: secret.value || undefined, clear_secret: clearSecret.value }))
     app.showSuccess(text('已保存，连接配置将在约 5 秒内生效', 'Saved. Connection settings apply within about 5 seconds.'))
   } catch {
     app.showError(text('保存失败，请检查凭据、OpenID 和展示分组是否已填写', 'Save failed. Check credentials, OpenIDs and selected groups.'))
@@ -111,6 +111,13 @@ async function preview(page = 1) {
         <label for="qq-bot-enabled" class="font-medium">{{ text('启用 QQ 机器人', 'Enable QQ bot') }}</label>
         <Toggle id="qq-bot-enabled" v-model="config.enabled" :disabled="saving" />
       </div>
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <label for="qq-bot-unmentioned" class="font-medium">{{ text('免 @ 查询', 'Query without mentioning the bot') }}</label>
+          <p class="mt-1 text-xs text-gray-500">{{ text('需先在 QQ 平台开启“接收所有消息”。开启后，在允许的群里直接发送“渠道监测”或“渠道状态”即可；普通聊天不触发，检测指令仍需 @。', 'Requires “Receive all messages” in QQ. Allowed groups can send 渠道监测 or 渠道状态 directly. Ordinary chat is ignored; live checks still require a mention.') }}</p>
+        </div>
+        <Toggle id="qq-bot-unmentioned" v-model="config.allow_unmentioned" :disabled="saving" />
+      </div>
       <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-gray-50 p-3 dark:bg-dark-800" aria-live="polite">
         <span :class="online ? 'text-green-600' : 'text-gray-500'">{{ config.status.detail }}</span>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="refreshing" @click="refreshStatus">{{ text('刷新连接状态', 'Refresh status') }}</button>
@@ -134,6 +141,7 @@ async function preview(page = 1) {
       <div v-else><label for="qq-bot-monitors" class="mb-1 block text-sm font-medium">{{ text('允许展示的监控编号（可选）', 'Visible monitor IDs (optional)') }}</label><input id="qq-bot-monitors" v-model="monitors" class="input w-full" :disabled="saving" @keydown.enter.prevent="save" /><p class="mt-1 text-xs text-gray-500">{{ text('用逗号分隔；留空展示所有已启用且已公开的 V1 监控。', 'Comma-separated; empty shows all enabled, published V1 monitors.') }}</p></div>
       <div v-if="config.monitor_mode === 'v1'" class="flex items-center justify-between gap-4"><div><label for="qq-bot-probe" class="font-medium">{{ text('允许即时检测', 'Allow live checks') }}</label><p class="text-xs text-gray-500">{{ text('可能产生模型调用费用；每群至少间隔 60 秒。', 'May incur model usage charges; at least 60 seconds between checks per group.') }}</p></div><Toggle id="qq-bot-probe" v-model="config.allow_probe" :disabled="saving" /></div>
       <div class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-800"><code>@机器人 渠道状态</code> · <code>@机器人 渠道状态 OpenAI</code> · <code>@机器人 渠道状态文字</code></div>
+      <p v-if="config.allow_unmentioned" class="text-sm text-gray-500">{{ text('免 @ 示例：渠道监测 · 渠道监测 OpenAI', 'Without a mention: 渠道监测 · 渠道监测 OpenAI') }}</p>
       <div class="flex flex-wrap justify-end gap-3">
         <button v-if="config.monitor_mode === 'v2'" type="button" class="btn btn-secondary" :disabled="previewing || saving" @click="preview(1)">{{ previewing ? text('生成图片中…', 'Rendering…') : text('预览已保存的看板', 'Preview saved dashboard') }}</button>
         <button type="button" class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? text('正在保存…', 'Saving…') : text('保存 QQ 机器人设置', 'Save QQ bot settings') }}</button>

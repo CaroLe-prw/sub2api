@@ -3,6 +3,7 @@ package qqbot
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -25,7 +26,8 @@ func (r *Runtime) replyBoard(ctx context.Context, msg Message, query string) boo
 			return
 		}
 		if e := r.api.replyText(sendCtx, msg.Group, msg.ID, text, seq); e != nil {
-			r.status("delivery_error", "QQ 回复失败，请检查机器人消息权限和服务器网络")
+			slog.Warn("qq_bot: fallback reply failed", "error", e)
+			r.status("delivery_error", "QQ 文字回复失败："+e.Error())
 		}
 	}
 	if err != nil {
@@ -34,18 +36,21 @@ func (r *Runtime) replyBoard(ctx context.Context, msg Message, query string) boo
 	}
 	images, err := RenderBoard(*board)
 	if err != nil {
+		slog.Warn("qq_bot: board rendering failed", "error", err)
 		fallback(boardFallback(*board, "图片生成暂不可用，请管理员检查中文字体。"), 1)
 		return true
 	}
 	for i, data := range images {
 		if err := r.api.replyImage(sendCtx, msg.Group, msg.ID, data, i+1); err != nil {
+			slog.Warn("qq_bot: image delivery failed", "page", i+1, "error", err)
 			// Same sequence as the failed send avoids a second visible reply if
 			// QQ accepted the image but its HTTP response was lost.
 			fallback(boardFallback(*board, "图片发送暂不可用，以下为文字摘要。"), i+1)
-			r.status("delivery_error", "QQ 图片上传或发送失败，已尝试文字回复；请检查富媒体权限")
+			r.status("delivery_error", "QQ 图片发送失败："+err.Error()+"；已尝试文字回复")
 			return true
 		}
 	}
+	r.status("online", "已连接 QQ，状态看板图片发送成功")
 	return true
 }
 
