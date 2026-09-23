@@ -4,7 +4,14 @@ import ChannelStatusV1View from '../ChannelStatusV1View.vue'
 
 const { list } = vi.hoisted(() => ({ list: vi.fn() }))
 vi.mock('@/api/channelMonitor', () => ({ list, status: vi.fn() }))
-vi.mock('@/stores/app', () => ({ useAppStore: () => ({ cachedPublicSettings: { channel_monitor_enabled: true }, showError: vi.fn() }) }))
+vi.mock('@/stores/app', () => ({
+  useAppStore: () => ({
+    cachedPublicSettings: { channel_monitor_enabled: true },
+    fetchPublicSettings: vi.fn().mockResolvedValue(undefined),
+    showError: vi.fn(),
+  }),
+}))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isAuthenticated: false }) }))
 vi.mock('vue-i18n', async () => ({
   ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'),
   useI18n: () => ({ t: (key: string) => key }),
@@ -12,6 +19,7 @@ vi.mock('vue-i18n', async () => ({
 const mountView = () => shallowMount(ChannelStatusV1View, {
   global: { stubs: {
     AppLayout: { template: '<div><slot /></div>' },
+    PublicStatusLayout: { template: '<div><slot /></div>' },
     MonitorHero: { props: ['autoRefresh'], emits: ['refresh'], template: `<div>
       <button class="interval" @click="autoRefresh.setInterval(120)">120 seconds</button>
       <button class="refresh" @click="$emit('refresh')">Refresh</button>
@@ -24,6 +32,25 @@ beforeEach(() => { vi.useFakeTimers(); localStorage.clear(); list.mockReset().mo
 afterEach(() => { wrapper?.unmount(); vi.useRealTimers(); localStorage.clear() })
 
 describe('channel monitor refresh interval', () => {
+  it('keeps automatic refresh disabled after reopening the page', async () => {
+    wrapper = mountView(); await flushPromises()
+    await wrapper.get('.disable').trigger('click')
+    wrapper.unmount()
+    wrapper = mountView(); await flushPromises()
+    const calls = list.mock.calls.length
+    await vi.advanceTimersByTimeAsync(240000)
+    expect(list).toHaveBeenCalledTimes(calls)
+    expect(JSON.parse(localStorage.getItem('channel-status-auto-refresh')!).enabled).toBe(false)
+    await wrapper.get('.refresh').trigger('click'); await flushPromises()
+    expect(list).toHaveBeenCalledTimes(calls + 1)
+  })
+
+  it('starts automatic refresh for a first visit', async () => {
+    wrapper = mountView(); await flushPromises()
+    await vi.advanceTimersByTimeAsync(120000)
+    expect(list.mock.calls.length).toBeGreaterThan(1)
+  })
+
   it('refreshes at the selected interval on successive automatic refreshes', async () => {
     wrapper = mountView(); await flushPromises()
     await wrapper.get('.interval').trigger('click')

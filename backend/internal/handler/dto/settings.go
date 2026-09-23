@@ -224,6 +224,9 @@ type SystemSettings struct {
 	OpenAICodexTicketEnabled                bool   `json:"openai_codex_ticket_enabled"`
 	OpenAICodexTicketHarvestProxyURL        string `json:"openai_codex_ticket_harvest_proxy_url"`
 	OpenAICodexTicketHarvestProxyConfigured bool   `json:"openai_codex_ticket_harvest_proxy_configured"`
+	ClaudeCodeClientVersion                 string `json:"claude_code_client_version"`
+	ClaudeCodeClientVersionSynced           string `json:"claude_code_client_version_synced"`
+	ClaudeCodeVersionAutoSyncEnabled        bool   `json:"claude_code_version_auto_sync_enabled"`
 
 	// codex_cli_only 加固
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -244,7 +247,7 @@ type SystemSettings struct {
 
 	// OpenAI account scheduling
 	OpenAILowUpstreamRatePriorityEnabled                   bool                             `json:"openai_low_upstream_rate_priority_enabled"`
-	OpenAIOAuthSchedulingRateMultiplier                    float64                          `json:"openai_oauth_scheduling_rate_multiplier"`
+	OpenAIOAuthSchedulingRateMultiplier                    *float64                         `json:"openai_oauth_scheduling_rate_multiplier"`
 	OpenAIAdvancedSchedulerEnabled                         bool                             `json:"openai_advanced_scheduler_enabled"`
 	OpenAIAdvancedSchedulerStickyWeightedEnabled           bool                             `json:"openai_advanced_scheduler_sticky_weighted_enabled"`
 	OpenAIAdvancedSchedulerSubscriptionPriorityEnabled     bool                             `json:"openai_advanced_scheduler_subscription_priority_enabled"`
@@ -274,7 +277,6 @@ type SystemSettings struct {
 	OpenAISchedulerObservabilityMaxTraces                  int                              `json:"openai_scheduler_observability_max_traces"`
 	OpenAISchedulerObservabilityRetentionDays              int                              `json:"openai_scheduler_observability_retention_days"`
 	OpenAISchedulerTemplates                               service.OpenAISchedulerTemplates `json:"openai_scheduler_templates"`
-
 	// Payment configuration
 	PaymentEnabled                   bool     `json:"payment_enabled"`
 	PaymentMinAmount                 float64  `json:"payment_min_amount"`

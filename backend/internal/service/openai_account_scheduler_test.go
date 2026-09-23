@@ -3662,7 +3662,7 @@ func TestBuildOpenAIAccountSchedulerScoreSnapshot_StickyScoreHonorsScoreGap(t *t
 			SessionSticky: 0.15,
 		},
 		true,
-		defaultOpenAIOAuthSchedulingRateMultiplier,
+		floatPtr(defaultOpenAIOAuthSchedulingRateMultiplier),
 		nil,
 	)
 

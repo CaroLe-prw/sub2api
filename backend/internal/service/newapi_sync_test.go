@@ -310,7 +310,7 @@ func TestRefreshSchedulingCostUsesNewAPISnapshotAndCalibration(t *testing.T) {
 	require.Equal(t, 0.065, *result.NewAPISync.NewRatio)
 	require.Equal(t, 0.065, account.BillingRateMultiplier())
 
-	schedulingRate, ok := openAISchedulingRate(account, now, 1)
+	schedulingRate, ok := openAISchedulingRate(account, now, floatPtr(1))
 	require.True(t, ok)
 	require.InDelta(t, 0.065, schedulingRate, 1e-12)
 }
