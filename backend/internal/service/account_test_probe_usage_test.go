@@ -105,7 +105,7 @@ func TestRecordChannelProbeUsageCapturesContextCostAndAccountAttribution(t *test
 	require.NotNil(t, log.InboundEndpoint)
 	require.Equal(t, "/internal/channel-monitor/probe", *log.InboundEndpoint)
 	require.NotNil(t, log.UserAgent)
-	require.Equal(t, claude.DefaultHeaders["User-Agent"], *log.UserAgent)
+	require.Equal(t, claude.DefaultHeaders()["User-Agent"], *log.UserAgent)
 }
 
 func TestChannelProbeUserAgentUsesCodexForOpenAI(t *testing.T) {
