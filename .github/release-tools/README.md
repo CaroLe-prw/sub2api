@@ -8,6 +8,10 @@ Go caches are isolated by target and refreshed on each source commit, with fallb
 
 All build jobs use the commit resolved by `prepare`, including a manual release's selected tag. Helper scripts come from the workflow revision and are passed as a run-local artifact, so older application tags do not need to contain the new scripts. The workflow serializes release runs to prevent simultaneous updates to moving image tags.
 
+Release tags support both upstream's `vX.Y.Z` format and this fork's `vX.Y.Z.N` format (for example, `v0.3.10.6`), optionally followed by a prerelease suffix such as `-rc.1`. The full version is preserved in VERSION, archives, manifests and image tags. Publication still requires a real tag pointing to the selected source commit; branch refs are accepted only for dry runs.
+
+After fixing release tooling on `main`, use **Run workflow** on `main` with the existing tag as the `tag` input to retry an older release. **Re-run jobs** on the failed run uses its original workflow/tooling revision and will repeat the old failure.
+
 ## Validate without publication
 
 From a branch containing this workflow:

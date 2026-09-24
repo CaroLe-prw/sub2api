@@ -2,11 +2,13 @@ import argparse
 import hashlib
 import importlib.util
 import io
+import itertools
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -32,11 +34,11 @@ class ReleaseMatrixTest(unittest.TestCase):
         Path('backend/cmd/server').mkdir(parents=True)
         release.VERSION_FILE.write_text('9.8.7\n')
 
-    def fixture_artifacts(self, simple=False):
+    def fixture_artifacts(self, simple=False, version='9.8.7'):
         directory = Path('release-input')
         directory.mkdir()
         for target in release.targets(simple):
-            name = release.archive_name('9.8.7', target)
+            name = release.archive_name(version, target)
             archive = directory / name
             if target['goos'] == 'linux':
                 with tarfile.open(archive, 'w:gz') as out:
@@ -46,10 +48,85 @@ class ReleaseMatrixTest(unittest.TestCase):
                     out.addfile(info, io.BytesIO(b'fixture'))
             else:
                 archive.write_bytes(b'fixture archive')
-            metadata = {'version': '9.8.7', 'sha': 'a' * 40, 'target': target,
+            metadata = {'version': version, 'sha': 'a' * 40, 'target': target,
                         'archive': name, 'sha256': release.sha256(archive)}
             (directory / f"manifest-{target['goos']}-{target['goarch']}.json").write_text(json.dumps(metadata))
-        return argparse.Namespace(input='release-input', version='9.8.7', sha='a' * 40, simple=simple, output='contexts')
+        return argparse.Namespace(input='release-input', version=version, sha='a' * 40, simple=simple, output='contexts')
+
+    def test_plan_preserves_three_and_four_part_release_tags(self):
+        for version in ('9.8.7', '0.3.10.6', '9.8.7-rc.1', '0.3.10.6-rc.1'):
+            for simple in (False, True):
+                with self.subTest(version=version, simple=simple):
+                    tag = 'v' + version
+                    with patch.dict(os.environ, {'GITHUB_OUTPUT': 'outputs'}), patch.object(
+                        subprocess, 'check_output', return_value='a' * 40 + '\n'
+                    ) as git:
+                        release.plan(argparse.Namespace(ref=tag, dry_run=False, simple=simple))
+                    output = dict(line.split('=', 1) for line in Path('outputs').read_text().splitlines())
+                    self.assertEqual(output['version'], version)
+                    self.assertEqual(output['tag'], tag)
+                    self.assertEqual(output['sha'], 'a' * 40)
+                    self.assertEqual(json.loads(output['matrix'])['include'], release.targets(simple))
+                    self.assertEqual(release.VERSION_FILE.read_text(), version + '\n')
+                    git.assert_any_call(['git', 'rev-parse', '--verify', f'refs/tags/{tag}^{{commit}}'], text=True)
+
+    def test_four_part_tag_still_requires_matching_source_commit(self):
+        with patch.object(subprocess, 'check_output', side_effect=['a' * 40 + '\n', 'b' * 40 + '\n']):
+            with self.assertRaisesRegex(ValueError, 'does not match'):
+                release.plan(argparse.Namespace(ref='v0.3.10.6', dry_run=False, simple=False))
+
+    def test_plan_cli_accepts_checked_out_four_part_tag(self):
+        subprocess.run(['git', 'init', '-q'], check=True)
+        subprocess.run(['git', '-c', 'user.name=Release Test', '-c', 'user.email=release@example.invalid',
+                        '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'fixture'], check=True)
+        subprocess.run(['git', '-c', 'tag.gpgsign=false', 'tag', 'v0.3.10.6'], check=True)
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+        subprocess.run([sys.executable, str(ROOT / '.github/release-tools/release_matrix.py'),
+                        'plan', '--ref', 'v0.3.10.6'],
+                       env={**os.environ, 'GITHUB_OUTPUT': 'outputs'}, check=True)
+        output = dict(line.split('=', 1) for line in Path('outputs').read_text().splitlines())
+        self.assertEqual(output['sha'], sha)
+        self.assertEqual(output['tag'], 'v0.3.10.6')
+        self.assertEqual(output['version'], '0.3.10.6')
+        self.assertEqual(release.VERSION_FILE.read_text(), '0.3.10.6\n')
+
+    def test_plan_rejects_invalid_tags_without_writing_outputs(self):
+        for ref in ('main', '0.3.10.6', 'v0.3', 'v0.3.10.6.1', 'v0.3.10.x', 'v0.3.10.6/path'):
+            with self.subTest(ref=ref), patch.dict(os.environ, {'GITHUB_OUTPUT': 'outputs'}), patch.object(
+                subprocess, 'check_output', return_value='a' * 40 + '\n'
+            ) as git:
+                with self.assertRaisesRegex(ValueError, 'version tag'):
+                    release.plan(argparse.Namespace(ref=ref, dry_run=False, simple=False))
+                self.assertEqual(release.VERSION_FILE.read_text(), '9.8.7\n')
+                self.assertFalse(Path('outputs').exists())
+                git.assert_called_once_with(['git', 'rev-parse', 'HEAD'], text=True)
+
+    def test_four_part_dry_run_uses_version_file(self):
+        release.VERSION_FILE.write_text('0.3.10.6\n')
+        with patch.dict(os.environ, {'GITHUB_OUTPUT': 'outputs'}), patch.object(
+            subprocess, 'check_output', return_value='a' * 40 + '\n'
+        ):
+            release.plan(argparse.Namespace(ref='main', dry_run=True, simple=False))
+        output = dict(line.split('=', 1) for line in Path('outputs').read_text().splitlines())
+        self.assertEqual(output['version'], '0.3.10.6')
+        self.assertEqual(output['tag'], 'v0.3.10.6')
+        self.assertEqual(output['dry_run'], 'true')
+
+    def test_four_part_archives_keep_version_through_collection_and_verification(self):
+        args = self.fixture_artifacts(version='0.3.10.6')
+        release.verify(args)
+        Path('dist').mkdir()
+        for target in release.targets():
+            name = release.archive_name(args.version, target)
+            suffix = 'zip' if target['goos'] == 'windows' else 'tar.gz'
+            self.assertEqual(name, f"sub2api_0.3.10.6_{target['goos']}_{target['goarch']}.{suffix}")
+            shutil.copyfile(Path(args.input) / name, Path('dist') / name)
+            Path('dist/checksums.txt').write_text(f'{release.sha256(Path("dist") / name)}  {name}\n')
+            release.collect(argparse.Namespace(
+                version=args.version, sha=args.sha, output='collected', **target
+            ))
+        args.input = 'collected'
+        release.verify(args)
 
     def test_full_and_simple_matrix_match_existing_targets(self):
         full = release.targets()
@@ -165,25 +242,28 @@ class ReleaseMatrixTest(unittest.TestCase):
         docker = fake_bin / 'docker'
         docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$DOCKER_LOG"\n')
         docker.chmod(0o755)
-        for simple in (False, True):
-            with self.subTest(simple=simple):
-                log_path = Path(f'docker-{simple}.log').resolve()
+        for version, simple in itertools.product(('9.8.7', '0.3.10.6'), (False, True)):
+            with self.subTest(version=version, simple=simple):
+                log_path = Path(f'docker-{version}-{simple}.log').resolve()
                 env = {**os.environ, 'PATH': str(fake_bin.resolve()) + os.pathsep + os.environ['PATH'],
                        'DOCKER_LOG': str(log_path), 'RUNNER_TEMP': self.temp.name,
-                       'RELEASE_VERSION': '9.8.7', 'RELEASE_SHA': 'a' * 40, 'GITHUB_REPOSITORY': 'ExampleOwner/sub2api',
+                       'RELEASE_VERSION': version, 'RELEASE_SHA': 'a' * 40, 'GITHUB_REPOSITORY': 'ExampleOwner/sub2api',
                        'DRY_RUN': 'false', 'SIMPLE_RELEASE': str(simple).lower(), 'DOCKERHUB_USERNAME': 'fixturehub'}
                 subprocess.run(['bash', str(ROOT / '.github/release-tools/release-images.sh')], env=env, check=True)
                 log = log_path.read_text()
                 self.assertIn('--push', log)
                 self.assertEqual(log.count('buildx build'), 1 if simple else 2)
+                self.assertIn(f'--tag ghcr.io/exampleowner/sub2api:{version} ', log)
+                self.assertIn(f'--tag ghcr.io/exampleowner/sub2api:{version}-amd64', log)
                 if simple:
                     self.assertNotIn('fixturehub', log)
                     self.assertNotIn('imagetools', log)
                     self.assertIn('ghcr.io/exampleowner/sub2api:latest', log)
                 else:
                     self.assertEqual(log.count('imagetools create'), 2)
-                    self.assertIn('fixturehub/sub2api:9.8', log)
-                    self.assertIn('ghcr.io/exampleowner/sub2api:9', log)
+                    major, minor = version.split('.')[:2]
+                    self.assertIn(f'--tag fixturehub/sub2api:{major}.{minor} ', log)
+                    self.assertIn(f'--tag ghcr.io/exampleowner/sub2api:{major} ', log)
 
 
 
