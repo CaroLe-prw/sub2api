@@ -550,11 +550,9 @@ func TestSettingService_ParseSettingsDefaultsOpenAIOAuthSchedulingRateMultiplier
 	svc := NewSettingService(&settingUpdateRepoStub{}, &config.Config{})
 
 	defaults := svc.parseSettings(map[string]string{})
-	require.Equal(t, 1.0, defaults.OpenAIOAuthSchedulingRateMultiplier)
 	require.True(t, defaults.OpenAISchedulerObservabilityEnabled)
 	require.Equal(t, 1000, defaults.OpenAISchedulerObservabilityMaxTraces)
 	require.Equal(t, 7, defaults.OpenAISchedulerObservabilityRetentionDays)
-	require.Equal(t, 0.05, svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: "0.05"}).OpenAIOAuthSchedulingRateMultiplier)
 	require.Equal(t, testPtrFloat64(1.0), svc.parseSettings(map[string]string{}).OpenAIOAuthSchedulingRateMultiplier)
 	require.Equal(t, testPtrFloat64(0.05), svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: "0.05"}).OpenAIOAuthSchedulingRateMultiplier)
 	require.Equal(t, testPtrFloat64(0), svc.parseSettings(map[string]string{SettingKeyOpenAIOAuthSchedulingRateMultiplier: "0"}).OpenAIOAuthSchedulingRateMultiplier)
