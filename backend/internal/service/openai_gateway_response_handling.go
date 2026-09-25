@@ -184,6 +184,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if err := firstOutputStage.CommitTo(w); err != nil {
 				return err
 			}
+			// The stage is committed only after its bytes reach the downstream
+			// writer, independently of when the selected TTFT metric starts.
+			firstOutputCommitted = true
 		} else {
 			if err := bufferedWriter.Flush(); err != nil {
 				return err
@@ -302,6 +305,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
 	clientOutputStarted := false
+	firstVisibleOutputObserved := false
 	firstClientOutputEventType := ""
 	codexFailureTerminal := account != nil && account.IsOpenAIOAuthLike()
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
@@ -318,7 +322,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	eventStartsTTFTOutput := false
 	eventShouldFlush := false
 	handlePendingWriteError := func(err error) {
-		if firstOutputStage != nil && !firstOutputCommitted && !firstOutputStage.closed {
+		if firstOutputStage != nil && !firstOutputCommitted && !firstOutputStage.closed &&
+			!clientDisconnected && !openAIStreamClientOutputStarted(c, clientOutputStarted) {
 			message := "OpenAI first-output staging failed"
 			if errors.Is(err, errOpenAIFirstOutputStageLimit) {
 				message = "OpenAI first-output staging limit exceeded"
@@ -357,9 +362,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			firstOutputProgressObserved = true
 			stopFirstOutputTimer()
 		}
-		if completedClientOutputEvent && !firstOutputCommitted {
+		if completedClientOutputEvent {
 			firstOutputScanGuard.Store(false)
-			firstOutputCommitted = true
 		}
 		if completedTTFTEvent && firstTokenMs == nil {
 			ms := int(time.Since(startTime).Milliseconds())
@@ -475,7 +479,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		if scanErr == nil {
 			return nil, nil, false
 		}
-		if errors.Is(scanErr, errOpenAIFirstOutputScannerLimit) && !firstOutputCommitted {
+		if errors.Is(scanErr, errOpenAIFirstOutputScannerLimit) && !firstOutputCommitted &&
+			!clientDisconnected && !openAIStreamClientOutputStarted(c, clientOutputStarted) {
 			logger.LegacyPrintf("service.openai_gateway", "SSE token exceeded guarded first-output limit: account=%d limit=%d error=%v", account.ID, openAIFirstOutputStageMaxBytes+openAIFirstOutputScannerFramingAllowance, scanErr)
 			failoverErr := s.newOpenAIStreamFailoverError(
 				c, account, false, upstreamRequestID, nil,
@@ -484,7 +489,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			failoverErr.SafeToFailoverAfterWrite = true
 			return resultWithUsage(), failoverErr, true
 		}
-		if errors.Is(scanErr, bufio.ErrTooLong) && guardFirstOutput && !firstOutputCommitted {
+		if errors.Is(scanErr, bufio.ErrTooLong) && guardFirstOutput && !firstOutputCommitted &&
+			!clientDisconnected && !openAIStreamClientOutputStarted(c, clientOutputStarted) {
 			logger.LegacyPrintf("service.openai_gateway", "SSE line too long before first output: account=%d max_size=%d error=%v", account.ID, maxLineSize, scanErr)
 			failoverErr := s.newOpenAIStreamFailoverError(
 				c, account, false, upstreamRequestID, nil,
@@ -805,11 +811,13 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if !clientDisconnected && !failureDelivered && !suppressCurrentEvent {
 				terminalSuccess := eventType == "response.completed" || eventType == "response.done" || strings.TrimSpace(data) == "[DONE]"
 				shouldFlush := terminalSuccess || (queueDrained && (clientOutputStarted || startsClientOutput))
-				if firstTokenMs == nil && startsVisibleOutput {
-					// 保证首个可见 token 事件尽快出站；结构性事件仍留在
-					// attempt-local stage，确保失败时可以安全换号。
+				if (!clientOutputStarted && startsClientOutput) || (!firstVisibleOutputObserved && startsVisibleOutput) {
+					// Flush the first publishable event and the first visible content
+					// at their complete SSE boundaries even when later events are queued.
+					// Historical TTFT may already be set by a still-staged empty event.
 					shouldFlush = true
 				}
+				firstVisibleOutputObserved = firstVisibleOutputObserved || startsVisibleOutput
 				eventShouldFlush = eventShouldFlush || shouldFlush
 				if _, err := writePendingString(line); err != nil {
 					handlePendingWriteError(err)

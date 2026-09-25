@@ -768,7 +768,7 @@ func TestAffiliateRepository_WithdrawQuota_RejectsOperationReuseWithDifferentReq
 }
 
 // TestAffiliateRepository_ListAffiliateRebateRecords_IncludesNonOrderAccruals 验证兑换码
-// 等非订单来源的返利出现在返利记录中，订单字段为空。
+// 等非订单来源的返利保留充值基准金额，订单 ID 和实付金额仍为空。
 func TestAffiliateRepository_ListAffiliateRebateRecords_IncludesNonOrderAccruals(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
@@ -780,7 +780,7 @@ func TestAffiliateRepository_ListAffiliateRebateRecords_IncludesNonOrderAccruals
 	invitee := mustCreateAffiliateWithdrawUser(t, client, "invitee")
 	mustSeedAffiliateQuota(t, txCtx, client, inviter.ID, 0, 0, 0)
 
-	applied, err := repo.AccrueQuota(txCtx, inviter.ID, invitee.ID, 2, 0, nil)
+	applied, err := repo.AccrueQuota(txCtx, inviter.ID, invitee.ID, 2, 10, 0, nil)
 	require.NoError(t, err)
 	require.True(t, applied)
 
@@ -794,8 +794,10 @@ func TestAffiliateRepository_ListAffiliateRebateRecords_IncludesNonOrderAccruals
 	require.EqualValues(t, 1, total)
 	require.Len(t, records, 1)
 	record := records[0]
+	require.Equal(t, "non_order_recharge", record.SourceType)
 	require.Nil(t, record.OrderID)
-	require.Nil(t, record.OrderAmount)
+	require.NotNil(t, record.OrderAmount)
+	require.InDelta(t, 10.0, *record.OrderAmount, 1e-9)
 	require.Nil(t, record.PayAmount)
 	require.Empty(t, record.OutTradeNo)
 	require.Equal(t, inviter.ID, record.InviterID)

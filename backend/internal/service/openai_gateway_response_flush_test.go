@@ -633,6 +633,27 @@ func TestOpenAIResponseFlush_ClientDisconnectStillDrainsUsage(t *testing.T) {
 	require.Len(t, flushes, 1)
 }
 
+func TestOpenAIResponseFlush_FailedFirstCommitDoesNotReplayOnScannerError(t *testing.T) {
+	first := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"first\"}\n\n"
+	body := first + "data: " + strings.Repeat("x", 128*1024) + "\n\n"
+	recorder := newOpenAIResponseFlushRecorder()
+	recorder.failAfterWrites = 0
+
+	result, err := runOpenAIResponseFlushTest(recorder, io.NopCloser(strings.NewReader(body)), config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds: 30,
+		MaxLineSize:                     64 * 1024,
+	})
+
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr), "a downstream write failure must not become a replayable upstream scanner failure")
+	require.NotNil(t, result)
+	require.True(t, result.clientDisconnect)
+	gotBody, flushes := recorder.snapshot()
+	require.Empty(t, gotBody)
+	require.Empty(t, flushes)
+}
+
 func TestOpenAIResponseFlush_RequestCancelBeforeFirstOutputDisarmsTimeoutAndDrainsUsage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := newOpenAIResponseFlushRecorder()
