@@ -184,6 +184,11 @@ func RegisterGatewayRoutes(
 		}
 	}
 
+	// CC Switch's generic usage template appends /user/balance to the
+	// provider base URL. Keep both root and /v1 bases compatible.
+	r.GET("/user/balance", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm,
+		gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.Balance)
+
 	// API网关（Claude API兼容）
 	gateway := r.Group("/v1")
 	gateway.Use(bodyLimit)
@@ -214,6 +219,7 @@ func RegisterGatewayRoutes(
 		// Single-model discovery never selects the Codex client_version manifest.
 		gateway.GET("/models/:model", h.Gateway.Models)
 		gateway.GET("/usage", h.Gateway.Usage)
+		gateway.GET("/user/balance", h.Gateway.Balance)
 		gateway.POST("/live", h.OpenAIGateway.Live)
 		gateway.GET("/live/:call_id", h.OpenAIGateway.LiveSideband)
 		// OpenAI Responses API: auto-route based on group platform

@@ -1411,6 +1411,252 @@ func TestAPIKeyAuthUsageStillTouchesLastUsed(t *testing.T) {
 	require.Equal(t, 1, touchCalls)
 }
 
+func TestAPIKeyAuthCCSwitchBalanceSkipsOnlyBillingChecks(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	expiredAt := time.Now().Add(-time.Hour)
+	tests := []struct {
+		name       string
+		configure  func(*service.APIKey)
+		credential string
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "empty wallet", credential: "balance-key", wantStatus: http.StatusOK},
+		{name: "quota exhausted status", credential: "balance-key", configure: func(key *service.APIKey) {
+			key.Status = service.StatusAPIKeyQuotaExhausted
+		}, wantStatus: http.StatusOK},
+		{name: "expired status", credential: "balance-key", configure: func(key *service.APIKey) {
+			key.Status = service.StatusAPIKeyExpired
+		}, wantStatus: http.StatusOK},
+		{name: "runtime quota exhausted", credential: "balance-key", configure: func(key *service.APIKey) {
+			key.Quota, key.QuotaUsed = 1, 1
+		}, wantStatus: http.StatusOK},
+		{name: "runtime expiry", credential: "balance-key", configure: func(key *service.APIKey) {
+			key.ExpiresAt = &expiredAt
+		}, wantStatus: http.StatusOK},
+		{name: "disabled key", credential: "balance-key", configure: func(key *service.APIKey) {
+			key.Status = service.StatusDisabled
+		}, wantStatus: http.StatusUnauthorized, wantCode: "API_KEY_DISABLED"},
+		{name: "invalid key", credential: "invalid", wantStatus: http.StatusUnauthorized, wantCode: "INVALID_API_KEY"},
+		{name: "missing key", wantStatus: http.StatusUnauthorized, wantCode: "API_KEY_REQUIRED"},
+		{name: "inactive user", credential: "balance-key", configure: func(key *service.APIKey) {
+			key.User.Status = service.StatusDisabled
+		}, wantStatus: http.StatusUnauthorized, wantCode: "USER_INACTIVE"},
+		{name: "disabled group", credential: "balance-key", configure: func(key *service.APIKey) {
+			key.Group = &service.Group{ID: 42, Status: service.StatusDisabled}
+			key.GroupID = &key.Group.ID
+		}, wantStatus: http.StatusForbidden, wantCode: "GROUP_DISABLED"},
+		{name: "denied IP", credential: "balance-key", configure: func(key *service.APIKey) {
+			key.IPWhitelist = []string{"192.0.2.1"}
+		}, wantStatus: http.StatusForbidden, wantCode: "ACCESS_DENIED"},
+	}
+	for _, path := range []string{"/user/balance", "/v1/user/balance"} {
+		for _, tt := range tests {
+			t.Run(path+"/"+tt.name, func(t *testing.T) {
+				user := &service.User{ID: 7, Role: service.RoleUser, Status: service.StatusActive}
+				apiKey := &service.APIKey{ID: 100, UserID: user.ID, Key: "balance-key", Status: service.StatusActive, User: user}
+				if tt.configure != nil {
+					tt.configure(apiKey)
+				}
+				repo := &stubApiKeyRepo{getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
+					if key != apiKey.Key {
+						return nil, service.ErrAPIKeyNotFound
+					}
+					clone := *apiKey
+					return &clone, nil
+				}}
+				cfg := &config.Config{RunMode: config.RunModeStandard}
+				router := newAuthTestRouter(service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg), nil, cfg)
+				require.NoError(t, router.SetTrustedProxies(nil))
+				w := httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodGet, path, nil)
+				req.RemoteAddr = "198.51.100.1:12345"
+				if tt.credential != "" {
+					req.Header.Set("Authorization", "Bearer "+tt.credential)
+				}
+				router.ServeHTTP(w, req)
+				require.Equal(t, tt.wantStatus, w.Code, w.Body.String())
+				if tt.wantCode != "" {
+					require.Contains(t, w.Body.String(), tt.wantCode)
+				}
+			})
+		}
+	}
+}
+
+func TestAPIKeyAuthCCSwitchBalanceLoadsSubscriptionWithoutEnforcingLimits(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, runMode := range []string{config.RunModeStandard, config.RunModeSimple} {
+		for _, path := range []string{"/user/balance", "/v1/user/balance"} {
+			for _, missing := range []bool{false, true} {
+				name := path + "/active subscription"
+				if missing {
+					name = path + "/missing subscription"
+				}
+				t.Run(runMode+name, func(t *testing.T) {
+					limit := 1.0
+					group := &service.Group{ID: 42, Status: service.StatusActive, Hydrated: true, SubscriptionType: service.SubscriptionTypeSubscription, DailyLimitUSD: &limit}
+					user := &service.User{ID: 7, Role: service.RoleUser, Status: service.StatusActive}
+					apiKey := &service.APIKey{ID: 100, UserID: user.ID, Key: "subscription-balance", Status: service.StatusActive, User: user, Group: group, GroupID: &group.ID}
+					sub := &service.UserSubscription{ID: 55, UserID: user.ID, GroupID: group.ID, Status: service.SubscriptionStatusActive, ExpiresAt: time.Now().Add(time.Hour), DailyUsageUSD: 2}
+					repo := &stubApiKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) {
+						clone := *apiKey
+						return &clone, nil
+					}}
+					calls := 0
+					subscriptionRepo := &stubUserSubscriptionRepo{getActive: func(_ context.Context, userID, groupID int64) (*service.UserSubscription, error) {
+						calls++
+						require.Equal(t, user.ID, userID)
+						require.Equal(t, group.ID, groupID)
+						if missing {
+							return nil, service.ErrSubscriptionNotFound
+						}
+						return sub, nil
+					}}
+					cfg := &config.Config{RunMode: runMode}
+					subscriptions := service.NewSubscriptionService(nil, subscriptionRepo, nil, nil, cfg)
+					t.Cleanup(subscriptions.Stop)
+					router := gin.New()
+					router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg), subscriptions, cfg)))
+					router.GET(path, func(c *gin.Context) {
+						got, ok := GetSubscriptionFromContext(c)
+						require.Equal(t, !missing, ok)
+						if !missing {
+							require.Equal(t, sub.ID, got.ID)
+							require.Equal(t, sub.DailyUsageUSD, got.DailyUsageUSD)
+						}
+						c.Status(http.StatusOK)
+					})
+					w := httptest.NewRecorder()
+					req := httptest.NewRequest(http.MethodGet, path, nil)
+					req.Header.Set("Authorization", "Bearer "+apiKey.Key)
+					router.ServeHTTP(w, req)
+					require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+					require.Equal(t, 1, calls)
+				})
+			}
+		}
+	}
+}
+
+func TestAPIKeyAuthCCSwitchBalanceRejectsUnavailableSubscriptionData(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, runMode := range []string{config.RunModeStandard, config.RunModeSimple} {
+		for _, path := range []string{"/user/balance", "/v1/user/balance"} {
+			for _, missingService := range []bool{false, true} {
+				name := runMode + path + "/lookup failure"
+				if missingService {
+					name = runMode + path + "/service unavailable"
+				}
+				t.Run(name, func(t *testing.T) {
+					group := &service.Group{ID: 42, Status: service.StatusActive, SubscriptionType: service.SubscriptionTypeSubscription}
+					user := &service.User{ID: 7, Role: service.RoleUser, Status: service.StatusActive}
+					apiKey := &service.APIKey{ID: 100, UserID: user.ID, Key: "subscription-balance", Status: service.StatusActive, User: user, Group: group, GroupID: &group.ID}
+					repo := &stubApiKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) { return apiKey, nil }}
+					cfg := &config.Config{RunMode: runMode}
+					var subscriptions *service.SubscriptionService
+					if !missingService {
+						subscriptionRepo := &stubUserSubscriptionRepo{getActive: func(context.Context, int64, int64) (*service.UserSubscription, error) {
+							return nil, errors.New("private database lookup failure")
+						}}
+						subscriptions = service.NewSubscriptionService(nil, subscriptionRepo, nil, nil, cfg)
+						t.Cleanup(subscriptions.Stop)
+					}
+					called := false
+					router := gin.New()
+					router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg), subscriptions, cfg)))
+					router.GET(path, func(c *gin.Context) {
+						called = true
+						c.JSON(http.StatusOK, gin.H{"balance": 0})
+					})
+					w := httptest.NewRecorder()
+					req := httptest.NewRequest(http.MethodGet, path, nil)
+					req.Header.Set("Authorization", "Bearer "+apiKey.Key)
+					router.ServeHTTP(w, req)
+					require.Equal(t, http.StatusServiceUnavailable, w.Code)
+					require.False(t, called, "unavailable subscription data must not reach the balance handler")
+					requireAPIKeyAuthError(t, w, "BALANCE_UNAVAILABLE", "Balance information is temporarily unavailable")
+					require.NotContains(t, w.Body.String(), "private database")
+				})
+			}
+		}
+	}
+}
+
+func TestAPIKeyAuthCCSwitchSubscriptionRequirementDoesNotChangeOtherBalanceSources(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, runMode := range []string{config.RunModeStandard, config.RunModeSimple} {
+		for _, tt := range []struct {
+			name  string
+			path  string
+			quota float64
+			rate  float64
+		}{
+			{name: "key quota", path: "/user/balance", quota: 5},
+			{name: "key quota with v1 base", path: "/v1/user/balance", quota: 5},
+			{name: "key rate limit", path: "/user/balance", rate: 5},
+			{name: "key rate limit with v1 base", path: "/v1/user/balance", rate: 5},
+			{name: "existing usage endpoint", path: "/v1/usage"},
+		} {
+			t.Run(runMode+"/"+tt.name, func(t *testing.T) {
+				group := &service.Group{ID: 42, Status: service.StatusActive, SubscriptionType: service.SubscriptionTypeSubscription}
+				user := &service.User{ID: 7, Role: service.RoleUser, Status: service.StatusActive}
+				apiKey := &service.APIKey{ID: 100, UserID: user.ID, Key: "balance-source", Status: service.StatusActive, User: user, Group: group, GroupID: &group.ID, Quota: tt.quota, RateLimit5h: tt.rate}
+				repo := &stubApiKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) { return apiKey, nil }}
+				subscriptionRepo := &stubUserSubscriptionRepo{getActive: func(context.Context, int64, int64) (*service.UserSubscription, error) {
+					return nil, errors.New("subscription lookup unavailable")
+				}}
+				cfg := &config.Config{RunMode: runMode}
+				subscriptions := service.NewSubscriptionService(nil, subscriptionRepo, nil, nil, cfg)
+				t.Cleanup(subscriptions.Stop)
+				for _, subService := range []*service.SubscriptionService{subscriptions, nil} {
+					router := newAuthTestRouter(service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg), subService, cfg)
+					w := httptest.NewRecorder()
+					req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+					req.Header.Set("Authorization", "Bearer "+apiKey.Key)
+					router.ServeHTTP(w, req)
+					require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+				}
+			})
+		}
+	}
+}
+
+func TestAPIKeyAuthCCSwitchBalanceBypassRequiresExactReadRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, path := range []string{"/user/balance", "/v1/user/balance"} {
+		for _, request := range []struct {
+			method string
+			path   string
+		}{
+			{method: http.MethodPost, path: path},
+			{method: http.MethodHead, path: path},
+			{method: http.MethodGet, path: path + "/"},
+			{method: http.MethodGet, path: path + "/extra"},
+			{method: http.MethodGet, path: path + "-other"},
+		} {
+			t.Run(request.method+" "+request.path, func(t *testing.T) {
+				user := &service.User{ID: 7, Role: service.RoleUser, Status: service.StatusActive}
+				apiKey := &service.APIKey{ID: 100, UserID: user.ID, Key: "zero-balance", Status: service.StatusActive, User: user}
+				repo := &stubApiKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) { return apiKey, nil }}
+				cfg := &config.Config{RunMode: config.RunModeStandard}
+				router := gin.New()
+				router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg), nil, cfg)))
+				router.Handle(request.method, request.path, func(c *gin.Context) {
+					t.Error("non-balance routes must still enforce billing")
+					c.Status(http.StatusOK)
+				})
+				w := httptest.NewRecorder()
+				req := httptest.NewRequest(request.method, request.path, nil)
+				req.Header.Set("Authorization", "Bearer "+apiKey.Key)
+				router.ServeHTTP(w, req)
+				require.Equal(t, http.StatusForbidden, w.Code)
+				requireAPIKeyAuthError(t, w, "INSUFFICIENT_BALANCE", "Insufficient account balance")
+			})
+		}
+	}
+}
+
 func TestAPIKeyAuthAllowsBalanceBelowMinimumReserve(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1579,6 +1825,8 @@ func newAuthTestRouter(apiKeyService *service.APIKeyService, subscriptionService
 	router.POST("/v1/responses", ok)
 	router.POST("/v1/messages", ok)
 	router.GET("/v1/usage", ok)
+	router.GET("/user/balance", ok)
+	router.GET("/v1/user/balance", ok)
 	router.GET("/v1/sub2api/billing", ok)
 	return router
 }

@@ -28,7 +28,7 @@ func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionS
 //   - 鉴权（Authentication）：验证 Key 有效性、用户状态、IP 限制 —— 始终执行
 //   - 计费执行（Billing Enforcement）：过期/配额/订阅/余额检查 —— skipBilling 时整块跳过
 //
-// /v1/usage、/v1/sub2api/billing 端点与异步生图任务查询只需鉴权，不需要计费执行。
+// /v1/usage、CC Switch 余额查询、/v1/sub2api/billing 端点与异步生图任务查询只需鉴权，不需要计费执行。
 // usage 允许过期/配额耗尽的 Key 查询自身用量，billing 用于读取当前 Key 的倍率配置，
 // 异步生图查询允许已耗尽额度的 Key 拉取自身任务结果。
 func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
@@ -174,14 +174,20 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		ctx = context.WithValue(ctx, ctxkey.UserEmail, apiKey.User.Email)
 		c.Request = c.Request.WithContext(ctx)
 		billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"
+		// CC Switch's balance probe must stay readable after funds or quota run
+		// out, but must not exempt writes or similarly named routes from billing.
+		balanceInfoRequest := c.Request.Method == http.MethodGet &&
+			(c.Request.URL.Path == "/user/balance" || c.Request.URL.Path == "/v1/user/balance")
+		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
+		balanceNeedsSubscription := balanceInfoRequest && isSubscriptionType && apiKey.Quota <= 0 && !apiKey.HasRateLimits()
 		// Async image task polling only reads data that already belongs to the
 		// authenticated key and must remain available after the completed
 		// generation consumes the key's remaining balance.
-		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || isAsyncImageTaskRead(c.Request.Method, c.Request.URL.Path)
+		skipBilling := c.Request.URL.Path == "/v1/usage" || balanceInfoRequest || billingInfoRequest || isAsyncImageTaskRead(c.Request.Method, c.Request.URL.Path)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
-		if cfg.RunMode == config.RunModeSimple {
+		if cfg.RunMode == config.RunModeSimple && !balanceNeedsSubscription {
 			c.Set(string(ContextKeyAPIKey), apiKey)
 			c.Set(string(ContextKeyUser), AuthSubject{
 				UserID:      apiKey.User.ID,
@@ -199,7 +205,13 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// ── 5. 按端点需要加载订阅 ───────────────────────────────────
 
 		var subscription *service.UserSubscription
-		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
+		// The compatibility balance is derived from subscription state unless
+		// key-specific limits take precedence. Missing data must not become a
+		// successful zero balance, including in simple mode.
+		if balanceNeedsSubscription && subscriptionService == nil {
+			AbortWithError(c, http.StatusServiceUnavailable, "BALANCE_UNAVAILABLE", "Balance information is temporarily unavailable")
+			return
+		}
 
 		// 余额探测需要订阅用量，但仍跳过计费资格拦截，确保额度耗尽后可继续读取余额。
 		if isSubscriptionType && subscriptionService != nil {
@@ -209,6 +221,10 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				apiKey.Group.ID,
 			)
 			if subErr != nil {
+				if balanceNeedsSubscription && !errors.Is(subErr, service.ErrSubscriptionNotFound) {
+					AbortWithError(c, http.StatusServiceUnavailable, "BALANCE_UNAVAILABLE", "Balance information is temporarily unavailable")
+					return
+				}
 				if !skipBilling {
 					AbortWithError(c, 403, "SUBSCRIPTION_NOT_FOUND", "No active subscription found for this group")
 					return

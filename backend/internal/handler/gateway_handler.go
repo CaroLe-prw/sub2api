@@ -1675,6 +1675,10 @@ func (h *GatewayHandler) buildAPIKeyDailyUsage(c *gin.Context, userID, apiKeyID 
 
 // usageQuotaLimited 处理 quota_limited 模式的响应
 func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, apiKey *service.APIKey, usageData gin.H, dailyUsage any, modelStats any) {
+	c.JSON(http.StatusOK, h.buildQuotaLimitedUsageResponse(ctx, apiKey, usageData, dailyUsage, modelStats))
+}
+
+func (h *GatewayHandler) buildQuotaLimitedUsageResponse(ctx context.Context, apiKey *service.APIKey, usageData gin.H, dailyUsage any, modelStats any) gin.H {
 	resp := gin.H{
 		"mode":    "quota_limited",
 		"isValid": apiKey.Status == service.StatusAPIKeyActive || apiKey.Status == service.StatusAPIKeyQuotaExhausted || apiKey.Status == service.StatusAPIKeyExpired,
@@ -1763,11 +1767,20 @@ func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, 
 		resp["model_stats"] = modelStats
 	}
 
-	c.JSON(http.StatusOK, resp)
+	return resp
 }
 
 // usageUnrestricted 处理 unrestricted 模式的响应（向后兼容）
 func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, usageData gin.H, dailyUsage any, modelStats any) {
+	resp, err := h.buildUnrestrictedUsageResponse(c, ctx, apiKey, subject, usageData, dailyUsage, modelStats)
+	if err != nil {
+		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to get user info")
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *GatewayHandler) buildUnrestrictedUsageResponse(c *gin.Context, ctx context.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, usageData gin.H, dailyUsage any, modelStats any) (gin.H, error) {
 	// 订阅模式
 	if apiKey.Group != nil && apiKey.Group.IsSubscriptionType() {
 		resp := gin.H{
@@ -1803,15 +1816,13 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 		if modelStats != nil {
 			resp["model_stats"] = modelStats
 		}
-		c.JSON(http.StatusOK, resp)
-		return
+		return resp, nil
 	}
 
 	// 余额模式
 	latestUser, err := h.userService.GetByID(ctx, subject.UserID)
 	if err != nil {
-		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to get user info")
-		return
+		return nil, err
 	}
 
 	resp := gin.H{
@@ -1831,7 +1842,7 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 	if modelStats != nil {
 		resp["model_stats"] = modelStats
 	}
-	c.JSON(http.StatusOK, resp)
+	return resp, nil
 }
 
 // calculateSubscriptionRemaining 计算订阅剩余可用额度

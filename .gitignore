@@ -147,6 +147,7 @@ docs/*
 !docs/gemini-openai-upstream.md
 !docs/ops-error-diagnostics.md
 !docs/response-stream-timing.md
+!docs/cc-switch-usage.md
 !docs/codex-credits.md
 !docs/legal/
 !docs/legal/*.md
