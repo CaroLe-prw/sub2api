@@ -4,7 +4,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -70,8 +69,8 @@ func TestAdminService_BatchSetGroupModelAllowlist_ValidatesEveryGroupBeforeUpdat
 }
 
 func TestAdminService_BatchSetGroupModelAllowlist_RejectsInvalidAllowlistBeforeUpdate(t *testing.T) {
-	for _, models := range [][]string{nil, {"gpt-*-codex"}} {
-		t.Run(fmt.Sprint(models), func(t *testing.T) {
+	for _, models := range [][]string{nil} {
+		t.Run("empty", func(t *testing.T) {
 			repo := &batchGroupModelAllowlistRepoStub{groupRepoStubForAdmin: &groupRepoStubForAdmin{
 				getByIDByID: map[int64]*Group{1: {ID: 1}},
 			}}

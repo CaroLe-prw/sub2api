@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/require"
@@ -698,7 +699,9 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "passthrough wins over ordinary account mapping",
+			// The passthrough account serves the default set (its stale mapping is
+			// ignored), while the ordinary account's mapping still reaches the list.
+			name: "passthrough contributes defaults alongside ordinary account mapping",
 			accounts: []Account{
 				{
 					ID:          2,
@@ -712,7 +715,7 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 					Extra:       map[string]any{"openai_passthrough": true},
 				},
 			},
-			want: nil,
+			want: dedupeAndSortModelIDs(append([]string{"configured-model"}, openai.DefaultModelIDs()...)),
 		},
 		{
 			name: "ordinary accounts preserve mapped whitelist",
@@ -736,7 +739,56 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 				modelsListCacheTTL: time.Minute,
 			}
 
-			require.Equal(t, tt.want, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
+			got := svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI)
+			require.Equal(t, tt.want, got)
+			require.NotContains(t, got, "stale-model", "passthrough mapping must never reach the public list")
+		})
+	}
+}
+
+func TestGetAvailableModels_OpenAIDefaultsRespectOAuthOnly(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		accountType string
+		passthrough bool
+	}{
+		{name: "excluded unmapped API key", accountType: AccountTypeAPIKey},
+		{name: "excluded passthrough API key", accountType: AccountTypeAPIKey, passthrough: true},
+		{name: "eligible unmapped OAuth", accountType: AccountTypeOAuth},
+		{name: "eligible passthrough OAuth", accountType: AccountTypeOAuth, passthrough: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			groupID := int64(12)
+			fallbackAccount := Account{ID: 2, Platform: PlatformOpenAI, Type: tt.accountType}
+			if tt.passthrough {
+				fallbackAccount.Extra = map[string]any{"openai_passthrough": true}
+				fallbackAccount.Credentials = map[string]any{"model_mapping": map[string]any{"stale-model": "stale-model"}}
+			}
+			repo := &modelsListAccountRepoStub{byGroup: map[int64][]Account{
+				groupID: {
+					{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Credentials: map[string]any{
+						"model_mapping": map[string]any{"oauth-alias": "upstream-model"},
+					}},
+					fallbackAccount,
+				},
+			}}
+			svc := &GatewayService{accountRepo: repo, modelsListCache: gocache.New(time.Minute, time.Minute), modelsListCacheTTL: time.Minute}
+			group := &Group{ID: groupID, Platform: PlatformOpenAI, Status: StatusActive, Hydrated: true}
+			plainCtx := context.WithValue(context.Background(), ctxkey.Group, group)
+			withDefaults := dedupeAndSortModelIDs(append([]string{"oauth-alias"}, openai.DefaultModelIDs()...))
+			require.Equal(t, withDefaults, svc.GetAvailableModels(plainCtx, &groupID, PlatformOpenAI))
+
+			oauthGroup := *group
+			oauthGroup.RequireOAuthOnly = true
+			oauthCtx := context.WithValue(context.Background(), ctxkey.Group, &oauthGroup)
+			want := withDefaults
+			if tt.accountType == AccountTypeAPIKey {
+				want = []string{"oauth-alias"}
+			}
+			for i := 0; i < 2; i++ {
+				require.Equal(t, want, svc.GetAvailableModels(oauthCtx, &groupID, PlatformOpenAI), "excluded accounts must not contribute defaults, including on cache hits")
+			}
+			require.Equal(t, withDefaults, svc.GetAvailableModels(plainCtx, &groupID, PlatformOpenAI), "the unrestricted cache must remain separate")
 		})
 	}
 }

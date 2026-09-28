@@ -1473,13 +1473,17 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		return nil
 	}
 
-	// Filter by platform if specified. Mixed scheduling (a gemini group routing
-	// to antigravity accounts) is honoured here as well, so the advertised list
+	// Apply account admission before collecting mappings or supplementing defaults.
+	// Mixed scheduling (a gemini group routing to antigravity accounts) is
+	// honoured here as well, so the advertised list
 	// stays in sync with what the request path can actually serve.
-	if platform != "" {
-		filtered := make([]Account, 0)
+	if platform != "" || oauthOnly {
+		filtered := make([]Account, 0, len(accounts))
 		for _, acc := range accounts {
-			if acc.Platform == platform || mixedListingAccountAllowed(platform, &acc) {
+			if !accountAllowedByGroupOAuthOnlyFilter(ctx, &acc) {
+				continue
+			}
+			if platform == "" || acc.Platform == platform || mixedListingAccountAllowed(platform, &acc) {
 				filtered = append(filtered, acc)
 			}
 		}
@@ -1491,18 +1495,13 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	hasAnyMapping := false
 
 	for _, acc := range accounts {
-		if !accountAllowedByGroupOAuthOnlyFilter(ctx, &acc) {
-			continue
-		}
-		// Passthrough routing accepts models independently of model_mapping. A stale
-		// mapping on any eligible passthrough account therefore cannot define the
-		// public whitelist; return nil so the handler uses its default model set.
+		// Passthrough routing accepts models independently of model_mapping, so a
+		// stale mapping on a passthrough account must not narrow the public list.
+		// Treat it like an unmapped account: skip its mapping here and let
+		// supplementUnmappedOpenAIModels contribute the default set. Mappings on
+		// the ordinary accounts in the same group still count.
 		if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() {
-			if s.modelsListCache != nil {
-				s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
-				modelsListCacheStoreTotal.Add(1)
-			}
-			return nil
+			continue
 		}
 		mapping := acc.GetModelMapping()
 		for model := range mapping {

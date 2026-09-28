@@ -128,7 +128,7 @@ func TestValidateOpenAIServiceTierField(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 计费：gpt-5.4 按标准价 2x，gpt-5.5 / gpt-5.6 系列按标准价 2.5x
+// 计费：gpt-5.6 系列 / gpt-5.4 按标准价 2x，gpt-5.5 按标准价 2.5x
 // ---------------------------------------------------------------------------
 
 func TestApplyModelSpecificPricingPolicy_EnforcesOpenAIFastRatios(t *testing.T) {
@@ -167,7 +167,7 @@ func TestApplyModelSpecificPricingPolicy_EnforcesOpenAIFastRatios(t *testing.T) 
 		require.InDelta(t, 30e-6, got.OutputPricePerTokenPriority, 1e-12)
 	})
 
-	t.Run("gpt-5.6 family uses 2.5x", func(t *testing.T) {
+	t.Run("gpt-5.6 family keeps 2x", func(t *testing.T) {
 		for _, model := range []string{"gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-max", "gpt-5.6-sol-preview"} {
 			got := svc.applyModelSpecificPricingPolicy(model, &ModelPricing{
 				InputPricePerToken:             5e-6,
@@ -177,8 +177,8 @@ func TestApplyModelSpecificPricingPolicy_EnforcesOpenAIFastRatios(t *testing.T) 
 				CacheReadPricePerToken:         0.5e-6,
 				CacheReadPricePerTokenPriority: 1e-6,
 			})
-			require.InDelta(t, 12.5e-6, got.InputPricePerTokenPriority, 1e-12, "model %s", model)
-			require.InDelta(t, 75e-6, got.OutputPricePerTokenPriority, 1e-12, "model %s", model)
+			require.InDelta(t, 10e-6, got.InputPricePerTokenPriority, 1e-12, "model %s", model)
+			require.InDelta(t, 60e-6, got.OutputPricePerTokenPriority, 1e-12, "model %s", model)
 		}
 	})
 
@@ -261,9 +261,9 @@ func TestOpenAIFastBillingMultiplier_2xAnd25x(t *testing.T) {
 	}{
 		{model: "gpt-5.4", ratio: 2.0},
 		{model: "gpt-5.5", ratio: 2.5},
-		{model: "gpt-5.6-sol", ratio: 2.5},
-		{model: "gpt-5.6-terra", ratio: 2.5},
-		{model: "gpt-5.6-luna", ratio: 2.5},
+		{model: "gpt-5.6-sol", ratio: 2.0},
+		{model: "gpt-5.6-terra", ratio: 2.0},
+		{model: "gpt-5.6-luna", ratio: 2.0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.model+"/fast", func(t *testing.T) {

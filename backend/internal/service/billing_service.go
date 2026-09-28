@@ -541,7 +541,6 @@ func (s *BillingService) initFallbackPricing() {
 		LongContextOutputMultiplier:        1.5,
 	}
 
-	// OpenAI GPT-5.6 标准价格（USD/token）；Codex Fast 保持标准价的 2.5 倍。
 	// GPT-6 Sol/Luna official rates, 2026-09-22.
 	s.fallbackPrices["gpt-6-sol"] = &ModelPricing{
 		InputPricePerToken:                 2e-6,
@@ -574,33 +573,33 @@ func (s *BillingService) initFallbackPricing() {
 	// OpenAI GPT-5.6 官方价格（USD/token）。缓存写入为输入价的 1.25 倍。
 	s.fallbackPrices["gpt-5.6-sol"] = &ModelPricing{
 		InputPricePerToken:                 5e-6,
-		InputPricePerTokenPriority:         12.5e-6,
+		InputPricePerTokenPriority:         10e-6,
 		OutputPricePerToken:                30e-6,
-		OutputPricePerTokenPriority:        75e-6,
+		OutputPricePerTokenPriority:        60e-6,
 		CacheCreationPricePerToken:         6.25e-6,
-		CacheCreationPricePerTokenPriority: 15.625e-6,
+		CacheCreationPricePerTokenPriority: 12.5e-6,
 		CacheReadPricePerToken:             0.5e-6,
-		CacheReadPricePerTokenPriority:     1.25e-6,
+		CacheReadPricePerTokenPriority:     1e-6,
 	}
 	s.fallbackPrices["gpt-5.6-terra"] = &ModelPricing{
 		InputPricePerToken:                 2e-6,
-		InputPricePerTokenPriority:         5e-6,
+		InputPricePerTokenPriority:         4e-6,
 		OutputPricePerToken:                12e-6,
-		OutputPricePerTokenPriority:        30e-6,
+		OutputPricePerTokenPriority:        24e-6,
 		CacheCreationPricePerToken:         2.5e-6,
-		CacheCreationPricePerTokenPriority: 6.25e-6,
+		CacheCreationPricePerTokenPriority: 5e-6,
 		CacheReadPricePerToken:             0.2e-6,
-		CacheReadPricePerTokenPriority:     0.5e-6,
+		CacheReadPricePerTokenPriority:     0.4e-6,
 	}
 	s.fallbackPrices["gpt-5.6-luna"] = &ModelPricing{
 		InputPricePerToken:                 0.2e-6,
-		InputPricePerTokenPriority:         0.5e-6,
+		InputPricePerTokenPriority:         0.4e-6,
 		OutputPricePerToken:                1.2e-6,
-		OutputPricePerTokenPriority:        3e-6,
+		OutputPricePerTokenPriority:        2.4e-6,
 		CacheCreationPricePerToken:         0.25e-6,
-		CacheCreationPricePerTokenPriority: 0.625e-6,
+		CacheCreationPricePerTokenPriority: 0.5e-6,
 		CacheReadPricePerToken:             0.02e-6,
-		CacheReadPricePerTokenPriority:     0.05e-6,
+		CacheReadPricePerTokenPriority:     0.04e-6,
 	}
 
 	s.fallbackPrices["gpt-5.4-mini"] = &ModelPricing{
@@ -1351,8 +1350,8 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
 }
 
-// GetModelPricingWithChannel 获取模型定价，渠道配置的价格覆盖默认值
-// 渠道存在时，未配置的图片输出价格归零（不回退到 LiteLLM）
+// GetModelPricingWithChannel 获取模型定价，渠道配置的价格覆盖默认值。
+// 与其他 token 字段一致，渠道留空的图片输入/输出价沿用目录价，见 applyChannelImagePriceOverrides。
 func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing *ChannelModelPricing) (*ModelPricing, error) {
 	pricing, err := s.GetModelPricing(model)
 	if err != nil {
@@ -1368,13 +1367,7 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 	pricing.FastMultiplier = channelPricing.FastMultiplier
 	pricing.FlexMultiplier = channelPricing.FlexMultiplier
 	pricing.ReasoningEffortMultipliers = maps.Clone(channelPricing.ReasoningEffortMultipliers)
-	if channelPricing.ImageOutputPrice != nil {
-		pricing.ImageOutputPricePerToken = *channelPricing.ImageOutputPrice
-	} else {
-		pricing.ImageOutputPricePerToken = 0
-	}
-	pricing.ImageOutputPriceExplicit = true
-	applyChannelImageInputPrice(channelPricing, pricing)
+	applyChannelImagePriceOverrides(channelPricing, pricing)
 	return pricing, nil
 }
 
@@ -1871,14 +1864,14 @@ func (s *BillingService) applyModelSpecificPricingPolicyEx(model string, pricing
 	return &cloned
 }
 
-// openAIModelFastPricingRatio 返回业务口径下 OpenAI GPT-5.x 模型 Fast/priority
-// 的标准价倍率：gpt-5.4 与 gpt-6-astra 为 2x，gpt-5.5 与 gpt-5.6 系列为 2.5x。未定义 Fast
+// openAIModelFastPricingRatio 返回业务口径下 OpenAI GPT 模型 Fast/priority
+// 的标准价倍率：gpt-5.6 / gpt-6-astra / gpt-5.4 为 2x，gpt-5.5 为 2.5x。未定义 Fast
 // 档的模型（如 gpt-5.5-pro、gpt-5.4-mini/nano）返回 0。
 func openAIModelFastPricingRatio(normalized string) float64 {
 	switch normalized {
-	case "gpt-5.4", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna":
+	case "gpt-5.4", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna":
 		return 2.0
-	case "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
+	case "gpt-5.5":
 		return 2.5
 	default:
 		if isOpenAIGPT6AstraModel(normalized) {
