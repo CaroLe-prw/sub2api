@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import MonitorChannelCards from '../MonitorChannelCards.vue'
-import { monitorAvailability, monitorCacheRate, monitorCardSlots } from '../monitorCards'
+import { monitorAvailability, monitorAvailabilityState, monitorCacheRate, monitorCardSlots } from '../monitorCards'
 import zh from '@/i18n/locales/zh/channelMonitorV2'
 import type { MonitorCoverage, MonitorMatrixRow, MonitorMetric } from '@/api/channelMonitorV2'
 
@@ -51,6 +51,25 @@ describe('channel status cards', () => {
     expect(monitorAvailability({ ...metrics, availability_rate: 1, availability_source: 'probe' })).toMatch(/^100[.,]0%$/)
     expect(monitorAvailability({ ...metrics, request_count: 10, error_rate: 0.2 })).toMatch(/^80[.,]0%$/)
   })
+  it.each(['traffic', 'probe', 'mixed'] as const)('uses unrounded %s availability when public counts are hidden', (source) => {
+    const sample = { ...metrics, availability_source: source }
+    expect(monitorAvailabilityState({ ...sample, availability_rate: 1 })).toBe('success')
+    expect(monitorAvailabilityState({ ...sample, availability_rate: 0 })).toBe('failed')
+    expect(monitorAvailabilityState({ ...sample, availability_rate: 0.999999 })).toBe('partial')
+    expect(monitorAvailabilityState({ ...sample, availability_rate: 0.000001 })).toBe('partial')
+    expect(monitorAvailabilityState({ ...sample, availability_rate: null })).toBe('unknown')
+  })
+  it('uses sampled legacy rates and leaves missing or invalid availability gray', () => {
+    expect(monitorAvailabilityState()).toBe('unknown')
+    expect(monitorAvailabilityState(metrics)).toBe('unknown')
+    expect(monitorAvailabilityState({ ...metrics, request_count: 1, error_rate: 0 })).toBe('success')
+    expect(monitorAvailabilityState({ ...metrics, request_count: 10, error_rate: 0.25 })).toBe('partial')
+    expect(monitorAvailabilityState({ ...metrics, request_count: 1, error_rate: 1 })).toBe('failed')
+    for (const rate of [Number.NaN, Number.POSITIVE_INFINITY, -0.1, 1.1]) {
+      expect(monitorAvailabilityState({ ...metrics, availability_rate: rate })).toBe('unknown')
+      expect(monitorAvailabilityState({ ...metrics, request_count: 10, error_rate: rate })).toBe('unknown')
+    }
+  })
   it('preserves empty slots at both ends of a partially covered window', () => {
     const channel = row()
     channel.buckets = [{ bucket_start: '2026-09-18T08:05:00+00:00', metrics, health: channel.health }]
@@ -59,6 +78,29 @@ describe('channel status cards', () => {
     expect(slots[0].bucket).toBeUndefined()
     expect(slots[1].bucket).toBe(channel.buckets[0])
     expect(slots[2].bucket).toBeUndefined()
+  })
+  it('colors history by interval availability even when overall health is critical', async () => {
+    const channel = row()
+    channel.health = { ...channel.health, overall: 'critical', ttft: 'critical', score: 10 }
+    channel.buckets = [1, 0.751, 0, null].map((rate, index) => ({
+      bucket_start: `2026-09-18T08:${String(index * 5).padStart(2, '0')}:00Z`,
+      metrics: { ...metrics, availability_rate: rate, availability_source: 'probe' as const },
+      health: channel.health,
+    }))
+    const wrapper = mount(MonitorChannelCards, {
+      props: { rows: [channel], coverage: { ...coverage, requested_end: '2026-09-18T08:20:00Z' }, countdown: 299, refreshing: false },
+    })
+    expect(wrapper.get('.health-badge').attributes('data-state')).toBe('critical')
+    const slots = wrapper.findAll('.history-slot')
+    expect(slots.map(slot => slot.classes().find(name => name.startsWith('availability-'))))
+      .toEqual(['availability-success', 'availability-partial', 'availability-failed', 'availability-unknown'])
+    expect(slots[0].attributes('aria-label')).toContain('全部可用')
+    expect(slots[1].attributes('title')).toContain('部分不可用')
+    expect(slots[2].attributes('title')).toContain('全部不可用')
+    expect(slots[3].attributes('title')).toContain('无样本')
+    await slots[0].trigger('click')
+    expect(wrapper.get('.history-detail').text()).toContain('全部可用')
+    expect(wrapper.get('.history-detail').text()).not.toContain('异常')
   })
   it('groups by provider, retains missing metrics, and supports tapping history without exposing counts', async () => {
     const channel = row()
@@ -70,7 +112,8 @@ describe('channel status cards', () => {
     expect(wrapper.findAll('.channel-card')).toHaveLength(3)
     expect(wrapper.findAll('.channel-metric dd').slice(0, 3).map(el => el.text())).toEqual(['-', '100.0%', '-'])
     expect(wrapper.text()).not.toContain('12345')
-    expect(wrapper.findAll('.history-slot')[1].classes()).toContain('health-score10')
+    expect(wrapper.findAll('.history-slot')[0].classes()).toContain('availability-unknown')
+    expect(wrapper.findAll('.history-slot')[1].classes()).toContain('availability-success')
     await wrapper.findAll('.history-slot')[1].trigger('click')
     expect(wrapper.find('.history-detail').text()).toContain('账户探测')
     await wrapper.findAll('.history-slot')[1].trigger('click')

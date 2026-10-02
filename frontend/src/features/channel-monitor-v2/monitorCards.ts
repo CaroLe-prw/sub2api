@@ -1,10 +1,29 @@
 import type { MonitorCoverage, MonitorMatrixRow, MonitorMetric } from '@/api/channelMonitorV2'
 import { formatMonitorPercent } from './monitorFormat'
 
-/** Prefer the backend's combined traffic/probe availability; no samples means unknown. */
+/** Public responses redact counts but retain combined traffic/probe availability. */
+function monitorAvailabilityRate(metric?: MonitorMetric): number | null {
+  if (!metric) return null
+  const rate = metric.availability_rate ?? (
+    Number.isFinite(metric.request_count) && metric.request_count > 0 ? 1 - metric.error_rate : null
+  )
+  return rate == null || !Number.isFinite(rate) || rate < 0 || rate > 1 ? null : rate
+}
+
 export function monitorAvailability(metric: MonitorMetric): string {
-  const rate = metric.availability_rate ?? (metric.request_count > 0 ? 1 - metric.error_rate : null)
-  return rate == null || !Number.isFinite(rate) ? '-' : formatMonitorPercent(rate)
+  const rate = monitorAvailabilityRate(metric)
+  return rate == null ? '-' : formatMonitorPercent(rate)
+}
+
+export type MonitorAvailabilityState = 'success' | 'partial' | 'failed' | 'unknown'
+
+/** Classify the unrounded availability, independently of latency/cache scoring. */
+export function monitorAvailabilityState(metric?: MonitorMetric): MonitorAvailabilityState {
+  const rate = monitorAvailabilityRate(metric)
+  if (rate == null) return 'unknown'
+  if (rate === 1) return 'success'
+  if (rate === 0) return 'failed'
+  return 'partial'
 }
 
 export function monitorCacheRate(metric: MonitorMetric): string {

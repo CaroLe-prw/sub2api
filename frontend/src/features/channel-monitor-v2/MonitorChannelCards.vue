@@ -46,7 +46,7 @@
                 :key="slot.time"
                 type="button"
                 class="history-slot"
-                :class="slot.bucket ? healthScoreClass(slot.bucket.health, 'overall', slot.bucket.metrics.request_count) : 'health-unknown'"
+                :class="`availability-${monitorAvailabilityState(slot.bucket?.metrics)}`"
                 :title="slotLabel(slot)"
                 :aria-label="slotLabel(slot)"
                 :aria-pressed="selectedKey === `${entry.key}:${slot.time}`"
@@ -73,8 +73,8 @@ import { useI18n } from 'vue-i18n'
 import type { MonitorCoverage, MonitorMatrixRow, MonitorMetric } from '@/api/channelMonitorV2'
 import ProviderIcon from '@/components/user/monitor/ProviderIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { formatLatencyPrivacy, formatMonitorMs, healthScoreClass, ttftDisplayState } from './monitorFormat'
-import { monitorAvailability, monitorCacheRate, monitorCardSlots, monitorPlatformName } from './monitorCards'
+import { formatLatencyPrivacy, formatMonitorMs, ttftDisplayState } from './monitorFormat'
+import { monitorAvailability, monitorAvailabilityState, monitorCacheRate, monitorCardSlots, monitorPlatformName } from './monitorCards'
 
 const props = defineProps<{
   rows: MonitorMatrixRow[]
@@ -107,8 +107,8 @@ function latency(metric: MonitorMetric) {
 function slotLabel(slot: Slot): string {
   const date = new Intl.DateTimeFormat(locale.value || undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(slot.time)
   if (!slot.bucket) return t('channelMonitorV2.matrix.noTrafficAt', { time: date })
-  const { metrics, health } = slot.bucket
-  const parts = [date, t(`channelMonitorV2.cards.states.${health.overall}`), `${t('channelMonitorV2.cards.availability')} ${monitorAvailability(metrics)}`, `${t('channelMonitorV2.metrics.ttft')} ${formatMonitorMs(metrics.ttft.p50_ms)}`]
+  const { metrics } = slot.bucket
+  const parts = [date, t(`channelMonitorV2.cards.availabilityStates.${monitorAvailabilityState(metrics)}`), `${t('channelMonitorV2.cards.availability')} ${monitorAvailability(metrics)}`, `${t('channelMonitorV2.metrics.ttft')} ${formatMonitorMs(metrics.ttft.p50_ms)}`]
   parts.push(`${t('channelMonitorV2.metrics.cacheRate')} ${monitorCacheRate(metrics)}`)
   if (metrics.availability_source && metrics.availability_source !== 'traffic') {
     parts.push(t('channelMonitorV2.matrix.availabilityEvidence', { source: t(`channelMonitorV2.matrix.availabilitySources.${metrics.availability_source}`) }))
@@ -161,10 +161,10 @@ watch(() => props.coverage, () => { selectedKey.value = null })
 .history-slot span { width: 100%; height: var(--pulse-height, 21px); border-radius: 3px; background: var(--pulse-color, #0db783); transition: opacity .15s; }
 .history-slot:hover span, .history-slot:focus-visible span { opacity: .65; }
 .history-slot:focus-visible, .history-slot[aria-pressed="true"] { outline: 2px solid #94a3b8; }
-.health-unknown { --pulse-color: #adbacb; --pulse-height: 4px; }
-.health-healthy, .health-score8, .health-score9, .health-score10 { --pulse-color: #0db783; }
-.health-warning, .health-score5, .health-score6, .health-score7 { --pulse-color: #f5a300; --pulse-height: 12px; }
-.health-critical, .health-score0, .health-score1, .health-score2, .health-score3, .health-score4 { --pulse-color: #f34f59; --pulse-height: 5px; }
+.availability-unknown { --pulse-color: #adbacb; --pulse-height: 4px; }
+.availability-success { --pulse-color: #0db783; }
+.availability-partial { --pulse-color: #f5a300; --pulse-height: 12px; }
+.availability-failed { --pulse-color: #f34f59; --pulse-height: 5px; }
 .history-axis { display: flex; justify-content: space-between; margin-top: 5px; font-size: 8px; color: var(--card-muted); font-family: ui-monospace, monospace; }
 .history-detail { margin-top: 12px; color: var(--card-muted); font-size: 11px; line-height: 1.7; }
 .cards-empty { padding: 64px 24px; text-align: center; border-radius: 8px; background: var(--card-surface); }
