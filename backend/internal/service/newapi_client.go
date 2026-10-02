@@ -142,14 +142,19 @@ type newAPITokenUsageData struct {
 
 type newAPITokenSearchPage struct {
 	Total int           `json:"total"`
+	Page  int           `json:"page"`
 	Items []newAPIToken `json:"items"`
 }
 
 type newAPIToken struct {
+	ID              int64        `json:"id"`
+	Kind            string       `json:"kind"`
+	Key             string       `json:"key"`
 	UserID          NewAPIUserID `json:"user_id"`
 	Status          int          `json:"status"`
 	Group           string       `json:"group"`
 	CrossGroupRetry bool         `json:"cross_group_retry"`
+	keyVerified     bool
 }
 
 type newAPIStatusData struct {
@@ -301,7 +306,7 @@ func (c *NewAPIClient) resolveWithUser(
 	if err != nil {
 		return nil, err
 	}
-	if token.UserID != connection.UserID {
+	if (token.UserID != "" && token.UserID != connection.UserID) || (token.UserID == "" && !token.keyVerified) {
 		return nil, newAPIClientError("token_user_mismatch")
 	}
 	if token.Status != newAPITokenStatusEnabled {
@@ -469,17 +474,32 @@ func (c *NewAPIClient) searchToken(ctx context.Context, connection NewAPIConnect
 	if err != nil {
 		return nil, err
 	}
+	if status == http.StatusNotFound || status == http.StatusMethodNotAllowed {
+		return c.findTokenInUserList(ctx, connection)
+	}
 	if status < http.StatusOK || status >= http.StatusMultipleChoices {
 		return nil, newAPIHTTPError("token_search", status)
 	}
 	var page newAPITokenSearchPage
 	if err := decodeNewAPIEnvelope(body, &page); err != nil {
-		return nil, newAPIClientError("token_search_invalid_response")
+		// Some forks restrict token search even though authenticated token listing
+		// is available. Listing is only useful if the full API key can be verified.
+		return c.findTokenInUserList(ctx, connection)
 	}
 	if page.Total != 1 || len(page.Items) != 1 {
 		return nil, newAPIClientError("token_search_not_unique")
 	}
-	return &page.Items[0], nil
+	token := &page.Items[0]
+	if token.UserID == "" {
+		matched, err := c.verifyTokenKey(ctx, connection, token)
+		if err != nil {
+			return nil, err
+		}
+		if !matched {
+			return nil, newAPIClientError("token_key_not_matched")
+		}
+	}
+	return token, nil
 }
 
 func (c *NewAPIClient) getGroups(ctx context.Context, connection NewAPIConnection) (map[string]newAPIGroup, error) {
@@ -512,6 +532,18 @@ func (c *NewAPIClient) get(
 	bearerToken string,
 	userID NewAPIUserID,
 ) (int, []byte, error) {
+	return c.request(ctx, http.MethodGet, baseURL, path, query, bearerToken, userID)
+}
+
+func (c *NewAPIClient) request(
+	ctx context.Context,
+	method string,
+	baseURL string,
+	path string,
+	query url.Values,
+	bearerToken string,
+	userID NewAPIUserID,
+) (int, []byte, error) {
 	limit := c.requestLimit
 	if limit <= 0 {
 		limit = newAPIMaxBodyBytes
@@ -526,7 +558,7 @@ func (c *NewAPIClient) get(
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, requestURL, nil)
+	req, err := http.NewRequestWithContext(requestCtx, method, requestURL, nil)
 	if err != nil {
 		return 0, nil, newAPIClientError("request_build_failed")
 	}
