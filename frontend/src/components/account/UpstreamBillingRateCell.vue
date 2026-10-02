@@ -317,7 +317,9 @@ const statusClass = computed(() => {
   return ''
 })
 const primaryValue = computed(() => `${schedulingRate.value}x`)
-const formatBalance = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
+const formatBalance = (value: number) => `$${value.toLocaleString(undefined, {
+  maximumFractionDigits: isNewAPISnapshot.value && Math.abs(value) >= 1 ? 2 : 4
+})}`
 const formatRawQuota = (value: number) => `${value.toLocaleString()} quota`
 const balancePrimaryValue = computed(() => {
   if (balanceInsufficient.value) return t('admin.accounts.upstreamBilling.balanceUnavailable')

@@ -212,7 +212,7 @@ func (c *NewAPIClient) ResolveWithBalance(
 	if user.ID != connection.UserID {
 		return nil, nil, newAPIClientError("user_id_mismatch")
 	}
-	quotaDisplay := c.getQuotaDisplay(ctx, connection.BaseURL)
+	quotaDisplay := c.getQuotaDisplay(ctx, connection)
 	accountBalance, err := newAPIAccountBalance(user)
 	if err != nil {
 		return nil, nil, err
@@ -238,12 +238,32 @@ func (c *NewAPIClient) ResolveWithBalance(
 	}, nil
 }
 
-func (c *NewAPIClient) getQuotaDisplay(ctx context.Context, baseURL string) *NewAPIQuotaDisplay {
-	status, body, err := c.get(ctx, baseURL, "/api/status", nil, "", "")
-	if err != nil || status < http.StatusOK || status >= http.StatusMultipleChoices {
+func (c *NewAPIClient) getQuotaDisplay(ctx context.Context, connection NewAPIConnection) *NewAPIQuotaDisplay {
+	status, body, err := c.get(ctx, connection.BaseURL, "/api/status", nil, "", "")
+	if err != nil {
 		return nil
 	}
 	var data newAPIStatusData
+	if status >= http.StatusOK && status < http.StatusMultipleChoices {
+		if err := decodeNewAPIEnvelope(body, &data); err == nil {
+			if display := normalizeNewAPIQuotaDisplay(&data); display != nil {
+				return display
+			}
+		}
+	} else if status != http.StatusUnauthorized && status != http.StatusForbidden {
+		return nil
+	}
+	// Some forks publish only login/branding fields to anonymous callers. Read
+	// the same endpoint with the verified user's credentials before falling
+	// back to raw quota; never assume a currency or a fixed quota divisor.
+	if strings.TrimSpace(connection.UserAccessToken) == "" || !connection.UserID.valid() {
+		return nil
+	}
+	status, body, err = c.get(ctx, connection.BaseURL, "/api/status", nil, connection.UserAccessToken, connection.UserID)
+	if err != nil || status < http.StatusOK || status >= http.StatusMultipleChoices {
+		return nil
+	}
+	data = newAPIStatusData{}
 	if err := decodeNewAPIEnvelope(body, &data); err != nil {
 		return nil
 	}

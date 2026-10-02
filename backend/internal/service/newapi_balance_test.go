@@ -170,6 +170,73 @@ func TestNewAPIBalanceKeepsRawQuotaWhenStatusIsUnavailable(t *testing.T) {
 	require.Equal(t, int64(8000000), balance.Account.RemainingQuota)
 }
 
+func TestNewAPIBalanceReadsCurrencyRulesFromAuthenticatedStatus(t *testing.T) {
+	baseHandler := newAPIBalanceHandler(t,
+		`{"success":true,"data":{"id":42,"group":"Basic","quota":1665000,"used_quota":835000}}`,
+		validNewAPITokenBalanceBody(),
+	)
+	statusRequests := 0
+	doer := &newAPITestDoer{handle: func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/api/status" {
+			return baseHandler(req)
+		}
+		statusRequests++
+		if statusRequests == 1 {
+			require.Empty(t, req.Header.Get("Authorization"))
+			require.Empty(t, req.Header.Get("New-Api-User"))
+			return newAPITestResponse(http.StatusOK, `{"success":true,"data":{"system_name":"NewAPI","setup":true}}`), nil
+		}
+		require.Equal(t, "Bearer "+newAPITestAccessToken, req.Header.Get("Authorization"))
+		require.Equal(t, "42", req.Header.Get("New-Api-User"))
+		return newAPITestResponse(http.StatusOK, `{"success":true,"data":{"quota_per_unit":500000,"quota_display_type":"USD"}}`), nil
+	}}
+	resolution, balance, err := NewNewAPIClient(doer).ResolveWithBalance(t.Context(), newAPITestConnection())
+	require.NoError(t, err)
+	require.NotNil(t, balance.QuotaDisplay)
+	require.Equal(t, 2, statusRequests)
+	require.Equal(t, int64(1665000), balance.Account.RemainingQuota)
+	amount, ok := newAPIAccountBalanceUSD(balance)
+	require.True(t, ok)
+	require.InDelta(t, 3.33, amount, 1e-9)
+	snapshot := newAPISchedulingSnapshot(resolution, balance, time.Now(), 5)
+	require.InDelta(t, 3.33, snapshot.Data["balance"], 1e-9)
+	require.Equal(t, int64(1665000), snapshot.Data["balance_quota"])
+}
+
+func TestNewAPIBalanceDoesNotGuessConversionAfterAuthenticatedStatusFails(t *testing.T) {
+	for _, body := range []string{
+		`{"success":false,"message":"not permitted"}`,
+		`{"success":true,"data":{"system_name":"NewAPI"}}`,
+		`{"success":true,"data":{"quota_per_unit":0,"quota_display_type":"USD"}}`,
+		`{"success":true,"data":{"quota_per_unit":500000,"quota_display_type":"CNY"}}`,
+		`<html>unavailable</html>`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			baseHandler := newAPIBalanceHandler(t, validNewAPIUserBalanceBody(), validNewAPITokenBalanceBody())
+			statusRequests := 0
+			doer := &newAPITestDoer{handle: func(req *http.Request) (*http.Response, error) {
+				if req.URL.Path != "/api/status" {
+					return baseHandler(req)
+				}
+				statusRequests++
+				if statusRequests == 1 {
+					return newAPITestResponse(http.StatusUnauthorized, `{"success":false}`), nil
+				}
+				require.Equal(t, "Bearer "+newAPITestAccessToken, req.Header.Get("Authorization"))
+				require.NotContains(t, req.URL.String(), newAPITestAPIKey)
+				return newAPITestResponse(http.StatusOK, body), nil
+			}}
+			_, balance, err := NewNewAPIClient(doer).ResolveWithBalance(t.Context(), newAPITestConnection())
+			require.NoError(t, err)
+			require.Equal(t, 2, statusRequests)
+			require.Nil(t, balance.QuotaDisplay)
+			require.Equal(t, int64(8000000), balance.Account.RemainingQuota)
+			_, converted := newAPIAccountBalanceUSD(balance)
+			require.False(t, converted)
+		})
+	}
+}
+
 func TestNewAPIBalanceUnlimitedTokenWithZeroStillAvailable(t *testing.T) {
 	doer := &newAPITestDoer{}
 	doer.handle = newAPIBalanceHandler(

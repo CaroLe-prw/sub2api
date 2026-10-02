@@ -274,14 +274,14 @@ describe('UpstreamBillingRateCell', () => {
     expect(tooltip.textContent).not.toContain('admin.accounts.upstreamBilling.walletBalance')
 
     await wrapper.setProps({ mode: 'balance' })
-    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe('$19.8645')
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe('$19.86')
     expect(wrapper.get('[data-testid="upstream-billing-balance"]').classes()).toContain('text-red-600')
     await wrapper.get('[data-testid="upstream-billing-details"]').trigger('mouseenter')
     await flushPromises()
     tooltips = document.body.querySelectorAll('[role="tooltip"]')
     tooltip = tooltips[tooltips.length - 1] as HTMLElement
-    expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.walletBalance:$19.8645')
-    expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.balanceLow:$19.8645,$20')
+    expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.walletBalance:$19.86')
+    expect(tooltip.textContent).toContain('admin.accounts.upstreamBilling.balanceLow:$19.86,$20')
     expect(tooltip.textContent).not.toContain('admin.accounts.upstreamBilling.unsupported')
     expect(tooltip.querySelector('[data-testid="upstream-billing-probe-state"] span')?.className).toContain('text-emerald-400')
     wrapper.unmount()
