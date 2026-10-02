@@ -163,6 +163,30 @@ func (r *channelMonitorV2Repository) RecomputeRange(ctx context.Context, start, 
 	return nil
 }
 
+// RepairNextInboundBodyReadHealth rebuilds one affected UTC day without moving
+// live coverage backwards. The aggregation worker's singleton lock serializes
+// this with normal refreshes. Only dequeue after success; retries are idempotent.
+func (r *channelMonitorV2Repository) RepairNextInboundBodyReadHealth(ctx context.Context) (bool, error) {
+	var day time.Time
+	err := r.db.QueryRowContext(ctx, `SELECT bucket_date FROM channel_monitor_v2_health_repairs ORDER BY bucket_date DESC LIMIT 1`).Scan(&day)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	start := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	if now := time.Now().UTC().Truncate(time.Minute); end.After(now) {
+		end = now
+	}
+	if err := r.RecomputeRange(ctx, start, end); err != nil {
+		return false, err
+	}
+	_, err = r.db.ExecContext(ctx, `DELETE FROM channel_monitor_v2_health_repairs WHERE bucket_date = $1`, day)
+	return err == nil, err
+}
+
 const channelMonitorV2UsageMetricsSQL = `
 INSERT INTO channel_monitor_v2_metrics_1m (
   bucket_start, platform, group_id, model, success_requests,
@@ -238,6 +262,17 @@ WHEN ` + column + ` <= 300000 THEN 300000 WHEN ` + column + ` <= 600000 THEN 600
 ELSE 2147483647 END`
 }
 
+// Keep this inbound-only predicate in sync with migration 242. Both aggregation
+// and admin samples use the same alias so their exclusions cannot drift.
+const opsInboundBodyReadFailureSQL = `(COALESCE(current_error.status_code, 0) = 400
+  AND lower(btrim(COALESCE(current_error.error_message, ''))) = 'failed to read request body'
+  AND COALESCE(current_error.error_phase, '') NOT IN ('upstream', 'network', 'account_auth')
+  AND COALESCE(current_error.error_owner, '') <> 'provider'
+  AND COALESCE(current_error.error_source, '') <> 'upstream_http'
+  AND current_error.upstream_status_code IS NULL
+  AND COALESCE(NULLIF(current_error.upstream_errors, 'null'::jsonb), '[]'::jsonb) = '[]'::jsonb
+)`
+
 // Error dedup lookback: request_id branch is bounded by chunk start minus 90
 // minutes so candidate_ids never forces a full-history scan of ops_error_logs.
 const channelMonitorV2ErrorAggregationSQL = `
@@ -261,6 +296,7 @@ WITH dedup AS (
     COALESCE(current_error.group_id, 0) AS group_id,
     COALESCE(NULLIF(TRIM(current_error.requested_model), ''), NULLIF(TRIM(current_error.model), ''), 'unknown') AS model,
     current_error.user_id, current_error.error_type, current_error.error_owner, COALESCE(current_error.status_code, 0) AS status_code,
+    ` + opsInboundBodyReadFailureSQL + ` AS inbound_body_read_failure,
     COALESCE(current_error.upstream_status_code, 0) AS upstream_status_code,
     lower(CONCAT_WS(' ', current_error.error_type, current_error.error_source, current_error.error_message, current_error.upstream_error_message, current_error.upstream_error_detail, current_error.error_body)) AS text,
     (CASE WHEN jsonb_typeof(current_error.upstream_errors) = 'array' THEN jsonb_array_length(current_error.upstream_errors) > 0 ELSE FALSE END
@@ -302,6 +338,7 @@ WITH dedup AS (
     ELSE 'other' END AS category
   FROM dedup
   WHERE bucket_start >= $1 AND bucket_start < $2
+    AND NOT inbound_body_read_failure
 ), metric_rows AS (
   INSERT INTO channel_monitor_v2_metrics_1m (bucket_start, platform, group_id, model, error_requests, upstream_affected_requests, upstream_attempt_count, computed_at)
   SELECT bucket_start, platform, group_id, model, COUNT(*), COUNT(*) FILTER (WHERE upstream_affected), SUM(upstream_attempts), NOW()
@@ -352,12 +389,17 @@ ON CONFLICT (id) DO UPDATE SET
 var channelMonitorV2FixedRollupSeconds = []int{300, 3600, 43200, 86400}
 
 func (r *channelMonitorV2Repository) recomputeFixedRollups(ctx context.Context, tx *sql.Tx, start, end time.Time) error {
+	// Keep normal trailing refreshes cheap, but rebuild every affected bucket
+	// during historical catch-up (including current 12h/1d buckets). Migration
+	// 242 queues affected days so existing upload failures are repaired this way.
+	// Keep the overlap in sync with service.channelMonitorV2RecentOverlap.
+	recentOnly := !start.Before(time.Now().UTC().Truncate(time.Minute).Add(-10 * time.Minute))
 	for _, seconds := range channelMonitorV2FixedRollupSeconds {
 		// Coarse buckets are immutable between boundaries during the normal
 		// trailing refresh. Historical backfills and boundary-crossing windows
 		// still rebuild them; this avoids repeatedly regrouping the full current
 		// day/user table every few minutes.
-		if seconds >= 43200 && sameFixedRollupBucket(start, end, seconds) {
+		if recentOnly && seconds >= 43200 && sameFixedRollupBucket(start, end, seconds) {
 			continue
 		}
 		interval := fmt.Sprintf("%d seconds", seconds)

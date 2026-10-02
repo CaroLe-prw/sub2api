@@ -43,7 +43,8 @@ func TestNewAPISyncUsesConfiguredUSDConversionWhenUpstreamHidesRules(t *testing.
 
 func TestNewAPISyncConversionConfigPreservesOmittedAndInvalidatesChangedRules(t *testing.T) {
 	account := newAPISyncTestAccount(1, 0.4)
-	oldIdentity := account.Extra[NewAPISyncIdentityExtraKey].(string)
+	oldIdentity, ok := account.Extra[NewAPISyncIdentityExtraKey].(string)
+	require.True(t, ok)
 	repo := &newAPISyncTestRepo{upstreamBillingProbeAccountRepo: &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{1: account}}}
 	svc := newAPISyncTestService(t, repo, nil)
 	update := &NewAPISyncConfigUpdate{
@@ -52,7 +53,8 @@ func TestNewAPISyncConversionConfigPreservesOmittedAndInvalidatesChangedRules(t 
 	config, err := svc.UpdateNewAPISyncConfig(t.Context(), 1, update)
 	require.NoError(t, err)
 	require.Equal(t, float64(500000), *config.QuotaPerUSD)
-	newIdentity := account.Extra[NewAPISyncIdentityExtraKey].(string)
+	newIdentity, ok := account.Extra[NewAPISyncIdentityExtraKey].(string)
+	require.True(t, ok)
 	require.NotEqual(t, oldIdentity, newIdentity)
 	require.Nil(t, account.Extra[NewAPIBalanceSnapshotExtraKey])
 	require.Nil(t, account.Extra[UpstreamBillingProbeExtraKey])

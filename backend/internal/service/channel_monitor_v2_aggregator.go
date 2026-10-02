@@ -44,6 +44,10 @@ type channelMonitorRuntimeSubscriber interface {
 	SubscribeChannelMonitorRuntime(listener func()) (unsubscribe func())
 }
 
+type channelMonitorV2HealthRepairRepository interface {
+	RepairNextInboundBodyReadHealth(ctx context.Context) (bool, error)
+}
+
 type ChannelMonitorV2Aggregator struct {
 	repo       ChannelMonitorV2Repository
 	db         *sql.DB
@@ -290,6 +294,19 @@ func (s *ChannelMonitorV2Aggregator) runOnce() {
 		return
 	}
 	s.recordDataThrough(now)
+
+	// Repair one affected historical day after refreshing live traffic. Preserve
+	// the forward watermark so migration repair does not blank current status.
+	if repairRepo, ok := s.repo.(channelMonitorV2HealthRepairRepository); ok {
+		repaired, err := repairRepo.RepairNextInboundBodyReadHealth(ctx)
+		if err != nil {
+			logger.LegacyPrintf("service.channel_monitor_v2", "[ChannelMonitorV2] inbound body-read health repair failed: %v", err)
+			return
+		}
+		if repaired {
+			return
+		}
+	}
 
 	// Phase 2: walk history backward at most one chunk per tick until retention max (90d).
 	// Product UI (30d) fills first; remaining 30–90d continues silently.

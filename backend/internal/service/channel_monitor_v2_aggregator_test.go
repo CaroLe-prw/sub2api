@@ -3,6 +3,8 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -21,6 +23,47 @@ func TestChannelMonitorV2MaxChunkForDepth(t *testing.T) {
 	require.Less(t, channelMonitorV2MaxChunkFar, 24*time.Hour)
 	require.Equal(t, time.Hour, channelMonitorV2BackfillChunkInit)
 	require.Equal(t, 15*time.Minute, channelMonitorV2MinBackfillChunk)
+}
+
+type channelMonitorV2HealthRepairRepoStub struct {
+	*channelMonitorV2RepoStub
+	repairErr               error
+	repairCalls             int
+	liveRefreshBeforeRepair bool
+}
+
+func (r *channelMonitorV2HealthRepairRepoStub) RepairNextInboundBodyReadHealth(context.Context) (bool, error) {
+	r.repairCalls++
+	r.liveRefreshBeforeRepair = len(r.recomputeCalls) == r.repairCalls
+	return r.repairErr == nil, r.repairErr
+}
+
+func TestChannelMonitorV2AggregatorRefreshesLiveTrafficBeforeHistoricalHealthRepair(t *testing.T) {
+	for _, failure := range []bool{false, true} {
+		t.Run(map[bool]string{false: "success", true: "retry failure"}[failure], func(t *testing.T) {
+			now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+			repo := &channelMonitorV2HealthRepairRepoStub{channelMonitorV2RepoStub: &channelMonitorV2RepoStub{
+				watermark: &ChannelMonitorV2AggregationWatermark{
+					HasData: true, DataThrough: now, BackfillCursor: now.Add(-30 * 24 * time.Hour),
+				},
+			}}
+			if failure {
+				repo.repairErr = errors.New("repair unavailable")
+			}
+			aggregator := NewChannelMonitorV2Aggregator(repo, nil, nil)
+			aggregator.now = func() time.Time { return now }
+			for range 2 {
+				aggregator.runOnce()
+				require.True(t, repo.liveRefreshBeforeRepair)
+				require.Equal(t, now, aggregator.dataThrough)
+			}
+			require.Equal(t, 2, repo.repairCalls)
+			require.Equal(t, [][2]time.Time{
+				{now.Add(-channelMonitorV2RecentOverlap), now},
+				{now.Add(-channelMonitorV2RecentOverlap), now},
+			}, repo.recomputeCalls)
+		})
+	}
 }
 
 func TestChannelMonitorV2AggregatorAdaptiveChunk(t *testing.T) {

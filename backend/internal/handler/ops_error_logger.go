@@ -2240,6 +2240,17 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	}
 	upstreamError := hasOpsUpstreamErrorContext(c)
 	accountAuthFailure := hasOpsAccountAuthFailure(c)
+	upstreamStatusRecorded := false
+	if c != nil {
+		_, upstreamStatusRecorded = c.Get(service.OpsUpstreamStatusCodeKey)
+	}
+	// An incomplete inbound upload never tests the gateway's upstream health.
+	// Retain the error row, using the existing SLA-exclusion flag. Upstream
+	// failures with the same response text must still count as failures.
+	if !upstreamError && !upstreamStatusRecorded && !accountAuthFailure && phase != "upstream" && status == http.StatusBadRequest &&
+		strings.EqualFold(strings.TrimSpace(message), "Failed to read request body") {
+		return "request", true, "client", "client_request"
+	}
 	if localModelConfiguration && !ingressModelNotAllowed {
 		phase = "routing"
 	} else if accountAuthFailure && !routingCapacityLimited {
