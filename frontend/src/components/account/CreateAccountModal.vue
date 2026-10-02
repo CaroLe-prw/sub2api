@@ -4018,6 +4018,7 @@ import {
   parseDateTimeLocalInput
 } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
+import { isValidNewAPIUserId } from '@/utils/newapiUserId'
 import { getAccountExpiryTimestamp } from '@/components/account/accountExpiry'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
@@ -4222,7 +4223,7 @@ const newAPISyncCreateConfig = reactive<NewAPISyncConfigUpdate>({
   newapi_sync_enabled: true,
   newapi_base_url: '',
   newapi_user_access_token: '',
-  newapi_user_id: 0
+  newapi_user_id: ''
 })
 const upstreamBillingConfigActive = computed(() => accountCategory.value === 'apikey'
   || (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream'))
@@ -5341,8 +5342,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
     && payload.type === 'apikey'
     && upstreamBillingMode.value === 'newapi'
   if (configureNewAPI && (
-    !Number.isInteger(newAPISyncCreateConfig.newapi_user_id)
-    || newAPISyncCreateConfig.newapi_user_id <= 0
+    !isValidNewAPIUserId(newAPISyncCreateConfig.newapi_user_id)
     || !newAPISyncCreateConfig.newapi_user_access_token.trim()
   )) {
     appStore.showError(t('admin.accounts.newapiSync.createConfigRequired'))
@@ -5444,7 +5444,7 @@ const resetForm = () => {
   newAPISyncCreateConfig.newapi_sync_enabled = true
   newAPISyncCreateConfig.newapi_base_url = ''
   newAPISyncCreateConfig.newapi_user_access_token = ''
-  newAPISyncCreateConfig.newapi_user_id = 0
+  newAPISyncCreateConfig.newapi_user_id = ''
   upstreamRateCalibration.value = 1
   upstreamBalanceAlertEnabled.value = DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED
   upstreamBalanceAlertThreshold.value = DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD

@@ -174,7 +174,7 @@ func duplicateAccountNewAPIConfig(value map[string]any) map[string]any {
 	}
 
 	stored := newAPIStoredConfigFromAccount(&Account{Extra: config})
-	if stored.BaseURL != "" || stored.UserID > 0 || stored.UserAccessToken != "" {
+	if stored.BaseURL != "" || stored.UserID.valid() || stored.UserAccessToken != "" {
 		// The fingerprint is row-scoped by repository CAS checks. Recompute it
 		// from the copied connection settings instead of carrying source state.
 		config[NewAPISyncIdentityExtraKey] = newAPISyncIdentity(

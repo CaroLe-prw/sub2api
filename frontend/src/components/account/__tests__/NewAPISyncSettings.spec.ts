@@ -49,6 +49,31 @@ describe('NewAPISyncSettings', () => {
     api.updateNewAPISyncConfig.mockResolvedValue(config())
   })
 
+  it('preserves a string UID when editing and saving connection settings', async () => {
+    const uid = 'X1vJHY6Hpd2lZZD3H5o5dS0i'
+    api.updateNewAPISyncConfig.mockResolvedValue(config({ newapi_user_id: uid }))
+    const wrapper = mount(NewAPISyncSettings, { props: { accountId: 7, enabled: true } })
+    await flushPromises()
+
+    await wrapper.get('#newapi-user-id').setValue(uid)
+    const exposed = wrapper.vm as unknown as { persistConfig: () => Promise<boolean> }
+    expect(await exposed.persistConfig()).toBe(true)
+    expect(api.updateNewAPISyncConfig).toHaveBeenCalledWith(7, expect.objectContaining({
+      newapi_user_id: uid
+    }))
+    expect((wrapper.get('#newapi-user-id').element as HTMLInputElement).value).toBe(uid)
+  })
+
+  it('rejects an invalid UID before sending a configuration update', async () => {
+    const wrapper = mount(NewAPISyncSettings, { props: { accountId: 7, enabled: true } })
+    await flushPromises()
+    await wrapper.get('#newapi-user-id').setValue('invalid id')
+    const exposed = wrapper.vm as unknown as { persistConfig: () => Promise<boolean> }
+    expect(await exposed.persistConfig()).toBe(false)
+    expect(api.updateNewAPISyncConfig).not.toHaveBeenCalled()
+    expect(notifications.showError).toHaveBeenCalledWith('admin.accounts.newapiSync.errors.NEWAPI_USER_ID_INVALID')
+  })
+
   it('does not render or validate connection parameters while synchronization is disabled', async () => {
     api.getNewAPISyncConfig.mockResolvedValue(config({
       newapi_sync_enabled: false,
@@ -169,7 +194,7 @@ describe('NewAPISyncSettings', () => {
       newapi_sync_enabled: false,
       newapi_base_url: 'https://newapi.example.test',
       newapi_user_access_token: '********',
-      newapi_user_id: 42
+      newapi_user_id: '42'
     })
     expect(wrapper.find('[data-testid="newapi-sync-settings"]').exists()).toBe(false)
   })

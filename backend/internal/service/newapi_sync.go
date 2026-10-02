@@ -119,7 +119,7 @@ type NewAPISyncConfig struct {
 	Enabled             bool                   `json:"newapi_sync_enabled"`
 	BaseURL             string                 `json:"newapi_base_url"`
 	UserAccessToken     string                 `json:"newapi_user_access_token"`
-	UserID              int64                  `json:"newapi_user_id"`
+	UserID              NewAPIUserID           `json:"newapi_user_id"`
 	LastSyncAt          *time.Time             `json:"newapi_last_sync_at,omitempty"`
 	LastSyncStatus      string                 `json:"newapi_last_sync_status"`
 	LastSyncError       string                 `json:"newapi_last_sync_error,omitempty"`
@@ -138,10 +138,10 @@ type NewAPISyncConfig struct {
 }
 
 type NewAPISyncConfigUpdate struct {
-	Enabled         bool   `json:"newapi_sync_enabled"`
-	BaseURL         string `json:"newapi_base_url"`
-	UserAccessToken string `json:"newapi_user_access_token"`
-	UserID          int64  `json:"newapi_user_id"`
+	Enabled         bool         `json:"newapi_sync_enabled"`
+	BaseURL         string       `json:"newapi_base_url"`
+	UserAccessToken string       `json:"newapi_user_access_token"`
+	UserID          NewAPIUserID `json:"newapi_user_id"`
 }
 
 type NewAPISyncResult struct {
@@ -157,11 +157,11 @@ type NewAPISyncResult struct {
 }
 
 type newAPISyncStoredConfig struct {
-	Enabled         bool   `json:"newapi_sync_enabled"`
-	BaseURL         string `json:"newapi_base_url"`
-	UserAccessToken string `json:"newapi_user_access_token"`
-	UserID          int64  `json:"newapi_user_id"`
-	IdentityHash    string `json:"newapi_sync_identity_hash"`
+	Enabled         bool         `json:"newapi_sync_enabled"`
+	BaseURL         string       `json:"newapi_base_url"`
+	UserAccessToken string       `json:"newapi_user_access_token"`
+	UserID          NewAPIUserID `json:"newapi_user_id"`
+	IdentityHash    string       `json:"newapi_sync_identity_hash"`
 }
 
 type NewAPISyncWrite struct {
@@ -249,11 +249,11 @@ func (s *UpstreamBillingProbeService) UpdateNewAPISyncConfig(
 			return nil, ErrNewAPISyncUnavailable
 		}
 	}
-	if update.Enabled && (update.UserID <= 0 || encryptedAccessToken == "") {
+	if update.Enabled && (!update.UserID.valid() || encryptedAccessToken == "") {
 		return nil, infraBadRequest("NEWAPI_SYNC_CONFIG_INCOMPLETE", "enabled NewAPI synchronization requires UID and access token")
 	}
-	if update.UserID < 0 {
-		return nil, infraBadRequest("NEWAPI_USER_ID_INVALID", "NewAPI UID must be greater than zero")
+	if update.UserID != "" && !update.UserID.valid() {
+		return nil, infraBadRequest("NEWAPI_USER_ID_INVALID", "NewAPI UID must be a positive number or an alphanumeric ID")
 	}
 
 	identity := newAPISyncIdentity(normalizedBaseURL, update.UserID, encryptedAccessToken)
@@ -547,7 +547,7 @@ func (s *UpstreamBillingProbeService) newAPIConnectionForAccount(
 	}
 	stored := newAPIStoredConfigFromAccount(account)
 	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
-	if stored.UserID <= 0 || stored.UserAccessToken == "" || apiKey == "" {
+	if !stored.UserID.valid() || stored.UserAccessToken == "" || apiKey == "" {
 		return nil, NewAPIConnection{}, newAPIClientError("configuration_incomplete")
 	}
 	baseURL, err := s.resolveNewAPIBaseURL(account, stored.BaseURL)
@@ -795,10 +795,10 @@ func newAPIStoredConfigFromAccount(account *Account) newAPISyncStoredConfig {
 	return stored
 }
 
-func newAPISyncIdentity(baseURL string, userID int64, encryptedAccessToken string) string {
+func newAPISyncIdentity(baseURL string, userID NewAPIUserID, encryptedAccessToken string) string {
 	value := strings.Join([]string{
 		strings.TrimRight(strings.TrimSpace(baseURL), "/"),
-		strconv.FormatInt(userID, 10),
+		string(userID),
 		encryptedAccessToken,
 	}, "\x00")
 	sum := sha256.Sum256([]byte(value))

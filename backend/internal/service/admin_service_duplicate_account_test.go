@@ -252,7 +252,7 @@ func TestDuplicateAccountPreservesNewAPIConfigurationAndResetsSyncState(t *testi
 	require.Equal(t, baseURL, duplicate.Extra[NewAPIBaseURLExtraKey])
 	require.Equal(t, encryptedToken, duplicate.Extra[NewAPIUserAccessTokenExtraKey])
 	require.EqualValues(t, 1010, duplicate.Extra[NewAPIUserIDExtraKey])
-	require.Equal(t, newAPISyncIdentity(baseURL, 1010, encryptedToken), duplicate.Extra[NewAPISyncIdentityExtraKey])
+	require.Equal(t, newAPISyncIdentity(baseURL, "1010", encryptedToken), duplicate.Extra[NewAPISyncIdentityExtraKey])
 	require.Equal(t, float64(0.1), duplicate.Extra[OpenAIUpstreamRateCalibrationExtraKey])
 	require.Equal(t, true, duplicate.Extra[UpstreamBalanceAlertEnabledExtraKey])
 	require.Equal(t, float64(10), duplicate.Extra[UpstreamBalanceAlertThresholdExtraKey])

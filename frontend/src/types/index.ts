@@ -1165,7 +1165,7 @@ export interface NewAPIQuotaDisplay {
 
 export interface NewAPIBalanceSnapshot {
   account: {
-    user_id: number
+    user_id: string | number
     group: string
     remaining_quota: number
     used_quota: number
@@ -1192,7 +1192,7 @@ export interface NewAPISyncConfig {
   newapi_sync_enabled: boolean
   newapi_base_url: string
   newapi_user_access_token: string
-  newapi_user_id: number
+  newapi_user_id: string | number
   newapi_last_sync_at?: string
   newapi_last_sync_status: NewAPISyncStatus
   newapi_last_sync_error?: string
@@ -1215,8 +1215,7 @@ export type NewAPISyncConfigUpdate = Pick<
   | 'newapi_sync_enabled'
   | 'newapi_base_url'
   | 'newapi_user_access_token'
-  | 'newapi_user_id'
->
+> & { newapi_user_id: string }
 
 export interface NewAPIResolution {
   user_group: string

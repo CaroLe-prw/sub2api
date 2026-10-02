@@ -31,7 +31,7 @@ type newAPIHTTPDoer interface {
 type NewAPIConnection struct {
 	BaseURL         string
 	UserAccessToken string
-	UserID          int64
+	UserID          NewAPIUserID
 	APIKey          string
 }
 
@@ -45,11 +45,11 @@ type NewAPIResolution struct {
 }
 
 type NewAPIBalanceAccount struct {
-	UserID         int64  `json:"user_id"`
-	Group          string `json:"group"`
-	RemainingQuota int64  `json:"remaining_quota"`
-	UsedQuota      int64  `json:"used_quota"`
-	TotalQuota     int64  `json:"total_quota"`
+	UserID         NewAPIUserID `json:"user_id"`
+	Group          string       `json:"group"`
+	RemainingQuota int64        `json:"remaining_quota"`
+	UsedQuota      int64        `json:"used_quota"`
+	TotalQuota     int64        `json:"total_quota"`
 }
 
 type NewAPIBalanceToken struct {
@@ -119,7 +119,7 @@ type newAPIEnvelope struct {
 }
 
 type newAPIUser struct {
-	ID        int64           `json:"id"`
+	ID        NewAPIUserID    `json:"id"`
 	Group     string          `json:"group"`
 	Quota     json.RawMessage `json:"quota"`
 	UsedQuota json.RawMessage `json:"used_quota"`
@@ -146,10 +146,10 @@ type newAPITokenSearchPage struct {
 }
 
 type newAPIToken struct {
-	UserID          int64  `json:"user_id"`
-	Status          int    `json:"status"`
-	Group           string `json:"group"`
-	CrossGroupRetry bool   `json:"cross_group_retry"`
+	UserID          NewAPIUserID `json:"user_id"`
+	Status          int          `json:"status"`
+	Group           string       `json:"group"`
+	CrossGroupRetry bool         `json:"cross_group_retry"`
 }
 
 type newAPIStatusData struct {
@@ -171,7 +171,7 @@ func (c *NewAPIClient) Resolve(ctx context.Context, connection NewAPIConnection)
 	}
 	if strings.TrimSpace(connection.BaseURL) == "" ||
 		strings.TrimSpace(connection.UserAccessToken) == "" ||
-		connection.UserID <= 0 ||
+		!connection.UserID.valid() ||
 		strings.TrimSpace(connection.APIKey) == "" {
 		return nil, newAPIClientError("configuration_incomplete")
 	}
@@ -195,7 +195,7 @@ func (c *NewAPIClient) ResolveWithBalance(
 	}
 	if strings.TrimSpace(connection.BaseURL) == "" ||
 		strings.TrimSpace(connection.UserAccessToken) == "" ||
-		connection.UserID <= 0 ||
+		!connection.UserID.valid() ||
 		strings.TrimSpace(connection.APIKey) == "" {
 		return nil, nil, newAPIClientError("configuration_incomplete")
 	}
@@ -234,7 +234,7 @@ func (c *NewAPIClient) ResolveWithBalance(
 }
 
 func (c *NewAPIClient) getQuotaDisplay(ctx context.Context, baseURL string) *NewAPIQuotaDisplay {
-	status, body, err := c.get(ctx, baseURL, "/api/status", nil, "", 0)
+	status, body, err := c.get(ctx, baseURL, "/api/status", nil, "", "")
 	if err != nil || status < http.StatusOK || status >= http.StatusMultipleChoices {
 		return nil
 	}
@@ -352,7 +352,7 @@ func (c *NewAPIClient) getTokenUsage(
 		"/api/usage/token/",
 		nil,
 		connection.APIKey,
-		0,
+		"",
 	)
 	if err != nil {
 		return nil, nil, err
@@ -433,7 +433,7 @@ func newAPIAccountBalance(user *newAPIUser) (*NewAPIBalanceAccount, error) {
 }
 
 func (c *NewAPIClient) getUser(ctx context.Context, connection NewAPIConnection) (*newAPIUser, error) {
-	status, body, err := c.get(ctx, connection.BaseURL, "/api/user/self", nil, connection.UserAccessToken, 0)
+	status, body, err := c.get(ctx, connection.BaseURL, "/api/user/self", nil, connection.UserAccessToken, "")
 	if err != nil {
 		return nil, err
 	}
@@ -510,7 +510,7 @@ func (c *NewAPIClient) get(
 	path string,
 	query url.Values,
 	bearerToken string,
-	userID int64,
+	userID NewAPIUserID,
 ) (int, []byte, error) {
 	limit := c.requestLimit
 	if limit <= 0 {
@@ -534,8 +534,8 @@ func (c *NewAPIClient) get(
 	if strings.TrimSpace(bearerToken) != "" {
 		req.Header.Set("Authorization", "Bearer "+bearerToken)
 	}
-	if userID > 0 {
-		req.Header.Set("New-Api-User", strconv.FormatInt(userID, 10))
+	if userID != "" {
+		req.Header.Set("New-Api-User", string(userID))
 	}
 	resp, err := c.doer.Do(req)
 	if err != nil {

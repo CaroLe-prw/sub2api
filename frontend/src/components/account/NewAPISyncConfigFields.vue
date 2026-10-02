@@ -17,7 +17,7 @@ const props = withDefaults(defineProps<{
 })
 
 const baseUrl = defineModel<string>('baseUrl', { required: true })
-const userId = defineModel<number>('userId', { required: true })
+const userId = defineModel<string>('userId', { required: true })
 const userAccessToken = defineModel<string>('userAccessToken', { required: true })
 const { t } = useI18n()
 
@@ -53,13 +53,15 @@ const ids = computed(() => ({
       </label>
       <input
         :id="ids.userId"
-        v-model.number="userId"
-        type="number"
-        min="1"
-        step="1"
+        v-model.trim="userId"
+        type="text"
+        maxlength="256"
+        autocomplete="off"
+        spellcheck="false"
         class="input"
         :required="accessTokenRequired"
       />
+      <p class="input-hint">{{ t('admin.accounts.newapiSync.userIdHint') }}</p>
     </div>
 
     <div class="sm:col-span-2">

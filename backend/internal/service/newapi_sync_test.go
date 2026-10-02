@@ -130,7 +130,7 @@ func newAPISyncTestAccount(id int64, ratio float64) *Account {
 			NewAPIBaseURLExtraKey:         baseURL,
 			NewAPIUserAccessTokenExtraKey: accessToken,
 			NewAPIUserIDExtraKey:          int64(42),
-			NewAPISyncIdentityExtraKey:    newAPISyncIdentity(baseURL, 42, accessToken),
+			NewAPISyncIdentityExtraKey:    newAPISyncIdentity(baseURL, "42", accessToken),
 		},
 	}
 }
@@ -156,7 +156,7 @@ func TestNewAPISyncConfigEncryptsAccessTokenMasksOutputAndPreservesEmptyValue(t 
 		Enabled:         true,
 		BaseURL:         "https://newapi.example.test///",
 		UserAccessToken: newAPITestAccessToken,
-		UserID:          42,
+		UserID:          "42",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "https://newapi.example.test", config.BaseURL)
@@ -174,7 +174,7 @@ func TestNewAPISyncConfigEncryptsAccessTokenMasksOutputAndPreservesEmptyValue(t 
 		Enabled:         true,
 		BaseURL:         "",
 		UserAccessToken: "",
-		UserID:          42,
+		UserID:          "42",
 	})
 	require.NoError(t, err)
 	require.Empty(t, config.BaseURL)
@@ -196,7 +196,7 @@ func TestNewAPISyncConfigRejectsUnsafeBaseURL(t *testing.T) {
 		Enabled:         true,
 		BaseURL:         "http://169.254.169.254/latest/meta-data",
 		UserAccessToken: newAPITestAccessToken,
-		UserID:          42,
+		UserID:          "42",
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "NewAPI base URL is not allowed")
@@ -254,7 +254,7 @@ func TestNewAPISyncBlankBaseURLUsesAccountEndpoint(t *testing.T) {
 			require.True(t, ok)
 			account.Extra[NewAPISyncIdentityExtraKey] = newAPISyncIdentity(
 				"",
-				42,
+				"42",
 				userAccessToken,
 			)
 			repo := &newAPISyncTestRepo{upstreamBillingProbeAccountRepo: &upstreamBillingProbeAccountRepo{
@@ -381,7 +381,7 @@ func TestNewAPIDisablingSyncClearsPreviousSchedulingSnapshot(t *testing.T) {
 		Enabled:         false,
 		BaseURL:         "https://newapi.example.test",
 		UserAccessToken: NewAPISecretMask,
-		UserID:          42,
+		UserID:          "42",
 	})
 
 	require.NoError(t, err)

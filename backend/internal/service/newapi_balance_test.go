@@ -378,7 +378,7 @@ func TestNewAPIBalanceRejectsInvalidEnvelopes(t *testing.T) {
 func TestNewAPIBalanceFailurePreservesLastCompleteSnapshotAndMarksStale(t *testing.T) {
 	account := newAPISyncTestAccount(1, 0.4)
 	old := &NewAPIBalanceSnapshot{
-		Account:    NewAPIBalanceAccount{UserID: 42, RemainingQuota: 7},
+		Account:    NewAPIBalanceAccount{UserID: "42", RemainingQuota: 7},
 		Token:      NewAPIBalanceToken{RemainingQuota: 6},
 		SyncedAt:   time.Now().Add(-time.Hour),
 		FreshUntil: time.Now().Add(time.Hour),
@@ -486,7 +486,7 @@ func TestNewAPIClientFollowsSameOriginSlashRedirect(t *testing.T) {
 		"/api/usage/token/",
 		nil,
 		newAPITestAPIKey,
-		0,
+		"",
 	)
 
 	require.NoError(t, err)

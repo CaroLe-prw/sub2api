@@ -96,6 +96,7 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
+import { normalizeNewAPIUserId, isValidNewAPIUserId } from '@/utils/newapiUserId'
 import type {
   NewAPIRatioSource,
   NewAPIBalanceSnapshot,
@@ -119,7 +120,7 @@ const defaultForm = (): NewAPISyncConfigUpdate => ({
   newapi_sync_enabled: false,
   newapi_base_url: '',
   newapi_user_access_token: '',
-  newapi_user_id: 0
+  newapi_user_id: ''
 })
 
 const form = reactive<NewAPISyncConfigUpdate>(defaultForm())
@@ -137,7 +138,7 @@ const applyConfig = (next: NewAPISyncConfig) => {
     newapi_sync_enabled: props.enabled,
     newapi_base_url: next.newapi_base_url,
     newapi_user_access_token: next.newapi_user_access_token,
-    newapi_user_id: next.newapi_user_id
+    newapi_user_id: normalizeNewAPIUserId(next.newapi_user_id)
   })
 }
 
@@ -168,13 +169,17 @@ const configDirty = computed(() => {
   return current.newapi_sync_enabled !== props.enabled
     || current.newapi_base_url !== form.newapi_base_url
     || current.newapi_user_access_token !== form.newapi_user_access_token
-    || current.newapi_user_id !== form.newapi_user_id
+    || normalizeNewAPIUserId(current.newapi_user_id) !== form.newapi_user_id
 })
 
 const saveConfig = async (notify: boolean, force = false): Promise<boolean> => {
   if (pendingLoad) await pendingLoad
   form.newapi_sync_enabled = props.enabled
   if (!force && !configDirty.value) return true
+  if (props.enabled && !isValidNewAPIUserId(form.newapi_user_id)) {
+    appStore.showError(t('admin.accounts.newapiSync.errors.NEWAPI_USER_ID_INVALID'))
+    return false
+  }
   saving.value = true
   try {
     applyConfig(await adminAPI.accounts.updateNewAPISyncConfig(props.accountId, { ...form }))

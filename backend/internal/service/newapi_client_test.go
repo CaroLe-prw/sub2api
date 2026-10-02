@@ -43,7 +43,7 @@ func newAPITestConnection() NewAPIConnection {
 	return NewAPIConnection{
 		BaseURL:         "https://newapi.example.test",
 		UserAccessToken: newAPITestAccessToken,
-		UserID:          42,
+		UserID:          "42",
 		APIKey:          newAPITestAPIKey,
 	}
 }

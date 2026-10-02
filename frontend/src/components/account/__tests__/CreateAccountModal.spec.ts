@@ -545,7 +545,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]).not.toHaveProperty('upstream_billing_rate_sync_enabled')
   })
 
-  it('configures and runs NewAPI sync after creating an OpenAI API key account', async () => {
+  it.each(['7', 'X1vJHY6Hpd2lZZD3H5o5dS0i', '9007199254740993'])('configures NewAPI with UID %s after creating an OpenAI account', async (uid) => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')
     await selectButtonByText(wrapper, 'API Key')
@@ -553,7 +553,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="password"]').setValue('model-api-key')
     await wrapper.get('[data-testid="upstream-billing-mode"]').setValue('newapi')
     await wrapper.get('#newapi-create-base-url').setValue('https://newapi.example.com')
-    await wrapper.get('#newapi-create-user-id').setValue('7')
+    await wrapper.get('#newapi-create-user-id').setValue(uid)
     await wrapper.get('#newapi-create-access-token').setValue('user-access-token')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -570,7 +570,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       newapi_sync_enabled: true,
       newapi_base_url: 'https://newapi.example.com',
       newapi_user_access_token: 'user-access-token',
-      newapi_user_id: 7,
+      newapi_user_id: uid,
     })
     expect(syncNewAPIRatioMock).toHaveBeenCalledWith(42)
     expect(wrapper.emitted('created')?.[0]).toEqual([
@@ -615,7 +615,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       newapi_sync_enabled: true,
       newapi_base_url: 'https://newapi.example.com',
       newapi_user_access_token: 'user-access-token',
-      newapi_user_id: 7,
+      newapi_user_id: '7',
     })
     expect(syncNewAPIRatioMock).toHaveBeenCalledWith(42)
   })
