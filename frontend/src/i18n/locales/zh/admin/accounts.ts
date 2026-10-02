@@ -266,6 +266,9 @@ export default {
         baseUrlHint: '留空时使用该账号的端点地址；显式填写时仅允许符合系统出站安全策略的 HTTP/HTTPS 地址。',
         userId: 'NewAPI UID',
         userIdHint: '支持数字 UID 或字母数字 ID，请填写上游用户接口返回的 id。',
+        quotaPerUsd: '每 1 美元对应额度（可选）',
+        quotaPerUsdPlaceholder: '例如 500000，留空自动获取',
+        quotaPerUsdHint: '仅在上游未提供有效换算规则时使用。请按该站实际规则填写；留空且无法自动获取时显示原始 quota。此设置仅用于余额换算，不改变计费倍率。',
         accessToken: '用户访问令牌',
         apiKey: 'API Key',
         apiKeyMissing: '账号尚未配置 API Key',
@@ -315,7 +318,8 @@ export default {
           empty: '尚无有效余额快照',
           quotaMismatch: '上游返回的 API Key 总额度与剩余加已用暂时不一致。',
           rawQuotaHint: '未获取到可靠的上游换算规则，以上显示 NewAPI 原始 quota。',
-          convertedQuotaHint: '金额按本次同步获取的 NewAPI 展示规则换算，括号内保留原始 quota。'
+          convertedQuotaHint: '金额按本次同步获取的 NewAPI 展示规则换算，括号内保留原始 quota。',
+          manualConvertedQuotaHint: '上游未提供有效换算规则，金额按该账号手动填写的备用规则换算，括号内保留原始 quota。'
         },
         statuses: {
           never: '尚未同步',
@@ -332,6 +336,7 @@ export default {
           NEWAPI_SYNC_IDENTITY_CHANGED: '同步配置已发生变化，请重试。',
           NEWAPI_SYNC_CONFIG_INVALID: '同步配置格式无效。',
           NEWAPI_SYNC_CONFIG_INCOMPLETE: '请填写 NewAPI UID 和用户访问令牌。',
+          NEWAPI_QUOTA_PER_USD_INVALID: '每 1 美元对应额度必须是大于 0 且不超过 9007199254740991 的有限数值，或留空自动获取。',
           NEWAPI_BASE_URL_INVALID: 'NewAPI Base URL 或账号端点地址不符合系统出站安全策略。',
           NEWAPI_USER_ID_INVALID: 'UID 必须为正整数或由字母、数字、连字符、下划线组成的 ID（以字母或数字开头，最长 256 字符）。',
           newapi_base_url_invalid: 'NewAPI Base URL 或账号端点地址不符合系统出站安全策略。',

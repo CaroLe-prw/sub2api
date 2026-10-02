@@ -13,6 +13,7 @@
         v-model:base-url="form.newapi_base_url"
         v-model:user-id="form.newapi_user_id"
         v-model:user-access-token="form.newapi_user_access_token"
+        v-model:quota-per-usd="form.newapi_quota_per_usd"
         id-prefix="newapi"
         show-metadata
         :has-api-key="config?.has_newapi_api_key === true"
@@ -97,6 +98,7 @@ import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 import { normalizeNewAPIUserId, isValidNewAPIUserId } from '@/utils/newapiUserId'
+import { isValidNewAPIQuotaPerUSD } from '@/utils/newapiQuotaConversion'
 import type {
   NewAPIRatioSource,
   NewAPIBalanceSnapshot,
@@ -120,7 +122,8 @@ const defaultForm = (): NewAPISyncConfigUpdate => ({
   newapi_sync_enabled: false,
   newapi_base_url: '',
   newapi_user_access_token: '',
-  newapi_user_id: ''
+  newapi_user_id: '',
+  newapi_quota_per_usd: null
 })
 
 const form = reactive<NewAPISyncConfigUpdate>(defaultForm())
@@ -138,7 +141,8 @@ const applyConfig = (next: NewAPISyncConfig) => {
     newapi_sync_enabled: props.enabled,
     newapi_base_url: next.newapi_base_url,
     newapi_user_access_token: next.newapi_user_access_token,
-    newapi_user_id: normalizeNewAPIUserId(next.newapi_user_id)
+    newapi_user_id: normalizeNewAPIUserId(next.newapi_user_id),
+    newapi_quota_per_usd: next.newapi_quota_per_usd ?? null
   })
 }
 
@@ -170,6 +174,7 @@ const configDirty = computed(() => {
     || current.newapi_base_url !== form.newapi_base_url
     || current.newapi_user_access_token !== form.newapi_user_access_token
     || normalizeNewAPIUserId(current.newapi_user_id) !== form.newapi_user_id
+    || (current.newapi_quota_per_usd ?? null) !== form.newapi_quota_per_usd
 })
 
 const saveConfig = async (notify: boolean, force = false): Promise<boolean> => {
@@ -180,9 +185,19 @@ const saveConfig = async (notify: boolean, force = false): Promise<boolean> => {
     appStore.showError(t('admin.accounts.newapiSync.errors.NEWAPI_USER_ID_INVALID'))
     return false
   }
+  if (props.enabled && !isValidNewAPIQuotaPerUSD(form.newapi_quota_per_usd)) {
+    appStore.showError(t('admin.accounts.newapiSync.errors.NEWAPI_QUOTA_PER_USD_INVALID'))
+    return false
+  }
   saving.value = true
   try {
-    applyConfig(await adminAPI.accounts.updateNewAPISyncConfig(props.accountId, { ...form }))
+    const update = { ...form }
+    // Disabling synchronization must remain possible even with an unfinished
+    // conversion edit. Omission preserves the previously saved rule.
+    if (!props.enabled && !isValidNewAPIQuotaPerUSD(update.newapi_quota_per_usd)) {
+      delete update.newapi_quota_per_usd
+    }
+    applyConfig(await adminAPI.accounts.updateNewAPISyncConfig(props.accountId, update))
     if (notify) appStore.showSuccess(t('admin.accounts.newapiSync.saved'))
     return true
   } catch (error) {

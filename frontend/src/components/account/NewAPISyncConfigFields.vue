@@ -19,12 +19,19 @@ const props = withDefaults(defineProps<{
 const baseUrl = defineModel<string>('baseUrl', { required: true })
 const userId = defineModel<string>('userId', { required: true })
 const userAccessToken = defineModel<string>('userAccessToken', { required: true })
+const quotaPerUsd = defineModel<number | null>('quotaPerUsd')
 const { t } = useI18n()
+
+const updateQuotaPerUsd = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  quotaPerUsd.value = input.value === '' && !input.validity.badInput ? null : input.valueAsNumber
+}
 
 const ids = computed(() => ({
   baseUrl: `${props.idPrefix}-base-url`,
   userId: `${props.idPrefix}-user-id`,
   accessToken: `${props.idPrefix}-access-token`,
+  quotaPerUsd: `${props.idPrefix}-quota-per-usd`,
   apiKey: `${props.idPrefix}-api-key`,
   syncInterval: `${props.idPrefix}-sync-interval`
 }))
@@ -89,6 +96,24 @@ const ids = computed(() => ({
           )
         }}
       </p>
+    </div>
+
+    <div class="sm:col-span-2">
+      <label class="input-label" :for="ids.quotaPerUsd">
+        {{ t('admin.accounts.newapiSync.quotaPerUsd') }}
+      </label>
+      <input
+        :id="ids.quotaPerUsd"
+        :value="quotaPerUsd ?? ''"
+        type="number"
+        step="any"
+        min="0"
+        :max="Number.MAX_SAFE_INTEGER"
+        class="input font-mono"
+        :placeholder="t('admin.accounts.newapiSync.quotaPerUsdPlaceholder')"
+        @input="updateQuotaPerUsd"
+      />
+      <p class="input-hint">{{ t('admin.accounts.newapiSync.quotaPerUsdHint') }}</p>
     </div>
 
     <template v-if="showMetadata">

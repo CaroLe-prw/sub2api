@@ -416,6 +416,9 @@ export default {
         baseUrlHint: 'Leave blank to use this account’s endpoint. Explicit values must be HTTP/HTTPS URLs allowed by the outbound security policy.',
         userId: 'NewAPI UID',
         userIdHint: 'Supports numeric UIDs and alphanumeric IDs. Enter the id returned by the upstream user API.',
+        quotaPerUsd: 'Quota per USD (optional)',
+        quotaPerUsdPlaceholder: 'e.g. 500000; leave blank for automatic detection',
+        quotaPerUsdHint: 'Used only when the upstream provides no valid conversion rule. Enter the actual rule for this site. If left blank and automatic detection fails, raw quota is shown. This setting converts balances and does not change billing rates.',
         accessToken: 'User access token',
         apiKey: 'API key',
         apiKeyMissing: 'No API key configured for this account',
@@ -465,7 +468,8 @@ export default {
           empty: 'No valid balance snapshot yet',
           quotaMismatch: 'The upstream API key total temporarily differs from remaining plus used quota.',
           rawQuotaHint: 'No reliable upstream conversion rule was available; values are raw NewAPI quota.',
-          convertedQuotaHint: 'Amounts use the NewAPI display rule captured by this sync; raw quota is preserved in parentheses.'
+          convertedQuotaHint: 'Amounts use the NewAPI display rule captured by this sync; raw quota is preserved in parentheses.',
+          manualConvertedQuotaHint: 'The upstream provided no valid conversion rule. Amounts use the manual fallback rule for this account; raw quota is preserved in parentheses.'
         },
         statuses: {
           never: 'Not synced',
@@ -482,6 +486,7 @@ export default {
           NEWAPI_SYNC_IDENTITY_CHANGED: 'The synchronization configuration changed. Try again.',
           NEWAPI_SYNC_CONFIG_INVALID: 'The synchronization configuration is invalid.',
           NEWAPI_SYNC_CONFIG_INCOMPLETE: 'Enter the NewAPI UID and user access token.',
+          NEWAPI_QUOTA_PER_USD_INVALID: 'Quota per USD must be a finite number greater than 0 and no greater than 9007199254740991, or blank for automatic detection.',
           NEWAPI_BASE_URL_INVALID: 'The NewAPI Base URL or account endpoint is not allowed by the outbound security policy.',
           NEWAPI_USER_ID_INVALID: 'Enter a positive numeric UID or an ID containing letters, digits, hyphens, or underscores (starting with a letter or digit, up to 256 characters).',
           newapi_base_url_invalid: 'The NewAPI Base URL or account endpoint is not allowed by the outbound security policy.',

@@ -555,6 +555,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('#newapi-create-base-url').setValue('https://newapi.example.com')
     await wrapper.get('#newapi-create-user-id').setValue(uid)
     await wrapper.get('#newapi-create-access-token').setValue('user-access-token')
+    await wrapper.get('#newapi-create-quota-per-usd').setValue('500000.5')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
 
@@ -571,6 +572,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       newapi_base_url: 'https://newapi.example.com',
       newapi_user_access_token: 'user-access-token',
       newapi_user_id: uid,
+      newapi_quota_per_usd: 500000.5,
     })
     expect(syncNewAPIRatioMock).toHaveBeenCalledWith(42)
     expect(wrapper.emitted('created')?.[0]).toEqual([
@@ -616,8 +618,50 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       newapi_base_url: 'https://newapi.example.com',
       newapi_user_access_token: 'user-access-token',
       newapi_user_id: '7',
+      newapi_quota_per_usd: null,
     })
     expect(syncNewAPIRatioMock).toHaveBeenCalledWith(42)
+  })
+
+  it('submits null after clearing a fallback conversion on a new account', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('NewAPI account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('model-api-key')
+    await wrapper.get('[data-testid="upstream-billing-mode"]').setValue('newapi')
+    await wrapper.get('#newapi-create-user-id').setValue('7')
+    await wrapper.get('#newapi-create-access-token').setValue('user-access-token')
+    await wrapper.get('#newapi-create-quota-per-usd').setValue('500000')
+    await wrapper.get('#newapi-create-quota-per-usd').setValue('')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateNewAPISyncConfigMock).toHaveBeenCalledWith(42, expect.objectContaining({
+      newapi_quota_per_usd: null,
+    }))
+  })
+
+  it.each(['0', '-1', '9007199254740992'])('validates fallback conversion %s only when NewAPI is enabled', async (value) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('NewAPI account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('model-api-key')
+    await wrapper.get('[data-testid="upstream-billing-mode"]').setValue('newapi')
+    await wrapper.get('#newapi-create-user-id').setValue('7')
+    await wrapper.get('#newapi-create-access-token').setValue('user-access-token')
+    await wrapper.get('#newapi-create-quota-per-usd').setValue(value)
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).not.toHaveBeenCalled()
+    expect(updateNewAPISyncConfigMock).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="upstream-billing-mode"]').setValue('off')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(updateNewAPISyncConfigMock).not.toHaveBeenCalled()
   })
 
   it('submits OpenCode Zen default protocol rules with adaptive endpoints', async () => {

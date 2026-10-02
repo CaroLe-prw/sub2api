@@ -26,6 +26,7 @@ const (
 	NewAPIBaseURLExtraKey         = "newapi_base_url"
 	NewAPIUserAccessTokenExtraKey = "newapi_user_access_token"
 	NewAPIUserIDExtraKey          = "newapi_user_id"
+	NewAPIQuotaPerUSDExtraKey     = "newapi_quota_per_usd"
 	// Legacy account-level fields are cleared when the configuration is saved.
 	// NewAPI now reuses the account API key and the global probe interval.
 	NewAPIAPIKeyExtraKey              = "newapi_api_key"
@@ -61,6 +62,7 @@ var newAPISyncManagedExtraKeys = [...]string{
 	NewAPIBaseURLExtraKey,
 	NewAPIUserAccessTokenExtraKey,
 	NewAPIUserIDExtraKey,
+	NewAPIQuotaPerUSDExtraKey,
 	NewAPIAPIKeyExtraKey,
 	NewAPISyncIntervalExtraKey,
 	NewAPILastSyncAtExtraKey,
@@ -120,6 +122,7 @@ type NewAPISyncConfig struct {
 	BaseURL             string                 `json:"newapi_base_url"`
 	UserAccessToken     string                 `json:"newapi_user_access_token"`
 	UserID              NewAPIUserID           `json:"newapi_user_id"`
+	QuotaPerUSD         *float64               `json:"newapi_quota_per_usd,omitempty"`
 	LastSyncAt          *time.Time             `json:"newapi_last_sync_at,omitempty"`
 	LastSyncStatus      string                 `json:"newapi_last_sync_status"`
 	LastSyncError       string                 `json:"newapi_last_sync_error,omitempty"`
@@ -142,6 +145,8 @@ type NewAPISyncConfigUpdate struct {
 	BaseURL         string       `json:"newapi_base_url"`
 	UserAccessToken string       `json:"newapi_user_access_token"`
 	UserID          NewAPIUserID `json:"newapi_user_id"`
+	// Missing preserves the configured fallback; null clears it.
+	QuotaPerUSD json.RawMessage `json:"newapi_quota_per_usd,omitempty"`
 }
 
 type NewAPISyncResult struct {
@@ -161,6 +166,7 @@ type newAPISyncStoredConfig struct {
 	BaseURL         string       `json:"newapi_base_url"`
 	UserAccessToken string       `json:"newapi_user_access_token"`
 	UserID          NewAPIUserID `json:"newapi_user_id"`
+	QuotaPerUSD     *float64     `json:"newapi_quota_per_usd,omitempty"`
 	IdentityHash    string       `json:"newapi_sync_identity_hash"`
 }
 
@@ -256,7 +262,17 @@ func (s *UpstreamBillingProbeService) UpdateNewAPISyncConfig(
 		return nil, infraBadRequest("NEWAPI_USER_ID_INVALID", "NewAPI UID must be a positive number or an alphanumeric ID")
 	}
 
-	identity := newAPISyncIdentity(normalizedBaseURL, update.UserID, encryptedAccessToken)
+	quotaPerUSD := stored.QuotaPerUSD
+	if len(update.QuotaPerUSD) > 0 {
+		if err := json.Unmarshal(update.QuotaPerUSD, &quotaPerUSD); err != nil {
+			return nil, infraBadRequest("NEWAPI_QUOTA_PER_USD_INVALID", "quota per USD must be a positive finite number or null")
+		}
+	}
+	if quotaPerUSD != nil && !validNewAPIQuotaPerUSD(*quotaPerUSD) {
+		return nil, infraBadRequest("NEWAPI_QUOTA_PER_USD_INVALID", "quota per USD must be a positive finite number within the safe integer range")
+	}
+
+	identity := newAPISyncIdentity(normalizedBaseURL, update.UserID, encryptedAccessToken, quotaPerUSD)
 	identityChanged := identity != stored.IdentityHash
 	enabledChanged := update.Enabled != stored.Enabled
 	updates := map[string]any{
@@ -264,6 +280,7 @@ func (s *UpstreamBillingProbeService) UpdateNewAPISyncConfig(
 		NewAPIBaseURLExtraKey:         normalizedBaseURL,
 		NewAPIUserAccessTokenExtraKey: encryptedAccessToken,
 		NewAPIUserIDExtraKey:          update.UserID,
+		NewAPIQuotaPerUSDExtraKey:     quotaPerUSD,
 		NewAPIAPIKeyExtraKey:          nil,
 		NewAPISyncIntervalExtraKey:    nil,
 		NewAPISyncIdentityExtraKey:    identity,
@@ -536,7 +553,19 @@ func (s *UpstreamBillingProbeService) resolveLoadedNewAPIAccountWithBalance(
 	if err != nil {
 		return nil, nil, err
 	}
-	return client.ResolveWithBalance(ctx, connection)
+	resolution, balance, err := client.ResolveWithBalance(ctx, connection)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Explicit account configuration is a fallback only. Never infer a monetary
+	// amount from raw quota or override a valid upstream conversion rule.
+	quotaPerUSD := newAPIStoredConfigFromAccount(account).QuotaPerUSD
+	if balance != nil && balance.QuotaDisplay == nil && quotaPerUSD != nil && validNewAPIQuotaPerUSD(*quotaPerUSD) {
+		balance.QuotaDisplay = &NewAPIQuotaDisplay{
+			DisplayType: "USD", Symbol: "$", QuotaPerUnit: *quotaPerUSD, ExchangeRate: 1, Source: "manual",
+		}
+	}
+	return resolution, balance, nil
 }
 
 func (s *UpstreamBillingProbeService) newAPIConnectionForAccount(
@@ -795,12 +824,22 @@ func newAPIStoredConfigFromAccount(account *Account) newAPISyncStoredConfig {
 	return stored
 }
 
-func newAPISyncIdentity(baseURL string, userID NewAPIUserID, encryptedAccessToken string) string {
-	value := strings.Join([]string{
+func validNewAPIQuotaPerUSD(value float64) bool {
+	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0) && value <= float64(newAPIMaxSafeInteger)
+}
+
+func newAPISyncIdentity(baseURL string, userID NewAPIUserID, encryptedAccessToken string, quotaPerUSD *float64) string {
+	parts := []string{
 		strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		string(userID),
 		encryptedAccessToken,
-	}, "\x00")
+	}
+	// Preserve existing identities when no fallback is configured. Including a
+	// configured divisor makes the normal stale-write check reject old amounts.
+	if quotaPerUSD != nil {
+		parts = append(parts, NewAPIQuotaPerUSDExtraKey, strconv.FormatFloat(*quotaPerUSD, 'g', -1, 64))
+	}
+	value := strings.Join(parts, "\x00")
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
 }

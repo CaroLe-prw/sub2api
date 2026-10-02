@@ -1160,6 +1160,7 @@ export type NewAPISyncStatus = 'never' | 'ok' | 'failed'
 export type NewAPIRatioSource = 'configured_group' | ''
 
 export interface NewAPIQuotaDisplay {
+  source?: 'manual'
   display_type: 'USD' | 'CNY' | 'TOKENS' | 'CUSTOM'
   symbol?: string
   quota_per_unit: number
@@ -1196,6 +1197,7 @@ export interface NewAPISyncConfig {
   newapi_base_url: string
   newapi_user_access_token: string
   newapi_user_id: string | number
+  newapi_quota_per_usd?: number | null
   newapi_last_sync_at?: string
   newapi_last_sync_status: NewAPISyncStatus
   newapi_last_sync_error?: string
@@ -1218,6 +1220,7 @@ export type NewAPISyncConfigUpdate = Pick<
   | 'newapi_sync_enabled'
   | 'newapi_base_url'
   | 'newapi_user_access_token'
+  | 'newapi_quota_per_usd'
 > & { newapi_user_id: string }
 
 export interface NewAPIResolution {

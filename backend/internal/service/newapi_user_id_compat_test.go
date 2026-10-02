@@ -89,7 +89,7 @@ func TestNewAPIUserIDAcceptsLegacyJSONWithoutPrecisionLoss(t *testing.T) {
 	}
 	// Saving an existing numeric UID as text must preserve the identity hash.
 	legacy := newAPIStoredConfigFromAccount(newAPISyncTestAccount(1, 0.4))
-	require.Equal(t, legacy.IdentityHash, newAPISyncIdentity(legacy.BaseURL, legacy.UserID, legacy.UserAccessToken))
+	require.Equal(t, legacy.IdentityHash, newAPISyncIdentity(legacy.BaseURL, legacy.UserID, legacy.UserAccessToken, nil))
 }
 
 func TestNewAPIUserIDRejectsInvalidJSONAndHeaderValues(t *testing.T) {

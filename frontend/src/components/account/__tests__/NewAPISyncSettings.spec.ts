@@ -74,6 +74,70 @@ describe('NewAPISyncSettings', () => {
     expect(notifications.showError).toHaveBeenCalledWith('admin.accounts.newapiSync.errors.NEWAPI_USER_ID_INVALID')
   })
 
+  it('leaves the fallback conversion unset when the server has no saved rule', async () => {
+    const wrapper = mount(NewAPISyncSettings, { props: { accountId: 7, enabled: true } })
+    await flushPromises()
+
+    expect((wrapper.get('#newapi-quota-per-usd').element as HTMLInputElement).value).toBe('')
+    const exposed = wrapper.vm as unknown as { persistConfig: () => Promise<boolean> }
+    expect(await exposed.persistConfig()).toBe(true)
+    expect(api.updateNewAPISyncConfig).not.toHaveBeenCalled()
+  })
+
+  it('loads and saves a changed fallback conversion as a number, including fractions', async () => {
+    api.getNewAPISyncConfig.mockResolvedValue(config({ newapi_quota_per_usd: 500000 }))
+    api.updateNewAPISyncConfig.mockResolvedValue(config({ newapi_quota_per_usd: 250000.5 }))
+    const wrapper = mount(NewAPISyncSettings, { props: { accountId: 7, enabled: true } })
+    await flushPromises()
+
+    expect((wrapper.get('#newapi-quota-per-usd').element as HTMLInputElement).value).toBe('500000')
+    await wrapper.get('#newapi-quota-per-usd').setValue('250000.5')
+    const exposed = wrapper.vm as unknown as { persistConfig: () => Promise<boolean> }
+    expect(await exposed.persistConfig()).toBe(true)
+    expect(api.updateNewAPISyncConfig).toHaveBeenCalledWith(7, expect.objectContaining({
+      newapi_quota_per_usd: 250000.5
+    }))
+  })
+
+  it('clears a saved fallback conversion by submitting null', async () => {
+    api.getNewAPISyncConfig.mockResolvedValue(config({ newapi_quota_per_usd: 500000 }))
+    const wrapper = mount(NewAPISyncSettings, { props: { accountId: 7, enabled: true } })
+    await flushPromises()
+
+    await wrapper.get('#newapi-quota-per-usd').setValue('')
+    const exposed = wrapper.vm as unknown as { persistConfig: () => Promise<boolean> }
+    expect(await exposed.persistConfig()).toBe(true)
+    expect(api.updateNewAPISyncConfig).toHaveBeenCalledWith(7, expect.objectContaining({
+      newapi_quota_per_usd: null
+    }))
+  })
+
+  it.each(['0', '-1', '9007199254740992'])('rejects an invalid fallback conversion %s before saving', async (value) => {
+    const wrapper = mount(NewAPISyncSettings, { props: { accountId: 7, enabled: true } })
+    await flushPromises()
+    await wrapper.get('#newapi-quota-per-usd').setValue(value)
+
+    const exposed = wrapper.vm as unknown as { persistConfig: () => Promise<boolean> }
+    expect(await exposed.persistConfig()).toBe(false)
+    expect(api.updateNewAPISyncConfig).not.toHaveBeenCalled()
+    expect(notifications.showError).toHaveBeenCalledWith('admin.accounts.newapiSync.errors.NEWAPI_QUOTA_PER_USD_INVALID')
+  })
+
+  it('allows disabling synchronization with an unfinished conversion edit and preserves the saved rule', async () => {
+    api.getNewAPISyncConfig.mockResolvedValue(config({ newapi_quota_per_usd: 500000 }))
+    api.updateNewAPISyncConfig.mockResolvedValue(config({ newapi_sync_enabled: false, newapi_quota_per_usd: 500000 }))
+    const wrapper = mount(NewAPISyncSettings, { props: { accountId: 7, enabled: true } })
+    await flushPromises()
+    await wrapper.get('#newapi-quota-per-usd').setValue('-1')
+    await wrapper.setProps({ enabled: false })
+
+    const exposed = wrapper.vm as unknown as { persistConfig: () => Promise<boolean> }
+    expect(await exposed.persistConfig()).toBe(true)
+    expect(api.updateNewAPISyncConfig).toHaveBeenCalledWith(7, expect.objectContaining({ newapi_sync_enabled: false }))
+    expect(api.updateNewAPISyncConfig.mock.calls[0]?.[1]).not.toHaveProperty('newapi_quota_per_usd')
+    expect(notifications.showError).not.toHaveBeenCalled()
+  })
+
   it('does not render or validate connection parameters while synchronization is disabled', async () => {
     api.getNewAPISyncConfig.mockResolvedValue(config({
       newapi_sync_enabled: false,
@@ -141,7 +205,7 @@ describe('NewAPISyncSettings', () => {
     expect(wrapper.text()).toContain('admin.accounts.newapiSync.balance.rawQuotaHint')
   })
 
-  it('renders the upstream display amount while preserving raw quota', async () => {
+  it.each([undefined, 'manual'] as const)('renders conversion source %s while preserving raw quota', async (source) => {
     api.getNewAPISyncConfig.mockResolvedValue(config({
       newapi_balance_stale: false,
       newapi_balance_snapshot: {
@@ -161,6 +225,7 @@ describe('NewAPISyncSettings', () => {
           expires_at: 0
         },
         quota_display: {
+          source,
           display_type: 'USD',
           symbol: '$',
           quota_per_unit: 500_000,
@@ -179,7 +244,9 @@ describe('NewAPISyncSettings', () => {
     expect(wrapper.text()).toContain('$19.86 (9,932,273 quota)')
     expect(wrapper.text()).toContain('$35.14 (17,567,727 quota)')
     expect(wrapper.text()).toContain('$55 (27,500,000 quota)')
-    expect(wrapper.text()).toContain('admin.accounts.newapiSync.balance.convertedQuotaHint')
+    expect(wrapper.text()).toContain(source === 'manual'
+      ? 'admin.accounts.newapiSync.balance.manualConvertedQuotaHint'
+      : 'admin.accounts.newapiSync.balance.convertedQuotaHint')
   })
 
   it('persists disabling an existing NewAPI synchronization without showing its fields', async () => {
@@ -194,7 +261,8 @@ describe('NewAPISyncSettings', () => {
       newapi_sync_enabled: false,
       newapi_base_url: 'https://newapi.example.test',
       newapi_user_access_token: '********',
-      newapi_user_id: '42'
+      newapi_user_id: '42',
+      newapi_quota_per_usd: null
     })
     expect(wrapper.find('[data-testid="newapi-sync-settings"]').exists()).toBe(false)
   })

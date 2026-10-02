@@ -160,6 +160,7 @@ var duplicateAccountNewAPIConfigKeys = [...]string{
 	NewAPIBaseURLExtraKey,
 	NewAPIUserAccessTokenExtraKey,
 	NewAPIUserIDExtraKey,
+	NewAPIQuotaPerUSDExtraKey,
 }
 
 func duplicateAccountNewAPIConfig(value map[string]any) map[string]any {
@@ -181,6 +182,7 @@ func duplicateAccountNewAPIConfig(value map[string]any) map[string]any {
 			stored.BaseURL,
 			stored.UserID,
 			stored.UserAccessToken,
+			stored.QuotaPerUSD,
 		)
 	}
 	return config

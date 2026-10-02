@@ -1443,6 +1443,7 @@
           v-if="upstreamBillingMode === 'newapi'"
           v-model:base-url="newAPISyncCreateConfig.newapi_base_url"
           v-model:user-id="newAPISyncCreateConfig.newapi_user_id"
+          v-model:quota-per-usd="newAPISyncCreateConfig.newapi_quota_per_usd"
           v-model:user-access-token="newAPISyncCreateConfig.newapi_user_access_token"
           id-prefix="newapi-create"
           access-token-required
@@ -4032,6 +4033,7 @@ import {
 } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { isValidNewAPIUserId } from '@/utils/newapiUserId'
+import { isValidNewAPIQuotaPerUSD } from '@/utils/newapiQuotaConversion'
 import { getAccountExpiryTimestamp } from '@/components/account/accountExpiry'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
@@ -4240,7 +4242,8 @@ const newAPISyncCreateConfig = reactive<NewAPISyncConfigUpdate>({
   newapi_sync_enabled: true,
   newapi_base_url: '',
   newapi_user_access_token: '',
-  newapi_user_id: ''
+  newapi_user_id: '',
+  newapi_quota_per_usd: null
 })
 const upstreamBillingConfigActive = computed(() => accountCategory.value === 'apikey'
   || (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream'))
@@ -5380,6 +5383,10 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
     appStore.showError(t('admin.accounts.newapiSync.createConfigRequired'))
     return
   }
+  if (configureNewAPI && !isValidNewAPIQuotaPerUSD(newAPISyncCreateConfig.newapi_quota_per_usd)) {
+    appStore.showError(t('admin.accounts.newapiSync.errors.NEWAPI_QUOTA_PER_USD_INVALID'))
+    return
+  }
 
   submitting.value = true
   try {
@@ -5477,6 +5484,7 @@ const resetForm = () => {
   newAPISyncCreateConfig.newapi_base_url = ''
   newAPISyncCreateConfig.newapi_user_access_token = ''
   newAPISyncCreateConfig.newapi_user_id = ''
+  newAPISyncCreateConfig.newapi_quota_per_usd = null
   upstreamRateCalibration.value = 1
   upstreamBalanceAlertEnabled.value = DEFAULT_UPSTREAM_BALANCE_ALERT_ENABLED
   upstreamBalanceAlertThreshold.value = DEFAULT_UPSTREAM_BALANCE_ALERT_THRESHOLD

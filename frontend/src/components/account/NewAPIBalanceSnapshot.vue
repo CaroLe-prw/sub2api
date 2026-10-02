@@ -101,7 +101,9 @@
       </p>
       <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
         {{ snapshot.quota_display && snapshot.quota_display.display_type !== 'TOKENS'
-          ? t('admin.accounts.newapiSync.balance.convertedQuotaHint')
+          ? t(snapshot.quota_display.source === 'manual'
+            ? 'admin.accounts.newapiSync.balance.manualConvertedQuotaHint'
+            : 'admin.accounts.newapiSync.balance.convertedQuotaHint')
           : t('admin.accounts.newapiSync.balance.rawQuotaHint') }}
       </p>
     </template>

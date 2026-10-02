@@ -130,7 +130,7 @@ func newAPISyncTestAccount(id int64, ratio float64) *Account {
 			NewAPIBaseURLExtraKey:         baseURL,
 			NewAPIUserAccessTokenExtraKey: accessToken,
 			NewAPIUserIDExtraKey:          int64(42),
-			NewAPISyncIdentityExtraKey:    newAPISyncIdentity(baseURL, "42", accessToken),
+			NewAPISyncIdentityExtraKey:    newAPISyncIdentity(baseURL, "42", accessToken, nil),
 		},
 	}
 }
@@ -256,6 +256,7 @@ func TestNewAPISyncBlankBaseURLUsesAccountEndpoint(t *testing.T) {
 				"",
 				"42",
 				userAccessToken,
+				nil,
 			)
 			repo := &newAPISyncTestRepo{upstreamBillingProbeAccountRepo: &upstreamBillingProbeAccountRepo{
 				accounts: map[int64]*Account{1: account},

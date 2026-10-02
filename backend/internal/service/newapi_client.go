@@ -66,6 +66,7 @@ type NewAPIQuotaDisplay struct {
 	Symbol       string  `json:"symbol,omitempty"`
 	QuotaPerUnit float64 `json:"quota_per_unit"`
 	ExchangeRate float64 `json:"exchange_rate"`
+	Source       string  `json:"source,omitempty"`
 }
 
 type NewAPIBalanceSnapshot struct {
