@@ -16,6 +16,26 @@ func newAPITestBoolPointer(value bool) *bool {
 	return &value
 }
 
+func TestNewAPISchedulingSnapshotPreservesUnconvertedBalanceForAccountList(t *testing.T) {
+	now := time.Now().UTC()
+	balance := &NewAPIBalanceSnapshot{
+		Account:          NewAPIBalanceAccount{UserID: "PublicUser123", RemainingQuota: 1668165},
+		OverallAvailable: true,
+	}
+	snapshot := newAPISchedulingSnapshot(&NewAPIResolution{Ratio: float64Pointer(0.08)}, balance, now, 5)
+	require.NotNil(t, snapshot)
+	require.NotContains(t, snapshot.Data, "balance", "raw quota must not be treated as USD")
+	require.Equal(t, int64(1668165), snapshot.Data["balance_quota"])
+	require.Equal(t, true, snapshot.Data["balance_available"])
+	items := BuildUpstreamBillingRateSnapshotItems([]Account{{
+		ID: 701, Type: AccountTypeAPIKey, Extra: map[string]any{UpstreamBillingProbeExtraKey: snapshot},
+	}})
+	require.Len(t, items, 1)
+	require.NotNil(t, items[0].Snapshot)
+	require.EqualValues(t, 1668165, items[0].Snapshot.Data["balance_quota"])
+	require.NotContains(t, items[0].Snapshot.Data, "balance")
+}
+
 func newAPIBalanceHandler(
 	t *testing.T,
 	userBody string,

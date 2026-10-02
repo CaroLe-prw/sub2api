@@ -1110,6 +1110,9 @@ export interface UpstreamBillingData {
   applied_peak_multiplier?: number
   effective_rate_multiplier: number
   balance?: number
+  // NewAPI raw quota is separate from the monetary balance used for alerts.
+  balance_quota?: number
+  balance_available?: boolean
   balance_kind?: 'wallet' | 'subscription_remaining' | 'quota_remaining' | 'available'
   timezone?: string
   observed_at: string

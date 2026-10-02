@@ -3192,6 +3192,7 @@ import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import type {
   Account,
+  NewAPISyncResult,
   Proxy,
   AdminGroup,
   Group,
@@ -3347,8 +3348,24 @@ const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
   if (props.account) emit('updated', { ...props.account, ollama_cloud_usage: state })
 }
 
-const handleNewAPIRatioSynced = (ratio: number) => {
-  if (props.account) emit('updated', { ...props.account, rate_multiplier: ratio })
+const handleNewAPIRatioSynced = (ratio: number, result: NewAPISyncResult) => {
+  if (!props.account) return
+  emit('updated', {
+    ...props.account,
+    rate_multiplier: ratio,
+    extra: {
+      ...props.account.extra,
+      newapi_sync_enabled: true,
+      upstream_billing_probe_enabled: false,
+      newapi_last_sync_status: result.status,
+      newapi_last_sync_error: '',
+      ...(result.balance_snapshot ? {
+        newapi_balance_snapshot: result.balance_snapshot,
+        newapi_last_sync_at: result.balance_snapshot.synced_at
+      } : {}),
+      ...(result.scheduling_snapshot ? { upstream_billing_probe: result.scheduling_snapshot } : {})
+    }
+  })
 }
 // OpenCode Go usage panel state
 const opencodeGoState = ref<OpenCodeGoUsageState | null>(props.account?.opencode_go_usage ?? null)

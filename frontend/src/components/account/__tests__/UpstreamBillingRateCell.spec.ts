@@ -69,6 +69,32 @@ describe('UpstreamBillingRateCell', () => {
     vi.useRealTimers()
   })
 
+  it('shows NewAPI raw balance from the compact snapshot without inventing a currency', async () => {
+    const account = makeAccount({
+      extra: {
+        newapi_sync_enabled: true,
+        upstream_billing_probe: {
+          status: 'ok',
+          data: { ...billingData, source: 'newapi', balance_quota: 1668165, balance_available: true },
+          received_at: '2026-07-13T00:00:00Z',
+          fresh_until: '2026-07-13T01:00:00Z'
+        }
+      }
+    })
+    const wrapper = mount(UpstreamBillingRateCell, {
+      props: { mode: 'balance', account, now: Date.now() }
+    })
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe('1,668,165 quota')
+    expect(wrapper.text()).not.toContain('$')
+    expect(wrapper.text()).not.toContain('admin.accounts.upstreamBilling.notProbed')
+    const nextAccount = JSON.parse(JSON.stringify(account))
+    nextAccount.extra.upstream_billing_probe.data.balance_quota = 1668000
+    await wrapper.setProps({ account: nextAccount })
+    expect(wrapper.get('[data-testid="upstream-billing-balance"]').text()).toBe('1,668,000 quota')
+    await wrapper.setProps({ now: Date.parse('2026-07-13T02:00:00Z') })
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBilling.stale')
+  })
+
   it('calibrates the current upstream rate and keeps the icon-only probe action', async () => {
     const wrapper = mount(UpstreamBillingRateCell, {
       props: {

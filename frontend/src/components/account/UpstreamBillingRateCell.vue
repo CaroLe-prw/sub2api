@@ -86,6 +86,12 @@
           <p v-else-if="balance != null" data-testid="upstream-billing-balance-detail">
             {{ t(balanceTranslationKey, { value: formatBalance(balance) }) }}
           </p>
+          <template v-else-if="balanceQuota != null">
+            <p data-testid="upstream-billing-balance-detail">
+              {{ t('admin.accounts.newapiSync.balance.accountRemaining') }}: {{ formatRawQuota(balanceQuota) }}
+            </p>
+            <p>{{ t('admin.accounts.newapiSync.balance.rawQuotaHint') }}</p>
+          </template>
           <p v-if="balanceAlertActive" class="text-red-400">
             {{
               t('admin.accounts.upstreamBilling.balanceLow', {
@@ -94,7 +100,7 @@
               })
             }}
           </p>
-          <p v-if="balance == null && !balanceInsufficient">{{ statusLabel || '-' }}</p>
+          <p v-if="balance == null && balanceQuota == null && !balanceInsufficient">{{ statusLabel || '-' }}</p>
           <p v-if="snapshot?.received_at">
             {{ t('admin.accounts.upstreamBilling.updatedAt', { value: formatDate(snapshot.received_at) }) }}
           </p>
@@ -174,8 +180,21 @@ const balance = computed(() => {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 })
 const newAPIBalanceSnapshot = computed(() => props.account.extra?.newapi_balance_snapshot)
+const balanceQuota = computed(() => {
+  if (data.value?.source === 'newapi' && Number.isSafeInteger(data.value.balance_quota)) {
+    return data.value.balance_quota!
+  }
+  // Existing saved snapshots may predate raw quota in the compact response.
+  if (props.account.extra?.newapi_sync_enabled !== true) return null
+  const value = newAPIBalanceSnapshot.value?.account?.remaining_quota
+  return typeof value === 'number' && Number.isSafeInteger(value) ? value : null
+})
 const balanceInsufficient = computed(() => {
+  if (data.value?.source === 'newapi' && typeof data.value.balance_available === 'boolean') {
+    return !data.value.balance_available
+  }
   if (balance.value != null) return balance.value <= 0
+  if (balanceQuota.value != null && balanceQuota.value <= 0) return true
   return newAPIBalanceSnapshot.value?.overall_available === false
 })
 const balanceAlertActive = computed(() => snapshot.value?.balance_alert?.active === true)
@@ -299,13 +318,15 @@ const statusClass = computed(() => {
 })
 const primaryValue = computed(() => `${schedulingRate.value}x`)
 const formatBalance = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
+const formatRawQuota = (value: number) => `${value.toLocaleString()} quota`
 const balancePrimaryValue = computed(() => {
   if (balanceInsufficient.value) return t('admin.accounts.upstreamBilling.balanceUnavailable')
-  return balance.value == null ? '-' : formatBalance(balance.value)
+  if (balance.value != null) return formatBalance(balance.value)
+  return balanceQuota.value == null ? '-' : formatRawQuota(balanceQuota.value)
 })
 const balanceDisplayClass = computed(() => {
   if (balanceInsufficient.value || balanceAlertActive.value) return 'text-red-600 dark:text-red-400'
-  if (balance.value != null) return 'text-gray-700 dark:text-gray-300'
+  if (balance.value != null || balanceQuota.value != null) return 'text-gray-700 dark:text-gray-300'
   return 'text-gray-400 dark:text-dark-500'
 })
 const formatDate = (value?: string) => value

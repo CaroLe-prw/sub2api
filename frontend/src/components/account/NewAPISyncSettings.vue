@@ -112,7 +112,7 @@ const props = defineProps<{
   accountId: number
   enabled: boolean
 }>()
-const emit = defineEmits<{ synced: [ratio: number] }>()
+const emit = defineEmits<{ synced: [ratio: number, result: NewAPISyncResult] }>()
 const { t, te } = useI18n()
 const appStore = useAppStore()
 
@@ -225,7 +225,7 @@ const syncNow = async () => {
     const result = await adminAPI.accounts.syncNewAPIRatio(props.accountId)
     preview.value = result
     await load()
-    if (typeof result.new_ratio === 'number') emit('synced', result.new_ratio)
+    if (typeof result.new_ratio === 'number') emit('synced', result.new_ratio, result)
     appStore.showSuccess(result.changed
       ? t('admin.accounts.newapiSync.syncChanged')
       : t('admin.accounts.newapiSync.syncUnchanged'))

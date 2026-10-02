@@ -968,6 +968,12 @@ func newAPISchedulingSnapshot(
 		"observed_at":               now.Format(time.RFC3339Nano),
 		"newapi_group":              resolution.ActualGroup,
 	}
+	if balance != nil {
+		// Keep raw quota available to the account table and its compact refresh
+		// even when the upstream publishes no reliable currency conversion.
+		data["balance_quota"] = balance.Account.RemainingQuota
+		data["balance_available"] = balance.OverallAvailable
+	}
 	if accountBalance, ok := newAPIAccountBalanceUSD(balance); ok {
 		data["balance"] = accountBalance
 		data["balance_kind"] = "wallet"

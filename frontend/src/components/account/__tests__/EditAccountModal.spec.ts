@@ -1437,6 +1437,34 @@ describe('EditAccountModal', () => {
     expect(payload).not.toHaveProperty('upstream_billing_rate_sync_enabled')
   })
 
+  it('publishes NewAPI balance and scheduling snapshots immediately after synchronization', async () => {
+    const account = buildAccount()
+    account.extra = { newapi_sync_enabled: true, keep_existing: 'value' }
+    const wrapper = mountModal(account)
+    const result = {
+      account_id: account.id, status: 'ok', changed: true, old_ratio: 1, new_ratio: 0.08,
+      balance_snapshot: {
+        account: { remaining_quota: 1668165 },
+        synced_at: '2026-10-02T10:49:00Z'
+      },
+      scheduling_snapshot: {
+        status: 'ok', data: { source: 'newapi', balance_quota: 1668165 },
+        received_at: '2026-10-02T10:49:00Z'
+      }
+    }
+    wrapper.findComponent(NewAPISyncSettingsStub).vm.$emit('synced', 0.08, result)
+    await flushPromises()
+    expect(wrapper.emitted('updated')?.at(-1)?.[0]).toEqual(expect.objectContaining({
+      rate_multiplier: 0.08,
+      extra: expect.objectContaining({
+        keep_existing: 'value',
+        newapi_balance_snapshot: result.balance_snapshot,
+        upstream_billing_probe: result.scheduling_snapshot,
+        newapi_last_sync_status: 'ok'
+      })
+    }))
+  })
+
   it.each(['anthropic', 'gemini', 'grok'])('exposes Sub2API and NewAPI for %s API-key accounts', async (platform) => {
     const account = buildAccount()
     account.platform = platform

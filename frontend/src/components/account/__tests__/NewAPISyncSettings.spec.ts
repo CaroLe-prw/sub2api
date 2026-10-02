@@ -231,6 +231,7 @@ describe('NewAPISyncSettings', () => {
     expect(api.updateNewAPISyncConfig.mock.calls[0]?.[1]).not.toHaveProperty('newapi_api_key')
     expect(api.testNewAPISyncConnection).toHaveBeenCalledWith(7)
     expect(api.syncNewAPIRatio).not.toHaveBeenCalled()
+    expect(wrapper.emitted('synced')).toBeUndefined()
     expect(wrapper.text()).toContain('GPT Lite大户组')
     expect(wrapper.text()).toContain('0.065x')
   })
@@ -261,6 +262,13 @@ describe('NewAPISyncSettings', () => {
 
     expect(api.syncNewAPIRatio).toHaveBeenCalledWith(7)
     expect(wrapper.emitted('synced')?.at(-1)?.[0]).toBe(0.065)
+    expect(wrapper.emitted('synced')?.at(-1)?.[1]).toEqual({
+      account_id: 7,
+      status: 'ok',
+      changed: true,
+      old_ratio: 0.04,
+      new_ratio: 0.065
+    })
     expect(wrapper.text()).toContain('0.065x')
   })
 })
