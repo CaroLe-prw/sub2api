@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
-// 本文件覆盖：worker 池已停止（进程关停窗口）时，计费任务不得静默丢失，
-// 必须降级为内联同步执行；显式配置的 drop/sample 溢出丢弃仍按配置语义保留。
+// 计费任务在 worker 池停止或队列满时必须内联同步执行，不能被 drop/sample 丢弃。
 
 func newStoppedUsageRecordPoolForTest() *service.UsageRecordWorkerPool {
 	pool := service.NewUsageRecordWorkerPoolWithOptions(service.UsageRecordWorkerPoolOptions{
@@ -45,33 +45,74 @@ func TestOpenAIGatewayHandlerSubmitUsageRecordTask_StoppedPoolFallsBackToSync(t 
 	require.True(t, executed, "池已停止时计费任务必须内联同步执行")
 }
 
-func TestGatewayHandlerSubmitUsageRecordTask_DropPolicyOverflowStillDrops(t *testing.T) {
-	pool := service.NewUsageRecordWorkerPoolWithOptions(service.UsageRecordWorkerPoolOptions{
-		WorkerCount:    1,
-		QueueSize:      1,
-		TaskTimeout:    time.Minute,
-		OverflowPolicy: config.UsageRecordOverflowPolicyDrop,
-	})
-	t.Cleanup(pool.Stop)
-	h := &GatewayHandler{usageRecordWorkerPool: pool}
+func TestUsageRecordTask_OverflowAlwaysBillsExactlyOnce(t *testing.T) {
+	for _, policy := range []string{
+		config.UsageRecordOverflowPolicyDrop,
+		config.UsageRecordOverflowPolicySample,
+		config.UsageRecordOverflowPolicySync,
+	} {
+		for _, handler := range []string{"gateway", "openai", "openai_text_result", "openai_nil_result"} {
+			t.Run(policy+"/"+handler, func(t *testing.T) {
+				pool := service.NewUsageRecordWorkerPoolWithOptions(service.UsageRecordWorkerPoolOptions{
+					WorkerCount:           1,
+					QueueSize:             1,
+					TaskTimeout:           time.Second,
+					OverflowPolicy:        policy,
+					OverflowSamplePercent: 10,
+				})
+				t.Cleanup(pool.Stop)
 
-	started := make(chan struct{})
-	block := make(chan struct{})
-	t.Cleanup(func() { close(block) })
-	// 占满 worker 槽位后再填满队列，保证第三个任务触发溢出。
-	require.Equal(t, service.UsageRecordSubmitModeEnqueued, pool.Submit(func(ctx context.Context) {
-		close(started)
-		<-block
-	}))
-	<-started
-	require.Equal(t, service.UsageRecordSubmitModeEnqueued, pool.Submit(func(ctx context.Context) {
-		<-block
-	}))
+				started, release := make(chan struct{}), make(chan struct{})
+				released := false
+				t.Cleanup(func() {
+					if !released {
+						close(release)
+					}
+				})
+				// Keep the worker and its queue occupied throughout the billing submissions.
+				require.Equal(t, service.UsageRecordSubmitModeEnqueued, pool.Submit(func(context.Context) {
+					close(started)
+					<-release
+				}))
+				select {
+				case <-started:
+				case <-time.After(time.Second):
+					t.Fatal("worker did not start")
+				}
+				require.Equal(t, service.UsageRecordSubmitModeEnqueued, pool.Submit(func(context.Context) {}))
 
-	var executed atomic.Bool
-	h.submitUsageRecordTask(context.Background(), func(ctx context.Context) {
-		executed.Store(true)
-	})
-	time.Sleep(50 * time.Millisecond)
-	require.False(t, executed.Load(), "drop 溢出策略是运维显式配置的取舍，不应被同步兜底覆盖")
+				gateway := &GatewayHandler{usageRecordWorkerPool: pool}
+				openai := &OpenAIGatewayHandler{usageRecordWorkerPool: pool}
+				// Disconnecting a client must not cancel the billing fallback or lose request attribution.
+				parent, cancel := context.WithCancel(context.WithValue(context.Background(), ctxkey.RequestID, "billing-request"))
+				cancel()
+				var executions atomic.Int64
+				// A full sample cycle verifies both sampled and non-sampled submissions.
+				for i := int64(1); i <= 100; i++ {
+					task := func(ctx context.Context) {
+						require.NoError(t, ctx.Err())
+						_, hasDeadline := ctx.Deadline()
+						require.True(t, hasDeadline, "billing fallback must have a timeout")
+						require.Equal(t, "billing-request", ctx.Value(ctxkey.RequestID))
+						executions.Add(1)
+					}
+					switch handler {
+					case "gateway":
+						gateway.submitUsageRecordTask(parent, task)
+					case "openai":
+						openai.submitUsageRecordTask(parent, task)
+					case "openai_text_result":
+						openai.submitOpenAIUsageRecordTask(parent, &service.OpenAIForwardResult{}, task)
+					case "openai_nil_result":
+						openai.submitOpenAIUsageRecordTask(parent, nil, task)
+					}
+					require.Equal(t, i, executions.Load(), "billing must finish inline before the submission returns")
+				}
+				close(release)
+				released = true
+				pool.Stop()
+				require.EqualValues(t, 100, executions.Load(), "draining the queue must not bill a request twice")
+			})
+		}
+	}
 }

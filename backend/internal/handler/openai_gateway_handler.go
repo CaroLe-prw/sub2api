@@ -3670,46 +3670,14 @@ func getContextInt64(c *gin.Context, key string) (int64, bool) {
 	}
 }
 
+// submitUsageRecordTask treats every usage record as mandatory billing work.
+// Pool overflow may slow the submitting request, but must never skip its charge.
 func (h *OpenAIGatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
-	if task == nil {
-		return
-	}
-	task, abandon := wrapUsageRecordTaskContext(parent, task)
-	if h.usageRecordWorkerPool != nil {
-		if mode := h.usageRecordWorkerPool.Submit(task); mode != service.UsageRecordSubmitModeDroppedStopped {
-			if mode.Dropped() {
-				abandon()
-			}
-			return
-		}
-		// 池已停止（进程关停窗口）：计费任务不能静默丢失，降级为内联同步执行。
-		// 显式配置的 drop/sample 溢出丢弃仍按配置语义保留。
-		logger.L().With(
-			zap.String("component", "handler.openai_gateway.responses"),
-		).Warn("openai.usage_record_task_stopped_sync_fallback")
-	}
-	// 回退路径：worker 池未注入或已停止时同步执行，避免退回到无界 goroutine 模式。
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			logger.L().With(
-				zap.String("component", "handler.openai_gateway.responses"),
-				zap.Any("panic", recovered),
-			).Error("openai.usage_record_task_panic_recovered")
-		}
-	}()
-	task(ctx)
+	h.submitMandatoryUsageRecordTask(parent, task)
 }
 
-func (h *OpenAIGatewayHandler) submitOpenAIUsageRecordTask(parent context.Context, result *service.OpenAIForwardResult, task service.UsageRecordTask) {
-	// Money-critical bills never drop on pool overflow: canceled upstream work,
-	// media, search surcharge, and voice.
-	if result != nil && (result.ClientDisconnect || result.ImageCount > 0 || result.VideoCount > 0 ||
-		result.SearchCount > 0 || result.WebSearchCalls > 0 || result.AudioUsage != nil) {
-		h.submitMandatoryUsageRecordTask(parent, task)
-		return
-	}
+func (h *OpenAIGatewayHandler) submitOpenAIUsageRecordTask(parent context.Context, _ *service.OpenAIForwardResult, task service.UsageRecordTask) {
+	// Text and embedding usage need the same delivery guarantee as media and search.
 	h.submitUsageRecordTask(parent, task)
 }
 
