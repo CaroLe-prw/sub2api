@@ -73,7 +73,7 @@ func TestResponseDiagnosticsWriterAndUsageSnapshot(t *testing.T) {
 	_, err = c.Writer.Write([]byte(tail))
 	require.NoError(t, err)
 	var got responsediag.Record
-	task := wrapUsageRecordTaskContext(c.Request.Context(), func(ctx context.Context) {
+	task, _ := wrapUsageRecordTaskContext(c.Request.Context(), func(ctx context.Context) {
 		require.NoError(t, json.Unmarshal(responsediag.Snapshot(ctx), &got))
 	})
 	// Writes after submission cannot change the queued record.
@@ -106,7 +106,7 @@ func TestRequestDiagnosticsCaptureClientBodyBeforeRewrite(t *testing.T) {
 	// Composite routing or a handler replaces the body after reading it.
 	c.Request.Body = io.NopCloser(strings.NewReader(`{"model":"mapped-model"}`))
 	var record responsediag.Record
-	task := wrapUsageRecordTaskContext(c.Request.Context(), func(ctx context.Context) {
+	task, _ := wrapUsageRecordTaskContext(c.Request.Context(), func(ctx context.Context) {
 		require.NoError(t, json.Unmarshal(responsediag.Snapshot(ctx), &record))
 	})
 	task(context.Background())
