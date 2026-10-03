@@ -30,7 +30,8 @@ func TestAdminUsageResponseDiagnostics(t *testing.T) {
 		status     int
 		contains   string
 	}{
-		{"detail", "/1/response", json.RawMessage(`{"upstream":{"body":"{}tail"}}`), 200, `{}tail`},
+		{"detail", "/1/response", json.RawMessage(`{"upstream":{"body":"{}tail"}}`), 200, `"bodies_omitted":true`},
+		{"metadata retains status", "/1/response", json.RawMessage(`{"bodies_omitted":true,"summary":{"downstream":"extra_content"},"downstream":{"status":"extra_content","bytes":999,"complete":true}}`), 200, `"status":"extra_content"`},
 		{"historical truncated capture", "/1/response", json.RawMessage(`{"summary":{"downstream":"incomplete"},"downstream":{"status":"incomplete","body":"data: {\"text\":\"cut","content_type":"text/event-stream","truncated":true,"complete":true,"issues":[{"kind":"invalid_json","frame":1}]}}`), 200, `"kind":"capture_truncated"`},
 		{"historical", "/1/response", nil, 200, `"data":null`},
 		{"missing", "/404/response", nil, 404, "usage log not found"},
@@ -48,6 +49,9 @@ func TestAdminUsageResponseDiagnostics(t *testing.T) {
 			require.Contains(t, w.Body.String(), tc.contains)
 			if tc.status == 200 {
 				require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+				require.NotContains(t, w.Body.String(), `"body":`)
+				require.NotContains(t, w.Body.String(), `"json":`)
+				require.NotContains(t, w.Body.String(), `"extra":`)
 			}
 		})
 	}

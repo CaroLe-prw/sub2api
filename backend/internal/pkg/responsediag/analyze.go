@@ -127,7 +127,7 @@ func (s *Side) document(payload string, frame int, partial bool) {
 // rewriting history or changing their recorded bytes.
 func RefreshAnalysis(raw json.RawMessage) json.RawMessage {
 	var record Record
-	if json.Unmarshal(raw, &record) != nil || record.Downstream.Status == "" {
+	if json.Unmarshal(raw, &record) != nil || record.BodiesOmitted || record.Downstream.Status == "" {
 		return raw
 	}
 	if !record.Downstream.ControlsEscaped {

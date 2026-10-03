@@ -157,8 +157,9 @@ func (r *usageLogRepository) Create(ctx context.Context, log *service.UsageLog) 
 		return false, nil
 	}
 	if log.ResponseDiagnostics == nil {
-		log.ResponseDiagnostics = responsediag.Snapshot(ctx)
+		log.ResponseDiagnostics = responsediag.StorageSnapshot(ctx)
 	}
+	log.ResponseDiagnostics = responsediag.ForStorage(log.ResponseDiagnostics)
 
 	if tx := dbent.TxFromContext(ctx); tx != nil {
 		return r.createSingle(ctx, tx.Client(), log)
@@ -176,8 +177,9 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 		return nil
 	}
 	if log.ResponseDiagnostics == nil {
-		log.ResponseDiagnostics = responsediag.Snapshot(ctx)
+		log.ResponseDiagnostics = responsediag.StorageSnapshot(ctx)
 	}
+	log.ResponseDiagnostics = responsediag.ForStorage(log.ResponseDiagnostics)
 
 	if tx := dbent.TxFromContext(ctx); tx != nil {
 		_, err := r.createSingle(ctx, tx.Client(), log)
@@ -1421,6 +1423,7 @@ func (r *usageLogRepository) bestEffortRecentKey(requestID string, apiKeyID int6
 }
 
 func diagnosticJSONArg(value []byte) any {
+	value = responsediag.ForStorage(value)
 	if len(value) == 0 {
 		return nil
 	}

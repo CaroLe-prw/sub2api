@@ -15,14 +15,16 @@ const record = (body: string) => ({
 })
 beforeEach(() => vi.clearAllMocks())
 describe('UsageResponseDialog', () => {
-  it('loads only when opened and renders raw content as text', async () => {
+  it('loads only when opened and never renders historical raw content', async () => {
     mocks.get.mockResolvedValue(record('{}<script>alert(1)</script>'))
     const wrapper = mountDialog(null)
     expect(mocks.get).not.toHaveBeenCalled()
     await wrapper.setProps({ usageId: 12 })
     await flushPromises()
     expect(mocks.get).toHaveBeenCalledWith(12, expect.any(AbortSignal))
-    expect(wrapper.text()).toContain('{}<script>alert(1)</script>')
+    expect(wrapper.text()).not.toContain('<script>alert(1)</script>')
+    expect(wrapper.find('details').exists()).toBe(false)
+    expect(wrapper.find('pre').exists()).toBe(false)
     expect(wrapper.find('script').exists()).toBe(false)
     expect(wrapper.text()).toContain('admin.usage.response.status.extra_content')
     wrapper.unmount()
@@ -41,7 +43,7 @@ describe('UsageResponseDialog', () => {
   it('cancels the previous request and ignores stale results', async () => {
     let firstResolve!: (value: unknown) => void
     mocks.get.mockImplementationOnce(() => new Promise(resolve => { firstResolve = resolve }))
-      .mockResolvedValueOnce(record('new response'))
+      .mockResolvedValueOnce({ ...record('new response'), downstream: { ...record('new response').downstream, status: 'ok' } })
     const wrapper = mountDialog(1)
     const firstSignal = mocks.get.mock.calls[0]?.[1] as AbortSignal
     await wrapper.setProps({ usageId: 2 })
@@ -49,7 +51,8 @@ describe('UsageResponseDialog', () => {
     firstResolve(record('old response'))
     await flushPromises()
     expect(firstSignal.aborted).toBe(true)
-    expect(wrapper.text()).toContain('new response')
+    expect(wrapper.text()).toContain('admin.usage.response.status.ok')
+    expect(wrapper.text()).not.toContain('admin.usage.response.status.extra_content')
     expect(wrapper.text()).not.toContain('old response')
     wrapper.unmount()
   })
@@ -105,11 +108,11 @@ describe('UsageResponseDialog', () => {
     expect(wrapper.find('.text-red-500').exists()).toBe(false)
     expect(wrapper.find('.border-red-200').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('admin.usage.response.status.extra_content')
-    expect(wrapper.text()).toContain(':')
+    expect(wrapper.text()).toContain('admin.usage.response.issue.trailing_symbols')
     wrapper.unmount()
   })
 
-  it('shows both redacted request bodies alongside the response', async () => {
+  it('hides historical incoming and upstream request bodies', async () => {
     const value = {
       ...record('{}'),
       incoming_request: { method: 'POST', content_type: 'application/json', body: '{"model":"client-model","api_key":"[REDACTED]"}', bytes: 100, complete: true, truncated: false, redacted: true },
@@ -118,24 +121,28 @@ describe('UsageResponseDialog', () => {
     mocks.get.mockResolvedValue(value)
     const wrapper = mountDialog(1)
     await flushPromises()
-    expect(wrapper.text()).toContain('admin.usage.response.incomingRequest')
-    expect(wrapper.text()).toContain('admin.usage.response.upstreamRequest')
-    expect(wrapper.text()).toContain('client-model')
-    expect(wrapper.text()).toContain('mapped-model')
-    expect(wrapper.text()).toContain('[REDACTED]')
+    expect(wrapper.text()).not.toContain('admin.usage.response.incomingRequest')
+    expect(wrapper.text()).not.toContain('admin.usage.response.upstreamRequest')
+    expect(wrapper.text()).not.toContain('client-model')
+    expect(wrapper.text()).not.toContain('mapped-model')
+    expect(wrapper.text()).not.toContain('[REDACTED]')
     expect(wrapper.text()).toContain('admin.usage.response.downstream')
     wrapper.unmount()
   })
-  it('explains why an unsafe request body was omitted', async () => {
+  it('renders metadata without body viewing controls', async () => {
     mocks.get.mockResolvedValue({
-      ...record('{}'),
-      incoming_request: { method: 'POST', body: '', bytes: 3000000, complete: true, truncated: true, redacted: true, omitted_reason: 'inspection_limit' }
+      bodies_omitted: true,
+      summary: { upstream: 'unavailable', downstream: 'extra_content' },
+      downstream: { status: 'extra_content', bytes: 1234, json_documents: 2, complete: true, truncated: false,
+        issues: [{ kind: 'trailing_content', frame: 2 }] }
     })
     const wrapper = mountDialog(1)
     await flushPromises()
-    expect(wrapper.text()).toContain('admin.usage.response.requestOmitted.inspection_limit')
-    expect(wrapper.text()).not.toContain('admin.usage.response.requestBody')
-    expect(wrapper.text()).not.toContain('admin.usage.response.requestTruncated')
+    expect(wrapper.text()).toContain('1,234 bytes')
+    expect(wrapper.text()).toContain('admin.usage.response.status.extra_content')
+    expect(wrapper.text()).toContain('admin.usage.response.issue.trailing_content')
+    expect(wrapper.find('details').exists()).toBe(false)
+    expect(wrapper.find('pre').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -149,18 +156,6 @@ describe('UsageResponseDialog', () => {
     await wrapper.setProps({ usageId: 2 })
     await flushPromises()
     expect(wrapper.text()).toContain('admin.usage.response.truncatedHelp: 256 KiB')
-    wrapper.unmount()
-  })
-  it('uses configured request retention and inspection limits', async () => {
-    mocks.get.mockResolvedValue({
-      ...record('{}'),
-      incoming_request: { method: 'POST', body: '{}', bytes: 3000000, complete: true, truncated: true, redacted: true, limit_bytes: 2097152 },
-      upstream_request: { method: 'POST', body: '', bytes: 5000000, complete: true, truncated: true, redacted: true, inspection_limit_bytes: 4194304, omitted_reason: 'inspection_limit' }
-    })
-    const wrapper = mountDialog(1)
-    await flushPromises()
-    expect(wrapper.text()).toContain('admin.usage.response.requestTruncated: 2 MiB')
-    expect(wrapper.text()).toContain('admin.usage.response.requestOmitted.inspection_limit: 4 MiB')
     wrapper.unmount()
   })
 

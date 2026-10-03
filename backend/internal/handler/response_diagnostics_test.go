@@ -79,9 +79,12 @@ func TestResponseDiagnosticsWriterAndUsageSnapshot(t *testing.T) {
 	// Writes after submission cannot change the queued record.
 	_, _ = c.Writer.WriteString("data: {}\n\n")
 	task(context.Background())
-	require.Equal(t, first+tail, got.Downstream.Body)
+	require.True(t, got.BodiesOmitted)
+	require.Empty(t, got.Downstream.Body)
+	require.Equal(t, int64(len(first+tail)), got.Downstream.Bytes)
 	require.Equal(t, "extra_content", got.Downstream.Status)
-	require.Equal(t, "tail", got.Downstream.Issues[0].Extra)
+	require.Equal(t, "trailing_content", got.Downstream.Issues[0].Kind)
+	require.Empty(t, got.Downstream.Issues[0].Extra)
 	require.Equal(t, first+tail+"data: {}\n\n", recorder.Body.String())
 	require.True(t, recorder.Flushed)
 }
@@ -95,7 +98,7 @@ func TestResponseDiagnosticsSkipsWebsocket(t *testing.T) {
 	require.Nil(t, responsediag.Snapshot(c.Request.Context()))
 }
 
-func TestRequestDiagnosticsCaptureClientBodyBeforeRewrite(t *testing.T) {
+func TestRequestDiagnosticsDoNotCaptureClientBody(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	original := `{"model":"client-model","api_key":"client-secret"}`
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(original))
@@ -105,14 +108,16 @@ func TestRequestDiagnosticsCaptureClientBodyBeforeRewrite(t *testing.T) {
 	require.Equal(t, original, string(body))
 	// Composite routing or a handler replaces the body after reading it.
 	c.Request.Body = io.NopCloser(strings.NewReader(`{"model":"mapped-model"}`))
+	_, err = c.Writer.WriteString(`{}`)
+	require.NoError(t, err)
 	var record responsediag.Record
 	task, _ := wrapUsageRecordTaskContext(c.Request.Context(), func(ctx context.Context) {
 		require.NoError(t, json.Unmarshal(responsediag.Snapshot(ctx), &record))
 	})
 	task(context.Background())
-	require.Contains(t, record.IncomingRequest.Body, "client-model")
-	require.NotContains(t, record.IncomingRequest.Body, "mapped-model")
-	require.NotContains(t, record.IncomingRequest.Body, "client-secret")
+	require.Nil(t, record.IncomingRequest)
+	require.Empty(t, record.Downstream.Body)
+	require.True(t, record.BodiesOmitted)
 }
 
 func TestInboundEndpointMiddlewareConfiguredDiagnosticLimit(t *testing.T) {
@@ -133,8 +138,7 @@ func TestInboundEndpointMiddlewareConfiguredDiagnosticLimit(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
 	require.Equal(t, body, recorder.Body.String())
-	require.Equal(t, limit, record.IncomingRequest.LimitBytes)
+	require.Nil(t, record.IncomingRequest)
 	require.Equal(t, limit, record.Downstream.LimitBytes)
-	require.Len(t, record.IncomingRequest.Body, limit)
 	require.Len(t, record.Downstream.Body, limit)
 }

@@ -62,6 +62,7 @@ type Summary struct {
 	Downstream string `json:"downstream"`
 }
 type Record struct {
+	BodiesOmitted   bool           `json:"bodies_omitted,omitempty"`
 	IncomingRequest *RequestRecord `json:"incoming_request,omitempty"`
 	UpstreamRequest *RequestRecord `json:"upstream_request,omitempty"`
 	Summary         Summary        `json:"summary"`
@@ -108,9 +109,19 @@ func (c *Capture) WriteDownstreamTimed(p []byte, contentType string, failed bool
 	}
 }
 
+// StartUpstreamAttempt discards the previous response even if the next attempt
+// fails before receiving one. It does not capture the outgoing request body.
+func StartUpstreamAttempt(ctx context.Context) {
+	c, _ := ctx.Value(contextKey{}).(*Capture)
+	if c != nil {
+		c.mu.Lock()
+		c.upstream = nil
+		c.mu.Unlock()
+	}
+}
+
 // WrapUpstream records only bytes the gateway actually reads. Early close is
 // deliberately incomplete: observing a prefix cannot rule out an unseen tail.
-// A retry starts a fresh capture, keeping the final attempt separate.
 func WrapUpstream(ctx context.Context, resp *http.Response) {
 	c, _ := ctx.Value(contextKey{}).(*Capture)
 	if c == nil || resp == nil || resp.Body == nil {

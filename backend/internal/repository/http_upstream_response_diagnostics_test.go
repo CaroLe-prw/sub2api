@@ -42,7 +42,7 @@ func TestHTTPUpstreamCapturesDecompressedResponseWithoutChangingBytes(t *testing
 	require.Equal(t, `{"type":"response.completed"}`, record.Upstream.Issues[0].Extra)
 }
 
-func TestHTTPUpstreamCapturesTheForwardedRequestWithoutSendingRedactions(t *testing.T) {
+func TestHTTPUpstreamDoesNotCaptureTheForwardedRequest(t *testing.T) {
 	const payload = `{"model":"mapped-model","input":"hello","api_key":"actual-secret"}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -67,8 +67,7 @@ func TestHTTPUpstreamCapturesTheForwardedRequestWithoutSendingRedactions(t *test
 	var record responsediag.Record
 	snapshot := responsediag.Snapshot(ctx)
 	require.NoError(t, json.Unmarshal(snapshot, &record))
-	require.Contains(t, record.UpstreamRequest.Body, "mapped-model")
+	require.Nil(t, record.UpstreamRequest)
 	require.NotContains(t, string(snapshot), "actual-secret")
 	require.NotContains(t, string(snapshot), "upstream-secret")
-	require.Equal(t, int64(len(payload)), record.UpstreamRequest.Bytes)
 }

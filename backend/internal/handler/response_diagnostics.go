@@ -51,7 +51,7 @@ func startResponseDiagnostics(c *gin.Context, limits ...int) {
 		return
 	}
 	ctx, capture := responsediag.Start(c.Request.Context(), limits...)
-	c.Request = responsediag.WrapRequest(c.Request.WithContext(ctx), false)
+	c.Request = c.Request.WithContext(ctx)
 	c.Writer = &diagnosticResponseWriter{ResponseWriter: c.Writer, capture: capture}
 	// Usage is normally submitted immediately after the last downstream write.
 	// The immutable snapshot is made at that submission boundary.

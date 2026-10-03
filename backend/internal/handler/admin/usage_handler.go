@@ -650,7 +650,7 @@ func (h *UsageHandler) CancelCleanupTask(c *gin.Context) {
 	response.Success(c, gin.H{"id": taskID, "status": service.UsageCleanupStatusCanceled})
 }
 
-// ResponseDiagnostics returns bounded response bodies only through the admin API.
+// ResponseDiagnostics returns metadata only, including for historical captures.
 func (h *UsageHandler) ResponseDiagnostics(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -663,5 +663,5 @@ func (h *UsageHandler) ResponseDiagnostics(c *gin.Context) {
 		return
 	}
 	c.Header("Cache-Control", "no-store")
-	response.Success(c, responsediag.RefreshAnalysis(log.ResponseDiagnostics))
+	response.Success(c, responsediag.ForStorage(responsediag.RefreshAnalysis(log.ResponseDiagnostics)))
 }

@@ -292,7 +292,7 @@ func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecord
 	if parent != nil {
 		done = service.InflightReservationFromContext(parent).Acquire()
 	}
-	snapshot := responsediag.Snapshot(parent)
+	snapshot := responsediag.StorageSnapshot(parent)
 	return func(ctx context.Context) {
 		defer done()
 		task(responsediag.WithSnapshot(usageRecordContext(parent, ctx), snapshot))
