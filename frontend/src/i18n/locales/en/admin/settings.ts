@@ -149,8 +149,10 @@ export default {
           },
         },
         checkIn: {
+          rechargeDays: 'Recent recharge window (days)',
+          rechargeDaysHint: 'Set 7 to require a successful online balance recharge within the last 7×24 hours; 0 disables this rule. Fully refunded purchases do not count. The cumulative minimum also applies.',
           minRecharge: 'Minimum cumulative recharge (balance units)',
-          minRechargeHint: 'Leave blank or set to 0 to allow check-in without recharging. Otherwise, successful online balance purchases must reach this amount. Check-in does not deduct it. Gifts, referral credits, redeem codes, subscriptions and refunded amounts do not count.',
+          minRechargeHint: 'Leave blank or set to 0 to disable the cumulative minimum. Otherwise, successful online balance purchases must reach this amount. The recent recharge window also applies. Check-in does not deduct it. Gifts, referral credits, redeem codes, subscriptions and refunded amounts do not count.',
           title: 'Daily Check-in',
           description: 'Encourage repeat visits with a random daily balance reward. The record and balance update are atomic.',
           enabled: 'Enable Daily Check-in',

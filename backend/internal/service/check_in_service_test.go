@@ -56,10 +56,15 @@ type checkInRepoStub struct {
 	paidRecharge    float64
 	paidRechargeErr error
 	claimErr        error
+	recentEligible  bool
+	recentErr       error
+	rechargeSince   *time.Time
+	recentCalls     int
 }
 
-func (s *checkInRepoStub) Claim(_ context.Context, _ int64, businessDate time.Time, reward, minRecharge float64) (CheckInRecord, float64, bool, error) {
+func (s *checkInRepoStub) Claim(_ context.Context, _ int64, businessDate time.Time, reward, minRecharge float64, rechargeSince *time.Time) (CheckInRecord, float64, bool, error) {
 	s.minRecharge = minRecharge
+	s.rechargeSince = rechargeSince
 	s.claimCalls++
 	s.claimedDate = businessDate
 	s.claimedReward = reward
@@ -273,4 +278,60 @@ func TestCheckInSettingsStorageFailureDoesNotAllowClaim(t *testing.T) {
 	_, err := svc.Claim(context.Background(), 7)
 	require.ErrorContains(t, err, "settings unavailable")
 	require.Zero(t, repo.claimCalls)
+}
+
+func (s *checkInRepoStub) HasPaidRechargeSince(_ context.Context, _ int64, since time.Time) (bool, error) {
+	s.rechargeSince = &since
+	s.recentCalls++
+	return s.recentEligible, s.recentErr
+}
+
+func TestCheckInRecentRechargeEligibility(t *testing.T) {
+	now := time.Date(2026, 10, 4, 16, 0, 0, 0, time.FixedZone("CST", 8*3600))
+	for _, tc := range []struct {
+		name, days string
+		recent     bool
+		total      float64
+		allowed    bool
+	}{
+		{"disabled", "0", false, 10, true},
+		{"no recent recharge", "7", false, 100, false},
+		{"recent but below cumulative minimum", "7", true, 9, false},
+		{"both conditions met", "7", true, 10, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &checkInRepoStub{recentEligible: tc.recent, paidRecharge: tc.total}
+			svc := newCheckInTestService(repo, map[string]string{SettingKeyCheckInRechargeDays: tc.days, SettingKeyCheckInMinRecharge: "10"}, now)
+			// Viewing an old month must still use the current recharge window.
+			result, err := svc.GetOverview(context.Background(), 7, 2025, time.January)
+			require.NoError(t, err)
+			require.Equal(t, tc.allowed, result.Eligible)
+			if tc.days == "0" {
+				require.Zero(t, repo.recentCalls)
+			} else {
+				require.Equal(t, 7, result.RechargeDays)
+				require.Equal(t, tc.recent, result.RecentRechargeEligible)
+				require.True(t, repo.rechargeSince.Equal(now.Add(-7*24*time.Hour)))
+			}
+		})
+	}
+}
+
+func TestCheckInRecentRechargeClaimPassesWindowAndFailsClosed(t *testing.T) {
+	now := time.Date(2026, 10, 4, 16, 0, 0, 0, time.UTC)
+	repo := &checkInRepoStub{claimErr: ErrCheckInRecentRechargeRequired}
+	svc := newCheckInTestService(repo, map[string]string{SettingKeyCheckInRechargeDays: "7"}, now)
+	_, err := svc.Claim(context.Background(), 7)
+	require.ErrorIs(t, err, ErrCheckInRecentRechargeRequired)
+	require.True(t, repo.rechargeSince.Equal(now.Add(-7*24*time.Hour)))
+	repo.recentErr = errors.New("recharge lookup unavailable")
+	_, err = svc.GetOverview(context.Background(), 7, 2026, time.October)
+	require.ErrorContains(t, err, "lookup unavailable")
+	for _, raw := range []string{"-1", "1.5", "36501", "invalid"} {
+		repo := &checkInRepoStub{}
+		svc := newCheckInTestService(repo, map[string]string{SettingKeyCheckInRechargeDays: raw}, now)
+		_, err := svc.Claim(context.Background(), 7)
+		require.Error(t, err)
+		require.Zero(t, repo.claimCalls)
+	}
 }

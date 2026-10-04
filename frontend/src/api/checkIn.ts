@@ -7,6 +7,8 @@ export interface CheckInRecord {
 }
 
 export interface CheckInOverview {
+  recharge_days: number
+  recent_recharge_eligible: boolean
   min_recharge: number
   recharged_amount: number
   recharge_remaining: number

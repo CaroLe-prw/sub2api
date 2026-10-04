@@ -358,10 +358,11 @@ type SystemSettings struct {
 	AffiliateEnabled bool `json:"affiliate_enabled"`
 
 	// Daily check-in settings
-	CheckInEnabled     bool    `json:"check_in_enabled"`
-	CheckInMinRecharge float64 `json:"check_in_min_recharge"`
-	CheckInRewardMin   float64 `json:"check_in_reward_min"`
-	CheckInRewardMax   float64 `json:"check_in_reward_max"`
+	CheckInEnabled      bool    `json:"check_in_enabled"`
+	CheckInMinRecharge  float64 `json:"check_in_min_recharge"`
+	CheckInRechargeDays int     `json:"check_in_recharge_days"`
+	CheckInRewardMin    float64 `json:"check_in_reward_min"`
+	CheckInRewardMax    float64 `json:"check_in_reward_max"`
 
 	// OpenAI fast/flex policy
 	OpenAIFastPolicySettings *OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`

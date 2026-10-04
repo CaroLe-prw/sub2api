@@ -184,6 +184,7 @@ type SystemSettings struct {
 	AdminRechargeRebateEnabled   bool
 	CheckInEnabled               bool
 	CheckInMinRecharge           float64
+	CheckInRechargeDays          int
 	CheckInRewardMin             float64
 	CheckInRewardMax             float64
 	DefaultUserRPMLimit          int

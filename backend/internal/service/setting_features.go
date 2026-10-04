@@ -1329,3 +1329,29 @@ func parseCheckInMinRecharge(raw string) (float64, error) {
 	}
 	return amount, nil
 }
+
+// GetCheckInRechargeDays fails closed on invalid settings or storage errors.
+func (s *SettingService) GetCheckInRechargeDays(ctx context.Context) (int, error) {
+	if s == nil || s.settingRepo == nil {
+		return 0, nil
+	}
+	raw, err := s.settingRepo.GetValue(ctx, SettingKeyCheckInRechargeDays)
+	if errors.Is(err, ErrSettingNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("load check-in recharge days: %w", err)
+	}
+	return parseCheckInRechargeDays(raw)
+}
+
+func parseCheckInRechargeDays(raw string) (int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, nil
+	}
+	days, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || days < 0 || days > 36500 {
+		return 0, fmt.Errorf("invalid check-in recharge days")
+	}
+	return days, nil
+}

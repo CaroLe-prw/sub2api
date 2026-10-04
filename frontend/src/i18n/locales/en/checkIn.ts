@@ -1,11 +1,13 @@
 export default {
   checkIn: {
-    rechargeRequiredTitle: 'Reach the recharge minimum to check in',
+    recentRechargeRequired: 'No qualifying recharge in the last {days} days. Recharge, then refresh eligibility.',
+    recentRechargeRule: 'At least one successful online balance recharge is required within the last {days}×24 hours. Fully refunded orders do not count.',
+    rechargeRequiredTitle: 'Meet the recharge requirements to check in',
     rechargeRequired: 'Cumulative recharge required: {required}. Recharged: {current}. Remaining: {remaining} (balance units).',
-    rechargeRequiredButton: 'Recharge minimum not reached',
+    rechargeRequiredButton: 'Recharge requirements not met',
     rechargeRefresh: 'Recharged? Refresh status',
-    rechargeRule: 'Successful online balance purchases totaling {required} unlock daily check-in, without a fee. Gifts, referral credits, redeem codes, subscriptions and refunded amounts do not count.',
-    rechargeChanged: 'Your recharge total is below the current check-in requirement. Recharge and try again.',
+    rechargeRule: 'Daily check-in requires successful online balance purchases totaling {required}, without a fee. Gifts, referral credits, redeem codes, subscriptions and refunded amounts do not count.',
+    rechargeChanged: 'You no longer meet the check-in recharge requirements. Recharge and refresh eligibility.',
     title: 'Daily Check-in',
     subtitle: 'Come back each day and collect a random balance reward.',
     badge: 'Once a day · Random reward',

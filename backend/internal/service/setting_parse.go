@@ -221,11 +221,12 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAffiliateAdminRechargeEnabled: strconv.FormatBool(AdminRechargeRebateEnabledDefault),
 
 		// Daily check-in (enabled by default for new and upgraded installations).
-		SettingKeyCheckInEnabled:     "true",
-		SettingKeyCheckInMinRecharge: "0",
-		SettingKeyCheckInRewardMin:   strconv.FormatFloat(CheckInRewardMinDefault, 'f', 8, 64),
-		SettingKeyCheckInRewardMax:   strconv.FormatFloat(CheckInRewardMaxDefault, 'f', 8, 64),
-		SettingKeyLotteryEnabled:     "true",
+		SettingKeyCheckInEnabled:      "true",
+		SettingKeyCheckInMinRecharge:  "0",
+		SettingKeyCheckInRechargeDays: "0",
+		SettingKeyCheckInRewardMin:    strconv.FormatFloat(CheckInRewardMinDefault, 'f', 8, 64),
+		SettingKeyCheckInRewardMax:    strconv.FormatFloat(CheckInRewardMaxDefault, 'f', 8, 64),
+		SettingKeyLotteryEnabled:      "true",
 
 		// 风控中心功能（默认关闭，显式启用）
 		SettingKeyRiskControlEnabled: "false",
@@ -864,6 +865,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	result.CheckInEnabled = !isFalseSettingValue(settings[SettingKeyCheckInEnabled])
 	result.CheckInMinRecharge, _ = parseCheckInMinRecharge(settings[SettingKeyCheckInMinRecharge])
+	result.CheckInRechargeDays, _ = parseCheckInRechargeDays(settings[SettingKeyCheckInRechargeDays])
 	result.CheckInRewardMin, result.CheckInRewardMax = parseCheckInRewardRange(
 		settings[SettingKeyCheckInRewardMin],
 		settings[SettingKeyCheckInRewardMax],

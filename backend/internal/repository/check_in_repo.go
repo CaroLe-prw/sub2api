@@ -18,7 +18,7 @@ func NewCheckInRepository(db *sql.DB) service.CheckInRepository {
 	return &checkInRepository{db: db}
 }
 
-func (r *checkInRepository) Claim(ctx context.Context, userID int64, businessDate time.Time, reward, minRecharge float64) (record service.CheckInRecord, balance float64, created bool, err error) {
+func (r *checkInRepository) Claim(ctx context.Context, userID int64, businessDate time.Time, reward, minRecharge float64, rechargeSince *time.Time) (record service.CheckInRecord, balance float64, created bool, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return record, 0, false, fmt.Errorf("begin check-in transaction: %w", err)
@@ -38,6 +38,16 @@ func (r *checkInRepository) Claim(ctx context.Context, userID int64, businessDat
 		}
 		if total < minRecharge {
 			return record, 0, false, service.ErrCheckInRechargeRequired
+		}
+	}
+
+	if rechargeSince != nil {
+		var eligible bool
+		if err = tx.QueryRowContext(ctx, checkInRecentPaidRechargeQuery, userID, *rechargeSince).Scan(&eligible); err != nil {
+			return record, 0, false, fmt.Errorf("load check-in recent recharge: %w", err)
+		}
+		if !eligible {
+			return record, 0, false, service.ErrCheckInRecentRechargeRequired
 		}
 	}
 
@@ -215,4 +225,22 @@ func (r *checkInRepository) PaidRechargeTotal(ctx context.Context, userID int64)
 		return 0, fmt.Errorf("load check-in paid recharge total: %w", err)
 	}
 	return total, nil
+}
+
+const checkInRecentPaidRechargeQuery = `
+ SELECT EXISTS (
+  SELECT 1 FROM payment_orders
+  WHERE user_id = $1 AND order_type = 'balance'
+   AND status IN ('COMPLETED', 'PARTIALLY_REFUNDED')
+   AND paid_at >= $2 AND pay_amount > 0
+   AND CASE WHEN status = 'PARTIALLY_REFUNDED' THEN amount - refund_amount ELSE amount END > 0
+ )
+`
+
+func (r *checkInRepository) HasPaidRechargeSince(ctx context.Context, userID int64, since time.Time) (bool, error) {
+	var eligible bool
+	if err := r.db.QueryRowContext(ctx, checkInRecentPaidRechargeQuery, userID, since).Scan(&eligible); err != nil {
+		return false, fmt.Errorf("load check-in recent recharge: %w", err)
+	}
+	return eligible, nil
 }

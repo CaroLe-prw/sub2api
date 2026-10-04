@@ -376,10 +376,11 @@ type UpdateSettingsRequest struct {
 	AffiliateEnabled *bool `json:"affiliate_enabled"`
 
 	// Daily check-in settings
-	CheckInEnabled     *bool    `json:"check_in_enabled"`
-	CheckInMinRecharge *float64 `json:"check_in_min_recharge" binding:"omitempty,gte=0,lte=1000000000000"`
-	CheckInRewardMin   *float64 `json:"check_in_reward_min"`
-	CheckInRewardMax   *float64 `json:"check_in_reward_max"`
+	CheckInEnabled      *bool    `json:"check_in_enabled"`
+	CheckInMinRecharge  *float64 `json:"check_in_min_recharge" binding:"omitempty,gte=0,lte=1000000000000"`
+	CheckInRechargeDays *int     `json:"check_in_recharge_days" binding:"omitempty,gte=0,lte=36500"`
+	CheckInRewardMin    *float64 `json:"check_in_reward_min"`
+	CheckInRewardMax    *float64 `json:"check_in_reward_max"`
 
 	// 风控中心功能开关
 	RiskControlEnabled *bool `json:"risk_control_enabled"`
@@ -2109,6 +2110,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.CheckInEnabled
 		}(),
+		CheckInRechargeDays: func() int {
+			if req.CheckInRechargeDays != nil {
+				return *req.CheckInRechargeDays
+			}
+			return previousSettings.CheckInRechargeDays
+		}(),
 		CheckInMinRecharge: func() float64 {
 			if req.CheckInMinRecharge != nil {
 				return *req.CheckInMinRecharge
@@ -2574,11 +2581,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ModelPlazaDescription:   updatedSettings.ModelPlazaDescription,
 		PluginManagementEnabled: updatedSettings.PluginManagementEnabled,
 
-		AffiliateEnabled:   updatedSettings.AffiliateEnabled,
-		CheckInEnabled:     updatedSettings.CheckInEnabled,
-		CheckInMinRecharge: updatedSettings.CheckInMinRecharge,
-		CheckInRewardMin:   updatedSettings.CheckInRewardMin,
-		CheckInRewardMax:   updatedSettings.CheckInRewardMax,
+		AffiliateEnabled:    updatedSettings.AffiliateEnabled,
+		CheckInEnabled:      updatedSettings.CheckInEnabled,
+		CheckInMinRecharge:  updatedSettings.CheckInMinRecharge,
+		CheckInRechargeDays: updatedSettings.CheckInRechargeDays,
+		CheckInRewardMin:    updatedSettings.CheckInRewardMin,
+		CheckInRewardMax:    updatedSettings.CheckInRewardMax,
 
 		RiskControlEnabled:          updatedSettings.RiskControlEnabled,
 		CyberSessionBlockEnabled:    updatedSettings.CyberSessionBlockEnabled,

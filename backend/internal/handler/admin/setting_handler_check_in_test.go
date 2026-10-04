@@ -41,3 +41,32 @@ func TestUpdateSettingsCheckInRejectsInvalidRechargeRequirement(t *testing.T) {
 		require.Equal(t, "10", repo.values[service.SettingKeyCheckInMinRecharge])
 	}
 }
+
+func TestUpdateSettingsCheckInRechargeDays(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+	for _, tc := range []struct {
+		body   map[string]any
+		want   int
+		stored string
+	}{
+		{map[string]any{"check_in_recharge_days": 7}, 7, "7"},
+		{map[string]any{"check_in_reward_min": 0.02}, 7, "7"},
+		{map[string]any{"check_in_recharge_days": 0}, 0, "0"},
+	} {
+		rec := doUpdateSettings(t, h, tc.body, nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		require.Equal(t, tc.stored, repo.values[service.SettingKeyCheckInRechargeDays])
+		var resp struct {
+			Data struct {
+				Days int `json:"check_in_recharge_days"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.Equal(t, tc.want, resp.Data.Days)
+	}
+	for _, bad := range []any{-1, 1.5, 36501, "invalid"} {
+		rec := doUpdateSettings(t, h, map[string]any{"check_in_recharge_days": bad}, nil)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		require.Equal(t, "0", repo.values[service.SettingKeyCheckInRechargeDays])
+	}
+}

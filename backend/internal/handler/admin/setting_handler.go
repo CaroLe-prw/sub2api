@@ -409,11 +409,12 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		PluginManagementEnabled: settings.PluginManagementEnabled,
 		ModelPlazaDescription:   settings.ModelPlazaDescription,
 
-		AffiliateEnabled:   settings.AffiliateEnabled,
-		CheckInEnabled:     settings.CheckInEnabled,
-		CheckInMinRecharge: settings.CheckInMinRecharge,
-		CheckInRewardMin:   settings.CheckInRewardMin,
-		CheckInRewardMax:   settings.CheckInRewardMax,
+		AffiliateEnabled:    settings.AffiliateEnabled,
+		CheckInEnabled:      settings.CheckInEnabled,
+		CheckInMinRecharge:  settings.CheckInMinRecharge,
+		CheckInRechargeDays: settings.CheckInRechargeDays,
+		CheckInRewardMin:    settings.CheckInRewardMin,
+		CheckInRewardMax:    settings.CheckInRewardMax,
 
 		AccountSchedulingThresholds: settings.AccountSchedulingThresholds,
 		AllowUserViewErrorRequests:  settings.AllowUserViewErrorRequests,

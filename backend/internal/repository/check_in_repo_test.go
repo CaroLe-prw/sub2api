@@ -30,7 +30,7 @@ func TestCheckInRepositoryClaimCreditsBalanceInSameTransaction(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(3.25))
 	mock.ExpectCommit()
 
-	record, balance, created, err := repo.Claim(context.Background(), 7, now, 0.05, 0)
+	record, balance, created, err := repo.Claim(context.Background(), 7, now, 0.05, 0, nil)
 	require.NoError(t, err)
 	require.True(t, created)
 	require.Equal(t, "2026-08-15", record.Date)
@@ -54,7 +54,7 @@ func TestCheckInRepositoryClaimReturnsExistingWithoutSecondCredit(t *testing.T) 
 		WillReturnRows(sqlmock.NewRows([]string{"business_date", "reward_amount", "created_at", "balance"}).AddRow("2026-08-15", 0.04, now, 3.2))
 	mock.ExpectCommit()
 
-	record, balance, created, err := repo.Claim(context.Background(), 7, now, 0.09, 0)
+	record, balance, created, err := repo.Claim(context.Background(), 7, now, 0.09, 0, nil)
 	require.NoError(t, err)
 	require.False(t, created)
 	require.Equal(t, 0.04, record.Reward)
@@ -155,7 +155,7 @@ func TestCheckInRepositoryRechargeGate(t *testing.T) {
 			} else {
 				mock.ExpectRollback()
 			}
-			_, _, created, err := repo.Claim(context.Background(), 7, now, 0.05, 10)
+			_, _, created, err := repo.Claim(context.Background(), 7, now, 0.05, 10, nil)
 			if tc.allowed {
 				require.NoError(t, err)
 				require.True(t, created)
@@ -210,4 +210,87 @@ func TestCheckInPaidRechargeTotalCountsOnlySuccessfulBalancePurchases(t *testing
 	total, err = repo.PaidRechargeTotal(context.Background(), 9)
 	require.NoError(t, err)
 	require.Zero(t, total)
+}
+
+func TestCheckInRepositoryRecentRechargeGate(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		eligible  bool
+		lookupErr error
+	}{
+		{"eligible", true, nil}, {"ineligible", false, nil}, {"database failure", false, errors.New("lookup failed")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer db.Close()
+			repo := &checkInRepository{db: db}
+			now := time.Date(2026, 10, 4, 16, 0, 0, 0, time.UTC)
+			since := now.Add(-7 * 24 * time.Hour)
+			mock.ExpectBegin()
+			query := mock.ExpectQuery(regexp.QuoteMeta(checkInRecentPaidRechargeQuery)).WithArgs(int64(7), since)
+			if tc.lookupErr != nil {
+				query.WillReturnError(tc.lookupErr)
+			} else {
+				query.WillReturnRows(sqlmock.NewRows([]string{"eligible"}).AddRow(tc.eligible))
+			}
+			if tc.eligible {
+				mock.ExpectQuery("INSERT INTO user_check_ins").WithArgs(int64(7), "2026-10-04", 0.05).WillReturnRows(sqlmock.NewRows([]string{"business_date", "reward_amount", "created_at"}).AddRow("2026-10-04", 0.05, now))
+				mock.ExpectQuery("UPDATE users").WithArgs(0.05, int64(7)).WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(3.25))
+				mock.ExpectCommit()
+			} else {
+				mock.ExpectRollback()
+			}
+			_, _, created, err := repo.Claim(context.Background(), 7, now, 0.05, 0, &since)
+			if tc.eligible {
+				require.NoError(t, err)
+				require.True(t, created)
+			} else {
+				require.Error(t, err)
+				require.False(t, created)
+				if tc.lookupErr == nil {
+					require.ErrorIs(t, err, service.ErrCheckInRecentRechargeRequired)
+				}
+			}
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestCheckInRecentRechargeSQLWindowAndOrderEligibility(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err)
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	_, err = db.Exec(`CREATE TABLE payment_orders (user_id INTEGER,order_type TEXT,status TEXT,amount NUMERIC,refund_amount NUMERIC,pay_amount NUMERIC,paid_at TIMESTAMP)`)
+	require.NoError(t, err)
+	since := time.Date(2026, 9, 27, 16, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name, kind, status   string
+		user                 int
+		offset               time.Duration
+		amount, refund, paid float64
+		want                 bool
+	}{
+		{"exact boundary", "balance", "COMPLETED", 7, 0, 10, 0, 70, true},
+		{"too old", "balance", "COMPLETED", 7, -time.Second, 10, 0, 70, false},
+		{"recent", "balance", "COMPLETED", 7, time.Hour, 10, 0, 70, true},
+		{"other user", "balance", "COMPLETED", 8, time.Hour, 10, 0, 70, false},
+		{"pending", "balance", "PENDING", 7, time.Hour, 10, 0, 70, false},
+		{"subscription", "subscription", "COMPLETED", 7, time.Hour, 10, 0, 70, false},
+		{"gift", "balance", "COMPLETED", 7, time.Hour, 10, 0, 0, false},
+		{"refunded", "balance", "REFUNDED", 7, time.Hour, 10, 10, 70, false},
+		{"partial positive", "balance", "PARTIALLY_REFUNDED", 7, time.Hour, 10, 2, 70, true},
+		{"partial exhausted", "balance", "PARTIALLY_REFUNDED", 7, time.Hour, 10, 10, 70, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := db.Exec("DELETE FROM payment_orders")
+			require.NoError(t, err)
+			_, err = db.Exec("INSERT INTO payment_orders VALUES (?,?,?,?,?,?,?)", tc.user, tc.kind, tc.status, tc.amount, tc.refund, tc.paid, since.Add(tc.offset))
+			require.NoError(t, err)
+			eligible, err := (&checkInRepository{db: db}).HasPaidRechargeSince(context.Background(), 7, since)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, eligible)
+		})
+	}
 }

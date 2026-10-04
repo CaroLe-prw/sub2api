@@ -853,6 +853,7 @@ export interface SystemSettings {
   check_in_enabled: boolean;
   check_in_reward_min: number;
   check_in_min_recharge: number;
+  check_in_recharge_days: number;
   check_in_reward_max: number;
 
   // OpenAI fast/flex policy
@@ -1182,6 +1183,7 @@ export interface UpdateSettingsRequest {
   check_in_enabled?: boolean;
   check_in_reward_min?: number;
   check_in_min_recharge?: number;
+  check_in_recharge_days?: number;
   check_in_reward_max?: number;
 
   // OpenAI fast/flex policy

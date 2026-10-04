@@ -71,6 +71,7 @@
                 {{ claiming ? t('checkIn.claiming') : overview.checked_in_today ? t('checkIn.claimed') : rechargeBlocked ? t('checkIn.rechargeRequiredButton') : t('checkIn.claim') }}
               </button>
               <button v-if="rechargeBlocked && !overview.checked_in_today" type="button" class="btn btn-secondary mt-3 w-full" @click="loadOverview()">{{ t('checkIn.rechargeRefresh') }}</button>
+              <p v-if="overview.recharge_days > 0" class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('checkIn.recentRechargeRule', { days: overview.recharge_days }) }}</p>
               <p v-if="overview.min_recharge > 0" class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('checkIn.rechargeRule', { required: formatReward(overview.min_recharge) }) }}</p>
               <p class="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">{{ overview.today }} · {{ overview.timezone }}</p>
               <p v-if="claimError" class="mt-3 text-center text-xs text-red-600 dark:text-red-400">{{ claimError }}</p>
@@ -163,11 +164,21 @@ const loadError = ref('')
 const claimError = ref('')
 const successMessage = ref('')
 const rechargeBlocked = computed(() => overview.value?.eligible === false)
-const rechargeRequirementText = computed(() => overview.value ? t('checkIn.rechargeRequired', {
-  required: formatReward(overview.value.min_recharge),
-  current: formatReward(overview.value.recharged_amount),
-  remaining: formatReward(overview.value.recharge_remaining),
-}) : '')
+const rechargeRequirementText = computed(() => {
+  if (!overview.value) return ''
+  const requirements: string[] = []
+  if (overview.value.recharge_remaining > 0) {
+    requirements.push(t('checkIn.rechargeRequired', {
+      required: formatReward(overview.value.min_recharge),
+      current: formatReward(overview.value.recharged_amount),
+      remaining: formatReward(overview.value.recharge_remaining),
+    }))
+  }
+  if (overview.value.recharge_days > 0 && overview.value.recent_recharge_eligible === false) {
+    requirements.push(t('checkIn.recentRechargeRequired', { days: overview.value.recharge_days }))
+  }
+  return requirements.join(' ')
+})
 
 const weekdayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 const weekdays = computed(() => weekdayKeys.map(key => t(`checkIn.weekdays.${key}`)))
@@ -242,7 +253,7 @@ async function claimReward() {
       : t('checkIn.alreadyClaimed')
     await Promise.all([loadOverview(), authStore.refreshUser()])
   } catch (error) {
-    if ((error as { reason?: string })?.reason === 'CHECK_IN_RECHARGE_REQUIRED') {
+    if (['CHECK_IN_RECHARGE_REQUIRED', 'CHECK_IN_RECENT_RECHARGE_REQUIRED'].includes((error as { reason?: string })?.reason || '')) {
       claimError.value = t('checkIn.rechargeChanged')
       await loadOverview()
     } else {

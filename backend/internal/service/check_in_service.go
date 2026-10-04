@@ -21,6 +21,7 @@ const (
 )
 
 var ErrCheckInRechargeRequired = infraerrors.Forbidden("CHECK_IN_RECHARGE_REQUIRED", "minimum cumulative recharge required for daily check-in has not been reached")
+var ErrCheckInRecentRechargeRequired = infraerrors.Forbidden("CHECK_IN_RECENT_RECHARGE_REQUIRED", "a recent successful balance recharge is required for daily check-in")
 
 var ErrCheckInDisabled = infraerrors.Forbidden("CHECK_IN_DISABLED", "daily check-in is disabled")
 
@@ -41,7 +42,8 @@ type CheckInRepositoryOverview struct {
 
 type CheckInRepository interface {
 	PaidRechargeTotal(ctx context.Context, userID int64) (float64, error)
-	Claim(ctx context.Context, userID int64, businessDate time.Time, reward, minRecharge float64) (record CheckInRecord, balance float64, created bool, err error)
+	HasPaidRechargeSince(ctx context.Context, userID int64, since time.Time) (bool, error)
+	Claim(ctx context.Context, userID int64, businessDate time.Time, reward, minRecharge float64, rechargeSince *time.Time) (record CheckInRecord, balance float64, created bool, err error)
 	Overview(ctx context.Context, userID int64, monthStart, monthEnd, today time.Time) (CheckInRepositoryOverview, error)
 	AdminListRecords(ctx context.Context, page, pageSize int) ([]CheckInAdminRecord, int64, error)
 }
@@ -57,25 +59,27 @@ type CheckInAdminRecord struct {
 }
 
 type CheckInOverview struct {
-	MinRecharge       float64         `json:"min_recharge"`
-	RechargedAmount   float64         `json:"recharged_amount"`
-	RechargeRemaining float64         `json:"recharge_remaining"`
-	Eligible          bool            `json:"eligible"`
-	Today             string          `json:"today"`
-	Timezone          string          `json:"timezone"`
-	Year              int             `json:"year"`
-	Month             int             `json:"month"`
-	CheckedInToday    bool            `json:"checked_in_today"`
-	TodayReward       float64         `json:"today_reward"`
-	CurrentStreak     int             `json:"current_streak"`
-	TotalDays         int             `json:"total_days"`
-	MonthDays         int             `json:"month_days"`
-	MonthReward       float64         `json:"month_reward"`
-	TotalReward       float64         `json:"total_reward"`
-	Balance           float64         `json:"balance"`
-	RewardMin         float64         `json:"reward_min"`
-	RewardMax         float64         `json:"reward_max"`
-	Records           []CheckInRecord `json:"records"`
+	RechargeDays           int             `json:"recharge_days"`
+	RecentRechargeEligible bool            `json:"recent_recharge_eligible"`
+	MinRecharge            float64         `json:"min_recharge"`
+	RechargedAmount        float64         `json:"recharged_amount"`
+	RechargeRemaining      float64         `json:"recharge_remaining"`
+	Eligible               bool            `json:"eligible"`
+	Today                  string          `json:"today"`
+	Timezone               string          `json:"timezone"`
+	Year                   int             `json:"year"`
+	Month                  int             `json:"month"`
+	CheckedInToday         bool            `json:"checked_in_today"`
+	TodayReward            float64         `json:"today_reward"`
+	CurrentStreak          int             `json:"current_streak"`
+	TotalDays              int             `json:"total_days"`
+	MonthDays              int             `json:"month_days"`
+	MonthReward            float64         `json:"month_reward"`
+	TotalReward            float64         `json:"total_reward"`
+	Balance                float64         `json:"balance"`
+	RewardMin              float64         `json:"reward_min"`
+	RewardMax              float64         `json:"reward_max"`
+	Records                []CheckInRecord `json:"records"`
 }
 
 type CheckInClaimResult struct {
@@ -111,6 +115,10 @@ func (s *CheckInService) Claim(ctx context.Context, userID int64) (*CheckInClaim
 		return nil, err
 	}
 	minReward, maxReward := s.settings.GetCheckInRewardRange(ctx)
+	days, err := s.settings.GetCheckInRechargeDays(ctx)
+	if err != nil {
+		return nil, err
+	}
 	minUnits := int64(math.Round(minReward * checkInRewardScale))
 	maxUnits := int64(math.Round(maxReward * checkInRewardScale))
 	units, err := s.rewardGenerator(minUnits, maxUnits)
@@ -119,7 +127,7 @@ func (s *CheckInService) Claim(ctx context.Context, userID int64) (*CheckInClaim
 	}
 	reward := float64(units) / checkInRewardScale
 	now := s.now().In(timezone.Location())
-	record, balance, created, err := s.repo.Claim(ctx, userID, timezone.StartOfDay(now), reward, minRecharge)
+	record, balance, created, err := s.repo.Claim(ctx, userID, timezone.StartOfDay(now), reward, minRecharge, checkInRechargeSince(now, days))
 	if err != nil {
 		return nil, err
 	}
@@ -142,9 +150,21 @@ func (s *CheckInService) GetOverview(ctx context.Context, userID int64, year int
 		}
 	}
 	loc := timezone.Location()
+	now := s.now().In(loc)
+	days, err := s.settings.GetCheckInRechargeDays(ctx)
+	if err != nil {
+		return nil, err
+	}
+	recentEligible := true
+	if since := checkInRechargeSince(now, days); since != nil {
+		recentEligible, err = s.repo.HasPaidRechargeSince(ctx, userID, *since)
+		if err != nil {
+			return nil, err
+		}
+	}
 	monthStart := time.Date(year, month, 1, 0, 0, 0, 0, loc)
 	monthEnd := monthStart.AddDate(0, 1, 0)
-	todayDate := timezone.StartOfDay(s.now().In(loc))
+	todayDate := timezone.StartOfDay(now)
 	data, err := s.repo.Overview(ctx, userID, monthStart, monthEnd, todayDate)
 	if err != nil {
 		return nil, err
@@ -167,26 +187,38 @@ func (s *CheckInService) GetOverview(ctx context.Context, userID int64, year int
 	}
 	minReward, maxReward := s.settings.GetCheckInRewardRange(ctx)
 	return &CheckInOverview{
-		MinRecharge:       minRecharge,
-		RechargedAmount:   recharged,
-		RechargeRemaining: math.Max(0, minRecharge-recharged),
-		Eligible:          minRecharge == 0 || recharged >= minRecharge,
-		Today:             today,
-		Timezone:          timezone.Name(),
-		Year:              year,
-		Month:             int(month),
-		CheckedInToday:    checkedToday,
-		TodayReward:       todayReward,
-		CurrentStreak:     currentCheckInStreak(data.AllDates, today, loc),
-		TotalDays:         data.TotalDays,
-		MonthDays:         len(records),
-		MonthReward:       monthReward,
-		TotalReward:       data.TotalReward,
-		Balance:           data.Balance,
-		RewardMin:         minReward,
-		RewardMax:         maxReward,
-		Records:           records,
+		RechargeDays:           days,
+		RecentRechargeEligible: recentEligible,
+		MinRecharge:            minRecharge,
+		RechargedAmount:        recharged,
+		RechargeRemaining:      math.Max(0, minRecharge-recharged),
+		Eligible:               (minRecharge == 0 || recharged >= minRecharge) && recentEligible,
+		Today:                  today,
+		Timezone:               timezone.Name(),
+		Year:                   year,
+		Month:                  int(month),
+		CheckedInToday:         checkedToday,
+		TodayReward:            todayReward,
+		CurrentStreak:          currentCheckInStreak(data.AllDates, today, loc),
+		TotalDays:              data.TotalDays,
+		MonthDays:              len(records),
+		MonthReward:            monthReward,
+		TotalReward:            data.TotalReward,
+		Balance:                data.Balance,
+		RewardMin:              minReward,
+		RewardMax:              maxReward,
+		Records:                records,
 	}, nil
+}
+
+// The eligibility window rolls with the claim time, independently of the
+// selected calendar month and the business-date midnight used for daily claims.
+func checkInRechargeSince(now time.Time, days int) *time.Time {
+	if days <= 0 {
+		return nil
+	}
+	since := now.Add(-time.Duration(days) * 24 * time.Hour)
+	return &since
 }
 
 func (s *CheckInService) AdminListRecords(ctx context.Context, page, pageSize int) ([]CheckInAdminRecord, int64, error) {
