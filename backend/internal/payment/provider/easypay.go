@@ -305,7 +305,9 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 		"act": "order", "pid": e.config["pid"],
 		"key": e.config["pkey"], "out_trade_no": tradeNo,
 	}
-	body, httpStatus, err := e.postRaw(ctx, e.apiBase()+"/api.php", params)
+	// The legacy order-query API (including Qixiang) reads GET query params.
+	// Payment creation and refunds still use their own POST endpoints.
+	body, httpStatus, err := e.getOrderQueryRaw(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("easypay query: %w", err)
 	}
@@ -333,7 +335,7 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 		return nil, fmt.Errorf("easypay parse query: %w", err)
 	}
 	if resp.Code != easypayCodeSuccess {
-		return nil, fmt.Errorf("easypay query failed with code %d", resp.Code)
+		return nil, fmt.Errorf("easypay query failed with code %d: %s", resp.Code, e.safeQueryMessage(resp.Msg))
 	}
 	// Older gateways may omit out_trade_no. If present, it must identify the
 	// order we queried, including when the response uses a nested data object.
@@ -381,6 +383,45 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 		Amount:   amount,
 		Metadata: e.MerchantIdentityMetadata(),
 	}, nil
+}
+
+// getOrderQueryRaw keeps credentials out of transport errors and prevents a
+// redirect from forwarding a credential-bearing query to another endpoint.
+func (e *EasyPay) getOrderQueryRaw(ctx context.Context, params map[string]string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, e.apiBase()+"/api.php", nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	query := url.Values{}
+	for k, v := range params {
+		query.Set(k, v)
+	}
+	req.URL.RawQuery = query.Encode()
+	client := e.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: easypayHTTPTimeout}
+	}
+	queryClient := *client
+	queryClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := queryClient.Do(req)
+	if err != nil {
+		// net/http wraps errors with the full request URL, including key.
+		if urlErr, ok := err.(*url.Error); ok {
+			err = urlErr.Err
+		}
+		return nil, 0, fmt.Errorf("%s", e.safeQueryMessage(err.Error()))
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxEasypayResponseSize))
+	return body, resp.StatusCode, err
+}
+
+func (e *EasyPay) safeQueryMessage(message string) string {
+	if key := e.config["pkey"]; key != "" {
+		message = strings.ReplaceAll(message, url.QueryEscape(key), "[REDACTED]")
+		message = strings.ReplaceAll(message, key, "[REDACTED]")
+	}
+	return summarizeEasyPayResponse([]byte(message))
 }
 
 func (e *EasyPay) VerifyNotification(_ context.Context, rawBody string, _ map[string]string) (*payment.PaymentNotification, error) {

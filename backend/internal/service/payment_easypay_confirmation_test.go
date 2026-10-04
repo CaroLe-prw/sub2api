@@ -55,11 +55,11 @@ func TestEasyPayCallbackRequiresUpstreamConfirmation(t *testing.T) {
 					t.Error(err)
 				}
 				for key, want := range map[string]string{"act": "order", "pid": "merchant-test", "key": "test-only-secret", "out_trade_no": order.OutTradeNo} {
-					if got := r.PostForm.Get(key); got != want {
+					if got := r.URL.Query().Get(key); got != want {
 						t.Errorf("wrong query field %s", key)
 					}
 				}
-				if r.Method != http.MethodPost || r.URL.Path != "/api.php" {
+				if r.Method != http.MethodGet || r.URL.Path != "/api.php" {
 					t.Error("unexpected query endpoint")
 				}
 				if recovered.Load() {

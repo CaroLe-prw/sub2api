@@ -5,10 +5,54 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 )
+
+func TestEasyPayQueryOrderTransportErrorDoesNotLeakKey(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	server.Close()
+	provider := newTestEasyPay(t, server.URL)
+	_, err := provider.QueryOrder(context.Background(), "order-123")
+	if err == nil {
+		t.Fatal("expected connection failure")
+	}
+	if strings.Contains(err.Error(), "pkey-1") || strings.Contains(err.Error(), "key=") {
+		t.Fatal("query error exposed credential URL")
+	}
+}
+
+func TestEasyPayQueryOrderDoesNotFollowRedirect(t *testing.T) {
+	redirected := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api.php" {
+			http.Redirect(w, r, "/other?"+r.URL.RawQuery, http.StatusTemporaryRedirect)
+			return
+		}
+		redirected = true
+		_, _ = w.Write([]byte(`{"code":1,"status":1,"money":"80"}`))
+	}))
+	defer server.Close()
+	provider := newTestEasyPay(t, server.URL)
+	_, err := provider.QueryOrder(context.Background(), "order-123")
+	if err == nil || redirected {
+		t.Fatal("credential-bearing query must reject redirects")
+	}
+}
+
+func TestEasyPayQueryOrderBusinessErrorIncludesRedactedMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":-5,"msg":"查询参数错误 key=pkey-1"}`))
+	}))
+	defer server.Close()
+	provider := newTestEasyPay(t, server.URL)
+	_, err := provider.QueryOrder(context.Background(), "order-123")
+	if err == nil || !strings.Contains(err.Error(), "查询参数错误") || strings.Contains(err.Error(), "pkey-1") {
+		t.Fatalf("expected a useful redacted business error")
+	}
+}
 
 func TestEasyPayQueryOrderStatusMapping(t *testing.T) {
 	t.Parallel()
@@ -87,8 +131,8 @@ func TestEasyPayQueryOrderStatusMapping(t *testing.T) {
 
 			var gotForm url.Values
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != http.MethodPost {
-					t.Errorf("method = %q, want %q", r.Method, http.MethodPost)
+				if r.Method != http.MethodGet {
+					t.Errorf("method = %q, want %q", r.Method, http.MethodGet)
 				}
 				if r.URL.Path != "/api.php" {
 					t.Errorf("path = %q, want /api.php", r.URL.Path)
@@ -96,8 +140,8 @@ func TestEasyPayQueryOrderStatusMapping(t *testing.T) {
 				if err := r.ParseForm(); err != nil {
 					t.Errorf("ParseForm: %v", err)
 				}
-				gotForm = make(url.Values, len(r.PostForm))
-				for key, values := range r.PostForm {
+				gotForm = make(url.Values, len(r.URL.Query()))
+				for key, values := range r.URL.Query() {
 					gotForm[key] = append([]string(nil), values...)
 				}
 				w.Header().Set("Content-Type", "application/json")
