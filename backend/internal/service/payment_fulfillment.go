@@ -37,6 +37,12 @@ type paymentFulfillmentLease struct {
 // --- Payment Notification & Fulfillment ---
 
 func (s *PaymentService) HandlePaymentNotification(ctx context.Context, n *payment.PaymentNotification, pk string) error {
+	return s.handlePaymentNotification(ctx, n, pk, false)
+}
+
+// queryConfirmed may only be true for a result obtained by our own provider
+// QueryOrder call. A signed webhook alone is not proof of an EasyPay payment.
+func (s *PaymentService) handlePaymentNotification(ctx context.Context, n *payment.PaymentNotification, pk string, queryConfirmed bool) error {
 	if n.Status != payment.NotificationStatusSuccess {
 		return nil
 	}
@@ -46,14 +52,14 @@ func (s *PaymentService) HandlePaymentNotification(ctx context.Context, n *payme
 		// Fallback only for true legacy "sub2_N" DB-ID payloads when the
 		// current out_trade_no lookup genuinely did not find an order.
 		if oid, ok := parseLegacyPaymentOrderID(n.OrderID, err); ok {
-			return s.confirmPayment(ctx, oid, n.TradeNo, n.Amount, pk, n.Metadata)
+			return s.confirmPayment(ctx, oid, n.TradeNo, n.Amount, pk, n.Metadata, queryConfirmed)
 		}
 		if dbent.IsNotFound(err) {
 			return fmt.Errorf("%w: out_trade_no=%s", ErrOrderNotFound, n.OrderID)
 		}
 		return fmt.Errorf("lookup order failed for out_trade_no %s: %w", n.OrderID, err)
 	}
-	return s.confirmPayment(ctx, order.ID, n.TradeNo, n.Amount, pk, n.Metadata)
+	return s.confirmPayment(ctx, order.ID, n.TradeNo, n.Amount, pk, n.Metadata, queryConfirmed)
 }
 
 func parseLegacyPaymentOrderID(orderID string, lookupErr error) (int64, bool) {
@@ -75,7 +81,7 @@ func parseLegacyPaymentOrderID(orderID string, lookupErr error) (int64, bool) {
 	return oid, true
 }
 
-func (s *PaymentService) confirmPayment(ctx context.Context, oid int64, tradeNo string, paid float64, pk string, metadata map[string]string) error {
+func (s *PaymentService) confirmPayment(ctx context.Context, oid int64, tradeNo string, paid float64, pk string, metadata map[string]string, queryConfirmed bool) error {
 	o, err := s.entClient.PaymentOrder.Get(ctx, oid)
 	if err != nil {
 		slog.Error("order not found", "orderID", oid)
@@ -112,6 +118,21 @@ func (s *PaymentService) confirmPayment(ctx context.Context, oid int64, tradeNo 
 	if math.Abs(paid-o.PayAmount) > paymentAmountToleranceForCurrency(PaymentOrderCurrency(o)) {
 		s.writeAuditLog(ctx, o.ID, "PAYMENT_AMOUNT_MISMATCH", pk, map[string]any{"expected": o.PayAmount, "paid": paid, "tradeNo": tradeNo})
 		return fmt.Errorf("amount mismatch: expected %s, got %s", strconv.FormatFloat(o.PayAmount, 'f', -1, 64), strconv.FormatFloat(paid, 'f', -1, 64))
+	}
+	if !queryConfirmed && strings.EqualFold(strings.TrimSpace(pk), payment.TypeEasyPay) {
+		// Terminal orders need no further fulfillment or network calls on replay.
+		if o.Status == OrderStatusCompleted || psIsRefundStatus(o.Status) {
+			return nil
+		}
+		confirmed, err := s.confirmEasyPayUpstream(ctx, o, tradeNo)
+		if err != nil {
+			s.writeAuditLog(ctx, o.ID, "PAYMENT_UPSTREAM_CONFIRMATION_FAILED", pk, map[string]any{"detail": err.Error()})
+			return err
+		}
+		paid = confirmed.Amount
+		if paymentOrderShouldPersistUpstreamTradeNo(o.OutTradeNo, confirmed.TradeNo, tradeNo) {
+			tradeNo = confirmed.TradeNo
+		}
 	}
 	return s.toPaid(ctx, o, tradeNo, paid, pk)
 }

@@ -20,6 +20,7 @@ func TestEasyPayQueryOrderStatusMapping(t *testing.T) {
 		wantStatus  string
 		wantTradeNo string
 		wantAmount  float64
+		wantErr     bool
 	}{
 		{
 			name:        "top level trade success is paid",
@@ -64,13 +65,15 @@ func TestEasyPayQueryOrderStatusMapping(t *testing.T) {
 			wantAmount:  3.21,
 		},
 		{
-			name:        "query failure with missing status is pending",
+			name:        "query failure is rejected",
+			wantErr:     true,
 			body:        `{"code":0,"msg":"订单不存在"}`,
 			wantStatus:  payment.ProviderStatusPending,
 			wantTradeNo: orderID,
 		},
 		{
-			name:        "missing fields are pending",
+			name:        "missing business code is rejected",
+			wantErr:     true,
 			body:        `{}`,
 			wantStatus:  payment.ProviderStatusPending,
 			wantTradeNo: orderID,
@@ -104,6 +107,12 @@ func TestEasyPayQueryOrderStatusMapping(t *testing.T) {
 
 			provider := newTestEasyPay(t, server.URL)
 			resp, err := provider.QueryOrder(context.Background(), orderID)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected query rejection")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("QueryOrder returned error: %v", err)
 			}

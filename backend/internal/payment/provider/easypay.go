@@ -305,11 +305,15 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 		"act": "order", "pid": e.config["pid"],
 		"key": e.config["pkey"], "out_trade_no": tradeNo,
 	}
-	body, err := e.post(ctx, e.apiBase()+"/api.php", params)
+	body, httpStatus, err := e.postRaw(ctx, e.apiBase()+"/api.php", params)
 	if err != nil {
 		return nil, fmt.Errorf("easypay query: %w", err)
 	}
+	if httpStatus < http.StatusOK || httpStatus >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("easypay query HTTP status %d", httpStatus)
+	}
 	type easyPayQueryData struct {
+		OutTradeNo  *string `json:"out_trade_no"`
 		TradeStatus *string `json:"trade_status"`
 		Status      *int    `json:"status"`
 		Money       *string `json:"money"`
@@ -318,6 +322,7 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 	var resp struct {
 		Code        int              `json:"code"`
 		Msg         string           `json:"msg"`
+		OutTradeNo  *string          `json:"out_trade_no"`
 		TradeStatus *string          `json:"trade_status"`
 		Status      *int             `json:"status"`
 		Money       *string          `json:"money"`
@@ -326,6 +331,16 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("easypay parse query: %w", err)
+	}
+	if resp.Code != easypayCodeSuccess {
+		return nil, fmt.Errorf("easypay query failed with code %d", resp.Code)
+	}
+	// Older gateways may omit out_trade_no. If present, it must identify the
+	// order we queried, including when the response uses a nested data object.
+	for _, returnedOrderID := range []*string{resp.OutTradeNo, resp.Data.OutTradeNo} {
+		if returnedOrderID != nil && strings.TrimSpace(*returnedOrderID) != tradeNo {
+			return nil, fmt.Errorf("easypay query order mismatch")
+		}
 	}
 	status := payment.ProviderStatusPending
 	if resp.TradeStatus != nil {
