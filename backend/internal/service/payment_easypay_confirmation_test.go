@@ -27,6 +27,11 @@ func TestEasyPayCallbackRequiresUpstreamConfirmation(t *testing.T) {
 		httpStatus int
 		wantPaid   bool
 	}{
+		{"paid string status", `{"code":1,"status":"1","money":"80","trade_no":"gateway-trade"}`, 200, true},
+		{"paid nested string status", `{"code":1,"data":{"status":"1","money":"80","trade_no":"gateway-trade"}}`, 200, true},
+		{"unpaid string status", `{"code":1,"status":"0","money":"80"}`, 200, false},
+		{"string paid status wrong amount", `{"code":1,"status":"1","money":"1"}`, 200, false},
+		{"invalid string status", `{"code":1,"status":"paid","money":"80"}`, 200, false},
 		{"unpaid despite valid callback signature", `{"code":1,"status":0,"money":"80"}`, 200, false},
 		{"order not found", `{"code":0,"msg":"not found"}`, 200, false},
 		{"failed business response with paid fields", `{"code":0,"status":1,"money":"80"}`, 200, false},

@@ -300,6 +300,24 @@ func (e *EasyPay) upstreamPaymentType(paymentType string) string {
 	return paymentType
 }
 
+// easyPayQueryInt accepts gateways that serialize integer fields as JSON
+// strings (e.g. Qixiang status="1"). Booleans, fractions and arbitrary text
+// remain invalid; no truthy coercion may turn an unknown status into payment.
+type easyPayQueryInt int64
+
+func (v *easyPayQueryInt) UnmarshalJSON(data []byte) error {
+	var number json.Number
+	if err := json.Unmarshal(data, &number); err != nil {
+		return fmt.Errorf("expected an integer or integer string")
+	}
+	value, err := number.Int64()
+	if err != nil {
+		return fmt.Errorf("expected an integer or integer string")
+	}
+	*v = easyPayQueryInt(value)
+	return nil
+}
+
 func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.QueryOrderResponse, error) {
 	params := map[string]string{
 		"act": "order", "pid": e.config["pid"],
@@ -315,18 +333,18 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 		return nil, fmt.Errorf("easypay query HTTP status %d", httpStatus)
 	}
 	type easyPayQueryData struct {
-		OutTradeNo  *string `json:"out_trade_no"`
-		TradeStatus *string `json:"trade_status"`
-		Status      *int    `json:"status"`
-		Money       *string `json:"money"`
-		TradeNo     *string `json:"trade_no"`
+		OutTradeNo  *string          `json:"out_trade_no"`
+		TradeStatus *string          `json:"trade_status"`
+		Status      *easyPayQueryInt `json:"status"`
+		Money       *string          `json:"money"`
+		TradeNo     *string          `json:"trade_no"`
 	}
 	var resp struct {
-		Code        int              `json:"code"`
+		Code        easyPayQueryInt  `json:"code"`
 		Msg         string           `json:"msg"`
 		OutTradeNo  *string          `json:"out_trade_no"`
 		TradeStatus *string          `json:"trade_status"`
-		Status      *int             `json:"status"`
+		Status      *easyPayQueryInt `json:"status"`
 		Money       *string          `json:"money"`
 		TradeNo     *string          `json:"trade_no"`
 		Data        easyPayQueryData `json:"data"`

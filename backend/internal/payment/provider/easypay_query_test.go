@@ -67,6 +67,41 @@ func TestEasyPayQueryOrderStatusMapping(t *testing.T) {
 		wantErr     bool
 	}{
 		{
+			name:       "string paid status from Qixiang",
+			body:       `{"code":1,"status":"1","money":"1.00","trade_no":"gateway-660"}`,
+			wantStatus: payment.ProviderStatusPaid, wantTradeNo: "gateway-660", wantAmount: 1,
+		},
+		{
+			name:       "string pending status",
+			body:       `{"code":1,"status":"0","money":"1.00"}`,
+			wantStatus: payment.ProviderStatusPending, wantTradeNo: orderID, wantAmount: 1,
+		},
+		{
+			name:       "nested string paid status",
+			body:       `{"code":1,"data":{"status":"1","money":"1.00"}}`,
+			wantStatus: payment.ProviderStatusPaid, wantTradeNo: orderID, wantAmount: 1,
+		},
+		{
+			name:       "explicit waiting state overrides string paid status",
+			body:       `{"code":1,"trade_status":"WAITING","status":"1","money":"1.00"}`,
+			wantStatus: payment.ProviderStatusPending, wantTradeNo: orderID, wantAmount: 1,
+		},
+		{
+			name:       "string success code",
+			body:       `{"code":"1","status":"1","money":"1.00"}`,
+			wantStatus: payment.ProviderStatusPaid, wantTradeNo: orderID, wantAmount: 1,
+		},
+		{name: "string failure code", body: `{"code":"-5","status":"1","money":"1.00"}`, wantErr: true},
+		{name: "boolean status rejected", body: `{"code":1,"status":true,"money":"1.00"}`, wantErr: true},
+		{name: "fractional status rejected", body: `{"code":1,"status":1.5,"money":"1.00"}`, wantErr: true},
+		{name: "non numeric status rejected", body: `{"code":1,"status":"paid","money":"1.00"}`, wantErr: true},
+		{name: "empty status rejected", body: `{"code":1,"status":"","money":"1.00"}`, wantErr: true},
+		{
+			name:       "null status stays pending",
+			body:       `{"code":1,"status":null,"money":"1.00"}`,
+			wantStatus: payment.ProviderStatusPending, wantTradeNo: orderID, wantAmount: 1,
+		},
+		{
 			name:        "top level trade success is paid",
 			body:        `{"code":1,"trade_status":"TRADE_SUCCESS","status":0,"money":"12.34","trade_no":"gateway-123"}`,
 			wantStatus:  payment.ProviderStatusPaid,
