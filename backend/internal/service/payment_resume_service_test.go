@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNormalizeVisibleMethods(t *testing.T) {
@@ -85,8 +86,8 @@ func TestCanonicalizeReturnURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalizeReturnURL returned error: %v", err)
 	}
-	if got != "https://example.com/payment/result?b=2" {
-		t.Fatalf("CanonicalizeReturnURL = %q, want %q", got, "https://example.com/payment/result?b=2")
+	if got != "https://example.com/payment/result" {
+		t.Fatalf("CanonicalizeReturnURL = %q, want %q", got, "https://example.com/payment/result")
 	}
 }
 
@@ -117,8 +118,8 @@ func TestCanonicalizeReturnURLAllowsConfiguredFrontendHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalizeReturnURL returned error: %v", err)
 	}
-	if got != "https://app.example.com/payment/result?from=checkout" {
-		t.Fatalf("CanonicalizeReturnURL = %q, want %q", got, "https://app.example.com/payment/result?from=checkout")
+	if got != "https://app.example.com/payment/result" {
+		t.Fatalf("CanonicalizeReturnURL = %q, want %q", got, "https://app.example.com/payment/result")
 	}
 }
 
@@ -146,8 +147,8 @@ func TestBuildPaymentReturnURL(t *testing.T) {
 		t.Fatalf("buildPaymentReturnURL should strip fragments, got %q", parsed.Fragment)
 	}
 	query := parsed.Query()
-	if query.Get("from") != "checkout" {
-		t.Fatalf("expected original query to be preserved, got %q", query.Get("from"))
+	if query.Has("from") {
+		t.Fatalf("unexpected user query preserved: %q", query.Get("from"))
 	}
 	if query.Get("order_id") != strconv.FormatInt(42, 10) {
 		t.Fatalf("order_id = %q", query.Get("order_id"))
@@ -160,6 +161,37 @@ func TestBuildPaymentReturnURL(t *testing.T) {
 	}
 	if query.Get("status") != "success" {
 		t.Fatalf("status = %q", query.Get("status"))
+	}
+}
+
+func TestPaymentReturnURLStripsInjectedQueryAndUsesServerValues(t *testing.T) {
+	for _, suffix := range []string{
+		"?trade_status=TRADE_SUCCESS",
+		"?trade_status=TRADE_SUCCESS&trade_status=TRADE_SUCCESS",
+		"?%74rade_status=TRADE_SUCCESS#ignored",
+		"?param=x%26trade_status%3DTRADE_SUCCESS",
+		"?order_id=999&out_trade_no=other&resume_token=attacker&status=failed",
+		"?",
+	} {
+		t.Run(suffix, func(t *testing.T) {
+			base := "https://example.com/payment/result"
+			canonical, err := CanonicalizeReturnURL(base+suffix, "example.com", "")
+			require.NoError(t, err)
+			require.Equal(t, base, canonical)
+			// The builder must also discard existing query params if a future
+			// caller skips canonicalization. Only server-owned values survive.
+			for _, input := range []string{canonical, base + suffix} {
+				built, err := buildPaymentReturnURL(input, 42, "server-order", "server-token")
+				require.NoError(t, err)
+				parsed, err := url.Parse(built)
+				require.NoError(t, err)
+				require.Empty(t, parsed.Fragment)
+				require.Equal(t, url.Values{
+					"order_id": {"42"}, "out_trade_no": {"server-order"},
+					"resume_token": {"server-token"}, "status": {"success"},
+				}, parsed.Query())
+			}
+		})
 	}
 }
 

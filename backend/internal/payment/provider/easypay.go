@@ -447,10 +447,21 @@ func (e *EasyPay) VerifyNotification(_ context.Context, rawBody string, _ map[st
 	if err != nil {
 		return nil, fmt.Errorf("parse notify: %w", err)
 	}
+	// Checkout and callback signatures use the same key and unescaped canonical
+	// values. Reject checkout-only fields even when empty so a signed checkout
+	// URL cannot be replayed or reshaped into a successful payment callback.
 	// url.ParseQuery already decodes values — no additional decode needed.
-	params := make(map[string]string)
-	for k := range values {
-		params[k] = values.Get(k)
+	params := make(map[string]string, len(values))
+	for k, entries := range values {
+		switch k {
+		case "pid", "trade_no", "out_trade_no", "type", "name", "money", "trade_status", "param", "sign", "sign_type":
+		default:
+			return nil, fmt.Errorf("unexpected notify parameter: %q", k)
+		}
+		if len(entries) != 1 {
+			return nil, fmt.Errorf("duplicate notify parameter: %q", k)
+		}
+		params[k] = entries[0]
 	}
 	sign := params["sign"]
 	if sign == "" {

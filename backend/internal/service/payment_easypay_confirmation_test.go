@@ -151,3 +151,36 @@ func TestEasyPayCallbackRequiresUpstreamConfirmation(t *testing.T) {
 		})
 	}
 }
+
+func TestEasyPayPopupOrderStripsReturnURLInjectionBeforeSigning(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusPending, time.Now())
+	svc := &PaymentService{entClient: client, resumeService: NewPaymentResumeService([]byte("test-only-resume-signing-key"))}
+	sel := &payment.InstanceSelection{
+		InstanceID: "1", ProviderKey: payment.TypeEasyPay,
+		Config: map[string]string{
+			"pid": "merchant-test", "pkey": "test-only-secret", "paymentMode": "popup",
+			"apiBase": "https://payment.example.com", "notifyUrl": "https://example.com/api/v1/payment/webhook/easypay",
+			"returnUrl": "https://example.com/payment/result",
+		},
+	}
+	result, err := svc.invokeProvider(ctx, order, CreateOrderRequest{
+		UserID: order.UserID, PaymentType: payment.TypeAlipay, SrcHost: "example.com",
+		ReturnURL: "https://example.com/payment/result?trade_status=TRADE_SUCCESS&resume_token=attacker&out_trade_no=other",
+	}, &PaymentConfig{}, 80, "80.00", 80, nil, sel)
+	require.NoError(t, err)
+	payURL, err := url.Parse(result.PayURL)
+	require.NoError(t, err)
+	require.Equal(t, "/submit.php", payURL.Path)
+	returnURL, err := url.Parse(payURL.Query().Get("return_url"))
+	require.NoError(t, err)
+	require.Equal(t, url.Values{
+		"order_id": {strconv.FormatInt(order.ID, 10)}, "out_trade_no": {order.OutTradeNo},
+		"status": {"success"}, "resume_token": {result.ResumeToken},
+	}, returnURL.Query())
+	require.NotEmpty(t, result.ResumeToken)
+	claims, err := svc.paymentResume().ParseToken(result.ResumeToken)
+	require.NoError(t, err)
+	require.Equal(t, "https://example.com/payment/result", claims.CanonicalReturnURL)
+}
