@@ -245,7 +245,7 @@ func CanonicalizeReturnURL(raw string, srcHost string, srcURL string) (string, e
 		return "", infraerrors.BadRequest("INVALID_RETURN_URL", "return_url must use http or https")
 	}
 	// User query values must never enter the provider's signing string. In
-	// EasyPay popup mode they can be reinterpreted as callback parameters.
+	// EasyPay popup mode they can be reinterpreted as callback parameters (#7881).
 	parsed.RawQuery = ""
 	parsed.ForceQuery = false
 	parsed.Fragment = ""

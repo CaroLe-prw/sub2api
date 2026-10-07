@@ -223,7 +223,7 @@ func TestCheckInRepositoryRecentRechargeGate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer db.Close()
+			t.Cleanup(func() { _ = db.Close() })
 			repo := &checkInRepository{db: db}
 			now := time.Date(2026, 10, 4, 16, 0, 0, 0, time.UTC)
 			since := now.Add(-7 * 24 * time.Hour)
@@ -260,7 +260,7 @@ func TestCheckInRepositoryRecentRechargeGate(t *testing.T) {
 func TestCheckInRecentRechargeSQLWindowAndOrderEligibility(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`CREATE TABLE payment_orders (user_id INTEGER,order_type TEXT,status TEXT,amount NUMERIC,refund_amount NUMERIC,pay_amount NUMERIC,paid_at TIMESTAMP)`)
 	require.NoError(t, err)
