@@ -48,6 +48,7 @@ type ScheduledTestRunnerService struct {
 	accounts       AccountRepository
 	settings       channelMonitorAutoModelSettingStore
 	probeReporter  channelMonitorProbeOutcomeReporter
+	probePricing   *BillingService
 
 	cron                      *cron.Cron
 	startOnce                 sync.Once
@@ -93,6 +94,13 @@ func (s *ScheduledTestRunnerService) SetChannelMonitorPoolDependencies(
 	s.accounts = accounts
 	s.settings = settings
 	s.probeReporter = reporter
+}
+
+// SetProbeModelPricing supplies current catalog prices for automatic selection.
+func (s *ScheduledTestRunnerService) SetProbeModelPricing(billing *BillingService) {
+	if s != nil {
+		s.probePricing = billing
+	}
 }
 
 // Start begins the cron ticker (every minute).
@@ -216,7 +224,7 @@ func (s *ScheduledTestRunnerService) reconcileChannelMonitorPlans(ctx context.Co
 		models = filterAutoMonitorModels(models, policy.Whitelist)
 		accountWhitelist := channelMonitorAccountModelWhitelist(&accounts[i])
 		models = filterAutoMonitorModels(models, accountWhitelist)
-		models = selectChannelMonitorProbeModels(&accounts[i], models, accountWhitelist)
+		models = selectChannelMonitorProbeModels(&accounts[i], models, accountWhitelist, s.probePricing)
 		for _, model := range models {
 			stagger := time.Duration((accounts[i].ID+int64(len(desired))*17)%240) * time.Second
 			nextRun := now.Add(stagger)

@@ -77,6 +77,7 @@ type ChannelMonitorService struct {
 	accounts     channelMonitorAccountModelReader
 	poolAccounts AccountRepository
 	settings     channelMonitorAutoModelSettingStore
+	probePricing *BillingService
 	// runtime is optional; when nil, RunCheck fails closed for active probes
 	// (mode defaults to v2 / retired) so tests without settings never hit upstream.
 	runtime channelMonitorRuntimeReader
@@ -93,6 +94,13 @@ type ChannelMonitorService struct {
 func (s *ChannelMonitorService) SetChannelMonitorPoolAccountRepository(accounts AccountRepository) {
 	if s != nil {
 		s.poolAccounts = accounts
+	}
+}
+
+// SetProbeModelPricing shares the probe billing catalog with policy previews.
+func (s *ChannelMonitorService) SetProbeModelPricing(billing *BillingService) {
+	if s != nil {
+		s.probePricing = billing
 	}
 }
 

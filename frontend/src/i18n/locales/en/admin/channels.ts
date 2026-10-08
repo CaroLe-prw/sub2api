@@ -562,7 +562,7 @@ export default {
       },
       autoModels: {
         title: 'Automatic pool model probes',
-        description: 'Collect model mappings from enabled, schedulable, non-OAuth upstream accounts and create streaming probes with one low-cost representative text model per protocol family.',
+        description: 'Collect model mappings from enabled, schedulable, non-OAuth accounts and probe the lowest-priced text model per protocol family using the sum of upstream standard input, output, cache-read, and cache-write rates. Known prices take precedence; default rules apply when all prices are unknown. Manual monitors are unaffected.',
         enabled: 'Probe account-pool models automatically',
         enabledHint: 'Enabled by default. Only active, schedulable, non-OAuth accounts are enrolled; account, status, and model policy changes sync within one minute.',
         mode: 'Probe mode',
@@ -575,7 +575,7 @@ export default {
         minutes: 'minutes',
         whitelist: 'Global automatic-model allowlist',
         whitelistPlaceholder: 'gpt-5.*\nclaude-sonnet-4-*\ngemini-3-*',
-        whitelistHint: 'Separate by line or comma. The global allowlist limits candidates; one representative is still selected per protocol family. Manual models are unaffected.',
+        whitelistHint: 'Separate by line or comma. The global allowlist limits candidates; the lowest-priced representative is still selected per protocol family. Manual models are unaffected.',
         noModels: 'No eligible models discovered',
         billingHint: 'Active probes send real upstream requests. By default, one low-cost text model is selected per protocol family; exact models explicitly listed on an account are probed individually.',
         saved: 'Automatic pool model policy saved',
@@ -653,7 +653,7 @@ export default {
         accountWhitelist: {
           title: 'Channel model allowlist',
           titleWithName: 'Channel model allowlist · {name}',
-          description: 'The channel allowlist intersects the global allowlist. Exact model IDs are probed individually; wildcard entries only narrow candidates before representative selection. Manual monitors are unaffected.',
+          description: 'The channel allowlist intersects the global allowlist. Exact model IDs are probed individually; wildcards narrow candidates before selecting the lowest-priced representative by the sum of upstream standard input, output, cache-read, and cache-write rates. Default rules apply when all prices are unknown. Manual monitors are unaffected.',
           whitelist: 'Models allowed for this channel',
           placeholder: 'Enter a model ID and press Enter',
           inheritGlobal: 'Clear and inherit global',

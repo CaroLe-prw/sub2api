@@ -138,7 +138,7 @@ func (s *ChannelMonitorService) GetAccountModelPolicy(ctx context.Context, accou
 	whitelist := channelMonitorAccountModelWhitelist(account)
 	effective := filterAutoMonitorModels(discovered, global.Whitelist)
 	effective = filterAutoMonitorModels(effective, whitelist)
-	effective = selectChannelMonitorProbeModels(account, effective, whitelist)
+	effective = selectChannelMonitorProbeModels(account, effective, whitelist, s.probePricing)
 	return &ChannelMonitorAccountModelPolicy{
 		AccountID: account.ID, Whitelist: whitelist, DiscoveredModels: discovered, EffectiveModels: effective,
 	}, nil

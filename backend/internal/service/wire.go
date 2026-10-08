@@ -677,9 +677,11 @@ func ProvideScheduledTestRunnerService(
 	accountRepo AccountRepository,
 	settingRepo SettingRepository,
 	openAIGateway *OpenAIGatewayService,
+	billingService *BillingService,
 ) *ScheduledTestRunnerService {
 	svc := NewScheduledTestRunnerService(planRepo, scheduledSvc, accountTestSvc, rateLimitSvc, cfg)
 	svc.SetChannelMonitorPoolDependencies(accountRepo, settingRepo, openAIGateway)
+	svc.SetProbeModelPricing(billingService)
 	svc.Start()
 	return svc
 }
@@ -1095,11 +1097,13 @@ func ProvideChannelMonitorService(
 	settingService *SettingService,
 	accountRepo AccountRepository,
 	settingRepo SettingRepository,
+	billingService *BillingService,
 ) *ChannelMonitorService {
 	svc := NewChannelMonitorService(repo, encryptor)
 	svc.SetRuntimeReader(settingService)
 	svc.SetAutoModelDependencies(accountRepo, settingRepo)
 	svc.SetChannelMonitorPoolAccountRepository(accountRepo)
+	svc.SetProbeModelPricing(billingService)
 	return svc
 }
 

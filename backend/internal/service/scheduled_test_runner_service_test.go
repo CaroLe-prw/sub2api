@@ -249,7 +249,7 @@ func TestChannelMonitorAccountWhitelistNarrowsGlobalPolicy(t *testing.T) {
 	require.Equal(t, []string{"gpt-5.6-sol"}, models)
 }
 
-func TestChannelMonitorProbeModelsChooseOneRepresentativePerProvider(t *testing.T) {
+func TestChannelMonitorProbeModelsFallbackWithoutPricingPerProvider(t *testing.T) {
 	tests := []struct {
 		name       string
 		account    *Account
@@ -292,7 +292,7 @@ func TestChannelMonitorProbeModelsChooseOneRepresentativePerProvider(t *testing.
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, selectChannelMonitorProbeModels(tt.account, tt.candidates, nil))
+			require.Equal(t, tt.want, selectChannelMonitorProbeModels(tt.account, tt.candidates, nil, nil))
 		})
 	}
 }
@@ -306,6 +306,7 @@ func TestChannelMonitorProbeModelsPreserveExplicitAccountModels(t *testing.T) {
 		account,
 		[]string{"gpt-5.4", "gpt-5.4-mini", "gpt-image-1"},
 		[]string{"gpt-5.4", "gpt-image-1"},
+		nil,
 	)
 
 	require.Equal(t, []string{"gpt-5.4", "gpt-image-1"}, selected)
@@ -321,7 +322,7 @@ func TestChannelMonitorProbeModelsChooseOnePerAntigravityProtocolFamily(t *testi
 
 	selected := selectChannelMonitorProbeModels(account, []string{
 		"claude-sonnet", "claude-opus", "gemini-flash", "gemini-pro",
-	}, nil)
+	}, nil, nil)
 
 	require.Equal(t, []string{"claude-sonnet", "gemini-flash"}, selected)
 }
