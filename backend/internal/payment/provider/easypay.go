@@ -363,20 +363,27 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 		}
 	}
 	status := payment.ProviderStatusPending
+	statusKnown := false
 	if resp.TradeStatus != nil {
 		if *resp.TradeStatus == tradeStatusSuccess {
 			status = payment.ProviderStatusPaid
+			statusKnown = true
 		}
 	} else if resp.Data.TradeStatus != nil {
 		if *resp.Data.TradeStatus == tradeStatusSuccess {
 			status = payment.ProviderStatusPaid
+			statusKnown = true
 		}
 	} else if resp.Status != nil {
+		statusKnown = *resp.Status == 0 || *resp.Status == easypayStatusPaid
 		if *resp.Status == easypayStatusPaid {
 			status = payment.ProviderStatusPaid
 		}
-	} else if resp.Data.Status != nil && *resp.Data.Status == easypayStatusPaid {
-		status = payment.ProviderStatusPaid
+	} else if resp.Data.Status != nil {
+		statusKnown = *resp.Data.Status == 0 || *resp.Data.Status == easypayStatusPaid
+		if *resp.Data.Status == easypayStatusPaid {
+			status = payment.ProviderStatusPaid
+		}
 	}
 
 	money := ""
@@ -395,11 +402,18 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 	}
 
 	amount, _ := strconv.ParseFloat(money, 64)
+	metadata := e.MerchantIdentityMetadata()
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+	// Reconciliation may leave unknown states pending, but a security audit
+	// must distinguish an explicit unpaid response from an unrecognized state.
+	metadata["payment_status_known"] = strconv.FormatBool(statusKnown)
 	return &payment.QueryOrderResponse{
 		TradeNo:  responseTradeNo,
 		Status:   status,
 		Amount:   amount,
-		Metadata: e.MerchantIdentityMetadata(),
+		Metadata: metadata,
 	}, nil
 }
 

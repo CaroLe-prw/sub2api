@@ -11,6 +11,7 @@ import Select from '@/components/common/Select.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import { useAppStore } from '@/stores'
 import OpsTelegramNotificationFields from '@/views/admin/ops/components/OpsTelegramNotificationFields.vue'
+import PaymentVerificationSettings from './PaymentVerificationSettings.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -18,6 +19,7 @@ const loading = ref(true)
 const saving = ref(false)
 const testingID = ref('')
 const templates = ref<OpsTelegramNotificationDraft[]>([])
+const savedTemplates = ref<OpsTelegramNotificationDraft[]>([])
 const opsAlertTemplateID = ref('')
 const upstreamRateChangeEnabled = ref(false)
 const upstreamRateChangeTemplateID = ref('')
@@ -100,6 +102,7 @@ async function load(): Promise<void> {
   try {
     const config = await opsAPI.getTelegramNotificationConfig()
     templates.value = config.templates.map((template) => ({ ...template, bot_token: '' }))
+    savedTemplates.value = templates.value.map(template => ({ ...template }))
     opsAlertTemplateID.value = config.ops_alert_template_id
     upstreamRateChangeEnabled.value = config.upstream_rate_change_enabled
     upstreamRateChangeTemplateID.value = config.upstream_rate_change_template_id
@@ -163,6 +166,7 @@ async function save(): Promise<void> {
   try {
     const config = await opsAPI.updateTelegramNotificationConfig(payload)
     templates.value = config.templates.map((template) => ({ ...template, bot_token: '' }))
+    savedTemplates.value = templates.value.map(template => ({ ...template }))
     opsAlertTemplateID.value = config.ops_alert_template_id
     upstreamRateChangeEnabled.value = config.upstream_rate_change_enabled
     upstreamRateChangeTemplateID.value = config.upstream_rate_change_template_id
@@ -253,6 +257,7 @@ onMounted(load)
           {{ saving ? t('common.saving') : t('common.save') }}
         </button>
       </div>
+      <PaymentVerificationSettings :templates="savedTemplates" />
     </template>
   </div>
 </template>

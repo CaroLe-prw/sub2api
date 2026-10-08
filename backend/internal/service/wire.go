@@ -1040,6 +1040,7 @@ var ProviderSet = wire.NewSet(
 	ProvidePaymentConfigService,
 	ProvidePaymentService,
 	ProvidePaymentOrderExpiryService,
+	ProvidePaymentVerificationService,
 	ProvideBalanceNotifyService,
 	ProvideChannelMonitorService,
 	ProvideChannelMonitorRunner,
@@ -1151,4 +1152,11 @@ func ProvideClaudeResetCreditService(accounts AccountRepository, tokens *ClaudeT
 	s := NewClaudeResetCreditService(accounts, tokens, proxies, settings)
 	s.ConfigureRedemption(idem, locks)
 	return s
+}
+
+func ProvidePaymentVerificationService(repo PaymentVerificationRepository, payments *PaymentService, ops *OpsService, authCache APIKeyAuthCacheInvalidator, lockCache LeaderLockCache, db *sql.DB) *PaymentVerificationService {
+	svc := NewPaymentVerificationService(repo, payments, ops, authCache)
+	svc.SetLeaderLock(lockCache, db)
+	svc.Start()
+	return svc
 }

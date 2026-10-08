@@ -217,3 +217,28 @@ func TestEasyPayQueryOrderStatusMapping(t *testing.T) {
 		})
 	}
 }
+
+func TestEasyPayQueryDistinguishesExplicitUnpaidFromUnknownState(t *testing.T) {
+	for _, tc := range []struct{ name, body, known string }{
+		{"unpaid", `{"code":1,"status":0}`, "true"},
+		{"string unpaid", `{"code":1,"status":"0"}`, "true"},
+		{"paid", `{"code":1,"status":"1"}`, "true"},
+		{"nested unpaid", `{"code":1,"data":{"status":"0"}}`, "true"},
+		{"missing status", `{"code":1}`, "false"},
+		{"unknown status", `{"code":1,"status":2}`, "false"},
+		{"explicit unknown overrides numeric", `{"code":1,"trade_status":"UNKNOWN","status":1}`, "false"},
+		{"success", `{"code":1,"trade_status":"TRADE_SUCCESS"}`, "true"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(tc.body)) }))
+			defer server.Close()
+			result, err := newTestEasyPay(t, server.URL).QueryOrder(context.Background(), "test-order")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Metadata["payment_status_known"] != tc.known {
+				t.Fatalf("known = %q, want %q", result.Metadata["payment_status_known"], tc.known)
+			}
+		})
+	}
+}
