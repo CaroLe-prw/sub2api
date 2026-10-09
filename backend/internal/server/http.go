@@ -136,13 +136,13 @@ func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
 	// 根据配置决定是否启用 H2C
 	if cfg.Server.H2C.Enabled {
 		h2cConfig := cfg.Server.H2C
-		if err := http2.ConfigureServer(server, &http2.Server{
-			MaxConcurrentStreams:         h2cConfig.MaxConcurrentStreams,
-			IdleTimeout:                  time.Duration(h2cConfig.IdleTimeout) * time.Second,
-			MaxReadFrameSize:             uint32(h2cConfig.MaxReadFrameSize),
-			MaxUploadBufferPerConnection: int32(h2cConfig.MaxUploadBufferPerConnection),
-			MaxUploadBufferPerStream:     int32(h2cConfig.MaxUploadBufferPerStream),
-		}); err != nil {
+		server.HTTP2 = &http.HTTP2Config{
+			MaxConcurrentStreams:          int(h2cConfig.MaxConcurrentStreams),
+			MaxReadFrameSize:              h2cConfig.MaxReadFrameSize,
+			MaxReceiveBufferPerConnection: h2cConfig.MaxUploadBufferPerConnection,
+			MaxReceiveBufferPerStream:     h2cConfig.MaxUploadBufferPerStream,
+		}
+		if err := configureH2CIdleTimeout(server, time.Duration(h2cConfig.IdleTimeout)*time.Second); err != nil {
 			log.Printf("Failed to configure HTTP/2 Cleartext (h2c): %v", err)
 		} else {
 			protocols := new(http.Protocols)
@@ -161,6 +161,15 @@ func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
 
 	server.Handler = httpHandler
 	return server
+}
+
+// configureH2CIdleTimeout preserves separate HTTP/1 and H2C idle deadlines.
+// http.HTTP2Config has no IdleTimeout; using http.Server.IdleTimeout for both
+// would overwrite the independently configured HTTP/1 timeout.
+//
+//nolint:staticcheck // SA1019: retain the x/net adapter only for the independent H2C idle timeout.
+func configureH2CIdleTimeout(server *http.Server, idleTimeout time.Duration) error {
+	return http2.ConfigureServer(server, &http2.Server{IdleTimeout: idleTimeout})
 }
 
 func derefInt64(p *int64) int64 {

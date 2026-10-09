@@ -438,7 +438,11 @@ func (s *OpenAISchedulerObservabilityStore) RecordSelection(
 			stickyID = req.StickyPreviousAccountID
 		}
 		trace.appendAttemptLocked("sticky_escape", stickyID, schedulerCandidateName(decision.Candidates, stickyID), now, 0, decision.StickyEscapeReason)
-		markSchedulerCandidateFailure(trace.Candidates, stickyID, decision.StickyEscapeReason, false)
+		// Latency-only escape keeps this account as a fallback; preserve its
+		// deprioritized state until it is actually selected or attempted.
+		if decision.StickyEscapeReason != "ttft" {
+			markSchedulerCandidateFailure(trace.Candidates, stickyID, decision.StickyEscapeReason, false)
+		}
 	}
 
 	if selectionErr != nil || selection == nil || selection.Account == nil {

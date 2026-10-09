@@ -108,6 +108,9 @@ type OpenAIAccountScheduleRequest struct {
 	RequireCompact bool
 	ExcludedIDs    map[int64]struct{}
 	observation    *openAIAccountScheduleObservation
+	// Retry latency-only sticky candidates after every ordinary pool has had
+	// a chance to acquire, including lower subscription/capability tiers.
+	allowStickyTTFTFallback bool
 }
 
 type openAIGroupSchedulerPolicyContextKey struct{}
@@ -141,10 +144,10 @@ type OpenAIAccountScheduleDecision struct {
 }
 
 type openAIAccountScheduleObservation struct {
-	stickyEscapeReason     string
-	stickyEscapeAccountIDs map[int64]struct{}
-	candidates             []OpenAISchedulerObservabilityCandidate
-	candidateReasons       map[int64]string
+	stickyEscapeReason  string
+	stickyEscapeReasons map[int64]string
+	candidates          []OpenAISchedulerObservabilityCandidate
+	candidateReasons    map[int64]string
 }
 
 type OpenAIAccountSchedulerMetricsSnapshot struct {
@@ -940,6 +943,16 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	}
 
 	selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, req)
+	if (selection == nil || !selection.Acquired) &&
+		(err == nil || errors.Is(err, ErrNoAvailableAccounts) || errors.Is(err, ErrNoAvailableCompactAccounts)) &&
+		observation.hasStickyTTFTFallback() {
+		req.allowStickyTTFTFallback = true
+		fallback, fallbackCount, fallbackTopK, fallbackSkew, fallbackErr := s.selectByLoadBalance(ctx, req)
+		// Keep an existing ordinary wait plan unless the fallback can start now.
+		if selection == nil || (fallbackErr == nil && fallback != nil && fallback.Acquired) {
+			selection, candidateCount, topK, loadSkew, err = fallback, fallbackCount, fallbackTopK, fallbackSkew, fallbackErr
+		}
+	}
 	decision.Layer = openAIAccountScheduleLayerLoadBalance
 	decision.CandidateCount = candidateCount
 	decision.TopK = topK
@@ -1134,30 +1147,33 @@ func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int6
 	if s.stats.consecutiveErrorCount(accountID) >= openAIStickyEscapeConsecutiveErrors {
 		return "consecutive_errors", errorRate, ttft, true
 	}
-	if hasTTFT && ttft > cfg.ttftMs {
-		return "ttft", errorRate, ttft, true
-	}
 	if errorRate > cfg.errorRate {
 		return "error_rate", errorRate, ttft, true
+	}
+	// Only latency is eligible for a last-resort fallback. Do not let a slow
+	// measurement hide an error-rate exclusion for the same account.
+	if hasTTFT && ttft > cfg.ttftMs {
+		return "ttft", errorRate, ttft, true
 	}
 	return "", errorRate, ttft, false
 }
 
 type openAIAccountCandidateScore struct {
-	account           *Account
-	loadInfo          *AccountLoadInfo
-	loadKnown         bool
-	excluded          bool
-	primaryScore      float64
-	baseScore         float64
-	score             float64
-	priority          int
-	errorRate         float64
-	ttft              float64
-	hasTTFT           bool
-	slowDeprioritized bool
-	slowProbeDue      bool
-	slowRecoveryProbe bool
+	account            *Account
+	loadInfo           *AccountLoadInfo
+	loadKnown          bool
+	excluded           bool
+	primaryScore       float64
+	baseScore          float64
+	score              float64
+	priority           int
+	errorRate          float64
+	ttft               float64
+	hasTTFT            bool
+	slowDeprioritized  bool
+	slowProbeDue       bool
+	slowRecoveryProbe  bool
+	stickyTTFTFallback bool
 }
 
 func (o *openAIAccountScheduleObservation) recordStickyEscape(accountID int64, reason string) {
@@ -1168,10 +1184,10 @@ func (o *openAIAccountScheduleObservation) recordStickyEscape(accountID int64, r
 		o.stickyEscapeReason = reason
 	}
 	if accountID > 0 && reason != openAISlowFirstOutputReason {
-		if o.stickyEscapeAccountIDs == nil {
-			o.stickyEscapeAccountIDs = make(map[int64]struct{})
+		if o.stickyEscapeReasons == nil {
+			o.stickyEscapeReasons = make(map[int64]string)
 		}
-		o.stickyEscapeAccountIDs[accountID] = struct{}{}
+		o.stickyEscapeReasons[accountID] = reason
 	}
 	o.recordCandidateReason(accountID, reason)
 }
@@ -1180,8 +1196,24 @@ func (o *openAIAccountScheduleObservation) isStickyEscapeAccount(accountID int64
 	if o == nil || accountID <= 0 {
 		return false
 	}
-	_, ok := o.stickyEscapeAccountIDs[accountID]
-	return ok
+	reason := o.stickyEscapeReasons[accountID]
+	return reason != "" && reason != "ttft"
+}
+
+func (o *openAIAccountScheduleObservation) isStickyTTFTFallback(accountID int64) bool {
+	return o != nil && o.stickyEscapeReasons[accountID] == "ttft"
+}
+
+func (o *openAIAccountScheduleObservation) hasStickyTTFTFallback() bool {
+	if o == nil {
+		return false
+	}
+	for _, reason := range o.stickyEscapeReasons {
+		if reason == "ttft" {
+			return true
+		}
+	}
+	return false
 }
 
 func (o *openAIAccountScheduleObservation) recordCandidateReason(accountID int64, reason string) {
@@ -1211,7 +1243,7 @@ func (o *openAIAccountScheduleObservation) captureCandidates(candidates []openAI
 			continue
 		}
 		state := "eligible"
-		if candidate.slowDeprioritized {
+		if candidate.slowDeprioritized || candidate.stickyTTFTFallback {
 			state = "deprioritized"
 		}
 		if candidate.excluded {
@@ -1590,17 +1622,18 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			)
 		}
 		allCandidates = append(allCandidates, openAIAccountCandidateScore{
-			account:   account,
-			loadInfo:  loadInfo,
-			loadKnown: loadKnown,
-			excluded:  req.observation.isStickyEscapeAccount(account.ID),
-			errorRate: errorRate,
-			ttft:      ttft,
-			hasTTFT:   hasTTFT,
+			account:            account,
+			loadInfo:           loadInfo,
+			loadKnown:          loadKnown,
+			excluded:           req.observation.isStickyEscapeAccount(account.ID),
+			stickyTTFTFallback: req.observation.isStickyTTFTFallback(account.ID),
+			errorRate:          errorRate,
+			ttft:               ttft,
+			hasTTFT:            hasTTFT,
 		})
 		item := &allCandidates[len(allCandidates)-1]
 		item.slowDeprioritized, item.slowProbeDue = s.slowAccountStatus(account, req)
-		if item.slowDeprioritized {
+		if item.slowDeprioritized && !item.stickyTTFTFallback {
 			req.observation.recordCandidateReason(account.ID, openAISlowFirstOutputReason)
 		}
 	}
@@ -1652,9 +1685,12 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		candidates:                candidates,
 		staleSnapshotCompactRetry: staleSnapshotCompactRetry,
 		candidateCount:            len(candidates),
+		// The avoided account may be in a different subscription pool. Exhaust
+		// this pool's alternatives before making that account eligible again.
+		includeOverflowFallback: req.observation.hasStickyTTFTFallback(),
 	}
 	for _, candidate := range candidates {
-		if candidate.slowDeprioritized {
+		if candidate.slowDeprioritized || candidate.stickyTTFTFallback {
 			plan.includeOverflowFallback = true
 			break
 		}
@@ -1751,7 +1787,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			item := &candidates[i]
 			previousMatch := req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID
 			sessionMatch := req.StickyAccountID > 0 && item.account.ID == req.StickyAccountID
-			if item.excluded || item.slowDeprioritized || (!previousMatch && !sessionMatch) {
+			if item.excluded || item.slowDeprioritized || item.stickyTTFTFallback || (!previousMatch && !sessionMatch) {
 				continue
 			}
 			if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(item.account.ID, escapeCfg); shouldEscape {
@@ -1762,7 +1798,12 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 					"ttft", ttft,
 					"weighted", true,
 				)
-				item.excluded = true
+				if reason == "ttft" {
+					item.stickyTTFTFallback = true
+					plan.includeOverflowFallback = true
+				} else {
+					item.excluded = true
+				}
 				req.observation.recordStickyEscape(item.account.ID, reason)
 			}
 		}
@@ -1818,7 +1859,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	if req.StickyWeighted {
 		for i := range candidates {
 			item := &candidates[i]
-			if item.excluded {
+			if item.excluded || item.stickyTTFTFallback {
 				continue
 			}
 			previousMatch := req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID
@@ -1868,7 +1909,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	selectableCandidates := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
 		selectable := make([]openAIAccountCandidateScore, 0, len(pool))
 		for _, candidate := range pool {
-			if !candidate.excluded {
+			if !candidate.excluded && (req.allowStickyTTFTFallback || !candidate.stickyTTFTFallback) {
 				selectable = append(selectable, candidate)
 			}
 		}
@@ -1907,9 +1948,11 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		return append(primary, overflow...)
 	}
 	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
-		var healthy, slow []openAIAccountCandidateScore
+		var healthy, slow, stickyTTFTFallback []openAIAccountCandidateScore
 		for _, candidate := range selectableCandidates(pool) {
-			if candidate.slowDeprioritized {
+			if candidate.stickyTTFTFallback {
+				stickyTTFTFallback = append(stickyTTFTFallback, candidate)
+			} else if candidate.slowDeprioritized {
 				slow = append(slow, candidate)
 			} else {
 				healthy = append(healthy, candidate)
@@ -1928,7 +1971,11 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 				}
 			}
 		}
-		return append(order, fallback...)
+		order = append(order, fallback...)
+		// A slow sticky account remains usable when alternatives cannot acquire
+		// a slot. Keep it after all alternatives, including those outside TopK,
+		// and run it through the normal eligibility, DB and concurrency checks.
+		return append(order, rankSelectionPool(stickyTTFTFallback)...)
 	}
 
 	if req.RequireCompact {
