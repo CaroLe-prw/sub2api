@@ -13,6 +13,7 @@ import (
 type scheduledTestAccountTesterStub struct {
 	ordinaryCalls int
 	probeCalls    int
+	probeResult   *ScheduledTestResult
 }
 
 func (s *scheduledTestAccountTesterStub) RunTestBackground(_ context.Context, _ int64, _ string) (*ScheduledTestResult, error) {
@@ -22,7 +23,40 @@ func (s *scheduledTestAccountTesterStub) RunTestBackground(_ context.Context, _ 
 
 func (s *scheduledTestAccountTesterStub) RunChannelMonitorProbeBackground(_ context.Context, _ int64, _ string) (*ScheduledTestResult, error) {
 	s.probeCalls++
+	if s.probeResult != nil {
+		return s.probeResult, nil
+	}
 	return scheduledTestRunnerResult(), nil
+}
+
+func TestScheduledTestRunnerReportsActualProbeModel(t *testing.T) {
+	now := time.Now()
+	ttft := int64(100)
+	for _, model := range []string{"gpt-5.6-sol", ""} {
+		t.Run(model, func(t *testing.T) {
+			feedback := &OpenAIGatewayService{}
+			tester := &scheduledTestAccountTesterStub{probeResult: &ScheduledTestResult{
+				UpstreamModel: model, Status: "success", TTFTMs: &ttft, StartedAt: now, FinishedAt: now,
+			}}
+			planRepo := &scheduledTestRunnerPlanRepoStub{}
+			runner := &ScheduledTestRunnerService{
+				planRepo: planRepo, accountTestSvc: tester, probeReporter: feedback,
+				scheduledSvc: NewScheduledTestService(planRepo, &scheduledTestRunnerResultRepoStub{}),
+			}
+			runner.runOnePlan(context.Background(), &ScheduledTestPlan{ID: 1, AccountID: 42, ModelID: "public-alias", CronExpression: "* * * * *", ManagedBy: ScheduledTestManagedBySchedulerProbe})
+			want := model
+			if want == "" {
+				want = "public-alias"
+			}
+			_, got, measured := feedback.openaiAccountStats.snapshotForRequest(42, want)
+			require.True(t, measured)
+			require.Equal(t, float64(ttft), got)
+			if model != "" {
+				_, _, aliasMeasured := feedback.openaiAccountStats.snapshotForRequest(42, "public-alias")
+				require.False(t, aliasMeasured)
+			}
+		})
+	}
 }
 
 func scheduledTestRunnerResult() *ScheduledTestResult {

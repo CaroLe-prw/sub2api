@@ -24,8 +24,35 @@ func (r *openAIAPIKeyHealthSettingRepo) GetValue(context.Context, string) (strin
 
 type openAIAPIKeyHealthAccountRepo struct {
 	AccountRepository
-	setCalls int
-	reason   string
+	setCalls   int
+	reason     string
+	modelCalls []string
+}
+
+func (r *openAIAPIKeyHealthAccountRepo) SetModelRateLimit(_ context.Context, _ int64, model string, _ time.Time, reason ...string) error {
+	r.modelCalls = append(r.modelCalls, model)
+	if len(reason) > 0 {
+		r.reason = reason[0]
+	}
+	return nil
+}
+
+func TestOpenAIAPIKeyHealthBreakerDoesNotDisableOtherModels(t *testing.T) {
+	encoded, err := json.Marshal(OpenAIAPIKeyHealthBreakerSettings{Enabled: true, WindowMinutes: 1, FailureThreshold: 3, CooldownMinutes: 5})
+	require.NoError(t, err)
+	repo := &openAIAPIKeyHealthAccountRepo{}
+	cache := &openAIAPIKeyHealthCacheStub{tripped: true}
+	limits := NewRateLimitService(repo, nil, &config.Config{}, nil, cache)
+	limits.SetSettingService(NewSettingService(&openAIAPIKeyHealthSettingRepo{value: string(encoded)}, &config.Config{}))
+	limits.SetOpenAIAPIKeyHealthCache(cache)
+	account := openAIHealthPoolAccount()
+	account.Status, account.Schedulable = StatusActive, true
+	gateway := &OpenAIGatewayService{rateLimitService: limits}
+	require.True(t, gateway.ReportOpenAIAccountScheduleResult(account, "gpt-6-astra", false, nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway}))
+	require.Zero(t, repo.setCalls)
+	require.Equal(t, []string{"gpt-6-astra"}, repo.modelCalls)
+	require.True(t, account.IsSchedulableForModel("gpt-5.6-sol"))
+	require.False(t, account.IsSchedulableForModel("gpt-6-astra"))
 }
 
 func (r *openAIAPIKeyHealthAccountRepo) SetTempUnschedulable(_ context.Context, _ int64, _ time.Time, reason string) error {
@@ -41,7 +68,7 @@ type openAIAPIKeyHealthCacheStub struct {
 	tripped     bool
 }
 
-func (c *openAIAPIKeyHealthCacheStub) RecordOpenAIAPIKeyHealthFailure(context.Context, int64, int, int) (int64, bool, error) {
+func (c *openAIAPIKeyHealthCacheStub) RecordOpenAIAPIKeyHealthFailure(context.Context, int64, string, int, int) (int64, bool, error) {
 	c.recordCalls++
 	return 3, c.tripped, nil
 }
@@ -97,11 +124,11 @@ func TestOpenAIAPIKeyHealthBreakerDefaultDisabled(t *testing.T) {
 	svc.SetSettingService(settings)
 	svc.SetOpenAIAPIKeyHealthCache(cache)
 
-	require.False(t, svc.ObserveOpenAIAPIKeyHealthFailure(context.Background(), openAIHealthPoolAccount(), &UpstreamFailoverError{StatusCode: http.StatusBadGateway}))
+	require.False(t, svc.ObserveOpenAIAPIKeyHealthFailure(context.Background(), openAIHealthPoolAccount(), "gpt-6-astra", &UpstreamFailoverError{StatusCode: http.StatusBadGateway}))
 	require.Zero(t, cache.recordCalls)
 }
 
-func TestOpenAIAPIKeyHealthBreakerTripsPersistedAndRuntimeState(t *testing.T) {
+func TestOpenAIAPIKeyHealthBreakerTripsOnlyModelState(t *testing.T) {
 	encoded, err := json.Marshal(OpenAIAPIKeyHealthBreakerSettings{Enabled: true, WindowMinutes: 1, FailureThreshold: 3, CooldownMinutes: 5})
 	require.NoError(t, err)
 	settings := NewSettingService(&openAIAPIKeyHealthSettingRepo{value: string(encoded)}, &config.Config{})
@@ -114,12 +141,14 @@ func TestOpenAIAPIKeyHealthBreakerTripsPersistedAndRuntimeState(t *testing.T) {
 	svc.SetAccountRuntimeBlocker(blocker)
 	account := openAIHealthPoolAccount()
 
-	require.True(t, svc.ObserveOpenAIAPIKeyHealthFailure(context.Background(), account, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(`{"error":"upstream"}`)}))
+	require.True(t, svc.ObserveOpenAIAPIKeyHealthFailure(context.Background(), account, "gpt-6-astra", &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(`{"error":"upstream"}`)}))
 	require.Equal(t, 1, cache.recordCalls)
-	require.Equal(t, 1, cache.setCalls)
-	require.Equal(t, 1, repo.setCalls)
-	require.Equal(t, 1, blocker.calls)
-	require.NotNil(t, account.TempUnschedulableUntil)
+	require.Zero(t, cache.setCalls)
+	require.Zero(t, repo.setCalls)
+	require.Equal(t, []string{"gpt-6-astra"}, repo.modelCalls)
+	require.Zero(t, blocker.calls)
+	require.Nil(t, account.TempUnschedulableUntil)
+	require.True(t, account.isRateLimitActiveForKey("gpt-6-astra"))
 	require.Contains(t, repo.reason, openAIAPIKeyHealthBreakerReason)
 }
 

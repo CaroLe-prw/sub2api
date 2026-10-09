@@ -28,6 +28,8 @@ type grokQuotaAccountRepo struct {
 	updates               map[int64]map[string]any
 	updateCalls           int
 	rateLimitedCalls      int
+	modelLimitCalls       int
+	modelLimits           map[string]time.Time
 	lastRateLimitedID     int64
 	lastRateLimitResetAt  time.Time
 	tempUnschedCalls      int
@@ -38,6 +40,15 @@ type grokQuotaAccountRepo struct {
 	recoveryObservedAt    time.Time
 	recoveryObservedReset time.Time
 	recoveryClearResult   bool
+}
+
+func (r *grokQuotaAccountRepo) SetModelRateLimit(_ context.Context, _ int64, model string, until time.Time, _ ...string) error {
+	r.modelLimitCalls++
+	if r.modelLimits == nil {
+		r.modelLimits = map[string]time.Time{}
+	}
+	r.modelLimits[model] = until
+	return nil
 }
 
 func (r *grokQuotaAccountRepo) UpdateExtra(_ context.Context, id int64, updates map[string]any) error {

@@ -258,8 +258,12 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthroughAttempt(
 		}
 	}
 	if account != nil && account.IsOpenAI() {
-		responsesLite := isOpenAIResponsesLiteRequestedForPayload(c, account, body, reqModel)
-		normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(body, account, responsesLite)
+		responsesLite := !isOpenAIServerSideCompactionRequest(c, body) &&
+			isOpenAIResponsesLiteRequestedForPayload(c, account, body, reqModel)
+		normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesCompatibilityBodyWithOptions(body, account, openAIResponsesCompatibilityOptions{
+			ResponsesLite: responsesLite,
+			Compact:       isOpenAIResponsesCompactPath(c),
+		})
 		if normalizeErr != nil {
 			return nil, fmt.Errorf("normalize passthrough Responses compatibility: %w", normalizeErr)
 		}
@@ -1053,7 +1057,7 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 	})
 	return s.newOpenAIAccountFailoverError(
 		account,
-		resp.StatusCode,
+		canonicalModel, resp.StatusCode,
 		resp.Header,
 		body,
 		upstreamMsg,
@@ -2209,7 +2213,7 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverErrorWithModel(
 		classificationHeaders = nil
 	}
 	failoverErr := s.newOpenAIAccountFailoverErrorWithClassificationHeaders(
-		account, statusCode, headers, classificationHeaders, payload, message, shouldDisable,
+		account, canonicalModel, statusCode, headers, classificationHeaders, payload, message, shouldDisable,
 		retryableOnSameAccount, retryableIfNoOtherAccount,
 	)
 	if !failoverErr.IsCredentialFailure() && !failoverErr.RequestScopedTransient {

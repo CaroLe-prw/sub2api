@@ -49,10 +49,12 @@ func TestResolveOpenAIProfitControlGate(t *testing.T) {
 		require.Nil(t, svc.resolveOpenAIProfitControlGate(context.Background(), &groupID))
 	})
 
-	t.Run("disabled group yields no gate", func(t *testing.T) {
+	t.Run("disabled margin keeps default group cost ceiling", func(t *testing.T) {
 		group := profitControlTestGroup(groupID, 0.3, 0)
 		group.ProfitControlEnabled = false
-		require.Nil(t, svc.resolveOpenAIProfitControlGate(profitControlTestCtx(group), &groupID))
+		gate := svc.resolveOpenAIProfitControlGate(profitControlTestCtx(group), &groupID)
+		require.NotNil(t, gate)
+		require.InDelta(t, group.RateMultiplier, gate.threshold, 1e-12)
 	})
 
 	t.Run("non openai or grok platform yields no gate even if enabled", func(t *testing.T) {

@@ -3593,7 +3593,14 @@ func TestOpenAIWSHTTPBridgeSSEErrorSideEffectsRunOncePerPlatform(t *testing.T) {
 			require.ErrorAs(t, err, &failoverErr)
 			require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
 			require.Zero(t, writes)
-			require.Equal(t, 1, repo.rateLimitedCalls)
+			if platform == PlatformOpenAI {
+				require.Zero(t, repo.rateLimitedCalls)
+				require.Equal(t, 1, repo.modelLimitCalls)
+				require.Contains(t, repo.modelLimits, gjson.GetBytes(upstream.lastBody, "model").String())
+				require.NotContains(t, repo.modelLimits, "gpt-6-astra")
+			} else {
+				require.Equal(t, 1, repo.rateLimitedCalls)
+			}
 		})
 	}
 }

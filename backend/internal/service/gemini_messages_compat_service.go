@@ -419,12 +419,10 @@ func (s *GeminiMessagesCompatService) isBetterGeminiAccountForModel(candidate, c
 		if stats != nil {
 			candidateError, candidateTTFT, candidateHasTTFT := stats.snapshotForRequest(
 				candidate.ID,
-				requestedModel,
 				candidate.GetMappedModel(requestedModel),
 			)
 			currentError, currentTTFT, currentHasTTFT := stats.snapshotForRequest(
 				current.ID,
-				requestedModel,
 				current.GetMappedModel(requestedModel),
 			)
 			if candidateError != currentError {

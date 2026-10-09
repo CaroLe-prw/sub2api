@@ -170,7 +170,7 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 			}
 			logger.LegacyPrintf("service.gateway", "[Bedrock] Stream data interval timeout: account=%d model=%s interval=%s", account.ID, model, streamInterval)
 			if s.rateLimitService != nil {
-				s.rateLimitService.HandleStreamTimeout(ctx, account, model)
+				s.rateLimitService.HandleStreamTimeout(ctx, account, accountFailureModel(c, account, model))
 			}
 			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
 		}

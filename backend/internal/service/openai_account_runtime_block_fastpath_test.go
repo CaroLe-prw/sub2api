@@ -689,11 +689,12 @@ func TestOpenAIOAuth429_MatchingModelTempRuleAvoidsAccountRuntimeBlock(t *testin
 	require.Equal(t, "gpt-5.4", repo.modelRateLimitCalls[0].scope)
 }
 
-func TestOpenAIOAuth429_NonmatchingModelTempRuleKeepsAccountRuntimeBlock(t *testing.T) {
+func TestOpenAIOAuth429_NonmatchingModelTempRuleKeepsModelRetryWindow(t *testing.T) {
 	repo := &modelNotFoundAccountRepoStub{}
 	svc := &OpenAIGatewayService{
 		rateLimitService: &RateLimitService{accountRepo: repo},
 	}
+	svc.rateLimitService.SetAccountRuntimeBlocker(svc)
 	account := openAIModelNotFoundTempAccount()
 	account.Type = AccountTypeOAuth
 	account.Credentials["temp_unschedulable_rules"] = []any{
@@ -715,7 +716,7 @@ func TestOpenAIOAuth429_NonmatchingModelTempRuleKeepsAccountRuntimeBlock(t *test
 
 	require.False(t, shouldDisable)
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
-	require.True(t, svc.shouldRetryOpenAIOAuth429OnSameAccount(account, http.StatusTooManyRequests, false))
+	require.True(t, svc.shouldRetryOpenAIOAuth429OnSameAccountWithResponse(account, http.StatusTooManyRequests, false, nil, nil, "gpt-5.4"))
 	require.Empty(t, repo.modelRateLimitCalls)
 }
 

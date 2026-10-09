@@ -362,11 +362,11 @@ func TestProfitControl_LegacyEngineDefersStickyBindingUnderGate(t *testing.T) {
 		}
 	})
 
-	t.Run("ungated selection keeps official eager binding", func(t *testing.T) {
+	t.Run("explicitly suppressed selection keeps eager binding", func(t *testing.T) {
 		svc, cache := newSvc(map[string]int64{})
 		group := profitControlTestGroup(groupID, 0.5, 0)
 		group.ProfitControlEnabled = false
-		selection, _, err := svc.SelectAccountWithScheduler(profitControlTestCtx(group), &groupID, "", sessionHash, "gpt-test", nil, OpenAIUpstreamTransportAny, false)
+		selection, _, err := svc.SelectAccountWithScheduler(WithOpenAIProfitControlSuppressed(profitControlTestCtx(group)), &groupID, "", sessionHash, "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 		require.NoError(t, err)
 		require.NotNil(t, selection)
 		require.NotEmpty(t, cache.sessionBindings, "无门时 legacy 选号保持官方 eager 绑定")

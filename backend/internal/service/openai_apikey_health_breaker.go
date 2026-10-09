@@ -50,8 +50,12 @@ func classifyOpenAIAPIKeyHealthFailure(err error) (int, []byte, bool) {
 	return 0, nil, false
 }
 
-func (s *RateLimitService) ObserveOpenAIAPIKeyHealthFailure(ctx context.Context, account *Account, upstreamErr error) bool {
+func (s *RateLimitService) ObserveOpenAIAPIKeyHealthFailure(ctx context.Context, account *Account, model string, upstreamErr error) bool {
 	if s == nil || s.openAIAPIKeyHealth == nil || s.settingService == nil || s.accountRepo == nil || !isOpenAIAPIKeyHealthBreakerAccount(account) {
+		return false
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
 		return false
 	}
 	statusCode, responseBody, eligible := classifyOpenAIAPIKeyHealthFailure(upstreamErr)
@@ -67,7 +71,7 @@ func (s *RateLimitService) ObserveOpenAIAPIKeyHealthFailure(ctx context.Context,
 		return false
 	}
 
-	count, tripped, err := s.openAIAPIKeyHealth.RecordOpenAIAPIKeyHealthFailure(ctx, account.ID, settings.WindowMinutes, settings.FailureThreshold)
+	count, tripped, err := s.openAIAPIKeyHealth.RecordOpenAIAPIKeyHealthFailure(ctx, account.ID, model, settings.WindowMinutes, settings.FailureThreshold)
 	if err != nil {
 		logger.L().Warn("openai.apikey_health_breaker_record_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 		return false
@@ -97,23 +101,16 @@ func (s *RateLimitService) ObserveOpenAIAPIKeyHealthFailure(ctx context.Context,
 
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
-	if err := s.accountRepo.SetTempUnschedulable(persistCtx, account.ID, until, reason); err != nil {
+	if err := s.accountRepo.SetModelRateLimit(persistCtx, account.ID, model, until, reason); err != nil {
 		logger.L().Warn("openai.apikey_health_breaker_persist_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 		return false
 	}
 
-	if account.TempUnschedulableUntil == nil || account.TempUnschedulableUntil.Before(until) {
-		account.TempUnschedulableUntil = &until
-		account.TempUnschedulableReason = reason
-	}
-	s.notifyAccountSchedulingBlocked(account, until, openAIAPIKeyHealthBreakerReason)
-	if s.tempUnschedCache != nil {
-		if err := s.tempUnschedCache.SetTempUnsched(persistCtx, account.ID, state); err != nil {
-			logger.L().Warn("openai.apikey_health_breaker_cache_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-		}
-	}
+	setAccountModelRateLimitSnapshot(account, model, until, reason, now)
+
 	logger.L().Warn("openai.apikey_health_breaker_tripped",
 		zap.Int64("account_id", account.ID),
+		zap.String("model", model),
 		zap.Int64("failure_count", count),
 		zap.Int("failure_threshold", settings.FailureThreshold),
 		zap.Int("window_minutes", settings.WindowMinutes),

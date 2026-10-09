@@ -27,6 +27,12 @@ type systemOnePolicyAccountRepo struct {
 	rateLimitedCalls int
 	overloadedCalls  int
 	errorCalls       int
+	modelLimitKeys   []string
+}
+
+func (r *systemOnePolicyAccountRepo) SetModelRateLimit(_ context.Context, _ int64, model string, _ time.Time, _ ...string) error {
+	r.modelLimitKeys = append(r.modelLimitKeys, model)
+	return nil
 }
 
 func (r *systemOnePolicyAccountRepo) GetByID(context.Context, int64) (*Account, error) {
@@ -214,8 +220,9 @@ func TestForwardSystemOneAppliesExistingAccountStatePolicy(t *testing.T) {
 
 			_, err := svc.ForwardSystemOne(context.Background(), newSystemOneTestContext(), account, []byte(`{}`))
 			require.Error(t, err)
-			require.Equal(t, tc.wantRateLimited, repo.rateLimitedCalls)
-			require.Equal(t, tc.wantOverloaded, repo.overloadedCalls)
+			require.Zero(t, repo.rateLimitedCalls)
+			require.Zero(t, repo.overloadedCalls)
+			require.Len(t, repo.modelLimitKeys, tc.wantRateLimited+tc.wantOverloaded)
 			require.Equal(t, tc.wantError, repo.errorCalls)
 		})
 	}

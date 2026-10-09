@@ -330,12 +330,16 @@ func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *Sched
 			value := int(*result.TTFTMs)
 			firstTokenMs = &value
 		}
-		s.probeReporter.ReportChannelMonitorProbe(plan.AccountID, plan.ModelID, result.Status == "success", firstTokenMs)
+		model := strings.TrimSpace(result.UpstreamModel)
+		if model == "" {
+			model = plan.ModelID
+		}
+		s.probeReporter.ReportChannelMonitorProbe(plan.AccountID, model, result.Status == "success", firstTokenMs)
 	}
 
 	// Auto-recover account if test succeeded and auto_recover is enabled.
 	if result.Status == "success" && plan.AutoRecover {
-		s.tryRecoverAccount(ctx, plan.AccountID, plan.ID)
+		s.tryRecoverAccount(ctx, plan.AccountID, plan.ID, result.UpstreamModel)
 	}
 
 	now := s.currentTime()
@@ -493,12 +497,12 @@ func nextAdaptiveChannelProbeRun(result *ScheduledTestResult, history []*Schedul
 }
 
 // tryRecoverAccount attempts to recover an account from recoverable runtime state.
-func (s *ScheduledTestRunnerService) tryRecoverAccount(ctx context.Context, accountID int64, planID int64) {
+func (s *ScheduledTestRunnerService) tryRecoverAccount(ctx context.Context, accountID int64, planID int64, model string) {
 	if s.rateLimitSvc == nil {
 		return
 	}
 
-	recovery, err := s.rateLimitSvc.RecoverAccountAfterSuccessfulTest(ctx, accountID)
+	recovery, err := s.rateLimitSvc.RecoverAccountModelAfterSuccessfulTest(ctx, accountID, model)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d auto-recover failed: %v", planID, err)
 		return

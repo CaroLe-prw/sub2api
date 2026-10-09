@@ -20,8 +20,20 @@ const (
 
 // isRateLimitActiveForKey 检查指定 key 的限流是否生效
 func (a *Account) isRateLimitActiveForKey(key string) bool {
+	if a.isModelErrorForKey(key) {
+		return true
+	}
 	resetAt := a.modelRateLimitResetAt(key)
 	return resetAt != nil && time.Now().Before(*resetAt)
+}
+
+func (a *Account) isModelErrorForKey(key string) bool {
+	if a == nil || a.Extra == nil {
+		return false
+	}
+	limits, _ := a.Extra[modelRateLimitsKey].(map[string]any)
+	state, _ := limits[key].(map[string]any)
+	return state["status"] == "error"
 }
 
 // getRateLimitRemainingForKey 获取指定 key 的限流剩余时间，0 表示未限流或已过期
@@ -67,9 +79,11 @@ func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedMod
 		return nil
 	}
 
-	modelKey := a.GetMappedModel(requestedModel)
-	if a.Platform == PlatformAntigravity {
-		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
+	modelKey := accountSchedulingUpstreamModel(ctx, a, requestedModel)
+	if ctx != nil {
+		if effective, ok := ctx.Value(accountSchedulingModelContextKey{}).(accountSchedulingModel); ok && effective.accountID == a.ID {
+			modelKey = effective.model
+		}
 	}
 	modelKey = strings.TrimSpace(modelKey)
 	if modelKey == "" {
@@ -90,8 +104,24 @@ func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedMod
 		if isAnthropicFableModel(modelKey) && modelKey != anthropicFableRateLimitKey {
 			keys = append(keys, anthropicFableRateLimitKey)
 		}
+	case PlatformCline:
+		if walletKey := clineWalletRateLimitKey(modelKey); walletKey != "" {
+			keys = append(keys, walletKey)
+		}
 	}
 	return keys
+}
+
+func setAccountModelErrorSnapshot(account *Account, model, reason string) {
+	if account.Extra == nil {
+		account.Extra = make(map[string]any)
+	}
+	limits, _ := account.Extra[modelRateLimitsKey].(map[string]any)
+	if limits == nil {
+		limits = make(map[string]any)
+		account.Extra[modelRateLimitsKey] = limits
+	}
+	limits[model] = map[string]any{"status": "error", "reason": reason}
 }
 
 // isAnthropicFableModel 判断是否为 Fable 模型家族（claude-fable-5、claude-fable-5[1m] 等变体）
@@ -189,8 +219,22 @@ func (a *Account) modelRateLimitResetAt(scope string) *time.Time {
 	return &resetAt
 }
 
+// modelRateLimitReason 返回指定 scope 冷却记录中的原因；没有记录时为空。
+func (a *Account) modelRateLimitReason(scope string) string {
+	if a == nil || a.Extra == nil {
+		return ""
+	}
+	rawLimits, _ := a.Extra[modelRateLimitsKey].(map[string]any)
+	rawLimit, _ := rawLimits[scope].(map[string]any)
+	reason, _ := rawLimit["reason"].(string)
+	return reason
+}
+
 func setAccountModelRateLimitSnapshot(account *Account, scope string, resetAt time.Time, reason string, now time.Time) {
 	if account == nil || strings.TrimSpace(scope) == "" {
+		return
+	}
+	if account.isModelErrorForKey(scope) {
 		return
 	}
 	if account.Extra == nil {

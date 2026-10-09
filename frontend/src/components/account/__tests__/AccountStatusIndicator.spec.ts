@@ -51,6 +51,23 @@ function makeAccount(overrides: Partial<Account>): Account {
 }
 
 describe('AccountStatusIndicator', () => {
+  it('shows a persistent model error without marking the whole account as rate limited', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          platform: 'openai',
+          type: 'apikey',
+          extra: { model_rate_limits: { 'gpt-6-astra': { status: 'error', reason: 'Stream timeout' } } }
+        })
+      },
+      global: { stubs: { Icon: true } }
+    })
+    expect(wrapper.text()).toContain('gpt-6-astra')
+    expect(wrapper.text()).toContain('admin.accounts.status.modelError')
+    expect(wrapper.text()).not.toContain('429')
+    expect(wrapper.text()).not.toContain('Invalid Date')
+  })
+
   it('Claude 5 系列模型限流时显示 Opus 和 Sonnet 的短别名', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {

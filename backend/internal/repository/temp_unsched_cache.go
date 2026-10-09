@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -114,20 +116,20 @@ func (c *tempUnschedCache) DeleteTempUnsched(ctx context.Context, accountID int6
 	return c.rdb.Del(ctx, key).Err()
 }
 
-func (c *tempUnschedCache) openAIAPIKeyHealthKey(accountID int64) string {
+func (c *tempUnschedCache) openAIAPIKeyHealthKey(accountID int64, model string) string {
 	// The hash tag keeps the rolling window and sequence key in one Redis
 	// Cluster slot even though the Lua script derives the latter dynamically.
-	return fmt.Sprintf("%s{%d}:failures", openAIAPIKeyHealthFailurePrefix, accountID)
+	return fmt.Sprintf("%s{%d}:model:%x:failures", openAIAPIKeyHealthFailurePrefix, accountID, sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(model)))))
 }
 
-func (c *tempUnschedCache) RecordOpenAIAPIKeyHealthFailure(ctx context.Context, accountID int64, windowMinutes, threshold int) (int64, bool, error) {
+func (c *tempUnschedCache) RecordOpenAIAPIKeyHealthFailure(ctx context.Context, accountID int64, model string, windowMinutes, threshold int) (int64, bool, error) {
 	if windowMinutes < 1 {
 		windowMinutes = 1
 	}
 	if threshold < 1 {
 		threshold = 1
 	}
-	result, err := openAIAPIKeyHealthFailureScript.Run(ctx, c.rdb, []string{c.openAIAPIKeyHealthKey(accountID)}, windowMinutes, threshold).Slice()
+	result, err := openAIAPIKeyHealthFailureScript.Run(ctx, c.rdb, []string{c.openAIAPIKeyHealthKey(accountID, model)}, windowMinutes, threshold).Slice()
 	if err != nil {
 		return 0, false, fmt.Errorf("record OpenAI API key health failure: %w", err)
 	}

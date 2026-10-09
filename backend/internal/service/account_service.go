@@ -133,6 +133,13 @@ type AccountDuplicateRepository interface {
 	CreateWithAccountGroups(ctx context.Context, account *Account, groups []AccountGroup) error
 }
 
+// AccountModelStateRepository changes one model without clearing or disabling
+// other models on the same account.
+type AccountModelStateRepository interface {
+	SetModelError(ctx context.Context, accountID int64, model, reason string) error
+	ClearModelRateLimit(ctx context.Context, accountID int64, model string) error
+}
+
 // AccountBillingSettingsRepository applies an admin edit without overwriting a
 // rate_multiplier that a successful upstream probe synchronized after the edit
 // form was loaded. A nil rateMultiplier means the request did not edit it.
@@ -522,10 +529,12 @@ func (s *AccountService) TestCredentials(ctx context.Context, id int64) error {
 	case PlatformTypeSafe:
 		// TypeSafe credentials are API keys; inference failures drive health and cooldown state.
 		return nil
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo:
-		// 国产 OpenAI 兼容供应商与 OpenCode：凭证为 API Key，实际可用性经余额/额度探测与转发路径验证。
-		return nil
 	default:
+		if IsMultiProtocolAPIKeyProvider(account.Platform) {
+			// 多协议 API Key 供应商（国产厂商与聚合平台）：凭证为 API Key，实际可用性
+			// 经余额/额度探测与转发路径验证。
+			return nil
+		}
 		return fmt.Errorf("unsupported platform: %s", account.Platform)
 	}
 }

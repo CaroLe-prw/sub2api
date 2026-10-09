@@ -939,7 +939,7 @@ export default {
         rateMultiplierLabel: 'Rate Multiplier',
         rateMultiplierHint: '1.0 = standard rate, 0.5 = half price, 2.0 = double',
         maxAccountCostMultiplier: 'Maximum Account Scheduling Cost',
-        maxAccountCostMultiplierPlaceholder: 'Empty means no absolute ceiling',
+        maxAccountCostMultiplierPlaceholder: 'Empty uses the effective group rate',
         maxAccountCostMultiplierHint: 'Only accounts whose durable billing multiplier is at or below this value are eligible. When profit control is also enabled, the stricter threshold wins. Composite-group ceilings also constrain routed child accounts. User billing is unchanged.',
         rpmLimit: 'Requests Per Minute (RPM)',
         rpmLimitPlaceholder: '0 = unlimited',
@@ -1208,7 +1208,7 @@ export default {
       profitControl: {
         enable: 'Enable profit control',
         enabledHint: 'Scheduling only admits accounts whose account multiplier ≤ the request\'s effective downstream multiplier × (1 − min margin − safety buffer). Account multipliers may be maintained manually or synchronized from probes; existing ordering, stickiness and breakers keep working among qualified accounts. Image/video scheduling is not covered yet.',
-        disabledHint: 'When disabled, scheduling does no profit filtering: accounts whose account multiplier exceeds the downstream multiplier can still be selected, which may produce loss-making requests.',
+        disabledHint: 'When disabled, known account costs are still capped at the request\'s effective group rate, or at the explicit account-cost ceiling when set. A single account cannot bypass the ceiling. Image/video scheduling is not covered.',
         minMargin: 'Min gross margin (%)',
         minMarginHint: 'Percent input, e.g. 30 means 30%; stored as a decimal on the backend',
         safetyBuffer: 'Safety buffer (%)',

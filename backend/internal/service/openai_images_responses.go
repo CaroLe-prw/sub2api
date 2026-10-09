@@ -993,7 +993,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesErrorResponse(
 	shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, modelForCooldown)
 	failoverErr := s.newOpenAIAccountFailoverError(
 		account,
-		resp.StatusCode,
+		modelForCooldown, resp.StatusCode,
 		resp.Header,
 		body,
 		upstreamMsg,
@@ -1913,7 +1913,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 			shouldDisable := s.handleFailoverSideEffects(upstreamCtx, resp, account, respBody, upstreamModel)
 			return nil, s.newOpenAIAccountFailoverError(
 				account,
-				resp.StatusCode,
+				upstreamModel, resp.StatusCode,
 				resp.Header,
 				respBody,
 				upstreamMsg,
@@ -2103,7 +2103,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthResponseError(
 		shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, statusCode, headers, responseBody, requestedModel)
 		return s.newOpenAIAccountFailoverError(
 			account,
-			statusCode,
+			requestedModel, statusCode,
 			headers,
 			responseBody,
 			message,
@@ -2162,7 +2162,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthResponseError(
 		}
 		return s.newOpenAIAccountFailoverError(
 			account,
-			upstreamErr.StatusCode,
+			requestedModel, upstreamErr.StatusCode,
 			headers,
 			responseBody,
 			upstreamErr.clientMessage(),
@@ -2176,7 +2176,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthResponseError(
 	shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, upstreamErr.StatusCode, headers, responseBody, requestedModel)
 	return s.newOpenAIAccountFailoverError(
 		account,
-		upstreamErr.StatusCode,
+		requestedModel, upstreamErr.StatusCode,
 		headers,
 		responseBody,
 		upstreamErr.clientMessage(),

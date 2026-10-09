@@ -202,13 +202,13 @@ func TestOpenAIAbsoluteAccountCostLimitUsesUnifiedProfitGate(t *testing.T) {
 	require.Equal(t, openAIProfitFilterReasonInvalidAccountRate, reason)
 }
 
-func TestOpenAINoImplicitCostGateWithoutProfitOrAbsoluteCap(t *testing.T) {
+func TestOpenAIDefaultCostGateWithoutProfitOrAbsoluteCap(t *testing.T) {
 	groupID := int64(9)
 	group := profitControlTestGroup(groupID, 0, 0)
 	group.ProfitControlEnabled = false
 	group.MaxAccountCostMultiplier = nil
 	ctx := (&OpenAIGatewayService{}).withOpenAIProfitControlGate(profitControlTestCtx(group), &groupID)
-	require.False(t, gatewayProfitControlGateActive(ctx))
+	require.True(t, gatewayProfitControlGateActive(ctx))
 }
 
 func TestAdvancedCostSchedulerUsesTopKOverflowWhenPreferredAccountIsKnownFull(t *testing.T) {

@@ -472,7 +472,7 @@ func TestOpenAIStreamOAuthLike429GetsDeadlineWithoutImmediateRuntimeBlock(t *tes
 			account := &Account{ID: 920, Platform: PlatformOpenAI, Type: accountType}
 			payload := []byte(`{"type":"error","error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"slow down"}}`)
 			status, disabled := svc.handleOpenAIStreamTerminalAccountSideEffects(nil, account, payload, "slow down", nil)
-			err := svc.newOpenAIAccountFailoverError(account, status, nil, payload, "slow down", disabled, false)
+			err := svc.newOpenAIAccountFailoverError(account, "", status, nil, payload, "slow down", disabled, false)
 
 			require.Equal(t, http.StatusTooManyRequests, status)
 			require.False(t, disabled)

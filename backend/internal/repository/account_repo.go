@@ -2506,6 +2506,20 @@ func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, sco
 			payload["reason"] = value
 		}
 	}
+	return r.setModelSchedulingState(ctx, id, scope, payload)
+}
+
+func (r *accountRepository) SetModelError(ctx context.Context, id int64, model, reason string) error {
+	return r.setModelSchedulingState(ctx, id, model, map[string]string{
+		"status": "error", "reason": reason,
+		"rate_limited_at": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (r *accountRepository) setModelSchedulingState(ctx context.Context, id int64, scope string, payload map[string]string) error {
+	if strings.TrimSpace(scope) == "" {
+		return nil
+	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -2518,7 +2532,9 @@ func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, sco
 			extra = jsonb_set(
 				jsonb_set(COALESCE(extra, '{}'::jsonb), '{model_rate_limits}'::text[], COALESCE(extra->'model_rate_limits', '{}'::jsonb), true),
 				ARRAY['model_rate_limits', $1]::text[],
-				$2::jsonb,
+				CASE WHEN extra->'model_rate_limits'->$1->>'status' = 'error'
+				          AND COALESCE($2::jsonb->>'status', '') <> 'error'
+				     THEN extra->'model_rate_limits'->$1 ELSE $2::jsonb END,
 				true
 			),
 			updated_at = NOW()
@@ -2712,6 +2728,32 @@ func (r *accountRepository) ClearModelRateLimits(ctx context.Context, id int64) 
 	}
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue clear model rate limit failed: account=%d err=%v", id, err)
+	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
+	return nil
+}
+
+func (r *accountRepository) ClearModelRateLimit(ctx context.Context, id int64, model string) error {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return nil
+	}
+	client := clientFromContext(ctx, r.client)
+	result, err := client.ExecContext(ctx,
+		`UPDATE accounts SET extra = COALESCE(extra, '{}'::jsonb) #- ARRAY['model_rate_limits', $2]::text[],
+		 updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, id, model)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAccountNotFound
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue clear model state failed: account=%d model=%s err=%v", id, model, err)
 	}
 	r.syncSchedulerAccountSnapshot(ctx, id)
 	return nil

@@ -417,7 +417,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						Reason: observabilityReason, DurationMs: time.Since(routingStart).Milliseconds(),
 					})
 					if c.Writer.Size() != writerSizeBeforeForward {
-						h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
+						h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, openAIAccountScheduleModel(c, account, reqModel, false, result), err)
 						h.handleFailoverExhausted(c, failoverErr, true)
 						return
 					}

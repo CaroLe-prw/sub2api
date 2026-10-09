@@ -89,7 +89,7 @@ func PreviewProfitAdmission(inputs []ProfitPreviewGroupInput, evalAt time.Time) 
 		}
 		group := in.Group
 		profitEnabled := (group.ProfitControlEnabled || in.AssumeEnabled) && profitControlPlatformSupported(group.Platform)
-		effectiveGate := profitEnabled || group.MaxAccountCostMultiplier != nil
+		_, effectiveGate := resolveGroupAccountCostThreshold(group, group, group.RateMultiplier, profitEnabled)
 		report := ProfitPreviewGroupReport{
 			GroupID:              group.ID,
 			GroupName:            group.Name,
@@ -127,7 +127,7 @@ func PreviewProfitAdmission(inputs []ProfitPreviewGroupInput, evalAt time.Time) 
 			if account == nil {
 				continue
 			}
-			verdict := previewAccountProfitAdmission(account, effectiveGate, thresholdDefault, thresholdMinD, evalAt)
+			verdict := previewAccountProfitAdmission(account, effectiveGate, thresholdDefault, thresholdMinD, evalAt, usesDefaultGroupCostCeiling(group, group, profitEnabled))
 			admittedDefault := verdict.Class == ProfitPreviewClassAdmitted
 			admittedMinD := admittedDefault && !verdict.RejectedUnderMinD
 			for _, model := range in.Models {
@@ -157,6 +157,7 @@ func previewAccountProfitAdmission(
 	thresholdDefault float64,
 	thresholdMinD float64,
 	evalAt time.Time,
+	allowUnknownRate bool,
 ) ProfitPreviewAccountVerdict {
 	verdict := ProfitPreviewAccountVerdict{
 		AccountID:  account.ID,
@@ -178,7 +179,7 @@ func previewAccountProfitAdmission(
 		verdict.AccountRate = &rate
 	}
 	switch {
-	case !effectiveGate:
+	case !effectiveGate || (!validRate && allowUnknownRate):
 		verdict.Class = ProfitPreviewClassAdmitted
 	case !validRate:
 		verdict.Class = ProfitPreviewClassRejectedInvalidRate

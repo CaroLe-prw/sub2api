@@ -268,8 +268,16 @@ func TestOpenAIGatewayService_OAuthMessagesBridgeDoesNotInjectDefaultInstruction
 
 type openAIPassthroughFailoverRepo struct {
 	stubOpenAIAccountRepo
-	rateLimitCalls []time.Time
-	overloadCalls  []time.Time
+	rateLimitCalls  []time.Time
+	overloadCalls   []time.Time
+	modelLimitCalls []time.Time
+	modelLimitKeys  []string
+}
+
+func (r *openAIPassthroughFailoverRepo) SetModelRateLimit(_ context.Context, _ int64, model string, until time.Time, _ ...string) error {
+	r.modelLimitCalls = append(r.modelLimitCalls, until)
+	r.modelLimitKeys = append(r.modelLimitKeys, model)
+	return nil
 }
 
 func (r *openAIPassthroughFailoverRepo) SetRateLimited(_ context.Context, _ int64, resetAt time.Time) error {
@@ -1591,8 +1599,10 @@ func TestOpenAIGatewayService_OpenAIPassthrough_RetryableStatusesTriggerFailover
 			expectFailover: true,
 			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, start time.Time) {
 				require.Empty(t, repo.rateLimitCalls)
-				require.Len(t, repo.overloadCalls, 1)
-				require.WithinDuration(t, start.Add(10*time.Minute), repo.overloadCalls[0], 5*time.Second)
+				require.Empty(t, repo.overloadCalls)
+				require.Len(t, repo.modelLimitCalls, 1)
+				require.NotEmpty(t, repo.modelLimitKeys[0])
+				require.WithinDuration(t, start.Add(10*time.Minute), repo.modelLimitCalls[0], 5*time.Second)
 			},
 		},
 		{
@@ -1651,8 +1661,10 @@ func TestOpenAIGatewayService_OpenAIPassthrough_RetryableStatusesTriggerFailover
 			expectFailover: true,
 			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, start time.Time) {
 				require.Empty(t, repo.rateLimitCalls)
-				require.Len(t, repo.overloadCalls, 1)
-				require.WithinDuration(t, start.Add(10*time.Minute), repo.overloadCalls[0], 5*time.Second)
+				require.Empty(t, repo.overloadCalls)
+				require.Len(t, repo.modelLimitCalls, 1)
+				require.NotEmpty(t, repo.modelLimitKeys[0])
+				require.WithinDuration(t, start.Add(10*time.Minute), repo.modelLimitCalls[0], 5*time.Second)
 			},
 		},
 	}

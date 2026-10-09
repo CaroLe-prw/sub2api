@@ -106,7 +106,7 @@ func (s *OpenAIGatewayService) ForwardAlphaSearch(ctx context.Context, c *gin.Co
 			retryableOnSameAccount := !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode)
 			retryableIfNoOtherAccount := !shouldDisable && shouldRetryOpenAIOAuthCapacityOnSameAccount(account, resp.StatusCode, upstreamMessage, respBody)
 			if account.IsOpenAIOAuthLike() && resp.StatusCode == http.StatusTooManyRequests {
-				return nil, s.newOpenAIAccountFailoverError(account, resp.StatusCode, resp.Header, respBody, upstreamMessage, shouldDisable, retryableOnSameAccount, retryableIfNoOtherAccount)
+				return nil, s.newOpenAIAccountFailoverError(account, openAIAlphaSearchSchedulingModel(account, requestedModel), resp.StatusCode, resp.Header, respBody, upstreamMessage, shouldDisable, retryableOnSameAccount, retryableIfNoOtherAccount)
 			}
 			if isOpenAIHTTPUpstreamAccessStateError(resp.StatusCode, upstreamMessage, respBody) {
 				return nil, newOpenAIUpstreamFailoverError(resp.StatusCode, resp.Header, respBody, upstreamMessage, retryableOnSameAccount, retryableIfNoOtherAccount)
@@ -186,7 +186,7 @@ func (s *OpenAIGatewayService) forwardAlphaSearchViaResponsesWebSearch(
 			retryableOnSameAccount := !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode)
 			retryableIfNoOtherAccount := !shouldDisable && shouldRetryOpenAIOAuthCapacityOnSameAccount(account, resp.StatusCode, upstreamMessage, respBody)
 			if account.IsOpenAIOAuthLike() && resp.StatusCode == http.StatusTooManyRequests {
-				return nil, s.newOpenAIAccountFailoverError(account, resp.StatusCode, resp.Header, respBody, upstreamMessage, shouldDisable, retryableOnSameAccount, retryableIfNoOtherAccount)
+				return nil, s.newOpenAIAccountFailoverError(account, openAIAlphaSearchSchedulingModel(account, requestedModel), resp.StatusCode, resp.Header, respBody, upstreamMessage, shouldDisable, retryableOnSameAccount, retryableIfNoOtherAccount)
 			}
 			if isOpenAIHTTPUpstreamAccessStateError(resp.StatusCode, upstreamMessage, respBody) {
 				return nil, newOpenAIUpstreamFailoverError(resp.StatusCode, resp.Header, respBody, upstreamMessage, retryableOnSameAccount, retryableIfNoOtherAccount)

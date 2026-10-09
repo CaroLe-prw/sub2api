@@ -9,11 +9,15 @@ func TestAccountTestTimingTrackerRecordsFirstContentOnly(t *testing.T) {
 	startedAt := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	tracker := &accountTestTimingTracker{startedAt: startedAt}
 
-	tracker.observe(TestEvent{Type: "test_start"}, startedAt.Add(100*time.Millisecond))
+	tracker.observe(TestEvent{Type: "test_start", Model: "public-alias", UpstreamModel: "gpt-5.6-sol"}, startedAt.Add(100*time.Millisecond))
 	tracker.observe(TestEvent{Type: "status", Text: "waiting"}, startedAt.Add(200*time.Millisecond))
 	tracker.observe(TestEvent{Type: "content", Text: "  "}, startedAt.Add(300*time.Millisecond))
 	if got := tracker.value(); got != nil {
 		t.Fatalf("non-content events must not set TTFT, got %dms", *got)
+	}
+	_, media := tracker.usageValue()
+	if media.UpstreamModel != "gpt-5.6-sol" {
+		t.Fatalf("upstream model = %q, want gpt-5.6-sol", media.UpstreamModel)
 	}
 
 	tracker.observe(TestEvent{Type: "content", Text: "hello"}, startedAt.Add(450*time.Millisecond))

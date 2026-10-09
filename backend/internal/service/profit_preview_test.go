@@ -96,9 +96,10 @@ func TestPreviewProfitAdmissionAssumeEnabled(t *testing.T) {
 		Accounts: []*Account{cheapAccount, expensiveAccount},
 		Models:   []string{"gpt-test"},
 	}}, now)[0]
-	require.False(t, withoutAssume.EffectiveGate)
+	require.True(t, withoutAssume.EffectiveGate)
+	require.InDelta(t, 0.5, withoutAssume.ThresholdDefault, 1e-12)
 	require.Equal(t, ProfitPreviewClassAdmitted, withoutAssume.Verdicts[0].Class)
-	require.Equal(t, ProfitPreviewClassAdmitted, withoutAssume.Verdicts[1].Class)
+	require.Equal(t, ProfitPreviewClassRejectedThreshold, withoutAssume.Verdicts[1].Class)
 
 	withAssume := PreviewProfitAdmission([]ProfitPreviewGroupInput{{
 		Group:         group,

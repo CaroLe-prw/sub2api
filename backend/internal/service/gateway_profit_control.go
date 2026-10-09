@@ -49,10 +49,11 @@ func (s *GatewayService) withGatewayProfitControlGate(ctx context.Context, group
 	}
 
 	gate := &openAIProfitControlGate{
-		groupID:   group.ID,
-		platform:  group.Platform,
-		threshold: threshold,
-		pricingAt: pricingAt,
+		groupID:          group.ID,
+		platform:         group.Platform,
+		threshold:        threshold,
+		pricingAt:        pricingAt,
+		allowUnknownRate: usesDefaultGroupCostCeiling(group, billingGroup, profitEnabled),
 	}
 	openAIProfitControlObserverInstance.recordInstall(gate.groupID, gate.platform, gate.threshold)
 	return context.WithValue(ctx, openAIProfitControlGateCtxKey{}, gate)

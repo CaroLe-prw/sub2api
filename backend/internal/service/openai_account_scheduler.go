@@ -429,28 +429,33 @@ func (s *openAIAccountRuntimeStats) snapshot(accountID int64) (errorRate float64
 	return s.snapshotStat(stat)
 }
 
-func (s *openAIAccountRuntimeStats) snapshotForRequest(accountID int64, models ...string) (float64, float64, bool) {
-	seen := make(map[openAIAccountModelKey]struct{}, len(models))
-	var signals []openAIHealthSignal
-	for _, model := range models {
-		key, ok := openAIAccountModelTransientKey(accountID, model)
-		if !ok {
-			continue
-		}
-		if _, duplicate := seen[key]; duplicate {
-			continue
-		}
-		seen[key] = struct{}{}
-		if value, found := s.models.Load(key); found {
-			if stat, _ := value.(*openAIAccountRuntimeStat); stat != nil {
-				signals = append(signals, s.signalsForStat(stat)...)
-			}
-		}
+// modelStat never falls back to account-wide evidence: an unmeasured model is
+// unknown even when another model on this account is slow or failing.
+func (s *openAIAccountRuntimeStats) modelStat(accountID int64, model string) *openAIAccountRuntimeStat {
+	if s == nil {
+		return nil
 	}
-	if len(signals) == 0 {
-		return s.snapshot(accountID)
+	key, ok := openAIAccountModelTransientKey(accountID, model)
+	if !ok {
+		return nil
 	}
-	return combineOpenAIHealthSignals(signals)
+	value, found := s.models.Load(key)
+	if !found {
+		return nil
+	}
+	stat, _ := value.(*openAIAccountRuntimeStat)
+	return stat
+}
+
+func (s *openAIAccountRuntimeStats) snapshotForRequest(accountID int64, model string) (float64, float64, bool) {
+	return s.snapshotStat(s.modelStat(accountID, model))
+}
+
+func (s *openAIAccountRuntimeStats) consecutiveErrorCountForRequest(accountID int64, model string) int64 {
+	if stat := s.modelStat(accountID, model); stat != nil {
+		return stat.consecutiveErrors.Load()
+	}
+	return 0
 }
 
 type openAIHealthSignal struct {
@@ -543,49 +548,10 @@ func (s *openAIAccountRuntimeStats) consecutiveErrorCount(accountID int64) int64
 	return stat.consecutiveErrors.Load()
 }
 
-// healthGateReasonForRequest keeps a known-bad account/model out of the
-// preferred pool when another candidate is available. It combines consecutive
-// live/probe failures with the weighted recent real-traffic error rate. Model
-// evidence takes precedence over account-wide evidence so a broken model does
-// not quarantine unrelated models on the same account.
-func (s *openAIAccountRuntimeStats) healthGateReasonForRequest(accountID int64, models ...string) string {
-	if s == nil || accountID <= 0 {
-		return ""
-	}
-	seen := make(map[openAIAccountModelKey]struct{}, len(models))
-	foundModelEvidence := false
-	for _, model := range models {
-		key, ok := openAIAccountModelTransientKey(accountID, model)
-		if !ok {
-			continue
-		}
-		if _, duplicate := seen[key]; duplicate {
-			continue
-		}
-		seen[key] = struct{}{}
-		value, found := s.models.Load(key)
-		if !found {
-			continue
-		}
-		stat, _ := value.(*openAIAccountRuntimeStat)
-		if stat == nil {
-			continue
-		}
-		reason, hasEvidence := s.healthGateReasonForStat(stat)
-		foundModelEvidence = foundModelEvidence || hasEvidence
-		if reason != "" {
-			return reason
-		}
-	}
-	if foundModelEvidence {
-		return ""
-	}
-	value, ok := s.accounts.Load(accountID)
-	if !ok {
-		return ""
-	}
-	stat, _ := value.(*openAIAccountRuntimeStat)
-	reason, _ := s.healthGateReasonForStat(stat)
+// healthGateReasonForRequest only evaluates this account's effective upstream
+// model. Missing or unattributed samples must not quarantine a different model.
+func (s *openAIAccountRuntimeStats) healthGateReasonForRequest(accountID int64, model string) string {
+	reason, _ := s.healthGateReasonForStat(s.modelStat(accountID, model))
 	return reason
 }
 
@@ -814,6 +780,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
 ) (selectionResult *AccountSelectionResult, decision OpenAIAccountScheduleDecision, selectionErr error) {
+	ctx = withCompactScheduling(ctx, req.RequireCompact)
 	observation := &openAIAccountScheduleObservation{}
 	req.observation = observation
 	if s != nil && s.service != nil && s.service.openAIGroupRequiresPrivacySet(ctx, req.GroupID) {
@@ -1053,9 +1020,10 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		req.observation.recordStickyEscape(accountID, openAISlowFirstOutputReason)
 		return nil, openAISlowFirstOutputReason, nil
 	}
-	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); !pinned && !req.DisableStickyEscape && shouldEscape {
+	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, openAIAccountHealthModel(account, req), escapeCfg); !pinned && !req.DisableStickyEscape && shouldEscape {
 		slog.Info("sticky_escape_triggered",
 			"account_id", accountID,
+			"model", openAIAccountHealthModel(account, req),
 			"reason", reason,
 			"error_rate", errorRate,
 			"ttft", ttft,
@@ -1082,9 +1050,10 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	// WaitPlan.MaxConcurrency 使用 Concurrency（非 EffectiveLoadFactor），因为 WaitPlan 控制的是 Redis 实际并发槽位等待。
 	if s.service.concurrencyService != nil {
 		if !pinned && !req.DisableStickyEscape && escapeCfg.enabled && acquireErr == nil && result != nil && !result.Acquired {
-			errorRate, ttft, _ := s.stats.snapshot(accountID)
+			errorRate, ttft, _ := s.stats.snapshotForRequest(accountID, openAIAccountHealthModel(account, req))
 			slog.Info("sticky_escape_triggered",
 				"account_id", accountID,
+				"model", openAIAccountHealthModel(account, req),
 				"reason", "concurrency_full",
 				"error_rate", errorRate,
 				"ttft", ttft,
@@ -1139,12 +1108,21 @@ func openAIAccountSchedulingPriority(account *Account, groupID *int64) int {
 	return account.Priority
 }
 
-func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int64, cfg openAIStickyEscapeConfig) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
+// Match handler-side result attribution, including compact-only mappings and
+// passthrough accounts that preserve the incoming model.
+func openAIAccountHealthModel(account *Account, req OpenAIAccountScheduleRequest) string {
+	if account != nil && account.IsOpenAI() {
+		return ResolveOpenAIAccountUpstreamModelForRequest(account, req.RequestedModel, req.RequireCompact)
+	}
+	return canonicalOpenAIAccountSchedulingModel(account, req.RequestedModel)
+}
+
+func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int64, model string, cfg openAIStickyEscapeConfig) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
 	if !cfg.enabled || s == nil || s.stats == nil || accountID <= 0 {
 		return "", 0, 0, false
 	}
-	errorRate, ttft, hasTTFT := s.stats.snapshot(accountID)
-	if s.stats.consecutiveErrorCount(accountID) >= openAIStickyEscapeConsecutiveErrors {
+	errorRate, ttft, hasTTFT := s.stats.snapshotForRequest(accountID, model)
+	if s.stats.consecutiveErrorCountForRequest(accountID, model) >= openAIStickyEscapeConsecutiveErrors {
 		return "consecutive_errors", errorRate, ttft, true
 	}
 	if errorRate > cfg.errorRate {
@@ -1617,8 +1595,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		if s.stats != nil {
 			errorRate, ttft, hasTTFT = s.stats.snapshotForRequest(
 				account.ID,
-				req.RequestedModel,
-				canonicalOpenAIAccountSchedulingModel(account, req.RequestedModel),
+				openAIAccountHealthModel(account, req),
 			)
 		}
 		allCandidates = append(allCandidates, openAIAccountCandidateScore{
@@ -1662,8 +1639,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			candidate := &candidates[i]
 			healthReasons[i] = s.stats.healthGateReasonForRequest(
 				candidate.account.ID,
-				req.RequestedModel,
-				canonicalOpenAIAccountSchedulingModel(candidate.account, req.RequestedModel),
+				openAIAccountHealthModel(candidate.account, req),
 			)
 			if !candidate.excluded && healthReasons[i] == "" {
 				healthyAlternatives++
@@ -1790,9 +1766,10 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			if item.excluded || item.slowDeprioritized || item.stickyTTFTFallback || (!previousMatch && !sessionMatch) {
 				continue
 			}
-			if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(item.account.ID, escapeCfg); shouldEscape {
+			if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(item.account.ID, openAIAccountHealthModel(item.account, req), escapeCfg); shouldEscape {
 				slog.Info("sticky_escape_triggered",
 					"account_id", item.account.ID,
+					"model", openAIAccountHealthModel(item.account, req),
 					"reason", reason,
 					"error_rate", errorRate,
 					"ttft", ttft,
@@ -2170,17 +2147,6 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 				continue
 			}
 		}
-		if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape {
-			slog.Info("sticky_escape_triggered",
-				"account_id", accountID,
-				"reason", reason,
-				"error_rate", errorRate,
-				"ttft", ttft,
-				"weighted", true,
-				"fallback", true,
-			)
-			continue
-		}
 		account, err := s.service.getSchedulableAccount(ctx, accountID)
 		if err != nil || account == nil {
 			continue
@@ -2208,6 +2174,18 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 			continue
 		}
 		if req.RequireCompact && openAICompactSupportTier(account) == 0 {
+			continue
+		}
+		if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, openAIAccountHealthModel(account, req), escapeCfg); shouldEscape {
+			slog.Info("sticky_escape_triggered",
+				"account_id", accountID,
+				"model", openAIAccountHealthModel(account, req),
+				"reason", reason,
+				"error_rate", errorRate,
+				"ttft", ttft,
+				"weighted", true,
+				"fallback", true,
+			)
 			continue
 		}
 		// Keep weighted sticky fallback subject to the same free-tier gate as the
@@ -2238,7 +2216,7 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		}
 		if s.service.concurrencyService != nil {
 			if escapeCfg.enabled && result != nil && !result.Acquired {
-				errorRate, ttft, _ := s.stats.snapshot(accountID)
+				errorRate, ttft, _ := s.stats.snapshotForRequest(accountID, openAIAccountHealthModel(account, req))
 				slog.Info("sticky_escape_triggered",
 					"account_id", accountID,
 					"reason", "concurrency_full",
@@ -2705,6 +2683,10 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	}
 	if req.RequirePrivacySet && !account.IsPrivacySet() {
 		return false, "privacy_not_set"
+	}
+	modelCtx := withAccountSchedulingModel(ctx, account, openAIAccountHealthModel(account, req))
+	if account.isModelRateLimitedWithContext(modelCtx, req.RequestedModel) {
+		return false, "model_rate_limited"
 	}
 	if s != nil && s.service != nil && s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel, req.RequireCompact) {
 		return false, "runtime_blocked"
@@ -3712,11 +3694,11 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 		if success {
 			s.rateLimitService.ObserveOpenAIAPIKeyHealthSuccess(context.Background(), account)
 		} else if len(observedErr) > 0 && observedErr[0] != nil {
-			healthTripped = s.rateLimitService.ObserveOpenAIAPIKeyHealthFailure(context.Background(), account, observedErr[0])
+			healthTripped = s.rateLimitService.ObserveOpenAIAPIKeyHealthFailure(context.Background(), account, model, observedErr[0])
 		}
 	}
 	if success {
-		s.openaiOAuth429RetryStartedAt.Delete(accountID)
+		s.openaiOAuth429RetryStartedAt.Delete(openAI429RetryKey(accountID, model))
 		s.clearOpenAIAccountModelTransientState(accountID, normalizeOpenAIAccountModelTransientModel(model))
 	}
 	scheduler := s.ensureOpenAIAccountScheduler()
@@ -3726,11 +3708,11 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 
 // ObserveOpenAIAccountHealthFailure records failures that cannot reach the
 // scheduler-result path, for example after semantic response bytes were sent.
-func (s *OpenAIGatewayService) ObserveOpenAIAccountHealthFailure(ctx context.Context, account *Account, observedErr error) bool {
+func (s *OpenAIGatewayService) ObserveOpenAIAccountHealthFailure(ctx context.Context, account *Account, model string, observedErr error) bool {
 	if s == nil || s.rateLimitService == nil || account == nil || observedErr == nil {
 		return false
 	}
-	return s.rateLimitService.ObserveOpenAIAPIKeyHealthFailure(ctx, account, observedErr)
+	return s.rateLimitService.ObserveOpenAIAPIKeyHealthFailure(ctx, account, model, observedErr)
 }
 
 func (s *OpenAIGatewayService) RecordOpenAIAccountSwitch() {
@@ -3976,11 +3958,13 @@ func (s *RateLimitService) BuildOpenAIAccountSchedulerScoreSnapshotForGroup(
 		if policy, ok := gateway.resolveOpenAIGroupSchedulerPolicy(ctx, schedulerGroup); ok {
 			ctx = context.WithValue(ctx, openAIGroupSchedulerPolicyContextKey{}, policy)
 		}
-		if threshold, active := resolveGroupAccountCostThreshold(schedulerGroup, schedulerGroup, 0, false); active {
+		downstream := schedulerGroup.RateMultiplier * schedulerGroup.PeakMultiplierAt(time.Now())
+		allowUnknown := usesDefaultGroupCostCeiling(schedulerGroup, schedulerGroup, false)
+		if threshold, active := resolveGroupAccountCostThreshold(schedulerGroup, schedulerGroup, downstream, false); active {
 			eligible := make([]*Account, 0, len(accounts))
 			for _, account := range accounts {
 				rate, valid := profitControlAccountRate(account)
-				if valid && !profitControlOverThreshold(rate, threshold) {
+				if (!valid && allowUnknown) || (valid && !profitControlOverThreshold(rate, threshold)) {
 					eligible = append(eligible, account)
 				}
 			}

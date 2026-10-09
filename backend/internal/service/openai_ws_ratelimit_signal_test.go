@@ -562,7 +562,7 @@ func TestOpenAIWSRateLimitFailoverError_OAuthKeepsSameAccountDeadline(t *testing
 		ID:       904,
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
-	}, headers, body, "limited")
+	}, "gpt-5.6-sol", headers, body, "limited")
 	require.True(t, oauthErr.RetryableOnSameAccount)
 	require.False(t, oauthErr.SameAccountRetryDeadline.IsZero())
 	require.Positive(t, oauthErr.SameAccountRetryDelay)
@@ -574,7 +574,7 @@ func TestOpenAIWSRateLimitFailoverError_OAuthKeepsSameAccountDeadline(t *testing
 		ID:       905,
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeAPIKey,
-	}, headers, body, "limited")
+	}, "gpt-5.6-sol", headers, body, "limited")
 	require.False(t, apiKeyErr.RetryableOnSameAccount)
 	require.True(t, apiKeyErr.SameAccountRetryDeadline.IsZero())
 	require.Zero(t, apiKeyErr.SameAccountRetryDelay)

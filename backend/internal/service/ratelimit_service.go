@@ -399,6 +399,28 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		upstreamMsg = truncateForLog([]byte(upstreamMsg), 512)
 	}
 
+	// Command Code 用量超限按文案区分、与状态码无关（见 ratelimit_command_code.go）；
+	// 未识别的错误（含普通频率限制）继续走下面的默认逻辑。
+	if account.IsCommandCode() && (statusCode == http.StatusPaymentRequired ||
+		statusCode == http.StatusForbidden || statusCode == http.StatusTooManyRequests) {
+		if handled, disable := s.handleCommandCodeUsageError(ctx, account, statusCode, responseBody, upstreamMsg); handled {
+			return disable
+		}
+	}
+	// Cline 积分、花费上限与 ClinePass 超限按结构化错误区分，只冷却对应的钱包。
+	// 400 是请求错误，不能因回显的模型名或请求内容触发钱包冷却。
+	if account.IsCline() && (statusCode == http.StatusPaymentRequired ||
+		statusCode == http.StatusForbidden || statusCode == http.StatusTooManyRequests) {
+		if s.handleClineError(ctx, account, statusCode, responseBody, upstreamMsg) {
+			return false
+		}
+		// 402 只会是积分不足：冷却没写进去也不能落到下面的 402 默认分支——那里永久置
+		// status=error，而周期探测只覆盖激活账号，充值后无法自动恢复。
+		if statusCode == http.StatusPaymentRequired {
+			return false
+		}
+	}
+
 	switch statusCode {
 	case 400:
 		// "organization has been disabled" → 永久禁用
@@ -515,9 +537,10 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = true
 		}
 	case 402:
-		// 国产供应商：余额不足是可恢复状态（充值/检测恢复后由周期任务自动解除），
-		// 不能走 handleAuthError 永久置 status=error。改为可恢复的临时停调。
-		if account.IsCNProvider() || account.IsOpenCodeZen() {
+		// 国产供应商 / OpenCode Zen / Command Code：余额（积分）不足是可恢复状态
+		// （充值/检测恢复后由周期任务自动解除），不能走 handleAuthError 永久置
+		// status=error。改为可恢复的临时停调。
+		if account.IsCNProvider() || account.IsOpenCodeZen() || account.IsCommandCode() {
 			s.handleCNProviderInsufficientBalance(ctx, account, upstreamMsg)
 			shouldDisable = true
 			break
@@ -1003,7 +1026,7 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	// 国产供应商与 openai 同口径:HTML 403(CDN/代理拦截页)不构成账号失效证据,
 	// 且 403 在 failover 状态集里会被逐账号重放——直接 SetError 会让一个坏请求/
 	// 一层坏代理连环永久禁用整组账号。走 HTML 豁免 + N 次累计 + 临时冷却。
-	if account.Platform == PlatformOpenAI || IsCNProvider(account.Platform) || account.IsOpenCodeGo() {
+	if account.Platform == PlatformOpenAI || account.IsMultiProtocolAPIKey() {
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
 	// 非 Antigravity 平台：保持原有行为
@@ -1166,6 +1189,12 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	// retry ineligible and silently turn same-account recovery into a switch.
 	if account != nil && isOpenAIOAuthAccount(account) && s.runtimeBlocker != nil {
 		if checker, ok := s.runtimeBlocker.(interface {
+			ShouldRetryOpenAIOAuth429ForModel(*Account, http.Header, []byte, string) bool
+		}); ok {
+			if checker.ShouldRetryOpenAIOAuth429ForModel(account, headers, responseBody, tempUnschedulableModel(ctx, nil)) {
+				return
+			}
+		} else if checker, ok := s.runtimeBlocker.(interface {
 			ShouldRetryOpenAIOAuth429(*Account, http.Header, []byte) bool
 		}); ok && checker.ShouldRetryOpenAIOAuth429(account, headers, responseBody) {
 			return
@@ -1321,6 +1350,10 @@ func (s *RateLimitService) apply429FallbackRateLimit(ctx context.Context, accoun
 
 	resetAt := time.Now().Add(cooldown)
 	slog.Warn("rate_limit_429_fallback_used", "account_id", account.ID, "platform", account.Platform, "reason", reason, "using_default", cooldown.String())
+	if model := tempUnschedulableModel(ctx, nil); model != "" {
+		_ = s.persistModelCooldown(ctx, account, model, resetAt, "429_fallback: "+reason)
+		return
+	}
 	s.notifyAccountSchedulingBlocked(account, resetAt, "429_fallback")
 	if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
 		slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
@@ -1970,6 +2003,10 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account) {
 	}
 
 	until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
+	if model := tempUnschedulableModel(ctx, nil); model != "" {
+		_ = s.persistModelCooldown(ctx, account, model, until, "upstream_overloaded")
+		return
+	}
 	s.notifyAccountSchedulingBlocked(account, until, "529")
 	if err := s.accountRepo.SetOverloaded(ctx, account.ID, until); err != nil {
 		slog.Warn("overload_set_failed", "account_id", account.ID, "error", err)
@@ -2787,7 +2824,8 @@ func truncateTempUnschedMessage(body []byte, maxBytes int) string {
 // 根据系统设置决定是否标记账户为临时不可调度或错误状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleStreamTimeout(ctx context.Context, account *Account, model string) bool {
-	if account == nil {
+	model = strings.TrimSpace(model)
+	if account == nil || model == "" {
 		return false
 	}
 
@@ -2814,7 +2852,7 @@ func (s *RateLimitService) HandleStreamTimeout(ctx context.Context, account *Acc
 	// 增加超时计数
 	var count int64 = 1
 	if s.timeoutCounterCache != nil {
-		count, err = s.timeoutCounterCache.IncrementTimeoutCount(ctx, account.ID, settings.ThresholdWindowMinutes)
+		count, err = s.timeoutCounterCache.IncrementTimeoutCount(ctx, account.ID, model, settings.ThresholdWindowMinutes)
 		if err != nil {
 			slog.Warn("stream_timeout_increment_count_failed", "account_id", account.ID, "error", err)
 			// 继续处理，使用 count=1
@@ -2862,21 +2900,16 @@ func (s *RateLimitService) triggerStreamTimeoutTempUnsched(ctx context.Context, 
 		reason = state.ErrorMessage
 	}
 
-	s.notifyAccountSchedulingBlocked(account, until, "stream_timeout_temp_unschedulable")
-	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, model, until, reason); err != nil {
 		slog.Warn("stream_timeout_set_temp_unsched_failed", "account_id", account.ID, "error", err)
 		return false
 	}
 
-	if s.tempUnschedCache != nil {
-		if err := s.tempUnschedCache.SetTempUnsched(ctx, account.ID, state); err != nil {
-			slog.Warn("stream_timeout_set_temp_unsched_cache_failed", "account_id", account.ID, "error", err)
-		}
-	}
+	setAccountModelRateLimitSnapshot(account, model, until, reason, now)
 
 	// 重置超时计数
 	if s.timeoutCounterCache != nil {
-		if err := s.timeoutCounterCache.ResetTimeoutCount(ctx, account.ID); err != nil {
+		if err := s.timeoutCounterCache.ResetTimeoutCount(ctx, account.ID, model); err != nil {
 			slog.Warn("stream_timeout_reset_count_failed", "account_id", account.ID, "error", err)
 		}
 	}
@@ -2889,19 +2922,23 @@ func (s *RateLimitService) triggerStreamTimeoutTempUnsched(ctx context.Context, 
 func (s *RateLimitService) triggerStreamTimeoutError(ctx context.Context, account *Account, model string) bool {
 	errorMsg := "Stream data interval timeout (repeated failures) for model: " + model
 
-	s.notifyAccountSchedulingBlocked(account, time.Time{}, "stream_timeout_error")
-	if err := s.accountRepo.SetError(ctx, account.ID, errorMsg); err != nil {
+	repo, ok := s.accountRepo.(AccountModelStateRepository)
+	if !ok {
+		return false
+	}
+	if err := repo.SetModelError(ctx, account.ID, model, errorMsg); err != nil {
 		slog.Warn("stream_timeout_set_error_failed", "account_id", account.ID, "error", err)
 		return false
 	}
 
 	// 重置超时计数
 	if s.timeoutCounterCache != nil {
-		if err := s.timeoutCounterCache.ResetTimeoutCount(ctx, account.ID); err != nil {
+		if err := s.timeoutCounterCache.ResetTimeoutCount(ctx, account.ID, model); err != nil {
 			slog.Warn("stream_timeout_reset_count_failed", "account_id", account.ID, "error", err)
 		}
 	}
 
-	slog.Warn("stream_timeout_account_error", "account_id", account.ID, "model", model)
+	setAccountModelErrorSnapshot(account, model, errorMsg)
+	slog.Warn("stream_timeout_model_error", "account_id", account.ID, "model", model)
 	return true
 }

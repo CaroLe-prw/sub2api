@@ -28,18 +28,18 @@ type TempUnschedCache interface {
 // OpenAIAPIKeyHealthCache is an optional TempUnschedCache extension used to
 // aggregate pool API-key failures across gateway instances.
 type OpenAIAPIKeyHealthCache interface {
-	RecordOpenAIAPIKeyHealthFailure(ctx context.Context, accountID int64, windowMinutes, threshold int) (count int64, tripped bool, err error)
+	RecordOpenAIAPIKeyHealthFailure(ctx context.Context, accountID int64, model string, windowMinutes, threshold int) (count int64, tripped bool, err error)
 }
 
 // TimeoutCounterCache 超时计数器缓存接口
 type TimeoutCounterCache interface {
 	// IncrementTimeoutCount 增加账户的超时计数，返回当前计数值
 	// windowMinutes 是计数窗口时间（分钟），超过此时间计数器会自动重置
-	IncrementTimeoutCount(ctx context.Context, accountID int64, windowMinutes int) (int64, error)
+	IncrementTimeoutCount(ctx context.Context, accountID int64, model string, windowMinutes int) (int64, error)
 	// GetTimeoutCount 获取账户当前的超时计数
-	GetTimeoutCount(ctx context.Context, accountID int64) (int64, error)
+	GetTimeoutCount(ctx context.Context, accountID int64, model string) (int64, error)
 	// ResetTimeoutCount 重置账户的超时计数
-	ResetTimeoutCount(ctx context.Context, accountID int64) error
+	ResetTimeoutCount(ctx context.Context, accountID int64, model string) error
 	// GetTimeoutCountTTL 获取计数器剩余过期时间
-	GetTimeoutCountTTL(ctx context.Context, accountID int64) (time.Duration, error)
+	GetTimeoutCountTTL(ctx context.Context, accountID int64, model string) (time.Duration, error)
 }

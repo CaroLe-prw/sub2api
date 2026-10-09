@@ -270,13 +270,15 @@ func TestProfitControl_TurnPricingContext(t *testing.T) {
 		require.False(t, vetoed)
 	})
 
-	t.Run("clears gate when group disables profit control mid-connection", func(t *testing.T) {
+	t.Run("disabling margin restores default ceiling mid-connection", func(t *testing.T) {
 		group := profitControlTestGroup(groupID, 0.5, 0)
 		connCtx, _ := svc.WithOpenAIRequestPricingContext(profitControlTestCtx(group), &groupID)
 		group.ProfitControlEnabled = false
 		turnCtx, _ := svc.WithOpenAITurnPricingContext(connCtx, &groupID)
 		vetoed, _ := OpenAIProfitControlVeto(turnCtx, expensive)
-		require.False(t, vetoed, "关门后 turn 级复核应放行")
+		require.False(t, vetoed, "关闭额外毛利后，成本不超过售价的账号可以准入")
+		gate := turnCtx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
+		require.InDelta(t, group.RateMultiplier, gate.threshold, 1e-12)
 	})
 }
 

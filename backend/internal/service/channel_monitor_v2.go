@@ -977,6 +977,12 @@ func ChannelMonitorV2HealthForWithThresholds(metrics ChannelMonitorV2Metric, thr
 		Overall: "unknown", ErrorRate: "unknown", TTFT: "unknown", Cache: "unknown",
 		MinimumSample: thresholds.MinimumSample, Thresholds: thresholds,
 	}
+	// Completed account probes remain explicit availability evidence even when
+	// ordinary traffic has not yet reached the minimum sample count.
+	if metrics.RequestCount < result.MinimumSample &&
+		metrics.ProbeSuccessRequests+metrics.ProbeErrorRequests == 0 {
+		return result
+	}
 
 	type scored struct {
 		score  float64

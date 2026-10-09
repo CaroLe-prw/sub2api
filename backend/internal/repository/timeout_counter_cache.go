@@ -2,7 +2,9 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -36,8 +38,8 @@ func NewTimeoutCounterCache(rdb *redis.Client) service.TimeoutCounterCache {
 
 // IncrementTimeoutCount 增加账户的超时计数，返回当前计数值
 // windowMinutes 是计数窗口时间（分钟），超过此时间计数器会自动重置
-func (c *timeoutCounterCache) IncrementTimeoutCount(ctx context.Context, accountID int64, windowMinutes int) (int64, error) {
-	key := fmt.Sprintf("%s%d", timeoutCounterPrefix, accountID)
+func (c *timeoutCounterCache) IncrementTimeoutCount(ctx context.Context, accountID int64, model string, windowMinutes int) (int64, error) {
+	key := fmt.Sprintf("%s%d:model:%x", timeoutCounterPrefix, accountID, sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(model)))))
 
 	ttlSeconds := windowMinutes * 60
 	if ttlSeconds < 60 {
@@ -53,8 +55,8 @@ func (c *timeoutCounterCache) IncrementTimeoutCount(ctx context.Context, account
 }
 
 // GetTimeoutCount 获取账户当前的超时计数
-func (c *timeoutCounterCache) GetTimeoutCount(ctx context.Context, accountID int64) (int64, error) {
-	key := fmt.Sprintf("%s%d", timeoutCounterPrefix, accountID)
+func (c *timeoutCounterCache) GetTimeoutCount(ctx context.Context, accountID int64, model string) (int64, error) {
+	key := fmt.Sprintf("%s%d:model:%x", timeoutCounterPrefix, accountID, sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(model)))))
 
 	val, err := c.rdb.Get(ctx, key).Int64()
 	if err == redis.Nil {
@@ -68,13 +70,13 @@ func (c *timeoutCounterCache) GetTimeoutCount(ctx context.Context, accountID int
 }
 
 // ResetTimeoutCount 重置账户的超时计数
-func (c *timeoutCounterCache) ResetTimeoutCount(ctx context.Context, accountID int64) error {
-	key := fmt.Sprintf("%s%d", timeoutCounterPrefix, accountID)
+func (c *timeoutCounterCache) ResetTimeoutCount(ctx context.Context, accountID int64, model string) error {
+	key := fmt.Sprintf("%s%d:model:%x", timeoutCounterPrefix, accountID, sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(model)))))
 	return c.rdb.Del(ctx, key).Err()
 }
 
 // GetTimeoutCountTTL 获取计数器剩余过期时间
-func (c *timeoutCounterCache) GetTimeoutCountTTL(ctx context.Context, accountID int64) (time.Duration, error) {
-	key := fmt.Sprintf("%s%d", timeoutCounterPrefix, accountID)
+func (c *timeoutCounterCache) GetTimeoutCountTTL(ctx context.Context, accountID int64, model string) (time.Duration, error) {
+	key := fmt.Sprintf("%s%d:model:%x", timeoutCounterPrefix, accountID, sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(model)))))
 	return c.rdb.TTL(ctx, key).Result()
 }

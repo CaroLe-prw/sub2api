@@ -130,7 +130,7 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	}
 	failoverErr := s.newOpenAIAccountFailoverError(
 		account,
-		resp.StatusCode,
+		upstreamModel, resp.StatusCode,
 		resp.Header,
 		respBody,
 		upstreamMsg,

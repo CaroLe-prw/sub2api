@@ -516,6 +516,7 @@ func accountIndependentCapacityCode(payload []byte) bool {
 
 func (s *OpenAIGatewayService) newOpenAIAccountFailoverError(
 	account *Account,
+	model string,
 	statusCode int,
 	responseHeaders http.Header,
 	responseBody []byte,
@@ -525,13 +526,14 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverError(
 	retryableOnSameAccountIfNoOtherAccountValues ...bool,
 ) *UpstreamFailoverError {
 	return s.newOpenAIAccountFailoverErrorWithClassificationHeaders(
-		account, statusCode, responseHeaders, responseHeaders, responseBody, upstreamMsg, shouldDisable,
+		account, model, statusCode, responseHeaders, responseHeaders, responseBody, upstreamMsg, shouldDisable,
 		retryableOnSameAccount, retryableOnSameAccountIfNoOtherAccountValues...,
 	)
 }
 
 func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHeaders(
 	account *Account,
+	model string,
 	statusCode int,
 	responseHeaders http.Header,
 	classificationHeaders http.Header,
@@ -541,7 +543,7 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 	retryableOnSameAccount bool,
 	retryableOnSameAccountIfNoOtherAccountValues ...bool,
 ) *UpstreamFailoverError {
-	oauth429Retry := s.shouldRetryOpenAIOAuth429OnSameAccountWithResponse(account, statusCode, shouldDisable, classificationHeaders, responseBody)
+	oauth429Retry := s.shouldRetryOpenAIOAuth429OnSameAccountWithResponse(account, statusCode, shouldDisable, classificationHeaders, responseBody, model)
 	failoverErr := newOpenAIUpstreamFailoverError(
 		statusCode,
 		responseHeaders,
@@ -551,7 +553,7 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 		retryableOnSameAccountIfNoOtherAccountValues...,
 	)
 	if oauth429Retry {
-		failoverErr.SameAccountRetryDeadline = s.openAIOAuth429RetryDeadline(account)
+		failoverErr.SameAccountRetryDeadline = s.openAIOAuth429RetryDeadline(account, model)
 		failoverErr.SameAccountRetryDelay = openAIOAuth429SameAccountRetryDelay(responseHeaders, failoverErr.SameAccountRetryDeadline)
 	}
 	return failoverErr

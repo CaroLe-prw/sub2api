@@ -318,8 +318,7 @@ func buildGatewayGroupSelectionOrder(
 		if healthStats != nil {
 			scoreCandidate.errorRate, scoreCandidate.ttft, scoreCandidate.hasTTFT = healthStats.snapshotForRequest(
 				candidate.account.ID,
-				requestedModel,
-				candidate.account.GetMappedModel(requestedModel),
+				accountSchedulingUpstreamModel(ctx, candidate.account, requestedModel),
 			)
 		}
 		scored = append(scored, scoreCandidate)
@@ -339,8 +338,7 @@ func buildGatewayGroupSelectionOrder(
 			candidate := &scored[i]
 			reason := healthStats.healthGateReasonForRequest(
 				candidate.account.ID,
-				requestedModel,
-				candidate.account.GetMappedModel(requestedModel),
+				accountSchedulingUpstreamModel(ctx, candidate.account, requestedModel),
 			)
 			healthReasons[candidate.account.ID] = reason
 			if reason == "" {

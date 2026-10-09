@@ -1949,6 +1949,12 @@ type openAIResponsesWSUsageLogCase struct {
 	afterFirstUpstreamRequest func(channelSvc *service.ChannelService) error
 	// group 覆盖 apiKey.Group（分组级模型白名单测试用）；nil 保持原有无分组行为。
 	group *service.Group
+	// apiKeyService 非 nil 时模拟 API Key 认证中间件：连接认证快照经它按
+	// apiKeyCredential 取得，并把其分组放入请求 ctx；handler 也使用它。
+	apiKeyService    *service.APIKeyService
+	apiKeyCredential string
+	// accountRateMultiplier 覆盖账号倍率（利润门测试用）。
+	accountRateMultiplier *float64
 	// firstFrameCloseExpected：首帧即被拒（连接被 1008 关闭），不期待任何响应帧。
 	firstFrameCloseExpected bool
 	// secondTurnCloseExpected：第二个 turn 被拒（连接被 1008 关闭）。
@@ -1989,8 +1995,29 @@ func (s *openAIWSUsageHandlerAccountRepoStub) GetByID(ctx context.Context, id in
 
 type openAIWSFailoverHandlerAccountRepoStub struct {
 	service.AccountRepository
-	accounts       []service.Account
-	rateLimitedIDs []int64
+	accounts        []service.Account
+	rateLimitedIDs  []int64
+	modelLimitedIDs []int64
+}
+
+func (s *openAIWSFailoverHandlerAccountRepoStub) SetModelRateLimit(_ context.Context, id int64, model string, until time.Time, _ ...string) error {
+	s.modelLimitedIDs = append(s.modelLimitedIDs, id)
+	for i := range s.accounts {
+		account := &s.accounts[i]
+		if account.ID != id {
+			continue
+		}
+		if account.Extra == nil {
+			account.Extra = map[string]any{}
+		}
+		limits, _ := account.Extra["model_rate_limits"].(map[string]any)
+		if limits == nil {
+			limits = map[string]any{}
+			account.Extra["model_rate_limits"] = limits
+		}
+		limits[model] = map[string]any{"rate_limit_reset_at": until.UTC().Format(time.RFC3339)}
+	}
+	return nil
 }
 
 type openAIHTTPPassthroughFailoverUpstream struct {
@@ -2672,7 +2699,10 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 	case <-time.After(3 * time.Second):
 		t.Fatal("等待第二个上游收到重放首帧超时")
 	}
-	require.Equal(t, []int64{int64(9902)}, accountRepo.rateLimitedIDs)
+	require.Empty(t, accountRepo.rateLimitedIDs)
+	require.Equal(t, []int64{9902}, accountRepo.modelLimitedIDs)
+	require.True(t, accountRepo.accounts[0].IsSchedulableForModel("gpt-6-astra"))
+	require.False(t, accountRepo.accounts[0].IsSchedulableForModel("gpt-5.1"))
 }
 
 func TestOpenAIResponsesWebSocket_CapacityFailureRetriesSamePoolAccount(t *testing.T) {
@@ -3132,6 +3162,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	if tc.accountPlatform != "" {
 		account.Platform = tc.accountPlatform
 	}
+	account.RateMultiplier = tc.accountRateMultiplier
 	if strings.TrimSpace(tc.ingressMode) != "" {
 		account.Extra["openai_apikey_responses_websockets_v2_mode"] = tc.ingressMode
 	}
@@ -3220,6 +3251,12 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		GroupID: &groupID,
 		User:    &service.User{ID: 1701, Status: service.StatusActive},
 	}
+	if tc.apiKeyService != nil {
+		h.apiKeyService = tc.apiKeyService
+		authKey, err := tc.apiKeyService.GetByKey(context.Background(), tc.apiKeyCredential)
+		require.NoError(t, err)
+		apiKey = authKey
+	}
 	if tc.simpleModeRejectAtRead > 0 {
 		apiKey.RateLimit5h = 1
 	}
@@ -3233,6 +3270,9 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		}
 		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: apiKey.User.ID, Concurrency: 1})
+		if tc.apiKeyService != nil && apiKey.Group != nil {
+			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.Group, apiKey.Group))
+		}
 		c.Next()
 	})
 	router.GET("/openai/v1/responses", h.ResponsesWebSocket)

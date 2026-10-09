@@ -92,9 +92,16 @@
       ]"
     >
       <div v-for="item in activeModelStatuses" :key="`${item.kind}-${item.model}`" class="group relative mb-1 break-inside-avoid">
+        <span
+          v-if="item.kind === 'model_error'"
+          class="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400"
+        >
+          <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
+          {{ formatScopeName(item.model) }} · {{ t('admin.accounts.status.error') }}
+        </span>
         <!-- 积分已用尽 -->
         <span
-          v-if="item.kind === 'credits_exhausted'"
+          v-else-if="item.kind === 'credits_exhausted'"
           class="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400"
         >
           <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
@@ -124,7 +131,9 @@
           class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-max max-w-[320px] -translate-x-1/2 whitespace-nowrap rounded bg-gray-900 px-3 py-2 text-center text-xs leading-relaxed text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
         >
           {{
-            item.kind === 'credits_exhausted'
+            item.kind === 'model_error'
+              ? t('admin.accounts.status.modelError', { model: formatScopeName(item.model) })
+              : item.kind === 'credits_exhausted'
               ? t('admin.accounts.status.creditsExhaustedUntil', { time: formatDateTimeToMinute(item.reset_at) })
               : item.kind === 'credits_active'
                 ? t('admin.accounts.status.modelCreditOveragesUntil', { model: formatScopeName(item.model), time: formatDateTimeToMinute(item.reset_at) })
@@ -182,7 +191,7 @@ const isRateLimited = computed(() => {
 })
 
 type AccountModelStatusItem = {
-  kind: 'rate_limit' | 'credits_exhausted' | 'credits_active'
+  kind: 'rate_limit' | 'credits_exhausted' | 'credits_active' | 'model_error'
   model: string
   reset_at: string
 }
@@ -191,7 +200,7 @@ type AccountModelStatusItem = {
 const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
   const extra = props.account.extra as Record<string, unknown> | undefined
   const modelLimits = extra?.model_rate_limits as
-    | Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
+    | Record<string, { rate_limited_at?: string; rate_limit_reset_at: string; status?: string }>
     | undefined
   const now = new Date()
   const items: AccountModelStatusItem[] = []
@@ -204,7 +213,11 @@ const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
   const allowOverages = !!(extra?.allow_overages)
 
   for (const [model, info] of Object.entries(modelLimits)) {
-    if (new Date(info.rate_limit_reset_at) <= now) continue
+    if (info.status === 'error') {
+      items.push({ kind: 'model_error', model, reset_at: '' })
+      continue
+    }
+    if (!(new Date(info.rate_limit_reset_at) > now)) continue
 
     if (model === 'AICredits') {
       // AICredits key → 积分已用尽

@@ -52,6 +52,25 @@ func TestResolveGroupAccountCostThresholdUsesStrictestConstraint(t *testing.T) {
 	child.ProfitControlEnabled = false
 	child.MaxAccountCostMultiplier = nil
 	parent.MaxAccountCostMultiplier = nil
-	_, active = resolveGroupAccountCostThreshold(child, parent, 1, false)
-	require.False(t, active)
+	threshold, active = resolveGroupAccountCostThreshold(child, parent, 1, false)
+	require.True(t, active)
+	require.Equal(t, 1.0, threshold)
+}
+
+func TestDefaultGroupCostCeilingKeepsExplicitOverrideAndProfitMargin(t *testing.T) {
+	group := profitControlTestGroup(54, 0.1, 0)
+	group.RateMultiplier = 0.08
+	group.ProfitControlEnabled = false
+	threshold, active := resolveGroupAccountCostThreshold(group, group, 0.08, false)
+	require.True(t, active)
+	require.InDelta(t, 0.08, threshold, 1e-12)
+	cap := 0.1
+	group.MaxAccountCostMultiplier = &cap
+	threshold, active = resolveGroupAccountCostThreshold(group, group, 0.08, false)
+	require.True(t, active)
+	require.InDelta(t, 0.1, threshold, 1e-12, "explicit cost ceiling keeps its existing override semantics")
+	group.ProfitControlEnabled = true
+	threshold, active = resolveGroupAccountCostThreshold(group, group, 0.08, true)
+	require.True(t, active)
+	require.InDelta(t, 0.072, threshold, 1e-12)
 }
