@@ -1201,6 +1201,16 @@
           <UpstreamBillingSourceField
             v-model:mode="upstreamBillingMode"
           />
+          <NewAPISyncConfigFields
+            v-if="upstreamBillingMode === 'newapi'"
+            v-model:base-url="newAPISyncCreateConfig.newapi_base_url"
+            v-model:user-id="newAPISyncCreateConfig.newapi_user_id"
+            v-model:quota-per-usd="newAPISyncCreateConfig.newapi_quota_per_usd"
+            v-model:user-access-token="newAPISyncCreateConfig.newapi_user_access_token"
+            id-prefix="newapi-create"
+            access-token-required
+            class="mt-4"
+          />
           <UpstreamRateCalibrationField
             v-if="upstreamBillingMode !== 'off'"
             v-model="upstreamRateCalibration"
@@ -1488,7 +1498,6 @@
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <UpstreamBillingSourceField
             v-model:mode="upstreamBillingMode"
-            :allow-new-api="supportsNewAPISyncPlatform(form.platform)"
           />
         </div>
         <NewAPISyncConfigFields
@@ -4048,7 +4057,6 @@ import UpstreamBillingSourceField from '@/components/account/UpstreamBillingSour
 import UpstreamRateCalibrationField from '@/components/account/UpstreamRateCalibrationField.vue'
 import NewAPISyncConfigFields from '@/components/account/NewAPISyncConfigFields.vue'
 import {
-  supportsNewAPISyncPlatform,
   supportsUpstreamRateCalibration,
   type UpstreamBillingMode
 } from '@/components/account/upstreamBilling'
@@ -4927,12 +4935,6 @@ const form = reactive({
   expires_at: null as number | null
 })
 
-watch(() => form.platform, (platform) => {
-  if (!supportsNewAPISyncPlatform(platform) && upstreamBillingMode.value === 'newapi') {
-    upstreamBillingMode.value = 'sub2api'
-  }
-})
-
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
   // Antigravity upstream 类型不需要 OAuth 流程
@@ -5457,8 +5459,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
     }
     payload = { ...payload, extra: { ...payload.extra, openai_upstream_rate_calibration: upstreamRateCalibration.value } }
   }
-  const configureNewAPI = supportsNewAPISyncPlatform(payload.platform)
-    && payload.type === 'apikey'
+  const configureNewAPI = payload.type === 'apikey'
     && upstreamBillingMode.value === 'newapi'
   if (configureNewAPI && (
     !isValidNewAPIUserId(newAPISyncCreateConfig.newapi_user_id)

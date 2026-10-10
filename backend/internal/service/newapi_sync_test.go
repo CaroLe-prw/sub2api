@@ -239,7 +239,10 @@ func TestNewAPITestConnectionDoesNotModifyRatio(t *testing.T) {
 }
 
 func TestNewAPISyncBlankBaseURLUsesAccountEndpoint(t *testing.T) {
-	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok} {
+	for _, platform := range []string{
+		PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok,
+		PlatformAntigravity, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax,
+	} {
 		t.Run(platform, func(t *testing.T) {
 			account := newAPISyncTestAccount(1, 0.4)
 			account.Platform = platform
@@ -277,6 +280,45 @@ func TestNewAPISyncBlankBaseURLUsesAccountEndpoint(t *testing.T) {
 			}
 			require.Equal(t, accountEndpoint, *repo.writes[0].ExpectedAccountBaseURL)
 			require.Equal(t, newAPIAccountAPIKeyHash(account), repo.writes[0].ExpectedAccountAPIKeyHash)
+		})
+	}
+}
+
+func TestNewAPISyncSupportsAPIKeysRegardlessOfPlatform(t *testing.T) {
+	for _, platform := range []string{PlatformDeepseek, "future_provider"} {
+		t.Run(platform, func(t *testing.T) {
+			account := newAPISyncTestAccount(1, 0.4)
+			account.Platform = platform
+			repo := &newAPISyncTestRepo{upstreamBillingProbeAccountRepo: &upstreamBillingProbeAccountRepo{
+				accounts: map[int64]*Account{1: account},
+			}}
+			doer := &newAPITestDoer{handle: newAPITestSuccessHandler(t, "Basic", "VIP", false, "0.0325")}
+			svc := newAPISyncTestService(t, repo, func(*Account) (*NewAPIClient, error) {
+				return NewNewAPIClient(doer), nil
+			})
+
+			_, err := svc.GetNewAPISyncConfig(t.Context(), 1)
+			require.NoError(t, err)
+			config, err := svc.UpdateNewAPISyncConfig(t.Context(), 1, &NewAPISyncConfigUpdate{
+				Enabled: true, BaseURL: "https://newapi.example.test", UserID: "42",
+			})
+			require.NoError(t, err)
+			require.True(t, config.Enabled)
+
+			preview, err := svc.TestNewAPIConnection(t.Context(), 1)
+			require.NoError(t, err)
+			require.Equal(t, 0.0325, *preview.NewRatio)
+			require.Equal(t, 0.4, account.BillingRateMultiplier())
+
+			require.NoError(t, svc.RunNewAPIDue(t.Context()))
+			require.Equal(t, int64(1), repo.writeCalls.Load())
+			require.Equal(t, 0.0325, account.BillingRateMultiplier())
+			require.Equal(t, NewAPISyncStatusOK, account.Extra[NewAPILastSyncStatusExtraKey])
+
+			result, err := svc.SyncNewAPIAccount(t.Context(), 1)
+			require.NoError(t, err)
+			require.Equal(t, NewAPISyncStatusOK, result.Status)
+			require.Equal(t, int64(2), repo.writeCalls.Load())
 		})
 	}
 }

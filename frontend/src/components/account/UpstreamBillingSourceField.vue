@@ -4,21 +4,13 @@ import { useI18n } from 'vue-i18n'
 import Select from '@/components/common/Select.vue'
 import type { UpstreamBillingMode } from './upstreamBilling'
 
-const props = withDefaults(defineProps<{
-  allowNewApi?: boolean
-}>(), {
-  allowNewApi: false
-})
-
 const mode = defineModel<UpstreamBillingMode>('mode', { required: true })
 const { t } = useI18n()
 
 const modeOptions = computed(() => [
   { value: 'off', label: t('admin.accounts.upstreamBilling.modes.off') },
   { value: 'sub2api', label: t('admin.accounts.upstreamBilling.modes.sub2api') },
-  ...(props.allowNewApi
-    ? [{ value: 'newapi' as const, label: t('admin.accounts.upstreamBilling.modes.newapi') }]
-    : [])
+  { value: 'newapi', label: t('admin.accounts.upstreamBilling.modes.newapi') }
 ])
 </script>
 

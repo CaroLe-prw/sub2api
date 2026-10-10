@@ -1994,7 +1994,6 @@
       >
         <UpstreamBillingSourceField
           v-model:mode="upstreamBillingMode"
-          :allow-new-api="supportsNewAPISyncPlatform(account?.platform)"
         />
         <UpstreamRateCalibrationField
           v-if="supportsUpstreamRateCalibration(account?.platform, account?.type) && upstreamBillingMode !== 'off'"
@@ -2013,7 +2012,6 @@
           {{ t('admin.accounts.newapiSync.description') }}
         </p>
         <NewAPISyncSettings
-          v-if="supportsNewAPISyncPlatform(account?.platform)"
           ref="newapiSyncSettings"
           :account-id="account.id"
           :enabled="upstreamBillingMode === 'newapi'"
@@ -3252,7 +3250,6 @@ import UpstreamBillingSourceField from '@/components/account/UpstreamBillingSour
 import UpstreamRateCalibrationField from '@/components/account/UpstreamRateCalibrationField.vue'
 import {
   resolveUpstreamBillingMode,
-  supportsNewAPISyncPlatform,
   supportsUpstreamRateCalibration,
   type UpstreamBillingMode
 } from '@/components/account/upstreamBilling'

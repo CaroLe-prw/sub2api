@@ -589,13 +589,21 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     ['Anthropic', 'admin.accounts.claudeConsole', 'anthropic'],
     ['Gemini', 'admin.accounts.gemini.accountType.apiKeyTitle', 'gemini'],
     ['Grok', 'API Key', 'grok'],
+    ['Antigravity', 'API Key', 'antigravity'],
+    ['Kimi', '', 'kimi'],
+    ['Zhipu GLM', '', 'zhipu'],
+    ['DeepSeek', '', 'deepseek'],
+    ['MiniMax', '', 'minimax'],
   ])('configures NewAPI after creating a %s API key account', async (platformLabel, typeLabel, platform) => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, platformLabel)
     if (platformLabel === 'Grok') {
       await wrapper.get('[data-testid="grok-account-type-api-key"]').trigger('click')
-    } else {
+    } else if (typeLabel) {
       await selectButtonByText(wrapper, typeLabel)
+    }
+    if (platform === 'antigravity') {
+      await wrapper.get('input[placeholder="https://cloudcode-pa.googleapis.com"]').setValue('https://upstream.example.com')
     }
 
     await wrapper.get('form#create-account-form input[type="text"]').setValue(`${platform} NewAPI account`)
@@ -782,6 +790,32 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     afterEach(() => {
       resetPlatformCatalog()
+    })
+
+    it('preserves NewAPI selection and configures a newly registered platform', async () => {
+      const wrapper = mountModal()
+      await selectButtonByText(wrapper, 'OpenAI')
+      await selectButtonByText(wrapper, 'API Key')
+      await wrapper.get('[data-testid="upstream-billing-mode"]').setValue('newapi')
+      await wrapper.get('[data-testid="platform-button-acme_chat"]').trigger('click')
+      expect(wrapper.get<HTMLSelectElement>('[data-testid="upstream-billing-mode"]').element.value).toBe('newapi')
+      await wrapper.get('form#create-account-form input[type="text"]').setValue('NewAPI provider')
+      await wrapper.get('form#create-account-form input[type="password"]').setValue('provider-key')
+      await wrapper.get('#newapi-create-base-url').setValue('https://newapi.example.com')
+      await wrapper.get('#newapi-create-user-id').setValue('7')
+      await wrapper.get('#newapi-create-access-token').setValue('user-access-token')
+      await wrapper.get('form#create-account-form').trigger('submit.prevent')
+      await flushPromises()
+
+      expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+        platform: 'acme_chat', type: 'apikey', upstream_billing_probe_enabled: false,
+      }))
+      expect(updateNewAPISyncConfigMock).toHaveBeenCalledWith(42, expect.objectContaining({
+        newapi_sync_enabled: true,
+        newapi_user_id: '7',
+        newapi_user_access_token: 'user-access-token',
+      }))
+      expect(syncNewAPIRatioMock).toHaveBeenCalledWith(42)
     })
 
     it('creates a by-model provider account from its profile defaults', async () => {

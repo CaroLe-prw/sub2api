@@ -1568,13 +1568,17 @@ describe('EditAccountModal', () => {
     }))
   })
 
-  it.each(['anthropic', 'gemini', 'grok'])('exposes Sub2API and NewAPI for %s API-key accounts', async (platform) => {
+  it.each([
+    'anthropic', 'gemini', 'grok', 'antigravity', 'kimi', 'zhipu', 'deepseek', 'minimax',
+    'opencode_go', 'typesafe', 'command_code', 'cline', 'future_provider',
+  ])('exposes Sub2API and NewAPI for %s API-key accounts', async (platform) => {
     const account = buildAccount()
     account.platform = platform
     account.name = `${platform}-relay`
     account.credentials = { api_key: `sk-${platform}`, base_url: 'https://relay.example/v1' }
     updateAccountMock.mockReset()
     updateAccountMock.mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
 
     const wrapper = mountModal(account)
     const mode = wrapper.get<HTMLSelectElement>('[data-testid="upstream-billing-mode"]')

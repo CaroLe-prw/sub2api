@@ -82,7 +82,7 @@ var (
 		"NEWAPI_SYNC_UNAVAILABLE", "NewAPI ratio synchronization is unavailable",
 	)
 	ErrNewAPISyncAccountInvalid = infraBadRequest(
-		"NEWAPI_SYNC_ACCOUNT_INVALID", "account is not a supported API key account",
+		"NEWAPI_SYNC_ACCOUNT_INVALID", "account is not an API key account",
 	)
 	ErrNewAPISyncBusy = infraConflict(
 		"NEWAPI_SYNC_BUSY", "NewAPI ratio synchronization is already running for this account",
@@ -850,15 +850,8 @@ func secretShouldReplace(value string) bool {
 }
 
 func isNewAPISyncAccount(account *Account) bool {
-	if account == nil || account.Type != AccountTypeAPIKey {
-		return false
-	}
-	switch account.Platform {
-	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok:
-		return true
-	default:
-		return false
-	}
+	// NewAPI billing belongs to the upstream API key, regardless of the model platform.
+	return account != nil && account.Type == AccountTypeAPIKey
 }
 
 func newAPISyncEnabled(account *Account) bool {
