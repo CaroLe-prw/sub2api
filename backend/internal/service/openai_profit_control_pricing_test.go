@@ -277,7 +277,9 @@ func TestProfitControl_TurnPricingContext(t *testing.T) {
 		turnCtx, _ := svc.WithOpenAITurnPricingContext(connCtx, &groupID)
 		vetoed, _ := OpenAIProfitControlVeto(turnCtx, expensive)
 		require.False(t, vetoed, "关闭额外毛利后，成本不超过售价的账号可以准入")
-		gate := turnCtx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
+		gate, ok := turnCtx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
+		require.True(t, ok)
+		require.NotNil(t, gate)
 		require.InDelta(t, group.RateMultiplier, gate.threshold, 1e-12)
 	})
 }
