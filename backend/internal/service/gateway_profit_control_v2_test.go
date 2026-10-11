@@ -76,6 +76,26 @@ func TestGatewayProfitControlInstallsForFivePlatformsOnlyOnTokenRequests(t *test
 	}
 }
 
+func TestGatewayProfitControlUsesAuthenticatedUserRateSnapshot(t *testing.T) {
+	group := gatewayProfitTestGroup(151, PlatformAnthropic)
+	group.RateMultiplier = 0.08
+	ctx := context.WithValue(gatewayProfitTestContext(group), ctxkey.UserGroupRate, UserGroupRateContext{
+		GroupID: group.ID, Multiplier: 0.07,
+	})
+
+	service := &GatewayService{}
+	ctx = service.withGatewayProfitControlGate(ctx, &group.ID)
+	gate, ok := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
+	require.True(t, ok)
+	require.NotNil(t, gate)
+	require.InDelta(t, 0.07, gate.threshold, 1e-12)
+
+	accountRate := 0.075
+	vetoed, reason := openAIProfitControlVetoReason(ctx, &Account{RateMultiplier: &accountRate})
+	require.True(t, vetoed)
+	require.Equal(t, openAIProfitFilterReasonThreshold, reason)
+}
+
 func TestGatewayProfitControlCompositeBillingUsesScheduledMemberConfig(t *testing.T) {
 	billingGroup := &Group{
 		ID:               201,

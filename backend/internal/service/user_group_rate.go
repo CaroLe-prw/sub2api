@@ -2,6 +2,12 @@ package service
 
 import "context"
 
+// UserGroupRateContext is captured by API-key authentication for request admission.
+type UserGroupRateContext struct {
+	GroupID    int64
+	Multiplier float64
+}
+
 // UserGroupRateEntry 分组下用户专属倍率/RPM 条目。
 // RateMultiplier 与 RPMOverride 均为指针以支持"未设置"语义（NULL）。
 type UserGroupRateEntry struct {

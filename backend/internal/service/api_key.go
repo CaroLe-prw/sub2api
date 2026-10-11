@@ -71,6 +71,13 @@ type APIKey struct {
 	Window7dStart *time.Time // Start of current 7d window
 }
 
+func (k *APIKey) GroupIDValue() int64 {
+	if k == nil || k.GroupID == nil {
+		return 0
+	}
+	return *k.GroupID
+}
+
 func (k *APIKey) IsActive() bool {
 	return k.Status == StatusActive
 }

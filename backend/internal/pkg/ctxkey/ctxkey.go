@@ -62,6 +62,8 @@ const (
 	// UserID 认证后的 Sub2API 用户 ID，由 API Key 认证中间件设置。
 	// 供 service 层执行用户级策略，不能使用客户端请求体中的 user 标识替代。
 	UserID Key = "ctx_user_id"
+	// UserGroupRate is the authenticated user's effective multiplier for the billing group.
+	UserGroupRate Key = "ctx_user_group_rate"
 
 	// APIKeyID/APIKeyName/UserEmail 是认证后的只读调度观测快照字段。
 	// 它们不包含密钥内容，仅用于管理员把调度轨迹关联到调用方。

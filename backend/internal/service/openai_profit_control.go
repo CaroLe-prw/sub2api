@@ -110,6 +110,17 @@ func clampProfitControlThreshold(threshold float64) float64 {
 	return threshold
 }
 
+func authenticatedUserGroupRate(ctx context.Context, groupID int64) (float64, bool) {
+	if ctx == nil || groupID <= 0 {
+		return 0, false
+	}
+	snapshot, ok := ctx.Value(ctxkey.UserGroupRate).(UserGroupRateContext)
+	if !ok || snapshot.GroupID != groupID || snapshot.Multiplier < 0 || math.IsNaN(snapshot.Multiplier) || math.IsInf(snapshot.Multiplier, 0) {
+		return 0, false
+	}
+	return snapshot.Multiplier, true
+}
+
 // profitControlOverThreshold 是"上游倍率越线"的唯一定义：相对 epsilon 吸收
 // decimal(10,4) 落库与浮点乘法的边界误差，U == 阈值 判定为合格。
 // 线上否决点与 profit-preview 共用，两者不得各自实现。
@@ -315,9 +326,12 @@ func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Contex
 	if ctxGroup, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(ctxGroup) {
 		billingGroup = ctxGroup
 	}
-	downstream := billingGroup.RateMultiplier
-	if userID, _ := ctx.Value(ctxkey.UserID).(int64); userID > 0 {
-		downstream = s.ResolveUserGroupRateMultiplier(ctx, userID, billingGroup.ID, billingGroup.RateMultiplier)
+	downstream, authenticatedRate := authenticatedUserGroupRate(ctx, billingGroup.ID)
+	if !authenticatedRate {
+		downstream = billingGroup.RateMultiplier
+		if userID, _ := ctx.Value(ctxkey.UserID).(int64); userID > 0 {
+			downstream = s.ResolveUserGroupRateMultiplier(ctx, userID, billingGroup.ID, billingGroup.RateMultiplier)
+		}
 	}
 	downstream *= billingGroup.PeakMultiplierAt(pricingAt)
 
