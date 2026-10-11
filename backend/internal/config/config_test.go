@@ -542,6 +542,7 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 		Reset:            0.2,
 		QuotaHeadroom:    0.8,
 		UpstreamCost:     1.5,
+		CacheHitRate:     1,
 		PreviousResponse: 0.3,
 		SessionSticky:    0.1,
 	}
@@ -2379,6 +2380,21 @@ func TestValidateConfig_OpenAIWSRules(t *testing.T) {
 			wantErr: "gateway.openai_ws.scheduler_score_weights.* must be non-negative",
 		},
 		{
+			name:    "scheduler_score_weights cache_hit_rate 不能为负数",
+			mutate:  func(c *Config) { c.Gateway.OpenAIWS.SchedulerScoreWeights.CacheHitRate = -0.1 },
+			wantErr: "gateway.openai_ws.scheduler_score_weights.* must be non-negative",
+		},
+		{
+			name:    "scheduler_score_weights cache_hit_rate 不能为 NaN",
+			mutate:  func(c *Config) { c.Gateway.OpenAIWS.SchedulerScoreWeights.CacheHitRate = math.NaN() },
+			wantErr: "gateway.openai_ws.scheduler_score_weights.* must be non-negative and finite",
+		},
+		{
+			name:    "scheduler_score_weights cache_hit_rate 不能为 Inf",
+			mutate:  func(c *Config) { c.Gateway.OpenAIWS.SchedulerScoreWeights.CacheHitRate = math.Inf(1) },
+			wantErr: "gateway.openai_ws.scheduler_score_weights.* must be non-negative and finite",
+		},
+		{
 			name:    "scheduler_score_weights reset 不能为负数",
 			mutate:  func(c *Config) { c.Gateway.OpenAIWS.SchedulerScoreWeights.Reset = -0.1 },
 			wantErr: "gateway.openai_ws.scheduler_score_weights.* must be non-negative",
@@ -2412,14 +2428,12 @@ func TestValidateConfig_OpenAIWSRules(t *testing.T) {
 		{
 			name: "scheduler_score_weights 不能全为 0",
 			mutate: func(c *Config) {
-				c.Gateway.OpenAIWS.SchedulerScoreWeights.Priority = 0
-				c.Gateway.OpenAIWS.SchedulerScoreWeights.Load = 0
-				c.Gateway.OpenAIWS.SchedulerScoreWeights.Queue = 0
-				c.Gateway.OpenAIWS.SchedulerScoreWeights.ErrorRate = 0
-				c.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT = 0
-				c.Gateway.OpenAIWS.SchedulerScoreWeights.Reset = 0
-				c.Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom = 0
-				c.Gateway.OpenAIWS.SchedulerScoreWeights.UpstreamCost = 0
+				// Reset every base weight, including fields added in the future.
+				// Sticky bonuses alone must not make an empty base policy valid.
+				c.Gateway.OpenAIWS.SchedulerScoreWeights = GatewayOpenAIWSSchedulerScoreWeights{
+					PreviousResponse: 0.3,
+					SessionSticky:    0.1,
+				}
 			},
 			wantErr: "gateway.openai_ws.scheduler_score_weights must not all be zero",
 		},
@@ -2454,36 +2468,35 @@ func TestValidateConfig_OpenAIWSRules(t *testing.T) {
 
 	t.Run("quota_headroom 可作为唯一有效调度权重", func(t *testing.T) {
 		cfg := buildValid(t)
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Priority = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Load = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Queue = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.ErrorRate = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom = 0.1
+		cfg.Gateway.OpenAIWS.SchedulerScoreWeights = GatewayOpenAIWSSchedulerScoreWeights{QuotaHeadroom: 0.1}
 
 		require.NoError(t, cfg.Validate())
 	})
 
 	t.Run("upstream_cost 可作为唯一有效调度权重", func(t *testing.T) {
 		cfg := buildValid(t)
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Priority = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Load = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Queue = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.ErrorRate = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.UpstreamCost = 0.1
+		cfg.Gateway.OpenAIWS.SchedulerScoreWeights = GatewayOpenAIWSSchedulerScoreWeights{UpstreamCost: 0.1}
 
 		require.NoError(t, cfg.Validate())
 	})
 
 	t.Run("reset 可作为唯一有效调度权重", func(t *testing.T) {
 		cfg := buildValid(t)
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Priority = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Load = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Queue = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.ErrorRate = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT = 0
-		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Reset = 0.1
+		cfg.Gateway.OpenAIWS.SchedulerScoreWeights = GatewayOpenAIWSSchedulerScoreWeights{Reset: 0.1}
+
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("cache_hit_rate 可作为唯一有效调度权重", func(t *testing.T) {
+		cfg := buildValid(t)
+		cfg.Gateway.OpenAIWS.SchedulerScoreWeights = GatewayOpenAIWSSchedulerScoreWeights{CacheHitRate: 0.1}
+
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("cache_hit_rate 为 0 可关闭缓存率评分", func(t *testing.T) {
+		cfg := buildValid(t)
+		cfg.Gateway.OpenAIWS.SchedulerScoreWeights.CacheHitRate = 0
 
 		require.NoError(t, cfg.Validate())
 	})
