@@ -68,8 +68,8 @@ describe('AccountModelAvailabilityCell', () => {
     const wrapper = mountCell(monitor([value]))
 
     expect(wrapper.text()).toContain('1/1')
-    expect(wrapper.text()).toContain('admin.accounts.modelAvailability.states.degraded')
-    expect(wrapper.get('span.font-mono').classes()).toContain('text-amber-600')
+    expect(wrapper.text()).toContain('admin.accounts.modelAvailability.states.healthy')
+    expect(wrapper.get('span.font-mono').classes()).toContain('text-emerald-600')
   })
 
   it('uses the newest embedded heartbeat and shows a slow success as available but degraded', () => {
@@ -100,8 +100,8 @@ describe('AccountModelAvailabilityCell', () => {
     const wrapper = mountCell(monitor([staleModel]))
 
     expect(wrapper.text()).toContain('1/1')
-    expect(wrapper.text()).toContain('admin.accounts.modelAvailability.states.degraded')
-    expect(wrapper.get('span.font-mono').classes()).toContain('text-amber-600')
+    expect(wrapper.text()).toContain('admin.accounts.modelAvailability.states.healthy')
+    expect(wrapper.get('span.font-mono').classes()).toContain('text-emerald-600')
   })
 
   it('shows an amber partial state and opens the monitor detail', async () => {

@@ -28,10 +28,12 @@ function modelHealth(model: PoolMonitorModel): CombinedMonitorHealth {
 const totalModels = computed(() => props.monitor?.models.length ?? 0)
 const availableModels = computed(() => props.monitor?.models.filter((model) => modelHealth(model).available).length ?? 0)
 const hasFailure = computed(() => props.monitor?.models.some((model) => modelHealth(model).state === 'failed') ?? false)
-const hasDegraded = computed(() => props.monitor?.models.some((model) => modelHealth(model).state === 'degraded') ?? false)
 const state = computed<'healthy' | 'degraded' | 'partial' | 'failed' | 'pending' | 'unmonitored'>(() => {
   if (!props.monitor || totalModels.value === 0) return 'unmonitored'
-  if (availableModels.value === totalModels.value) return hasDegraded.value ? 'degraded' : 'healthy'
+  // Availability answers whether the model can currently serve traffic. A
+  // recent failed/slow user call remains visible in the heartbeat strip and
+  // detail view, but must not turn an otherwise usable 1/1 pool amber.
+  if (availableModels.value === totalModels.value) return 'healthy'
   if (availableModels.value > 0) return 'partial'
   if (hasFailure.value) return 'failed'
   return 'pending'
