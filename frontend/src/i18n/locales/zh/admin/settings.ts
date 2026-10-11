@@ -1316,6 +1316,7 @@ export default {
         resetWeight: '重置窗口',
         quotaHeadroomWeight: '额度余量',
         upstreamCostWeight: '调度成本倍率',
+        cacheHitRateWeight: '缓存命中率',
         previousResponseWeight: 'previous_response 粘性',
         sessionStickyWeight: 'session_hash 粘性'
       },
@@ -1346,6 +1347,7 @@ export default {
         reset: '重置窗口',
         quotaHeadroom: '额度余量',
         upstreamCost: '上游成本',
+        cacheHitRate: '缓存命中率',
         previousResponse: 'previous_response 粘性',
         sessionSticky: 'session_hash 粘性',
         stickyWeighted: '粘性加权',

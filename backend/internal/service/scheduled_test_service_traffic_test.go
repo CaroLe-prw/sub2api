@@ -142,3 +142,26 @@ func TestScheduledTestService_ListChannelMonitorPoolOverviewIncludesTrafficOnlyM
 		LatencyMs: &latency, CreatedAt: lastSuccess,
 	}}, trafficOnly.UserTraffic.RecentEvents)
 }
+
+func TestScheduledTestService_ModelCacheRatesDistinguishZeroAndUnknown(t *testing.T) {
+	planRepo := &scheduledTestOverviewRepoStub{accounts: []*ChannelMonitorPoolAccount{{AccountID: 35, Models: []ChannelMonitorPoolModel{{PlanID: 81, Model: "probed"}, {PlanID: 82, Model: "no-usage"}}}}}
+	svc := NewScheduledTestService(planRepo, nil)
+	svc.SetSchedulerUserTrafficRepository(&scheduledTestTrafficRepoStub{snapshots: []OpenAISchedulerHealthSnapshot{
+		{AccountID: 35, Model: "probed", SuccessCount: 1, CacheReadTokens: 900, CacheEligibleTokens: 1000},
+		{AccountID: 35, Model: "traffic-only", SuccessCount: 1, CacheReadTokens: 0, CacheEligibleTokens: 1000},
+	}})
+	accounts, err := svc.ListChannelMonitorPoolOverview(context.Background(), []int64{35})
+	require.NoError(t, err)
+	require.Len(t, accounts[0].Models, 3)
+	byModel := map[string]*ChannelMonitorUserTraffic{}
+	for _, model := range accounts[0].Models {
+		byModel[model.Model] = model.UserTraffic
+	}
+	require.NotNil(t, byModel["probed"].CacheHitRate)
+	require.Equal(t, 0.9, *byModel["probed"].CacheHitRate)
+	require.EqualValues(t, 900, byModel["probed"].CacheReadTokens)
+	require.EqualValues(t, 1000, byModel["probed"].CacheEligibleTokens)
+	require.NotNil(t, byModel["traffic-only"].CacheHitRate)
+	require.Zero(t, *byModel["traffic-only"].CacheHitRate)
+	require.Nil(t, byModel["no-usage"].CacheHitRate)
+}

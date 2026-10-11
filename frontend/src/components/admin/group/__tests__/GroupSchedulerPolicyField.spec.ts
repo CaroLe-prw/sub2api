@@ -34,9 +34,9 @@ describe('GroupSchedulerPolicyField', () => {
     await wrapper.setProps({ profile: 'custom' })
 
     const inputs = wrapper.findAll('input[type="number"]')
-    expect(inputs).toHaveLength(11)
+    expect(inputs).toHaveLength(12)
     expect(inputs.map((input) => input.element.value)).toEqual(
-      Array.from({ length: 11 }, () => ''),
+      Array.from({ length: 12 }, () => ''),
     )
     expect(inputs.map((input) => input.attributes('placeholder'))).toEqual([
       'admin.groups.scheduler.defaultPlaceholder:4',
@@ -48,9 +48,12 @@ describe('GroupSchedulerPolicyField', () => {
       'admin.groups.scheduler.defaultPlaceholder:0.2',
       'admin.groups.scheduler.defaultPlaceholder:0.8',
       'admin.groups.scheduler.defaultPlaceholder:1.5',
+      'admin.groups.scheduler.defaultPlaceholder:1',
       'admin.groups.scheduler.defaultPlaceholder:0.3',
       'admin.groups.scheduler.defaultPlaceholder:0.1',
     ])
+    await inputs[9].setValue('0')
+    expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toMatchObject({ cache_hit_rate: 0 })
     await inputs[8].setValue('9')
 
     const emittedConfig = wrapper.emitted('update:config')?.at(-1)?.[0]

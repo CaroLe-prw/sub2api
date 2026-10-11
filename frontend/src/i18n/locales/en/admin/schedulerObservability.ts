@@ -264,6 +264,7 @@ export default {
         selectionFailureHint: 'The final selection checked {count} accounts but found none available. See the timeline above for filter counts; the table only retains accounts recorded in this trace.',
         account: 'Account',
         baseScore: 'Base',
+        cacheScore: 'Cache rate / contribution',
         stickyBonus: 'Sticky bonus',
         totalScore: 'Total',
         state: 'State',

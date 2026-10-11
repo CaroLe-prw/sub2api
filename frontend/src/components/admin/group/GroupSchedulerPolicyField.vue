@@ -29,6 +29,7 @@ type SchedulerNumericKey = keyof Pick<
   | 'reset'
   | 'quota_headroom'
   | 'upstream_cost'
+  | 'cache_hit_rate'
   | 'previous_response'
   | 'session_sticky'
 >
@@ -86,6 +87,11 @@ const weightFields = computed<
     key: 'upstream_cost',
     label: t('admin.groups.scheduler.weights.upstreamCost'),
     defaultValue: 1.5,
+  },
+  {
+    key: 'cache_hit_rate',
+    label: t('admin.groups.scheduler.weights.cacheHitRate'),
+    defaultValue: 1,
   },
   {
     key: 'previous_response',

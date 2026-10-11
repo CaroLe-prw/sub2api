@@ -40,6 +40,7 @@ type OpenAISchedulerTemplate struct {
 	Reset                       float64 `json:"reset"`
 	QuotaHeadroom               float64 `json:"quota_headroom"`
 	UpstreamCost                float64 `json:"upstream_cost"`
+	CacheHitRate                float64 `json:"cache_hit_rate"`
 	PreviousResponse            float64 `json:"previous_response"`
 	SessionSticky               float64 `json:"session_sticky"`
 	StickyWeightedEnabled       bool    `json:"sticky_weighted_enabled"`
@@ -57,19 +58,19 @@ func DefaultOpenAISchedulerTemplates() OpenAISchedulerTemplates {
 	return OpenAISchedulerTemplates{
 		SLA: OpenAISchedulerTemplate{
 			TopK: 2, Priority: 0.5, Load: 1.5, Queue: 1.5, ErrorRate: 5,
-			TTFT: 3.5, Reset: 0, QuotaHeadroom: 0.5, UpstreamCost: 0.5,
+			TTFT: 3.5, Reset: 0, QuotaHeadroom: 0.5, UpstreamCost: 0.5, CacheHitRate: 0.5,
 			PreviousResponse: 0.3, SessionSticky: 0.1,
 			StickyWeightedEnabled: true, SubscriptionPriorityEnabled: false,
 		},
 		Balanced: OpenAISchedulerTemplate{
 			TopK: 3, Priority: 0.5, Load: 1.5, Queue: 1.5, ErrorRate: 4,
-			TTFT: 2.5, Reset: 0.2, QuotaHeadroom: 0.8, UpstreamCost: 1.5,
+			TTFT: 2.5, Reset: 0.2, QuotaHeadroom: 0.8, UpstreamCost: 1.5, CacheHitRate: 1,
 			PreviousResponse: 0.3, SessionSticky: 0.1,
 			StickyWeightedEnabled: true, SubscriptionPriorityEnabled: false,
 		},
 		Cost: OpenAISchedulerTemplate{
 			TopK: 3, Priority: 0.3, Load: 1.2, Queue: 1.2, ErrorRate: 5,
-			TTFT: 1.5, Reset: 0.3, QuotaHeadroom: 1, UpstreamCost: 4,
+			TTFT: 1.5, Reset: 0.3, QuotaHeadroom: 1, UpstreamCost: 4, CacheHitRate: 2,
 			PreviousResponse: 0.2, SessionSticky: 0.1,
 			StickyWeightedEnabled: true, SubscriptionPriorityEnabled: false,
 		},
@@ -96,14 +97,14 @@ func validateOpenAISchedulerTemplate(template OpenAISchedulerTemplate) error {
 	weights := []float64{
 		template.Priority, template.Load, template.Queue, template.ErrorRate,
 		template.TTFT, template.Reset, template.QuotaHeadroom,
-		template.UpstreamCost, template.PreviousResponse, template.SessionSticky,
+		template.UpstreamCost, template.CacheHitRate, template.PreviousResponse, template.SessionSticky,
 	}
 	baseSum := 0.0
 	for index, weight := range weights {
 		if weight < 0 || math.IsNaN(weight) || math.IsInf(weight, 0) {
 			return errors.New("weights must be finite numbers >= 0")
 		}
-		if index < 8 {
+		if index < 9 {
 			baseSum += weight
 		}
 	}
@@ -134,6 +135,22 @@ func ParseOpenAISchedulerTemplates(raw string) OpenAISchedulerTemplates {
 	var templates OpenAISchedulerTemplates
 	if err := json.Unmarshal([]byte(raw), &templates); err != nil {
 		return defaults
+	}
+	// Upgrade only the new field in saved templates; preserve explicit zero and
+	// keep validation of all pre-existing template fields unchanged.
+	var cacheWeights map[string]struct {
+		CacheHitRate *float64 `json:"cache_hit_rate"`
+	}
+	if err := json.Unmarshal([]byte(raw), &cacheWeights); err != nil {
+		return defaults
+	}
+	for profile, template := range map[string]*OpenAISchedulerTemplate{
+		"sla": &templates.SLA, "balanced": &templates.Balanced, "cost": &templates.Cost,
+	} {
+		if cacheWeights[profile].CacheHitRate == nil {
+			fallback, _ := openAISchedulerTemplateForProfile(defaults, profile)
+			template.CacheHitRate = fallback.CacheHitRate
+		}
 	}
 	if err := ValidateOpenAISchedulerTemplates(templates); err != nil {
 		return defaults
@@ -176,6 +193,7 @@ type resolvedGroupOpenAISchedulerConfig struct {
 	Reset                       float64
 	QuotaHeadroom               float64
 	UpstreamCost                float64
+	CacheHitRate                float64
 	PreviousResponse            float64
 	SessionSticky               float64
 	StickyWeightedEnabled       bool
@@ -217,6 +235,7 @@ func validateGroupOpenAISchedulerConfig(config GroupOpenAISchedulerConfig) error
 		config.Reset,
 		config.QuotaHeadroom,
 		config.UpstreamCost,
+		config.CacheHitRate,
 		config.PreviousResponse,
 		config.SessionSticky,
 	}
@@ -235,6 +254,7 @@ func validateGroupOpenAISchedulerConfig(config GroupOpenAISchedulerConfig) error
 		config.Reset,
 		config.QuotaHeadroom,
 		config.UpstreamCost,
+		config.CacheHitRate,
 	}
 	baseSum := 0.0
 	for _, weight := range baseWeights {
@@ -298,6 +318,9 @@ func applyCustomGroupOpenAISchedulerConfig(
 	if custom.UpstreamCost != nil {
 		base.UpstreamCost = *custom.UpstreamCost
 	}
+	if custom.CacheHitRate != nil {
+		base.CacheHitRate = *custom.CacheHitRate
+	}
 	if custom.PreviousResponse != nil {
 		base.PreviousResponse = *custom.PreviousResponse
 	}
@@ -308,7 +331,7 @@ func applyCustomGroupOpenAISchedulerConfig(
 	base.SubscriptionPriorityEnabled = custom.SubscriptionPriorityEnabled
 
 	baseSum := base.Priority + base.Load + base.Queue + base.ErrorRate +
-		base.TTFT + base.Reset + base.QuotaHeadroom + base.UpstreamCost
+		base.TTFT + base.Reset + base.QuotaHeadroom + base.UpstreamCost + base.CacheHitRate
 	if base.TopK <= 0 || baseSum <= 0 || math.IsNaN(baseSum) || math.IsInf(baseSum, 0) {
 		return resolvedGroupOpenAISchedulerConfig{}, false
 	}

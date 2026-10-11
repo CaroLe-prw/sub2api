@@ -68,6 +68,9 @@ export interface SchedulerAttempt {
 export type SchedulerCandidateState = "selected" | "tried" | "eligible" | "excluded" | "rejected" | "deprioritized";
 
 export interface SchedulerCandidate {
+  cacheHitRate?: number | null;
+  cacheSampleCount?: number;
+  cacheScore?: number;
   accountId: number;
   accountName: string;
   rank: number;

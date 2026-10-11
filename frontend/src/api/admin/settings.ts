@@ -31,6 +31,7 @@ export interface OpenAISchedulerTemplate {
   reset: number;
   quota_headroom: number;
   upstream_cost: number;
+  cache_hit_rate: number;
   previous_response: number;
   session_sticky: number;
   sticky_weighted_enabled: boolean;
@@ -54,6 +55,7 @@ export function createDefaultOpenAISchedulerTemplates(): OpenAISchedulerTemplate
       reset: 0,
       quota_headroom: 0.5,
       upstream_cost: 0.5,
+      cache_hit_rate: 0.5,
       previous_response: 0.3,
       session_sticky: 0.1,
       sticky_weighted_enabled: true,
@@ -69,6 +71,7 @@ export function createDefaultOpenAISchedulerTemplates(): OpenAISchedulerTemplate
       reset: 0.2,
       quota_headroom: 0.8,
       upstream_cost: 1.5,
+      cache_hit_rate: 1,
       previous_response: 0.3,
       session_sticky: 0.1,
       sticky_weighted_enabled: true,
@@ -84,6 +87,7 @@ export function createDefaultOpenAISchedulerTemplates(): OpenAISchedulerTemplate
       reset: 0.3,
       quota_headroom: 1,
       upstream_cost: 4,
+      cache_hit_rate: 2,
       previous_response: 0.2,
       session_sticky: 0.1,
       sticky_weighted_enabled: true,
@@ -803,6 +807,7 @@ export interface SystemSettings {
   openai_advanced_scheduler_weight_reset?: string;
   openai_advanced_scheduler_weight_quota_headroom?: string;
   openai_advanced_scheduler_weight_upstream_cost?: string;
+  openai_advanced_scheduler_weight_cache_hit_rate?: string;
   openai_advanced_scheduler_weight_previous_response?: string;
   openai_advanced_scheduler_weight_session_sticky?: string;
   openai_advanced_scheduler_effective_lb_top_k?: string;
@@ -814,6 +819,7 @@ export interface SystemSettings {
   openai_advanced_scheduler_effective_weight_reset?: string;
   openai_advanced_scheduler_effective_weight_quota_headroom?: string;
   openai_advanced_scheduler_effective_weight_upstream_cost?: string;
+  openai_advanced_scheduler_effective_weight_cache_hit_rate?: string;
   openai_advanced_scheduler_effective_weight_previous_response?: string;
   openai_advanced_scheduler_effective_weight_session_sticky?: string;
   openai_scheduler_observability_enabled?: boolean;
@@ -1145,6 +1151,7 @@ export interface UpdateSettingsRequest {
   openai_advanced_scheduler_weight_reset?: string;
   openai_advanced_scheduler_weight_quota_headroom?: string;
   openai_advanced_scheduler_weight_upstream_cost?: string;
+  openai_advanced_scheduler_weight_cache_hit_rate?: string;
   openai_advanced_scheduler_weight_previous_response?: string;
   openai_advanced_scheduler_weight_session_sticky?: string;
   openai_scheduler_observability_enabled?: boolean;

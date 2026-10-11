@@ -1450,13 +1450,15 @@ type GatewayOpenAIWSSchedulerScoreWeights struct {
 	QuotaHeadroom float64 `mapstructure:"quota_headroom"`
 	// UpstreamCost 倾向上游声明倍率更低的账号。
 	UpstreamCost float64 `mapstructure:"upstream_cost"`
+	// CacheHitRate softly prefers measured recent account/model cache hits.
+	CacheHitRate float64 `mapstructure:"cache_hit_rate"`
 	// PreviousResponse/SessionSticky 仅在开启 OpenAI 高级调度的粘性加权时生效。
 	PreviousResponse float64 `mapstructure:"previous_response"`
 	SessionSticky    float64 `mapstructure:"session_sticky"`
 }
 
 func (w GatewayOpenAIWSSchedulerScoreWeights) BaseWeightSum() float64 {
-	return w.Priority + w.Load + w.Queue + w.ErrorRate + w.TTFT + w.Reset + w.QuotaHeadroom + w.UpstreamCost
+	return w.Priority + w.Load + w.Queue + w.ErrorRate + w.TTFT + w.Reset + w.QuotaHeadroom + w.UpstreamCost + w.CacheHitRate
 }
 
 func (w GatewayOpenAIWSSchedulerScoreWeights) TotalWeightSum() float64 {
@@ -1466,7 +1468,7 @@ func (w GatewayOpenAIWSSchedulerScoreWeights) TotalWeightSum() float64 {
 func (w GatewayOpenAIWSSchedulerScoreWeights) IsValid() bool {
 	for _, weight := range []float64{
 		w.Priority, w.Load, w.Queue, w.ErrorRate, w.TTFT, w.Reset,
-		w.QuotaHeadroom, w.UpstreamCost, w.PreviousResponse, w.SessionSticky,
+		w.QuotaHeadroom, w.UpstreamCost, w.CacheHitRate, w.PreviousResponse, w.SessionSticky,
 	} {
 		if weight < 0 || math.IsNaN(weight) || math.IsInf(weight, 0) {
 			return false
@@ -2588,6 +2590,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.reset", 0.2)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.quota_headroom", 0.8)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.upstream_cost", 1.5)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.cache_hit_rate", 1.0)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.previous_response", 0.3)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.session_sticky", 0.1)
 	// OpenAI HTTP upstream protocol strategy
@@ -3701,7 +3704,7 @@ func (c *Config) Validate() error {
 	weights := c.Gateway.OpenAIWS.SchedulerScoreWeights
 	for _, weight := range []float64{
 		weights.Priority, weights.Load, weights.Queue, weights.ErrorRate, weights.TTFT,
-		weights.Reset, weights.QuotaHeadroom, weights.UpstreamCost,
+		weights.Reset, weights.QuotaHeadroom, weights.UpstreamCost, weights.CacheHitRate,
 		weights.PreviousResponse, weights.SessionSticky,
 	} {
 		if weight < 0 || math.IsNaN(weight) || math.IsInf(weight, 0) {

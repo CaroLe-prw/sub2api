@@ -1002,6 +1002,7 @@ export default {
           reset: '重置窗口',
           quotaHeadroom: '额度余量',
           upstreamCost: '调度成本倍率',
+          cacheHitRate: '缓存命中率',
           previousResponse: 'previous_response 粘性',
           sessionSticky: 'session_hash 粘性'
         },

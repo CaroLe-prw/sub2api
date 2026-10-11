@@ -1322,6 +1322,7 @@ export default {
         resetWeight: 'Reset window',
         quotaHeadroomWeight: 'Quota headroom',
         upstreamCostWeight: 'Scheduling cost rate',
+        cacheHitRateWeight: 'Cache hit rate',
         previousResponseWeight: 'previous_response sticky',
         sessionStickyWeight: 'session_hash sticky'
       },
@@ -1352,6 +1353,7 @@ export default {
         reset: 'Reset window',
         quotaHeadroom: 'Quota headroom',
         upstreamCost: 'Upstream cost',
+        cacheHitRate: 'Cache hit rate',
         previousResponse: 'previous_response sticky',
         sessionSticky: 'session_hash sticky',
         stickyWeighted: 'Sticky weighting',

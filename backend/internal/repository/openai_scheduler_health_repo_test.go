@@ -20,8 +20,9 @@ func TestUsageLogRepository_GetOpenAISchedulerHealthSnapshots(t *testing.T) {
 	lastFailure := time.Now().Add(-2 * time.Minute)
 	rows := sqlmock.NewRows([]string{
 		"account_id", "model", "success_count", "failure_count", "avg_ttft_ms", "last_success_at", "last_failure_at",
-	}).AddRow(int64(35), "gpt-5.6-sol", int64(18), int64(2), float64(920), lastSuccess, lastFailure)
-	mock.ExpectQuery(regexp.QuoteMeta("WITH successes AS (")).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(rows)
+		"cache_read_tokens", "cache_eligible_tokens", "cache_sample_count", "last_cache_sample_at",
+	}).AddRow(int64(35), "gpt-5.6-sol", int64(18), int64(2), float64(920), lastSuccess, lastFailure, int64(9000), int64(10000), int64(18), lastSuccess)
+	mock.ExpectQuery(`(?s)WITH successes AS.*SUM\(GREATEST\(input_tokens, 0\)::bigint \+ GREATEST\(cache_creation_tokens, 0\)::bigint \+ GREATEST\(cache_read_tokens, 0\)::bigint\).*AS cache_sample_count.*user_id > 0 AND request_type NOT IN \(4, 6\).*COALESCE\(s.cache_read_tokens, 0\)`).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(rows)
 
 	snapshots, err := repo.GetOpenAISchedulerHealthSnapshots(context.Background(), time.Now().Add(-30*time.Minute))
 	require.NoError(t, err)
@@ -34,6 +35,11 @@ func TestUsageLogRepository_GetOpenAISchedulerHealthSnapshots(t *testing.T) {
 	require.InDelta(t, 920, *snapshots[0].AvgTTFTMs, 0.001)
 	require.Equal(t, lastSuccess, *snapshots[0].LastSuccessAt)
 	require.Equal(t, lastFailure, *snapshots[0].LastFailureAt)
+	require.EqualValues(t, 9000, snapshots[0].CacheReadTokens)
+	require.EqualValues(t, 10000, snapshots[0].CacheEligibleTokens)
+	require.EqualValues(t, 18, snapshots[0].CacheSampleCount)
+	require.Equal(t, lastSuccess, *snapshots[0].LastCacheSampleAt)
+	require.InDelta(t, 0.9, *snapshots[0].CacheHitRate(), 0.0001)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

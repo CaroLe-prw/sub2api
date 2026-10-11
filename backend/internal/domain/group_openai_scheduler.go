@@ -21,6 +21,7 @@ type GroupOpenAISchedulerConfig struct {
 	Reset                       *float64 `json:"reset"`
 	QuotaHeadroom               *float64 `json:"quota_headroom"`
 	UpstreamCost                *float64 `json:"upstream_cost"`
+	CacheHitRate                *float64 `json:"cache_hit_rate"`
 	PreviousResponse            *float64 `json:"previous_response"`
 	SessionSticky               *float64 `json:"session_sticky"`
 	StickyWeightedEnabled       bool     `json:"sticky_weighted_enabled"`

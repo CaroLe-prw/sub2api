@@ -570,6 +570,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAIAdvancedSchedulerWeightUpstreamCost != after.OpenAIAdvancedSchedulerWeightUpstreamCost {
 		changed = append(changed, "openai_advanced_scheduler_weight_upstream_cost")
 	}
+	if before.OpenAIAdvancedSchedulerWeightCacheHitRate != after.OpenAIAdvancedSchedulerWeightCacheHitRate {
+		changed = append(changed, "openai_advanced_scheduler_weight_cache_hit_rate")
+	}
 	if before.OpenAIAdvancedSchedulerWeightPreviousResponse != after.OpenAIAdvancedSchedulerWeightPreviousResponse {
 		changed = append(changed, "openai_advanced_scheduler_weight_previous_response")
 	}

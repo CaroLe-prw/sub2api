@@ -264,6 +264,7 @@ export default {
         selectionFailureHint: '最后一次选号检查了 {count} 个账号但未选出可用账号；具体过滤数量见上方时间线，下表仅保留本次轨迹已记录的账号。',
         account: '账号',
         baseScore: '基础分',
+        cacheScore: '缓存率 / 分值贡献',
         stickyBonus: '粘性加分',
         totalScore: '最终分',
         state: '状态',

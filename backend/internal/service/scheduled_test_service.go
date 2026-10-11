@@ -136,13 +136,16 @@ func (s *ScheduledTestService) ListChannelMonitorPoolOverview(ctx context.Contex
 	trafficForKey := func(key trafficKey) *ChannelMonitorUserTraffic {
 		snapshot := byModel[key]
 		return &ChannelMonitorUserTraffic{
-			WindowMinutes: int(schedulerUserTrafficWindow / time.Minute),
-			SuccessCount:  snapshot.SuccessCount,
-			FailureCount:  snapshot.FailureCount,
-			AvgTTFTMs:     snapshot.AvgTTFTMs,
-			LastSuccessAt: snapshot.LastSuccessAt,
-			LastFailureAt: snapshot.LastFailureAt,
-			RecentEvents:  eventsByModel[key],
+			CacheHitRate:        snapshot.CacheHitRate(),
+			CacheReadTokens:     snapshot.CacheReadTokens,
+			CacheEligibleTokens: snapshot.CacheEligibleTokens,
+			WindowMinutes:       int(schedulerUserTrafficWindow / time.Minute),
+			SuccessCount:        snapshot.SuccessCount,
+			FailureCount:        snapshot.FailureCount,
+			AvgTTFTMs:           snapshot.AvgTTFTMs,
+			LastSuccessAt:       snapshot.LastSuccessAt,
+			LastFailureAt:       snapshot.LastFailureAt,
+			RecentEvents:        eventsByModel[key],
 		}
 	}
 	for _, account := range accounts {

@@ -22,6 +22,7 @@ export function createDefaultOpenAISchedulerConfig(): OpenAISchedulerConfig {
     reset: null,
     quota_headroom: null,
     upstream_cost: null,
+    cache_hit_rate: null,
     previous_response: null,
     session_sticky: null,
     sticky_weighted_enabled: true,

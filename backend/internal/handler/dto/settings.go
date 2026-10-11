@@ -260,6 +260,7 @@ type SystemSettings struct {
 	OpenAIAdvancedSchedulerWeightReset                     string                           `json:"openai_advanced_scheduler_weight_reset"`
 	OpenAIAdvancedSchedulerWeightQuotaHeadroom             string                           `json:"openai_advanced_scheduler_weight_quota_headroom"`
 	OpenAIAdvancedSchedulerWeightUpstreamCost              string                           `json:"openai_advanced_scheduler_weight_upstream_cost"`
+	OpenAIAdvancedSchedulerWeightCacheHitRate              string                           `json:"openai_advanced_scheduler_weight_cache_hit_rate"`
 	OpenAIAdvancedSchedulerWeightPreviousResponse          string                           `json:"openai_advanced_scheduler_weight_previous_response"`
 	OpenAIAdvancedSchedulerWeightSessionSticky             string                           `json:"openai_advanced_scheduler_weight_session_sticky"`
 	OpenAIAdvancedSchedulerEffectiveLBTopK                 string                           `json:"openai_advanced_scheduler_effective_lb_top_k"`
@@ -271,6 +272,7 @@ type SystemSettings struct {
 	OpenAIAdvancedSchedulerEffectiveWeightReset            string                           `json:"openai_advanced_scheduler_effective_weight_reset"`
 	OpenAIAdvancedSchedulerEffectiveWeightQuotaHeadroom    string                           `json:"openai_advanced_scheduler_effective_weight_quota_headroom"`
 	OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost     string                           `json:"openai_advanced_scheduler_effective_weight_upstream_cost"`
+	OpenAIAdvancedSchedulerEffectiveWeightCacheHitRate     string                           `json:"openai_advanced_scheduler_effective_weight_cache_hit_rate"`
 	OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse string                           `json:"openai_advanced_scheduler_effective_weight_previous_response"`
 	OpenAIAdvancedSchedulerEffectiveWeightSessionSticky    string                           `json:"openai_advanced_scheduler_effective_weight_session_sticky"`
 	OpenAISchedulerObservabilityEnabled                    bool                             `json:"openai_scheduler_observability_enabled"`

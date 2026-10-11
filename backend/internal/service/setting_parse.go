@@ -280,6 +280,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAIAdvancedSchedulerWeightReset:                 "",
 		SettingKeyOpenAIAdvancedSchedulerWeightQuotaHeadroom:         "",
 		SettingKeyOpenAIAdvancedSchedulerWeightUpstreamCost:          "",
+		SettingKeyOpenAIAdvancedSchedulerWeightCacheHitRate:          "",
 		SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse:      "",
 		SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky:         "",
 		SettingKeyOpenAISchedulerObservabilityEnabled:                "true",
@@ -979,6 +980,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIAdvancedSchedulerWeightReset = strings.TrimSpace(settings[SettingKeyOpenAIAdvancedSchedulerWeightReset])
 	result.OpenAIAdvancedSchedulerWeightQuotaHeadroom = strings.TrimSpace(settings[SettingKeyOpenAIAdvancedSchedulerWeightQuotaHeadroom])
 	result.OpenAIAdvancedSchedulerWeightUpstreamCost = strings.TrimSpace(settings[SettingKeyOpenAIAdvancedSchedulerWeightUpstreamCost])
+	result.OpenAIAdvancedSchedulerWeightCacheHitRate = strings.TrimSpace(settings[SettingKeyOpenAIAdvancedSchedulerWeightCacheHitRate])
 	result.OpenAIAdvancedSchedulerWeightPreviousResponse = strings.TrimSpace(settings[SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse])
 	result.OpenAIAdvancedSchedulerWeightSessionSticky = strings.TrimSpace(settings[SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky])
 	result.OpenAIAdvancedSchedulerEffectiveLBTopK = s.openAIAdvancedSchedulerEffectiveLBTopK()
@@ -991,6 +993,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIAdvancedSchedulerEffectiveWeightReset = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.Reset)
 	result.OpenAIAdvancedSchedulerEffectiveWeightQuotaHeadroom = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.QuotaHeadroom)
 	result.OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.UpstreamCost)
+	result.OpenAIAdvancedSchedulerEffectiveWeightCacheHitRate = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.CacheHitRate)
 	result.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.PreviousResponse)
 	result.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky = formatOpenAIAdvancedSchedulerFloat(effectiveWeights.SessionSticky)
 	result.OpenAISchedulerObservabilityEnabled = !isFalseSettingValue(settings[SettingKeyOpenAISchedulerObservabilityEnabled])
@@ -1116,6 +1119,7 @@ func (s *SettingService) openAIAdvancedSchedulerEffectiveWeights() config.Gatewa
 		Reset:            0.2,
 		QuotaHeadroom:    0.8,
 		UpstreamCost:     1.5,
+		CacheHitRate:     1.0,
 		PreviousResponse: 0.3,
 		SessionSticky:    0.1,
 	}
@@ -1154,6 +1158,7 @@ func (s *SettingService) normalizeOpenAIAdvancedSchedulerOverrides(settings *Sys
 		&settings.OpenAIAdvancedSchedulerWeightReset,
 		&settings.OpenAIAdvancedSchedulerWeightQuotaHeadroom,
 		&settings.OpenAIAdvancedSchedulerWeightUpstreamCost,
+		&settings.OpenAIAdvancedSchedulerWeightCacheHitRate,
 		&settings.OpenAIAdvancedSchedulerWeightPreviousResponse,
 		&settings.OpenAIAdvancedSchedulerWeightSessionSticky,
 	}
@@ -1178,6 +1183,7 @@ func (s *SettingService) normalizeOpenAIAdvancedSchedulerOverrides(settings *Sys
 		Reset:            resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightReset, effective.Reset),
 		QuotaHeadroom:    resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightQuotaHeadroom, effective.QuotaHeadroom),
 		UpstreamCost:     resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightUpstreamCost, effective.UpstreamCost),
+		CacheHitRate:     resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightCacheHitRate, effective.CacheHitRate),
 		PreviousResponse: resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightPreviousResponse, effective.PreviousResponse),
 		SessionSticky:    resolveOpenAIAdvancedSchedulerWeight(settings.OpenAIAdvancedSchedulerWeightSessionSticky, effective.SessionSticky),
 	}

@@ -295,6 +295,7 @@ type UpdateSettingsRequest struct {
 	OpenAIAdvancedSchedulerWeightReset                 *string                           `json:"openai_advanced_scheduler_weight_reset"`
 	OpenAIAdvancedSchedulerWeightQuotaHeadroom         *string                           `json:"openai_advanced_scheduler_weight_quota_headroom"`
 	OpenAIAdvancedSchedulerWeightUpstreamCost          *string                           `json:"openai_advanced_scheduler_weight_upstream_cost"`
+	OpenAIAdvancedSchedulerWeightCacheHitRate          *string                           `json:"openai_advanced_scheduler_weight_cache_hit_rate"`
 	OpenAIAdvancedSchedulerWeightPreviousResponse      *string                           `json:"openai_advanced_scheduler_weight_previous_response"`
 	OpenAIAdvancedSchedulerWeightSessionSticky         *string                           `json:"openai_advanced_scheduler_weight_session_sticky"`
 	OpenAISchedulerObservabilityEnabled                *bool                             `json:"openai_scheduler_observability_enabled"`
@@ -1958,6 +1959,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerWeightReset:            stringSetting(req.OpenAIAdvancedSchedulerWeightReset, previousSettings.OpenAIAdvancedSchedulerWeightReset),
 		OpenAIAdvancedSchedulerWeightQuotaHeadroom:    stringSetting(req.OpenAIAdvancedSchedulerWeightQuotaHeadroom, previousSettings.OpenAIAdvancedSchedulerWeightQuotaHeadroom),
 		OpenAIAdvancedSchedulerWeightUpstreamCost:     stringSetting(req.OpenAIAdvancedSchedulerWeightUpstreamCost, previousSettings.OpenAIAdvancedSchedulerWeightUpstreamCost),
+		OpenAIAdvancedSchedulerWeightCacheHitRate:     stringSetting(req.OpenAIAdvancedSchedulerWeightCacheHitRate, previousSettings.OpenAIAdvancedSchedulerWeightCacheHitRate),
 		OpenAIAdvancedSchedulerWeightPreviousResponse: stringSetting(req.OpenAIAdvancedSchedulerWeightPreviousResponse, previousSettings.OpenAIAdvancedSchedulerWeightPreviousResponse),
 		OpenAIAdvancedSchedulerWeightSessionSticky:    stringSetting(req.OpenAIAdvancedSchedulerWeightSessionSticky, previousSettings.OpenAIAdvancedSchedulerWeightSessionSticky),
 		OpenAISchedulerTemplates: func() service.OpenAISchedulerTemplates {
@@ -2511,6 +2513,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerWeightReset:                     updatedSettings.OpenAIAdvancedSchedulerWeightReset,
 		OpenAIAdvancedSchedulerWeightQuotaHeadroom:             updatedSettings.OpenAIAdvancedSchedulerWeightQuotaHeadroom,
 		OpenAIAdvancedSchedulerWeightUpstreamCost:              updatedSettings.OpenAIAdvancedSchedulerWeightUpstreamCost,
+		OpenAIAdvancedSchedulerWeightCacheHitRate:              updatedSettings.OpenAIAdvancedSchedulerWeightCacheHitRate,
 		OpenAIAdvancedSchedulerWeightPreviousResponse:          updatedSettings.OpenAIAdvancedSchedulerWeightPreviousResponse,
 		OpenAIAdvancedSchedulerWeightSessionSticky:             updatedSettings.OpenAIAdvancedSchedulerWeightSessionSticky,
 		OpenAIAdvancedSchedulerEffectiveLBTopK:                 updatedSettings.OpenAIAdvancedSchedulerEffectiveLBTopK,
@@ -2522,6 +2525,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerEffectiveWeightReset:            updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightReset,
 		OpenAIAdvancedSchedulerEffectiveWeightQuotaHeadroom:    updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightQuotaHeadroom,
 		OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost:     updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost,
+		OpenAIAdvancedSchedulerEffectiveWeightCacheHitRate:     updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightCacheHitRate,
 		OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse: updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse,
 		OpenAIAdvancedSchedulerEffectiveWeightSessionSticky:    updatedSettings.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky,
 		OpenAISchedulerObservabilityEnabled:                    updatedSettings.OpenAISchedulerObservabilityEnabled,

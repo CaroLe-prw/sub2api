@@ -51,13 +51,16 @@ type ChannelMonitorPoolModel struct {
 // channel-health evidence. Client errors, policy blocks and cancellations are
 // deliberately excluded from the failure count.
 type ChannelMonitorUserTraffic struct {
-	WindowMinutes int                              `json:"window_minutes"`
-	SuccessCount  int64                            `json:"success_count"`
-	FailureCount  int64                            `json:"failure_count"`
-	AvgTTFTMs     *float64                         `json:"avg_ttft_ms"`
-	LastSuccessAt *time.Time                       `json:"last_success_at"`
-	LastFailureAt *time.Time                       `json:"last_failure_at"`
-	RecentEvents  []ChannelMonitorUserTrafficEvent `json:"recent_events,omitempty"`
+	CacheHitRate        *float64                         `json:"cache_hit_rate"`
+	CacheReadTokens     int64                            `json:"cache_read_tokens"`
+	CacheEligibleTokens int64                            `json:"cache_eligible_tokens"`
+	WindowMinutes       int                              `json:"window_minutes"`
+	SuccessCount        int64                            `json:"success_count"`
+	FailureCount        int64                            `json:"failure_count"`
+	AvgTTFTMs           *float64                         `json:"avg_ttft_ms"`
+	LastSuccessAt       *time.Time                       `json:"last_success_at"`
+	LastFailureAt       *time.Time                       `json:"last_failure_at"`
+	RecentEvents        []ChannelMonitorUserTrafficEvent `json:"recent_events,omitempty"`
 }
 
 // ChannelMonitorUserTrafficEvent is a bounded, admin-only real-request sample

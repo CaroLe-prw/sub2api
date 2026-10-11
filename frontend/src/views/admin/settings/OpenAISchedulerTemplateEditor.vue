@@ -27,6 +27,7 @@ const numericFields = computed<Array<{ key: NumericKey; label: string }>>(() => 
   { key: "reset", label: t("admin.settings.openaiSchedulerTemplates.reset") },
   { key: "quota_headroom", label: t("admin.settings.openaiSchedulerTemplates.quotaHeadroom") },
   { key: "upstream_cost", label: t("admin.settings.openaiSchedulerTemplates.upstreamCost") },
+  { key: "cache_hit_rate", label: t("admin.settings.openaiSchedulerTemplates.cacheHitRate") },
   { key: "previous_response", label: t("admin.settings.openaiSchedulerTemplates.previousResponse") },
   { key: "session_sticky", label: t("admin.settings.openaiSchedulerTemplates.sessionSticky") },
 ]);

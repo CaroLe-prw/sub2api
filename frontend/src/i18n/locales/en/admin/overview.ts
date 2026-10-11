@@ -1021,6 +1021,7 @@ export default {
           reset: 'Reset Window',
           quotaHeadroom: 'Quota Headroom',
           upstreamCost: 'Scheduling Cost',
+          cacheHitRate: 'Cache hit rate',
           previousResponse: 'previous_response Stickiness',
           sessionSticky: 'session_hash Stickiness'
         },

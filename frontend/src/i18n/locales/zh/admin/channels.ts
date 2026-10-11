@@ -617,6 +617,7 @@ export default {
         combinedState: '综合状态',
         combinedSummary: '综合结果',
         userTraffic: '用户调用（近 {minutes} 分钟）',
+        cacheHitRate: '缓存率',
         userTrafficTimeline: '用户调用（近 {minutes} 分钟，绿＝正常，黄/橙＝首字偏慢，红＝失败或严重慢）',
         activeProbeTimeline: '主动探测记录',
         noActiveProbeForModel: '该模型来自真实用户调用，尚未配置主动探测',

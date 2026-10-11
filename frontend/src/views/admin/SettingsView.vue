@@ -9964,6 +9964,7 @@ type SettingsForm = Omit<
   openai_advanced_scheduler_weight_reset: string;
   openai_advanced_scheduler_weight_quota_headroom: string;
   openai_advanced_scheduler_weight_upstream_cost: string;
+  openai_advanced_scheduler_weight_cache_hit_rate: string;
   openai_advanced_scheduler_weight_previous_response: string;
   openai_advanced_scheduler_weight_session_sticky: string;
   openai_scheduler_observability_enabled: boolean;
@@ -10230,6 +10231,7 @@ const form = reactive<SettingsForm>({
   openai_advanced_scheduler_weight_reset: "",
   openai_advanced_scheduler_weight_quota_headroom: "",
   openai_advanced_scheduler_weight_upstream_cost: "",
+  openai_advanced_scheduler_weight_cache_hit_rate: "",
   openai_advanced_scheduler_weight_previous_response: "",
   openai_advanced_scheduler_weight_session_sticky: "",
   openai_scheduler_observability_enabled: true,
@@ -10390,6 +10392,7 @@ type OpenAIAdvancedSchedulerOverrideKey =
   | "openai_advanced_scheduler_weight_reset"
   | "openai_advanced_scheduler_weight_quota_headroom"
   | "openai_advanced_scheduler_weight_upstream_cost"
+  | "openai_advanced_scheduler_weight_cache_hit_rate"
   | "openai_advanced_scheduler_weight_previous_response"
   | "openai_advanced_scheduler_weight_session_sticky";
 
@@ -10403,6 +10406,7 @@ type OpenAIAdvancedSchedulerEffectiveKey =
   | "openai_advanced_scheduler_effective_weight_reset"
   | "openai_advanced_scheduler_effective_weight_quota_headroom"
   | "openai_advanced_scheduler_effective_weight_upstream_cost"
+  | "openai_advanced_scheduler_effective_weight_cache_hit_rate"
   | "openai_advanced_scheduler_effective_weight_previous_response"
   | "openai_advanced_scheduler_effective_weight_session_sticky";
 
@@ -10470,6 +10474,11 @@ const openAIAdvancedSchedulerWeightFields = computed<
       key: "openai_advanced_scheduler_weight_upstream_cost",
       label: t("admin.settings.openaiExperimentalScheduler.upstreamCostWeight"),
       placeholder: placeholder("openai_advanced_scheduler_effective_weight_upstream_cost", "1.5"),
+    },
+    {
+      key: "openai_advanced_scheduler_weight_cache_hit_rate",
+      label: t("admin.settings.openaiExperimentalScheduler.cacheHitRateWeight"),
+      placeholder: placeholder("openai_advanced_scheduler_effective_weight_cache_hit_rate", "1"),
     },
     {
       key: "openai_advanced_scheduler_weight_previous_response",
@@ -12021,6 +12030,8 @@ async function saveSettings() {
         form.openai_advanced_scheduler_weight_quota_headroom.trim(),
       openai_advanced_scheduler_weight_upstream_cost:
         form.openai_advanced_scheduler_weight_upstream_cost.trim(),
+      openai_advanced_scheduler_weight_cache_hit_rate:
+        form.openai_advanced_scheduler_weight_cache_hit_rate.trim(),
       openai_advanced_scheduler_weight_previous_response:
         form.openai_advanced_scheduler_weight_previous_response.trim(),
       openai_advanced_scheduler_weight_session_sticky:

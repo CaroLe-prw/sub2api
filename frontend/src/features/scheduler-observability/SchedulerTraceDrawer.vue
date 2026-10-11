@@ -338,6 +338,7 @@ function outcomeExplanation(trace: SchedulerTrace): string {
                     <tr>
                       <th class="px-3 py-2.5">{{ t("admin.schedulerObservability.drawer.account") }}</th>
                       <th class="px-3 py-2.5 text-right">{{ t("admin.schedulerObservability.drawer.baseScore") }}</th>
+                      <th class="px-3 py-2.5 text-right">{{ t("admin.schedulerObservability.drawer.cacheScore") }}</th>
                       <th class="px-3 py-2.5 text-right">{{ t("admin.schedulerObservability.drawer.stickyBonus") }}</th>
                       <th class="px-3 py-2.5 text-right">{{ t("admin.schedulerObservability.drawer.totalScore") }}</th>
                       <th class="px-3 py-2.5 text-right">{{ t("admin.schedulerObservability.drawer.state") }}</th>
@@ -350,6 +351,10 @@ function outcomeExplanation(trace: SchedulerTrace): string {
                         <p v-if="candidate.reason" class="mt-0.5 text-[10px] text-gray-500 dark:text-dark-400">{{ reasonLabel(candidate.reason) }}</p>
                       </td>
                       <td class="px-3 py-3 text-right font-mono tabular-nums text-gray-600 dark:text-dark-300">{{ candidate.baseScore.toFixed(2) }}</td>
+                      <td class="px-3 py-3 text-right font-mono tabular-nums text-sky-600 dark:text-sky-300">
+                        <p>{{ candidate.cacheHitRate == null ? '—' : percent(candidate.cacheHitRate) }}</p>
+                        <p class="text-[10px]">{{ (candidate.cacheScore ?? 0).toFixed(2) }}</p>
+                      </td>
                       <td class="px-3 py-3 text-right font-mono tabular-nums text-primary-600 dark:text-primary-300">+{{ candidate.stickyBonus.toFixed(2) }}</td>
                       <td class="px-3 py-3 text-right font-mono font-semibold tabular-nums text-gray-900 dark:text-white">{{ candidate.totalScore.toFixed(2) }}</td>
                       <td class="px-3 py-3 text-right">

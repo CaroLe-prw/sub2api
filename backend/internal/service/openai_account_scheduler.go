@@ -244,6 +244,7 @@ type openAIAccountRuntimeStats struct {
 }
 
 type openAIAccountRuntimeStat struct {
+	cacheEvidence     atomic.Pointer[schedulerCacheEvidence]
 	slowFirstOutput   openAISlowFirstOutputHealth
 	errorRateEWMABits atomic.Uint64
 	ttftEWMABits      atomic.Uint64
@@ -589,13 +590,17 @@ func (s *openAIAccountRuntimeStats) size() int {
 // account-attributable upstream errors so client cancellations and bad requests
 // do not poison channel health.
 type OpenAISchedulerHealthSnapshot struct {
-	AccountID     int64
-	Model         string
-	SuccessCount  int64
-	FailureCount  int64
-	AvgTTFTMs     *float64
-	LastSuccessAt *time.Time
-	LastFailureAt *time.Time
+	AccountID           int64
+	Model               string
+	SuccessCount        int64
+	FailureCount        int64
+	AvgTTFTMs           *float64
+	LastSuccessAt       *time.Time
+	LastFailureAt       *time.Time
+	CacheReadTokens     int64
+	CacheEligibleTokens int64
+	CacheSampleCount    int64
+	LastCacheSampleAt   *time.Time
 }
 
 type openAISchedulerHealthSnapshotRepository interface {
@@ -609,6 +614,7 @@ func (s *openAIAccountRuntimeStats) replaceHistory(snapshots []OpenAISchedulerHe
 	s.historyRefreshMu.Lock()
 	defer s.historyRefreshMu.Unlock()
 	generation := s.historyGen.Add(1)
+	refreshedAt := time.Now()
 	accountTotals := make(map[int64]OpenAISchedulerHealthSnapshot)
 	newAccountIDs := make(map[int64]struct{})
 	newModelKeys := make(map[openAIAccountModelKey]struct{})
@@ -629,6 +635,14 @@ func (s *openAIAccountRuntimeStats) replaceHistory(snapshots []OpenAISchedulerHe
 			}
 			stat.historySamples.Store(total)
 			stat.historyGeneration.Store(generation)
+			evidence := &schedulerCacheEvidence{
+				readTokens: snapshot.CacheReadTokens, eligibleTokens: snapshot.CacheEligibleTokens,
+				samples: snapshot.CacheSampleCount, refreshedAt: refreshedAt, generation: generation,
+			}
+			if snapshot.LastCacheSampleAt != nil {
+				evidence.lastSampleAt = *snapshot.LastCacheSampleAt
+			}
+			stat.cacheEvidence.Store(evidence)
 		}
 		key, hasModel := openAIAccountModelTransientKey(snapshot.AccountID, snapshot.Model)
 		if hasModel {
@@ -688,6 +702,7 @@ func clearOpenAIHistorySignal(value any) {
 		return
 	}
 	stat.historySamples.Store(0)
+	stat.cacheEvidence.Store(nil)
 	stat.historyGeneration.Store(0)
 	stat.historyTTFTBits.Store(math.Float64bits(math.NaN()))
 }
@@ -1137,6 +1152,9 @@ func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int6
 }
 
 type openAIAccountCandidateScore struct {
+	cacheHitRate       *float64
+	cacheSampleCount   int64
+	cacheScore         float64
 	account            *Account
 	loadInfo           *AccountLoadInfo
 	loadKnown          bool
@@ -1228,14 +1246,17 @@ func (o *openAIAccountScheduleObservation) captureCandidates(candidates []openAI
 			state = "excluded"
 		}
 		o.candidates = append(o.candidates, OpenAISchedulerObservabilityCandidate{
-			AccountID:   candidate.account.ID,
-			AccountName: candidate.account.Name,
-			Rank:        index + 1,
-			BaseScore:   candidate.baseScore,
-			StickyBonus: candidate.score - candidate.baseScore,
-			TotalScore:  candidate.score,
-			State:       state,
-			Reason:      o.candidateReasons[candidate.account.ID],
+			AccountID:        candidate.account.ID,
+			AccountName:      candidate.account.Name,
+			Rank:             index + 1,
+			BaseScore:        candidate.baseScore,
+			StickyBonus:      candidate.score - candidate.baseScore,
+			TotalScore:       candidate.score,
+			CacheHitRate:     candidate.cacheHitRate,
+			CacheSampleCount: candidate.cacheSampleCount,
+			CacheScore:       candidate.cacheScore,
+			State:            state,
+			Reason:           o.candidateReasons[candidate.account.ID],
 		})
 	}
 }
@@ -1714,6 +1735,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	plan.loadSkew = calcLoadSkewByMoments(loadRateSum, loadRateSumSquares, len(candidates))
 
 	weights := s.service.openAIWSSchedulerWeightsForRequest(ctx)
+	cacheWeight := schedulerCachePlacementWeight(weights.CacheHitRate, candidates, req.StickyAccountID, req.StickyPreviousAccountID)
 	plan.ttftPreferenceWeight = weights.TTFT
 	now := time.Now()
 	upstreamCostFactors := map[int64]float64(nil)
@@ -1820,7 +1842,10 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			upstreamCostFactor = factor
 		}
 
-		item.primaryScore = weights.Priority*priorityFactor +
+		var cacheFactor float64
+		item.cacheHitRate, item.cacheSampleCount, cacheFactor = s.stats.cacheHitRateForRequest(item.account.ID, openAIAccountHealthModel(item.account, req), now)
+		item.cacheScore = cacheWeight * (cacheFactor - schedulerCacheNeutralFactor)
+		item.primaryScore = item.cacheScore + weights.Priority*priorityFactor +
 			weights.Load*loadFactor +
 			weights.Queue*queueFactor +
 			weights.ErrorRate*errorFactor +
@@ -2997,6 +3022,7 @@ func (s *OpenAIGatewayService) resolveOpenAIGroupSchedulerPolicy(
 		Reset:                       weights.Reset,
 		QuotaHeadroom:               weights.QuotaHeadroom,
 		UpstreamCost:                weights.UpstreamCost,
+		CacheHitRate:                weights.CacheHitRate,
 		PreviousResponse:            weights.Previous,
 		SessionSticky:               weights.SessionSticky,
 		StickyWeightedEnabled:       s.isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx),
@@ -3064,6 +3090,7 @@ func openAIAdvancedSchedulerWeightOverrideSpecs() []openAIAdvancedSchedulerWeigh
 		{key: SettingKeyOpenAIAdvancedSchedulerWeightReset, name: "reset"},
 		{key: SettingKeyOpenAIAdvancedSchedulerWeightQuotaHeadroom, name: "quota_headroom"},
 		{key: SettingKeyOpenAIAdvancedSchedulerWeightUpstreamCost, name: "upstream_cost"},
+		{key: SettingKeyOpenAIAdvancedSchedulerWeightCacheHitRate, name: "cache_hit_rate"},
 		{key: SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse, name: "previous_response"},
 		{key: SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky, name: "session_sticky"},
 	}
@@ -3804,6 +3831,7 @@ func (s *OpenAIGatewayService) openAIWSSchedulerWeights() GatewayOpenAIWSSchedul
 			Reset:         s.cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Reset,
 			QuotaHeadroom: s.cfg.Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom,
 			UpstreamCost:  s.cfg.Gateway.OpenAIWS.SchedulerScoreWeights.UpstreamCost,
+			CacheHitRate:  s.cfg.Gateway.OpenAIWS.SchedulerScoreWeights.CacheHitRate,
 			Previous:      s.cfg.Gateway.OpenAIWS.SchedulerScoreWeights.PreviousResponse,
 			SessionSticky: s.cfg.Gateway.OpenAIWS.SchedulerScoreWeights.SessionSticky,
 		}
@@ -3817,6 +3845,7 @@ func (s *OpenAIGatewayService) openAIWSSchedulerWeights() GatewayOpenAIWSSchedul
 		Reset:         0.2,
 		QuotaHeadroom: 0.8,
 		UpstreamCost:  1.5,
+		CacheHitRate:  1.0,
 		Previous:      0.3,
 		SessionSticky: 0.1,
 	}
@@ -3861,6 +3890,8 @@ func applyOpenAIAdvancedSchedulerWeightOverrides(
 			weights.QuotaHeadroom = value
 		case "upstream_cost":
 			weights.UpstreamCost = value
+		case "cache_hit_rate":
+			weights.CacheHitRate = value
 		case "previous_response":
 			weights.Previous = value
 		case "session_sticky":
@@ -3880,6 +3911,7 @@ type GatewayOpenAIWSSchedulerScoreWeightsView struct {
 	Reset         float64
 	QuotaHeadroom float64
 	UpstreamCost  float64
+	CacheHitRate  float64
 	Previous      float64
 	SessionSticky float64
 }
@@ -3894,6 +3926,7 @@ func groupOpenAISchedulerWeights(config resolvedGroupOpenAISchedulerConfig) Gate
 		Reset:         config.Reset,
 		QuotaHeadroom: config.QuotaHeadroom,
 		UpstreamCost:  config.UpstreamCost,
+		CacheHitRate:  config.CacheHitRate,
 		Previous:      config.PreviousResponse,
 		SessionSticky: config.SessionSticky,
 	}
@@ -3909,6 +3942,7 @@ func (w GatewayOpenAIWSSchedulerScoreWeightsView) configWeights() config.Gateway
 		Reset:            w.Reset,
 		QuotaHeadroom:    w.QuotaHeadroom,
 		UpstreamCost:     w.UpstreamCost,
+		CacheHitRate:     w.CacheHitRate,
 		PreviousResponse: w.Previous,
 		SessionSticky:    w.SessionSticky,
 	}

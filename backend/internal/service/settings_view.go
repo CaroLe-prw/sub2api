@@ -298,6 +298,7 @@ type SystemSettings struct {
 	OpenAIAdvancedSchedulerWeightReset                     string
 	OpenAIAdvancedSchedulerWeightQuotaHeadroom             string
 	OpenAIAdvancedSchedulerWeightUpstreamCost              string
+	OpenAIAdvancedSchedulerWeightCacheHitRate              string
 	OpenAIAdvancedSchedulerWeightPreviousResponse          string
 	OpenAIAdvancedSchedulerWeightSessionSticky             string
 	OpenAIAdvancedSchedulerEffectiveLBTopK                 string
@@ -309,6 +310,7 @@ type SystemSettings struct {
 	OpenAIAdvancedSchedulerEffectiveWeightReset            string
 	OpenAIAdvancedSchedulerEffectiveWeightQuotaHeadroom    string
 	OpenAIAdvancedSchedulerEffectiveWeightUpstreamCost     string
+	OpenAIAdvancedSchedulerEffectiveWeightCacheHitRate     string
 	OpenAIAdvancedSchedulerEffectiveWeightPreviousResponse string
 	OpenAIAdvancedSchedulerEffectiveWeightSessionSticky    string
 	OpenAISchedulerObservabilityEnabled                    bool

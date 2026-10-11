@@ -37,6 +37,7 @@ vi.mock('vue-i18n', async (importOriginal) => {
         'admin.channelMonitor.dataPanel.combinedState': '综合状态',
         'admin.channelMonitor.dataPanel.combinedSummary': '综合结果',
         'admin.channelMonitor.dataPanel.userTraffic': '用户调用',
+        'admin.channelMonitor.dataPanel.cacheHitRate': '缓存率',
         'admin.channelMonitor.dataPanel.userTrafficTimeline': '用户调用按首字速度分色',
         'admin.channelMonitor.dataPanel.activeProbeTimeline': '主动探测记录',
         'admin.channelMonitor.dataPanel.noActiveProbeForModel': '仅用户调用，未配置主动探测',
@@ -331,5 +332,44 @@ describe('MonitorModelHistoryDialog', () => {
     expect(wrapper.text()).toContain('gpt-5.6-sol')
     expect(wrapper.text()).toContain('仅用户调用，未配置主动探测')
     expect(wrapper.findAll('[data-testid="run-probe"]')).toHaveLength(1)
+  })
+})
+
+describe('per-model user cache rates', () => {
+  it('shows traffic-only rates, measured zero hits and unknown usage separately', () => {
+    const wrapper = mount(MonitorModelHistoryDialog, {
+      props: {
+        show: true,
+        account: {
+          ...account,
+          models: [0.9, 0, null].map((rate, index) => ({
+            ...account.models[0],
+            model: `model-${index}`,
+            plan_id: index === 0 ? 0 : index + 1,
+            has_probe: index !== 0,
+            user_traffic: {
+              window_minutes: 30,
+              success_count: rate === null ? 0 : 1,
+              failure_count: 0,
+              avg_ttft_ms: null,
+              last_success_at: null,
+              last_failure_at: null,
+              cache_hit_rate: rate,
+            },
+          })),
+        },
+        histories: {},
+        loading: false,
+        runningPlanId: null,
+      },
+      global: { stubs: {
+        BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+        Icon: true,
+        MonitorHeartbeatTimeline: true,
+      } },
+    })
+    expect(wrapper.findAll('[data-testid="user-cache-rate"]').map((item) => item.text())).toEqual([
+      '缓存率 90.0%', '缓存率 0.0%', '缓存率 —',
+    ])
   })
 })

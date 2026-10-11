@@ -617,6 +617,7 @@ export default {
         combinedState: 'Combined status',
         combinedSummary: 'Combined result',
         userTraffic: 'User calls (last {minutes} min)',
+        cacheHitRate: 'Cache hit rate',
         userTrafficTimeline: 'User calls (last {minutes} min; green = normal, yellow/orange = slow first token, red = failure or critically slow)',
         activeProbeTimeline: 'Active probe history',
         noActiveProbeForModel: 'Observed from real user calls; no active probe is configured for this model',

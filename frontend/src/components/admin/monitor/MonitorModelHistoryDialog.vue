@@ -57,6 +57,13 @@ function currentModelLatency(model: PoolMonitorModel): number | null {
   return resolveCurrentProbe(model, probeHistory(model)).latencyMs
 }
 
+function userCacheRate(model: PoolMonitorModel): string {
+  const rate = model.user_traffic?.cache_hit_rate
+  return rate != null && Number.isFinite(rate) && rate >= 0 && rate <= 1
+    ? `${(rate * 100).toFixed(1)}%`
+    : '—'
+}
+
 const accountCombinedState = computed<CombinedMonitorHealthState>(() => {
   const states = props.account?.models.map(currentModelState) ?? []
   if (states.length > 0 && states.every((state) => state === 'failed')) return 'failed'
@@ -150,6 +157,7 @@ function userTrafficHistory(model: PoolMonitorModel): PoolProbeHeartbeat[] {
                 <div class="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                   <span class="font-semibold text-gray-600 dark:text-gray-300">{{ t('admin.channelMonitor.dataPanel.userTrafficTimeline', { minutes: model.user_traffic?.window_minutes ?? 30 }) }}</span>
                   <span class="text-gray-400">{{ t('admin.channelMonitor.dataPanel.resultBreakdown', { success: model.user_traffic?.success_count ?? 0, failed: model.user_traffic?.failure_count ?? 0 }) }}</span>
+                  <span class="font-semibold tabular-nums text-sky-600 dark:text-sky-400" data-testid="user-cache-rate">{{ t('admin.channelMonitor.dataPanel.cacheHitRate') }} {{ userCacheRate(model) }}</span>
                 </div>
                 <MonitorHeartbeatTimeline :samples="userTrafficHistory(model)" :empty-label="t('admin.channelMonitor.dataPanel.noUserTraffic')" />
               </section>

@@ -95,6 +95,7 @@ func TestValidateGroupOpenAISchedulerCustomPolicy(t *testing.T) {
 		Reset:         groupSchedulerTestPointer(0.0),
 		QuotaHeadroom: groupSchedulerTestPointer(0.0),
 		UpstreamCost:  groupSchedulerTestPointer(0.0),
+		CacheHitRate:  groupSchedulerTestPointer(0.0),
 	}
 	require.ErrorContains(t, ValidateGroupOpenAISchedulerPolicy(GroupOpenAISchedulerProfileCustom, allZero), "must not all be zero")
 

@@ -203,3 +203,17 @@ func TestUpdateSettingsSubscriptionEnabledIsWritableAndKeptWhenOmitted(t *testin
 	require.Equal(t, "false", repo.values[service.SettingKeySubscriptionEnabled],
 		"a payload without subscription_enabled must not flip the stored value back to true")
 }
+
+func TestUpdateSettingsSchedulerCacheWeightRoundTrip(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{service.SettingKeyOpenAIAdvancedSchedulerWeightCacheHitRate: "2"})
+	rec := doUpdateSettings(t, h, map[string]any{"risk_control_enabled": true}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "2", repo.values[service.SettingKeyOpenAIAdvancedSchedulerWeightCacheHitRate])
+	rec = doUpdateSettings(t, h, map[string]any{"openai_advanced_scheduler_weight_cache_hit_rate": "0"}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "0", repo.values[service.SettingKeyOpenAIAdvancedSchedulerWeightCacheHitRate])
+	require.Contains(t, rec.Body.String(), `"openai_advanced_scheduler_weight_cache_hit_rate":"0"`)
+	rec = doUpdateSettings(t, h, map[string]any{"openai_advanced_scheduler_weight_cache_hit_rate": "-1"}, nil)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "0", repo.values[service.SettingKeyOpenAIAdvancedSchedulerWeightCacheHitRate])
+}

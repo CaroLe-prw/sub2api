@@ -31,6 +31,9 @@ export interface SchedulerUserTrafficEvent {
 }
 
 export interface SchedulerUserTrafficSummary {
+  cache_hit_rate?: number | null
+  cache_read_tokens?: number
+  cache_eligible_tokens?: number
   window_minutes: number
   success_count: number
   failure_count: number

@@ -697,6 +697,7 @@ const (
 	SettingKeyOpenAIAdvancedSchedulerWeightReset                 = "openai_advanced_scheduler_weight_reset"
 	SettingKeyOpenAIAdvancedSchedulerWeightQuotaHeadroom         = "openai_advanced_scheduler_weight_quota_headroom"
 	SettingKeyOpenAIAdvancedSchedulerWeightUpstreamCost          = "openai_advanced_scheduler_weight_upstream_cost"
+	SettingKeyOpenAIAdvancedSchedulerWeightCacheHitRate          = "openai_advanced_scheduler_weight_cache_hit_rate"
 	SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse      = "openai_advanced_scheduler_weight_previous_response"
 	SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky         = "openai_advanced_scheduler_weight_session_sticky"
 	// SettingKeyOpenAISchedulerObservabilityEnabled controls in-memory scheduler trace collection.

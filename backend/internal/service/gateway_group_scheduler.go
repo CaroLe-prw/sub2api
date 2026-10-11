@@ -131,6 +131,7 @@ func (s *GatewayService) withGatewayGroupSchedulerPolicyContext(
 				Reset:                       weights.Reset,
 				QuotaHeadroom:               weights.QuotaHeadroom,
 				UpstreamCost:                weights.UpstreamCost,
+				CacheHitRate:                weights.CacheHitRate,
 				PreviousResponse:            weights.Previous,
 				SessionSticky:               weights.SessionSticky,
 				StickyWeightedEnabled:       settings.stickyWeightedEnabled,
@@ -409,6 +410,7 @@ func buildGatewayGroupSelectionOrder(
 
 	costFactors := gatewaySchedulingCostFactors(accounts)
 	weights := groupOpenAISchedulerWeights(policy.config)
+	cacheWeight := schedulerCachePlacementWeight(weights.CacheHitRate, scored, stickyAccountID)
 	stickyBonuses := make(map[int64]float64, len(scored))
 	for i := range scored {
 		candidate := &scored[i]
@@ -444,14 +446,17 @@ func buildGatewayGroupSelectionOrder(
 		}
 		// Quota headroom remains neutral for the generic gateway until every
 		// provider exposes equivalent reset-window data.
-		candidate.primaryScore =
+		var cacheFactor float64
+		candidate.cacheHitRate, candidate.cacheSampleCount, cacheFactor = healthStats.cacheHitRateForRequest(candidate.account.ID, accountSchedulingUpstreamModel(ctx, candidate.account, requestedModel), now)
+		candidate.cacheScore = cacheWeight * (cacheFactor - schedulerCacheNeutralFactor)
+		candidate.primaryScore = candidate.cacheScore +
 			weights.Priority*priorityFactor +
-				weights.Load*loadFactor +
-				weights.Queue*queueFactor +
-				weights.ErrorRate*errorFactor +
-				weights.Reset*resetFactor +
-				weights.QuotaHeadroom*0.5 +
-				weights.UpstreamCost*(costFactor-openAIUpstreamCostNeutralFactor)
+			weights.Load*loadFactor +
+			weights.Queue*queueFactor +
+			weights.ErrorRate*errorFactor +
+			weights.Reset*resetFactor +
+			weights.QuotaHeadroom*0.5 +
+			weights.UpstreamCost*(costFactor-openAIUpstreamCostNeutralFactor)
 		candidate.score = candidate.primaryScore + weights.TTFT*ttftFactor
 		if policy.config.StickyWeightedEnabled &&
 			!candidate.excluded &&
@@ -478,14 +483,17 @@ func buildGatewayGroupSelectionOrder(
 				reason = healthReasons[candidate.account.ID]
 			}
 			observedCandidates = append(observedCandidates, OpenAISchedulerObservabilityCandidate{
-				AccountID:   candidate.account.ID,
-				AccountName: candidate.account.Name,
-				Rank:        index + 1,
-				BaseScore:   candidate.score - stickyBonus,
-				StickyBonus: stickyBonus,
-				TotalScore:  candidate.score,
-				State:       state,
-				Reason:      reason,
+				AccountID:        candidate.account.ID,
+				AccountName:      candidate.account.Name,
+				Rank:             index + 1,
+				BaseScore:        candidate.score - stickyBonus,
+				StickyBonus:      stickyBonus,
+				TotalScore:       candidate.score,
+				CacheHitRate:     candidate.cacheHitRate,
+				CacheSampleCount: candidate.cacheSampleCount,
+				CacheScore:       candidate.cacheScore,
+				State:            state,
+				Reason:           reason,
 			})
 		}
 		observation.decision = OpenAIAccountScheduleDecision{

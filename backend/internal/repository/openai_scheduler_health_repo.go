@@ -56,7 +56,8 @@ func (r *usageLogRepository) GetOpenAISchedulerHealthSnapshots(
 
 // GetSchedulerUserTrafficSnapshots returns account/model health evidence from
 // real user requests, optionally restricted to the accounts visible on the
-// current admin page.
+// current admin page. Persisted input_tokens excludes cache reads and writes;
+// summing all three reconstructs the prompt-token denominator for cache rates.
 func (r *usageLogRepository) GetSchedulerUserTrafficSnapshots(
 	ctx context.Context,
 	since time.Time,
@@ -68,7 +69,11 @@ func (r *usageLogRepository) GetSchedulerUserTrafficSnapshots(
 			       lower(COALESCE(NULLIF(TRIM(upstream_model), ''), NULLIF(TRIM(requested_model), ''), NULLIF(TRIM(model), ''), '')) AS model,
 			       COUNT(*)::bigint AS success_count,
 			       AVG(first_token_ms) FILTER (WHERE first_token_ms > 0)::float8 AS avg_ttft_ms,
-			       MAX(created_at) AS last_success_at
+			       MAX(created_at) AS last_success_at,
+			       SUM(GREATEST(cache_read_tokens, 0)::bigint)::bigint AS cache_read_tokens,
+			       SUM(GREATEST(input_tokens, 0)::bigint + GREATEST(cache_creation_tokens, 0)::bigint + GREATEST(cache_read_tokens, 0)::bigint)::bigint AS cache_eligible_tokens,
+			       COUNT(*) FILTER (WHERE input_tokens > 0 OR cache_creation_tokens > 0 OR cache_read_tokens > 0)::bigint AS cache_sample_count,
+			       MAX(created_at) FILTER (WHERE input_tokens > 0 OR cache_creation_tokens > 0 OR cache_read_tokens > 0) AS last_cache_sample_at
 			FROM usage_logs
 			WHERE created_at >= $1 AND account_id > 0
 			  AND user_id > 0 AND request_type NOT IN (4, 6)
@@ -93,7 +98,9 @@ func (r *usageLogRepository) GetSchedulerUserTrafficSnapshots(
 		)
 		SELECT COALESCE(s.account_id, f.account_id), COALESCE(s.model, f.model),
 		       COALESCE(s.success_count, 0), COALESCE(f.failure_count, 0), s.avg_ttft_ms,
-		       s.last_success_at, f.last_failure_at
+		       s.last_success_at, f.last_failure_at,
+		       COALESCE(s.cache_read_tokens, 0), COALESCE(s.cache_eligible_tokens, 0),
+		       COALESCE(s.cache_sample_count, 0), s.last_cache_sample_at
 		FROM successes s
 		FULL OUTER JOIN failures f ON f.account_id = s.account_id AND f.model = s.model
 		ORDER BY 1, 2
@@ -109,6 +116,7 @@ func (r *usageLogRepository) GetSchedulerUserTrafficSnapshots(
 		if err := rows.Scan(
 			&item.AccountID, &item.Model, &item.SuccessCount, &item.FailureCount, &item.AvgTTFTMs,
 			&item.LastSuccessAt, &item.LastFailureAt,
+			&item.CacheReadTokens, &item.CacheEligibleTokens, &item.CacheSampleCount, &item.LastCacheSampleAt,
 		); err != nil {
 			return nil, err
 		}

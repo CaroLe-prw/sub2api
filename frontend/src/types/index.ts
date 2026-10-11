@@ -694,6 +694,7 @@ export interface OpenAISchedulerConfig {
   reset: number | null
   quota_headroom: number | null
   upstream_cost: number | null
+  cache_hit_rate: number | null
   previous_response: number | null
   session_sticky: number | null
   sticky_weighted_enabled: boolean
