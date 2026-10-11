@@ -10,6 +10,7 @@ import (
 
 type scheduledTestOverviewRepoStub struct {
 	accounts []*ChannelMonitorPoolAccount
+	since    time.Time
 }
 
 func (s *scheduledTestOverviewRepoStub) Create(context.Context, *ScheduledTestPlan) (*ScheduledTestPlan, error) {
@@ -44,7 +45,8 @@ func (s *scheduledTestOverviewRepoStub) ReconcileChannelMonitorPlans(context.Con
 	panic("unexpected ReconcileChannelMonitorPlans")
 }
 
-func (s *scheduledTestOverviewRepoStub) ListChannelMonitorPoolOverview(context.Context, time.Time, []int64) ([]*ChannelMonitorPoolAccount, error) {
+func (s *scheduledTestOverviewRepoStub) ListChannelMonitorPoolOverview(_ context.Context, since time.Time, _ []int64) ([]*ChannelMonitorPoolAccount, error) {
+	s.since = since
 	return s.accounts, nil
 }
 
@@ -84,6 +86,7 @@ func TestScheduledTestService_ListChannelMonitorPoolOverviewIncludesUserTraffic(
 
 	accounts, err := svc.ListChannelMonitorPoolOverview(context.Background(), []int64{35})
 	require.NoError(t, err)
+	require.InDelta(t, schedulerUserTrafficWindow.Seconds(), time.Since(planRepo.since).Seconds(), 2)
 	require.Len(t, accounts, 1)
 	require.Len(t, accounts[0].Models, 1)
 	require.True(t, accounts[0].Models[0].HasProbe)

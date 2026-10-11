@@ -97,7 +97,9 @@ func (s *ScheduledTestService) ListResults(ctx context.Context, planID int64, li
 }
 
 func (s *ScheduledTestService) ListChannelMonitorPoolOverview(ctx context.Context, accountIDs []int64) ([]*ChannelMonitorPoolAccount, error) {
-	accounts, err := s.planRepo.ListChannelMonitorPoolOverview(ctx, time.Now().Add(-7*24*time.Hour), accountIDs)
+	// The account model availability cell is a current-availability signal. A
+	// week-long probe window keeps stale failures yellow long after recovery.
+	accounts, err := s.planRepo.ListChannelMonitorPoolOverview(ctx, time.Now().Add(-schedulerUserTrafficWindow), accountIDs)
 	if err != nil || s.userTrafficRepo == nil {
 		return accounts, err
 	}
