@@ -2,7 +2,15 @@
 // registry, load balancing, and shared utilities for the payment subsystem.
 package payment
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrProviderQueryUnsupported indicates that a provider's legacy order-query
+// endpoint is not available. Callers may use a provider-specific query path
+// when the verified notification includes the upstream trade identifier.
+var ErrProviderQueryUnsupported = errors.New("provider query endpoint unsupported")
 
 // PaymentType represents a supported payment method.
 type PaymentType = string
@@ -165,6 +173,13 @@ type QueryOrderResponse struct {
 	Amount   float64 // 按服务商返回币种解释的金额
 	PaidAt   string  // RFC3339 timestamp or empty
 	Metadata map[string]string
+}
+
+// TradeNoQueryProvider can query an order by the provider's trade number.
+// This is needed by gateways whose modern status endpoint accepts the
+// provider trade identifier rather than the merchant out_trade_no.
+type TradeNoQueryProvider interface {
+	QueryOrderByTradeNo(context.Context, string) (*QueryOrderResponse, error)
 }
 
 // PaymentNotification is the parsed result of a webhook/notify callback.

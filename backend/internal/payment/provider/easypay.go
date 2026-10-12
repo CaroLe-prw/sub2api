@@ -330,6 +330,9 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 		return nil, fmt.Errorf("easypay query: %w", err)
 	}
 	if httpStatus < http.StatusOK || httpStatus >= http.StatusMultipleChoices {
+		if httpStatus == http.StatusNotFound || httpStatus == http.StatusMethodNotAllowed || isEpusdtAPIResponse(body) {
+			return nil, fmt.Errorf("%w: easypay legacy query HTTP status %d", payment.ErrProviderQueryUnsupported, httpStatus)
+		}
 		return nil, fmt.Errorf("easypay query HTTP status %d", httpStatus)
 	}
 	type easyPayQueryData struct {
@@ -350,9 +353,15 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 		Data        easyPayQueryData `json:"data"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
+		if isEpusdtAPIResponse(body) {
+			return nil, fmt.Errorf("%w: easypay legacy query returned Epusdt response", payment.ErrProviderQueryUnsupported)
+		}
 		return nil, fmt.Errorf("easypay parse query: %w", err)
 	}
 	if resp.Code != easypayCodeSuccess {
+		if isEpusdtAPIResponse(body) {
+			return nil, fmt.Errorf("%w: easypay legacy query returned Epusdt response", payment.ErrProviderQueryUnsupported)
+		}
 		return nil, fmt.Errorf("easypay query failed with code %d: %s", resp.Code, e.safeQueryMessage(resp.Msg))
 	}
 	// Older gateways may omit out_trade_no. If present, it must identify the
@@ -415,6 +424,146 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 		Amount:   amount,
 		Metadata: metadata,
 	}, nil
+}
+
+// QueryOrderByTradeNo queries the modern Epusdt status endpoints. Epusdt's
+// EPay-compatible callback exposes its trade_id as trade_no, while the legacy
+// /api.php query endpoint accepts the merchant out_trade_no. The two IDs are
+// therefore not interchangeable.
+func (e *EasyPay) QueryOrderByTradeNo(ctx context.Context, tradeNo string) (*payment.QueryOrderResponse, error) {
+	tradeNo = strings.TrimSpace(tradeNo)
+	if tradeNo == "" {
+		return nil, fmt.Errorf("epusdt query: missing trade number")
+	}
+
+	statusBody, statusHTTP, err := e.getEpusdtJSON(ctx, "/pay/check-status/"+url.PathEscape(tradeNo))
+	if err != nil {
+		return nil, fmt.Errorf("epusdt status query: %w", err)
+	}
+	if statusHTTP < http.StatusOK || statusHTTP >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("epusdt status query HTTP status %d", statusHTTP)
+	}
+	var statusResp struct {
+		StatusCode int    `json:"status_code"`
+		Message    string `json:"message"`
+		Data       struct {
+			TradeID string           `json:"trade_id"`
+			Status  *easyPayQueryInt `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(statusBody, &statusResp); err != nil {
+		return nil, fmt.Errorf("epusdt status parse: %w", err)
+	}
+	if statusResp.StatusCode != 0 && statusResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("epusdt status query failed with code %d: %s", statusResp.StatusCode, strings.TrimSpace(statusResp.Message))
+	}
+	if returned := strings.TrimSpace(statusResp.Data.TradeID); returned != "" && returned != tradeNo {
+		return nil, fmt.Errorf("epusdt status query trade number mismatch")
+	}
+	if statusResp.Data.Status == nil {
+		return nil, fmt.Errorf("epusdt status query missing status")
+	}
+
+	detailBody, detailHTTP, err := e.getEpusdtJSON(ctx, "/pay/checkout-counter-resp/"+url.PathEscape(tradeNo))
+	if err != nil {
+		return nil, fmt.Errorf("epusdt order query: %w", err)
+	}
+	if detailHTTP < http.StatusOK || detailHTTP >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("epusdt order query HTTP status %d", detailHTTP)
+	}
+	var detailResp struct {
+		StatusCode int    `json:"status_code"`
+		Message    string `json:"message"`
+		Data       struct {
+			TradeID string `json:"trade_id"`
+			Amount  any    `json:"amount"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(detailBody, &detailResp); err != nil {
+		return nil, fmt.Errorf("epusdt order parse: %w", err)
+	}
+	if detailResp.StatusCode != 0 && detailResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("epusdt order query failed with code %d: %s", detailResp.StatusCode, strings.TrimSpace(detailResp.Message))
+	}
+	if returned := strings.TrimSpace(detailResp.Data.TradeID); returned != "" && returned != tradeNo {
+		return nil, fmt.Errorf("epusdt order query trade number mismatch")
+	}
+	amount, err := parseEasyPayAmount(detailResp.Data.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("epusdt order amount: %w", err)
+	}
+
+	status := payment.ProviderStatusPending
+	switch int(*statusResp.Data.Status) {
+	case 2:
+		status = payment.ProviderStatusPaid
+	case 3:
+		status = payment.ProviderStatusFailed
+	case 1, 4:
+		// Waiting for payment or for token/network selection.
+	default:
+		return nil, fmt.Errorf("epusdt status query returned unknown status %d", *statusResp.Data.Status)
+	}
+	metadata := e.MerchantIdentityMetadata()
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+	metadata["payment_status_known"] = "true"
+	return &payment.QueryOrderResponse{
+		TradeNo:  tradeNo,
+		Status:   status,
+		Amount:   amount,
+		Metadata: metadata,
+	}, nil
+}
+
+func (e *EasyPay) getEpusdtJSON(ctx context.Context, endpoint string) ([]byte, int, error) {
+	base := strings.TrimRight(e.apiBase(), "/")
+	if base == "" {
+		return nil, 0, fmt.Errorf("missing API base")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+endpoint, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	client := e.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: easypayHTTPTimeout}
+	}
+	queryClient := *client
+	queryClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := queryClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxEasypayResponseSize))
+	return body, resp.StatusCode, err
+}
+
+func parseEasyPayAmount(value any) (float64, error) {
+	switch typed := value.(type) {
+	case float64:
+		if typed <= 0 {
+			return 0, fmt.Errorf("amount must be positive")
+		}
+		return typed, nil
+	case string:
+		amount, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err != nil || amount <= 0 {
+			return 0, fmt.Errorf("invalid amount")
+		}
+		return amount, nil
+	default:
+		return 0, fmt.Errorf("missing amount")
+	}
+}
+
+func isEpusdtAPIResponse(body []byte) bool {
+	var envelope struct {
+		StatusCode *int `json:"status_code"`
+	}
+	return json.Unmarshal(body, &envelope) == nil && envelope.StatusCode != nil
 }
 
 // getOrderQueryRaw keeps credentials out of transport errors and prevents a

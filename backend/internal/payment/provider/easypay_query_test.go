@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +11,44 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 )
+
+func TestEasyPayQueryOrderByTradeNoUsesEpusdtEndpoints(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/pay/check-status/epusdt-trade-1":
+			_, _ = w.Write([]byte(`{"status_code":200,"data":{"trade_id":"epusdt-trade-1","status":2}}`))
+		case "/pay/checkout-counter-resp/epusdt-trade-1":
+			_, _ = w.Write([]byte(`{"status_code":200,"data":{"trade_id":"epusdt-trade-1","amount":"80.00"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	provider := newTestEasyPay(t, server.URL)
+	resp, err := provider.QueryOrderByTradeNo(context.Background(), "epusdt-trade-1")
+	if err != nil {
+		t.Fatalf("QueryOrderByTradeNo returned error: %v", err)
+	}
+	if resp.Status != payment.ProviderStatusPaid || resp.Amount != 80 || resp.TradeNo != "epusdt-trade-1" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if got, want := strings.Join(paths, ","), "/pay/check-status/epusdt-trade-1,/pay/checkout-counter-resp/epusdt-trade-1"; got != want {
+		t.Fatalf("paths = %q, want %q", got, want)
+	}
+}
+
+func TestEasyPayQueryOrderMarksMissingLegacyEndpointUnsupported(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+
+	_, err := newTestEasyPay(t, server.URL).QueryOrder(context.Background(), "order-123")
+	if !errors.Is(err, payment.ErrProviderQueryUnsupported) {
+		t.Fatalf("error = %v, want ErrProviderQueryUnsupported", err)
+	}
+}
 
 func TestEasyPayQueryOrderTransportErrorDoesNotLeakKey(t *testing.T) {
 	server := httptest.NewServer(http.NotFoundHandler())

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -11,8 +12,9 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
 )
 
-// confirmEasyPayUpstream treats the callback as a hint only. The endpoint,
-// merchant credentials and query reference all come from the persisted order.
+// confirmEasyPayUpstream treats the callback as a hint only. Legacy gateways
+// are queried by the persisted merchant order number; Epusdt's modern status
+// endpoints are queried by the already verified callback trade number.
 func (s *PaymentService) confirmEasyPayUpstream(ctx context.Context, order *dbent.PaymentOrder, callbackTradeNo string) (*payment.QueryOrderResponse, error) {
 	prov, err := s.getOrderProvider(ctx, order)
 	if err != nil {
@@ -28,6 +30,13 @@ func (s *PaymentService) confirmEasyPayUpstream(ctx context.Context, order *dben
 	}
 	finish := servertiming.ObserveDependency(ctx, "payment")
 	resp, err := prov.QueryOrder(ctx, queryRef)
+	if err != nil && callbackTradeNo != "" && errors.Is(err, payment.ErrProviderQueryUnsupported) {
+		if tradeQuery, ok := prov.(payment.TradeNoQueryProvider); ok {
+			// Epusdt's modern status endpoint accepts its trade_id (the
+			// verified callback trade_no), not our merchant out_trade_no.
+			resp, err = tradeQuery.QueryOrderByTradeNo(ctx, strings.TrimSpace(callbackTradeNo))
+		}
+	}
 	finish()
 	if err != nil {
 		return nil, fmt.Errorf("easypay confirmation query: %w", err)
