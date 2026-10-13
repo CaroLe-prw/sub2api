@@ -4196,6 +4196,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import GeminiUpstreamProtocolFields from '@/components/account/GeminiUpstreamProtocolFields.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
+import Toggle from '@/components/common/Toggle.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
@@ -6284,9 +6285,11 @@ const handleSubmit = async () => {
     base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
     api_key: apiKeyValue.value.trim()
   }
-  if (form.platform === 'gemini' && isOfficialGeminiBaseUrl(apiKeyBaseUrl.value)) {
-    credentials.tier_id = geminiTierAIStudio.value
+  if (form.platform === 'gemini') {
     credentials.api_protocol = geminiApiProtocol.value
+    if (isOfficialGeminiBaseUrl(apiKeyBaseUrl.value)) {
+      credentials.tier_id = geminiTierAIStudio.value
+    }
   }
 
   // 国产供应商：账号模式 + 协议 + 对应端点写入凭据；后端按 account_mode 路由
