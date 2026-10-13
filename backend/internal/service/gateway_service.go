@@ -665,6 +665,9 @@ type ForwardResult struct {
 	ImageSizeBreakdown map[string]int
 	SearchCount        int
 	AudioUsage         *AudioUsage
+	// CacheStorageTokenHours 显式上下文缓存的存储量（缓存 token 数 × 存储小时数），按计费模型的
+	// 存储单价折算为费用后叠加在 token 费用之上。
+	CacheStorageTokenHours float64
 }
 
 // GatewayFailureStage identifies which request stage failed. The zero value is
@@ -725,6 +728,7 @@ type UpstreamFailoverError struct {
 	SameAccountRetryDelay    time.Duration // 同账号重试的最小间隔；零值使用 handler 默认值
 	SameAccountRetryDeadline time.Time     // 同账号重试截止时间；零值表示仅受 retryLimit 限制
 	SameAccountRetryMax      int           // 可选的错误级同账号重试上限，低于 handler 默认预算时优先采用
+	BoundUpstreamPassthrough bool          // 绑定显式缓存的请求在上游网关账号上收到的 429 / 5xx：反映持有缓存的上游账号状态，原样回写不走错误映射
 	ClientStatusCode         int
 	ClientMessage            string
 }

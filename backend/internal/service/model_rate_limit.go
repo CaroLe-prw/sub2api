@@ -91,9 +91,18 @@ func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedMod
 	}
 
 	keys := []string{modelKey}
+	// Bedrock failures can be recorded against either the public alias (the
+	// scheduler scope) or the concrete provider model (the upstream scope).
+	// Check both so a cooldown written by either path is honored consistently.
+	if a.IsBedrock() {
+		requestedKey := strings.TrimSpace(requestedModel)
+		if requestedKey != "" && requestedKey != modelKey {
+			keys = append(keys, requestedKey)
+		}
+	}
 	switch a.Platform {
 	case PlatformAntigravity:
-		if isAntigravityGeminiModel(modelKey) && modelKey != antigravityGeminiModelRateLimitKey {
+		if isAntigravityGeminiModel(modelKey) && !isAntigravityGeminiImageModel(modelKey) && modelKey != antigravityGeminiModelRateLimitKey {
 			keys = append(keys, antigravityGeminiModelRateLimitKey)
 		}
 	case PlatformOpenAI:
@@ -190,10 +199,15 @@ func antigravityModelRateLimitKeys(model string) []string {
 		return nil
 	}
 	keys := []string{model}
-	if isAntigravityGeminiModel(model) && model != antigravityGeminiModelRateLimitKey {
+	if isAntigravityGeminiModel(model) && !isAntigravityGeminiImageModel(model) && model != antigravityGeminiModelRateLimitKey {
 		keys = append(keys, antigravityGeminiModelRateLimitKey)
 	}
 	return keys
+}
+
+func isAntigravityGeminiImageModel(model string) bool {
+	normalized := normalizeAntigravityModelName(model)
+	return strings.HasPrefix(normalized, "gemini-") && strings.Contains(normalized, "-image")
 }
 
 func (a *Account) modelRateLimitResetAt(scope string) *time.Time {

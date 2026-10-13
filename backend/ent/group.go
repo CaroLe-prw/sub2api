@@ -30,6 +30,8 @@ type Group struct {
 	Name string `json:"name,omitempty"`
 	// Description holds the value of the "description" field.
 	Description *string `json:"description,omitempty"`
+	// 名称与描述的界面语言译文：语言代码 -> {name, description}；缺失的语言沿用 name/description
+	I18n domain.GroupI18n `json:"i18n,omitempty"`
 	// RateMultiplier holds the value of the "rate_multiplier" field.
 	RateMultiplier float64 `json:"rate_multiplier,omitempty"`
 	// 账号调度成本倍率硬上限；NULL 表示不设置独立硬上限
@@ -114,7 +116,7 @@ type Group struct {
 	FallbackGroupID *int64 `json:"fallback_group_id,omitempty"`
 	// 无效请求兜底使用的分组 ID
 	FallbackGroupIDOnInvalidRequest *int64 `json:"fallback_group_id_on_invalid_request,omitempty"`
-	// 分组请求模型映射：请求模型 -> 转发与计价模型（OpenAI）
+	// 分组请求模型映射：请求模型 -> 转发与计价模型（所有平台）
 	ModelMapping map[string]string `json:"model_mapping,omitempty"`
 	// 模型路由配置：模型模式 -> 优先账号ID列表
 	ModelRouting map[string][]int64 `json:"model_routing,omitempty"`
@@ -266,7 +268,7 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case group.FieldOpenaiSchedulerConfig, group.FieldVideoModelPrices, group.FieldModelPricing, group.FieldModelMapping, group.FieldModelRouting, group.FieldSupportedModelScopes, group.FieldMessagesDispatchModelConfig, group.FieldModelAllowlist, group.FieldCodexModelsManifestConfig, group.FieldReasoningEffortMappings:
+		case group.FieldI18n, group.FieldOpenaiSchedulerConfig, group.FieldVideoModelPrices, group.FieldModelPricing, group.FieldModelMapping, group.FieldModelRouting, group.FieldSupportedModelScopes, group.FieldMessagesDispatchModelConfig, group.FieldModelAllowlist, group.FieldCodexModelsManifestConfig, group.FieldReasoningEffortMappings:
 			values[i] = new([]byte)
 		case group.FieldPeakRateEnabled, group.FieldIsExclusive, group.FieldAllowImageGeneration, group.FieldAllowBatchImageGeneration, group.FieldImageRateIndependent, group.FieldVideoRateIndependent, group.FieldLongContextPricingEnabled, group.FieldClaudeCodeOnly, group.FieldModelRoutingEnabled, group.FieldMcpXMLInject, group.FieldAllowMessagesDispatch, group.FieldAllowLive, group.FieldForceOpenaiFast, group.FieldFreeOpenaiFast, group.FieldRequireOauthOnly, group.FieldRequirePrivacySet, group.FieldProfitControlEnabled:
 			values[i] = new(sql.NullBool)
@@ -330,6 +332,14 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Description = new(string)
 				*_m.Description = value.String
+			}
+		case group.FieldI18n:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field i18n", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.I18n); err != nil {
+					return fmt.Errorf("unmarshal field i18n: %w", err)
+				}
 			}
 		case group.FieldRateMultiplier:
 			if value, ok := values[i].(*sql.NullFloat64); !ok {
@@ -853,6 +863,9 @@ func (_m *Group) String() string {
 		builder.WriteString("description=")
 		builder.WriteString(*v)
 	}
+	builder.WriteString(", ")
+	builder.WriteString("i18n=")
+	builder.WriteString(fmt.Sprintf("%v", _m.I18n))
 	builder.WriteString(", ")
 	builder.WriteString("rate_multiplier=")
 	builder.WriteString(fmt.Sprintf("%v", _m.RateMultiplier))
