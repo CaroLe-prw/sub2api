@@ -401,7 +401,7 @@ func TestAntigravityGatewayService_ForwardGemini_ImageUsesDefaultMappingAndOAuth
 
 func TestAntigravityGatewayService_ForwardGemini_StripsBuiltinsWhenClientFunctionsPresent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"tools":[{"functionDeclarations":[{"name":"get_weather","parameters":{"type":"object","additionalProperties":false}}]},{"googleSearch":{}}],"toolConfig":{"includeServerSideToolInvocations":true}}`)
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"tools":[{"functionDeclarations":[{"name":"get_weather","strict":true,"parameters":{"type":"object","additionalProperties":false}}]},{"googleSearch":{}}],"toolConfig":{"includeServerSideToolInvocations":true}}`)
 	writer := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(writer)
 	body = bytes.ReplaceAll(body, []byte{92}, nil)
@@ -438,6 +438,12 @@ func TestAntigravityGatewayService_ForwardGemini_StripsBuiltinsWhenClientFunctio
 	require.True(t, ok)
 	require.Contains(t, tool, "functionDeclarations")
 	require.NotContains(t, tool, "googleSearch")
+	declarations, ok := tool["functionDeclarations"].([]any)
+	require.True(t, ok)
+	require.Len(t, declarations, 1)
+	declaration, ok := declarations[0].(map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, declaration, "strict")
 	if toolConfig, exists := request["toolConfig"].(map[string]any); exists {
 		require.NotContains(t, toolConfig, "includeServerSideToolInvocations")
 	}

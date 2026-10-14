@@ -506,6 +506,14 @@ func cleanGeminiRequest(body []byte) ([]byte, error) {
 					continue
 				}
 
+				// strict is an OpenAI function-tool extension. Gemini function
+				// declarations do not define it, and v1internal rejects the whole
+				// request when it is forwarded at the declaration level.
+				if _, ok := funcMap["strict"]; ok {
+					delete(funcMap, "strict")
+					modified = true
+				}
+
 				if params, ok := funcMap["parameters"].(map[string]any); ok {
 					antigravity.DeepCleanUndefined(params)
 					cleaned := antigravity.CleanJSONSchema(params)
