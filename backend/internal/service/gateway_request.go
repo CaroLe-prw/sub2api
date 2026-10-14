@@ -573,6 +573,43 @@ func isClaude55SignedThinkingModel(model string) bool {
 	return claude.IsOpus55(model) || claude.IsSonnet55(model) || claude.IsHaiku55(model)
 }
 
+// normalizeClaude55Thinking adapts legacy extended-thinking requests to the
+// adaptive-thinking contract used by Opus 5.5. The client may still send
+// thinking.type=enabled with a manual budget, especially when a public model
+// name is mapped to Opus 5.5 at the gateway. Opus 5.5 has no budget_tokens
+// parameter, so remove it after switching to adaptive thinking.
+func normalizeClaude55Thinking(body []byte, model string) ([]byte, bool) {
+	if !claude.IsOpus55(model) {
+		return body, false
+	}
+
+	thinking := gjson.GetBytes(body, "thinking")
+	if !thinking.Exists() || !thinking.IsObject() {
+		return body, false
+	}
+
+	thinkingType := thinking.Get("type").String()
+	if thinkingType != "enabled" && thinkingType != "adaptive" {
+		return body, false
+	}
+
+	out := body
+	changed := false
+	if thinkingType == "enabled" {
+		if next, err := sjson.SetBytes(out, "thinking.type", "adaptive"); err == nil {
+			out = next
+			changed = true
+		}
+	}
+	if gjson.GetBytes(out, "thinking.budget_tokens").Exists() {
+		if next, err := sjson.DeleteBytes(out, "thinking.budget_tokens"); err == nil {
+			out = next
+			changed = true
+		}
+	}
+	return out, changed
+}
+
 // validateClaude55Request rejects settings that the upstream cannot honor.
 // Call before OAuth mimicry can remove tool_choice or alter thinking defaults.
 func validateClaude55Request(body []byte, model string) error {

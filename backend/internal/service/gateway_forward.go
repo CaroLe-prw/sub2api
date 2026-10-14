@@ -105,6 +105,12 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 	}
 	if account != nil && account.Platform == PlatformAnthropic {
+		if normalized, changed := normalizeClaude55Thinking(parsed.Body.Bytes(), validationModel); changed {
+			if err := parsed.ReplaceBody(normalized); err != nil {
+				return nil, fmt.Errorf("normalize Claude 5.5 thinking: %w", err)
+			}
+			parsed.ThinkingEnabled = true
+		}
 		if err := validateClaude55Request(parsed.Body.Bytes(), validationModel); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
 			return nil, err

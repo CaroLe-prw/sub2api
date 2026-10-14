@@ -413,6 +413,54 @@ func TestSonnet55RetryKeepsBetweenToolsMode(t *testing.T) {
 	}
 }
 
+func TestNormalizeClaude55Thinking(t *testing.T) {
+	tests := []struct {
+		name        string
+		model       string
+		body        string
+		wantChanged bool
+		wantType    string
+		wantBudget  bool
+	}{
+		{
+			name:        "legacy enabled becomes adaptive",
+			model:       "claude-opus-5-5",
+			body:        `{"thinking":{"type":"enabled","budget_tokens":10000}}`,
+			wantChanged: true,
+			wantType:    "adaptive",
+		},
+		{
+			name:        "adaptive drops legacy budget",
+			model:       "anthropic/claude-opus-5.5",
+			body:        `{"thinking":{"type":"adaptive","budget_tokens":10000}}`,
+			wantChanged: true,
+			wantType:    "adaptive",
+		},
+		{
+			name:     "disabled remains unchanged",
+			model:    "claude-opus-5-5",
+			body:     `{"thinking":{"type":"disabled"}}`,
+			wantType: "disabled",
+		},
+		{
+			name:       "other models remain unchanged",
+			model:      "claude-fable-5-1",
+			body:       `{"thinking":{"type":"enabled","budget_tokens":10000}}`,
+			wantType:   "enabled",
+			wantBudget: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, changed := normalizeClaude55Thinking([]byte(tt.body), tt.model)
+			require.Equal(t, tt.wantChanged, changed)
+			require.Equal(t, tt.wantType, gjson.GetBytes(got, "thinking.type").String())
+			require.Equal(t, tt.wantBudget, gjson.GetBytes(got, "thinking.budget_tokens").Exists())
+		})
+	}
+}
+
 func TestFilterThinkingBlocksForRetry_DisablesThinkingEvenWithoutThinkingBlocks(t *testing.T) {
 	input := []byte(`{
 		"model":"claude-3-5-sonnet-20241022",
