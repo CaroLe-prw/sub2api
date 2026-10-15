@@ -201,3 +201,31 @@ func TestGeminiNativePreservesSafetySettings(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, string(body), string(raw))
 }
+
+func TestGeminiNativeStripsOpenAIFunctionStrict(t *testing.T) {
+	for _, field := range []string{"functionDeclarations", "function_declarations"} {
+		t.Run(field, func(t *testing.T) {
+			svc, stub := geminiOpenAITestService(`{"candidates":[{"content":{"parts":[{"text":"Hello"}]},"finishReason":"STOP"}]}`, http.StatusOK)
+			account := geminiOpenAITestAccount()
+			account.Credentials["api_protocol"] = "gemini"
+			delete(account.Credentials, "model_mapping")
+			body := []byte(`{"contents":[{"parts":[{"text":"Hi"}]}],"tools":[{"` + field + `":[{"name":"shell","strict":true,"parameters":{"type":"object","properties":{"strict":{"type":"boolean"}}}}]}]}`)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-public:generateContent", bytes.NewReader(body))
+
+			_, err := svc.ForwardNative(c.Request.Context(), c, account, "gemini-public", "generateContent", false, body)
+			require.NoError(t, err)
+			raw, err := io.ReadAll(stub.lastReq.Body)
+			require.NoError(t, err)
+			var payload map[string]any
+			require.NoError(t, json.Unmarshal(raw, &payload))
+			tools := payload["tools"].([]any)
+			declaration := tools[0].(map[string]any)[field].([]any)[0].(map[string]any)
+			require.NotContains(t, declaration, "strict")
+			parameters := declaration["parameters"].(map[string]any)
+			properties := parameters["properties"].(map[string]any)
+			require.Contains(t, properties, "strict", "schema properties named strict must be preserved")
+		})
+	}
+}

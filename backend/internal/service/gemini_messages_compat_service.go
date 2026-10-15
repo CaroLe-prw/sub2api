@@ -1158,6 +1158,11 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	if filteredBody, err := filterEmptyPartsFromGeminiRequest(body); err == nil {
 		body = filteredBody
 	}
+	if bytes.Contains(body, []byte(`"strict"`)) {
+		if strippedBody, err := stripGeminiFunctionDeclarationStrict(body); err == nil {
+			body = strippedBody
+		}
+	}
 
 	switch action {
 	case "generateContent", "streamGenerateContent", "countTokens":

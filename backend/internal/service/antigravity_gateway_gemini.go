@@ -478,7 +478,7 @@ func cleanGeminiRequest(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	modified := false
+	modified := stripGeminiFunctionDeclarationStrictFields(payload)
 
 	// 1. 清理 Tools
 	if tools, ok := payload["tools"].([]any); ok && len(tools) > 0 {
@@ -488,30 +488,10 @@ func cleanGeminiRequest(body []byte) ([]byte, error) {
 				continue
 			}
 
-			// function_declarations (snake_case) or functionDeclarations (camelCase)
-			var funcs []any
-			if f, ok := toolMap["functionDeclarations"].([]any); ok {
-				funcs = f
-			} else if f, ok := toolMap["function_declarations"].([]any); ok {
-				funcs = f
-			}
-
-			if len(funcs) == 0 {
-				continue
-			}
-
-			for _, f := range funcs {
+			for _, f := range geminiFunctionDeclarations(toolMap) {
 				funcMap, ok := f.(map[string]any)
 				if !ok {
 					continue
-				}
-
-				// strict is an OpenAI function-tool extension. Gemini function
-				// declarations do not define it, and v1internal rejects the whole
-				// request when it is forwarded at the declaration level.
-				if _, ok := funcMap["strict"]; ok {
-					delete(funcMap, "strict")
-					modified = true
 				}
 
 				if params, ok := funcMap["parameters"].(map[string]any); ok {
@@ -528,6 +508,50 @@ func cleanGeminiRequest(body []byte) ([]byte, error) {
 		return body, nil
 	}
 
+	return json.Marshal(payload)
+}
+
+func geminiFunctionDeclarations(toolMap map[string]any) []any {
+	if funcs, ok := toolMap["functionDeclarations"].([]any); ok {
+		return funcs
+	}
+	if funcs, ok := toolMap["function_declarations"].([]any); ok {
+		return funcs
+	}
+	return nil
+}
+
+func stripGeminiFunctionDeclarationStrictFields(payload map[string]any) bool {
+	modified := false
+	tools, _ := payload["tools"].([]any)
+	for _, rawTool := range tools {
+		toolMap, ok := rawTool.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, rawFunc := range geminiFunctionDeclarations(toolMap) {
+			funcMap, ok := rawFunc.(map[string]any)
+			if !ok {
+				continue
+			}
+			// strict is an OpenAI function-tool extension, not a Gemini field.
+			if _, ok := funcMap["strict"]; ok {
+				delete(funcMap, "strict")
+				modified = true
+			}
+		}
+	}
+	return modified
+}
+
+func stripGeminiFunctionDeclarationStrict(body []byte) ([]byte, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	if !stripGeminiFunctionDeclarationStrictFields(payload) {
+		return body, nil
+	}
 	return json.Marshal(payload)
 }
 
