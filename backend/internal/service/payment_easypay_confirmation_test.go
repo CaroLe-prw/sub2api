@@ -46,6 +46,8 @@ func TestEasyPayCallbackRequiresUpstreamConfirmation(t *testing.T) {
 		{"different transaction", `{"code":1,"status":1,"money":"80","trade_no":"other-trade"}`, 200, false},
 		{"paid", `{"code":1,"status":1,"money":"80","trade_no":"gateway-trade"}`, 200, true},
 		{"paid legacy response without trade number", `{"code":1,"status":1,"money":"80"}`, 200, true},
+		{"epusdt paid", `{"status_code":200,"data":{"trade_id":"gateway-trade","status":2}}`, 404, true},
+		{"epusdt unpaid", `{"status_code":200,"data":{"trade_id":"gateway-trade","status":1}}`, 404, false},
 		{"active query", `{"code":1,"status":1,"money":"80","trade_no":"gateway-trade"}`, 200, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -54,8 +56,33 @@ func TestEasyPayCallbackRequiresUpstreamConfirmation(t *testing.T) {
 			order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusPending, time.Now())
 			var queries atomic.Int32
 			var recovered atomic.Bool
+			isEpusdt := strings.HasPrefix(tt.name, "epusdt ")
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				queries.Add(1)
+				if isEpusdt {
+					if r.Method != http.MethodGet {
+						t.Errorf("unexpected Epusdt query method: %s", r.Method)
+					}
+					switch r.URL.Path {
+					case "/api.php":
+						if r.URL.Query().Get("out_trade_no") != order.OutTradeNo {
+							t.Error("legacy query must use the persisted merchant order number")
+						}
+						http.NotFound(w, r)
+					case "/pay/check-status/gateway-trade":
+						body := tt.body
+						if recovered.Load() {
+							body = `{"status_code":200,"data":{"trade_id":"gateway-trade","status":2}}`
+						}
+						_, _ = w.Write([]byte(body))
+					case "/pay/checkout-counter-resp/gateway-trade":
+						_, _ = w.Write([]byte(`{"status_code":200,"data":{"trade_id":"gateway-trade","amount":"80"}}`))
+					default:
+						t.Errorf("unexpected Epusdt endpoint: %s", r.URL.Path)
+						http.NotFound(w, r)
+					}
+					return
+				}
 				if err := r.ParseForm(); err != nil {
 					t.Error(err)
 				}
@@ -118,11 +145,13 @@ func TestEasyPayCallbackRequiresUpstreamConfirmation(t *testing.T) {
 			if tt.name == "active query" {
 				_, err = svc.VerifyOrderByOutTradeNo(ctx, order.OutTradeNo, order.UserID)
 			} else {
+				require.NoError(t, svc.ConfirmNotificationUpstream(ctx, prov, n))
 				err = svc.HandlePaymentNotification(ctx, n, payment.TypeEasyPay)
 			}
 			if tt.wantPaid {
 				require.NoError(t, err)
 				require.Equal(t, order.Amount, credited)
+				require.NoError(t, svc.ConfirmNotificationUpstream(ctx, prov, n))
 				require.NoError(t, svc.HandlePaymentNotification(ctx, n, payment.TypeEasyPay))
 				require.Equal(t, order.Amount, credited, "duplicate callback must not credit again")
 			} else {
@@ -138,13 +167,17 @@ func TestEasyPayCallbackRequiresUpstreamConfirmation(t *testing.T) {
 				require.Equal(t, OrderStatusPending, reloaded.Status)
 				require.Nil(t, reloaded.PaidAt)
 			}
-			require.EqualValues(t, 1, queries.Load())
+			queriesPerConfirmation := 1
+			if isEpusdt {
+				queriesPerConfirmation = 3
+			}
+			require.EqualValues(t, queriesPerConfirmation, queries.Load())
 			if !tt.wantPaid {
 				// A failed confirmation must remain recoverable by a later callback.
 				recovered.Store(true)
 				require.NoError(t, svc.HandlePaymentNotification(ctx, n, payment.TypeEasyPay))
 				require.Equal(t, order.Amount, credited)
-				require.EqualValues(t, 2, queries.Load())
+				require.EqualValues(t, 2*queriesPerConfirmation, queries.Load())
 				require.NoError(t, svc.HandlePaymentNotification(ctx, n, payment.TypeEasyPay))
 				require.Equal(t, order.Amount, credited)
 			}

@@ -75,7 +75,7 @@ func TestOpenAIResponseFirstOutputCommit_QueuedContentFlushesIndependentlyOfTTFT
 				})
 				t.Cleanup(func() { gatewayForwardingCache.Store(previousSettings) })
 
-				preamble := "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_commit\"}}\n\n" +
+				preamble := "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_commit\",\"created_at\":1700000000}}\n\n" +
 					"data: {\"type\":\"response.output_item.added\",\"item\":{\"id\":\"reasoning_commit\",\"type\":\"reasoning\",\"summary\":[]}}\n\n"
 				terminal := "data: [DONE]\n\n"
 				body := preamble + content.first + content.visible + content.tail + terminal

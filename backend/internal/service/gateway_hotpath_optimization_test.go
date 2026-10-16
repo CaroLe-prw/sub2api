@@ -180,6 +180,10 @@ func (s *modelsListAccountRepoStub) ListSchedulableByGroupID(ctx context.Context
 	return out, nil
 }
 
+func (s *modelsListAccountRepoStub) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, _ []string, _ bool) ([]Account, error) {
+	return s.ListSchedulableByGroupID(ctx, *groupID)
+}
+
 func (s *modelsListAccountRepoStub) ListSchedulable(ctx context.Context) ([]Account, error) {
 	s.listAllCalls.Add(1)
 	if s.err != nil {
@@ -775,7 +779,14 @@ func TestGetAvailableModels_OpenAIDefaultsRespectOAuthOnly(t *testing.T) {
 			svc := &GatewayService{accountRepo: repo, modelsListCache: gocache.New(time.Minute, time.Minute), modelsListCacheTTL: time.Minute}
 			group := &Group{ID: groupID, Platform: PlatformOpenAI, Status: StatusActive, Hydrated: true}
 			plainCtx := context.WithValue(context.Background(), ctxkey.Group, group)
-			withDefaults := dedupeAndSortModelIDs(append([]string{"oauth-alias"}, openai.DefaultModelIDs()...))
+			defaults := []string{"oauth-alias"}
+			for _, model := range openai.DefaultModelIDs() {
+				if tt.accountType == AccountTypeOAuth && model == "gpt-5.5" {
+					continue // OAuth-only pools exclude the retired subscription model.
+				}
+				defaults = append(defaults, model)
+			}
+			withDefaults := dedupeAndSortModelIDs(defaults)
 			require.Equal(t, withDefaults, svc.GetAvailableModels(plainCtx, &groupID, PlatformOpenAI))
 
 			oauthGroup := *group

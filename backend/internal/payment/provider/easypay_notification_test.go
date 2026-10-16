@@ -54,7 +54,7 @@ func TestEasyPayVerifyNotificationAcceptsStandardCallback(t *testing.T) {
 		param *string
 	}{
 		{name: "without optional param"},
-		{name: "with optional param", param: stringPointer("customer=123&source=checkout")},
+		{name: "with optional param", param: stringPointer("customer-123-checkout")},
 		{name: "with empty optional param", param: stringPointer("")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

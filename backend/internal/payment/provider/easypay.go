@@ -7,8 +7,10 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -27,6 +29,7 @@ const (
 	easypayHTTPTimeout     = 10 * time.Second
 	maxEasypayResponseSize = 1 << 20 // 1MB
 	maxEasypayErrorSummary = 512
+	easypayAmountTolerance = 0.005
 	tradeStatusSuccess     = "TRADE_SUCCESS"
 	signTypeMD5            = "MD5"
 	paymentModePopup       = "popup"
@@ -319,12 +322,44 @@ func (v *easyPayQueryInt) UnmarshalJSON(data []byte) error {
 }
 
 func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.QueryOrderResponse, error) {
+	result, err := e.queryOrder(ctx, tradeNo)
+	if err != nil {
+		return nil, err
+	}
+	responseTradeNo := tradeNo
+	if result.tradeNo != "" {
+		responseTradeNo = result.tradeNo
+	}
+	amount, _ := strconv.ParseFloat(result.money, 64)
+	metadata := e.MerchantIdentityMetadata()
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+	// Audits must distinguish an explicitly unpaid order from unknown status.
+	metadata["payment_status_known"] = strconv.FormatBool(result.statusKnown)
+	return &payment.QueryOrderResponse{
+		TradeNo:  responseTradeNo,
+		Status:   result.status,
+		Amount:   amount,
+		Metadata: metadata,
+	}, nil
+}
+
+// easyPayQueryResult preserves the actual upstream trade number, including
+// absence, so notification confirmation never confuses it with out_trade_no.
+type easyPayQueryResult struct {
+	status      string
+	statusKnown bool
+	money       string
+	tradeNo     string
+}
+
+func (e *EasyPay) queryOrder(ctx context.Context, outTradeNo string) (*easyPayQueryResult, error) {
 	params := map[string]string{
 		"act": "order", "pid": e.config["pid"],
-		"key": e.config["pkey"], "out_trade_no": tradeNo,
+		"key": e.config["pkey"], "out_trade_no": outTradeNo,
 	}
-	// The legacy order-query API (including Qixiang) reads GET query params.
-	// Payment creation and refunds still use their own POST endpoints.
+	// Legacy gateways, including Qixiang, read order-query parameters from GET.
 	body, httpStatus, err := e.getOrderQueryRaw(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("easypay query: %w", err)
@@ -336,21 +371,17 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 		return nil, fmt.Errorf("easypay query HTTP status %d", httpStatus)
 	}
 	type easyPayQueryData struct {
-		OutTradeNo  *string          `json:"out_trade_no"`
 		TradeStatus *string          `json:"trade_status"`
 		Status      *easyPayQueryInt `json:"status"`
-		Money       *string          `json:"money"`
-		TradeNo     *string          `json:"trade_no"`
+		Money       json.RawMessage  `json:"money"`
+		TradeNo     json.RawMessage  `json:"trade_no"`
+		OutTradeNo  json.RawMessage  `json:"out_trade_no"`
 	}
 	var resp struct {
-		Code        easyPayQueryInt  `json:"code"`
-		Msg         string           `json:"msg"`
-		OutTradeNo  *string          `json:"out_trade_no"`
-		TradeStatus *string          `json:"trade_status"`
-		Status      *easyPayQueryInt `json:"status"`
-		Money       *string          `json:"money"`
-		TradeNo     *string          `json:"trade_no"`
-		Data        easyPayQueryData `json:"data"`
+		easyPayQueryData
+		Code easyPayQueryInt  `json:"code"`
+		Msg  string           `json:"msg"`
+		Data easyPayQueryData `json:"data"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
 		if isEpusdtAPIResponse(body) {
@@ -364,11 +395,11 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 		}
 		return nil, fmt.Errorf("easypay query failed with code %d: %s", resp.Code, e.safeQueryMessage(resp.Msg))
 	}
-	// Older gateways may omit out_trade_no. If present, it must identify the
-	// order we queried, including when the response uses a nested data object.
-	for _, returnedOrderID := range []*string{resp.OutTradeNo, resp.Data.OutTradeNo} {
-		if returnedOrderID != nil && strings.TrimSpace(*returnedOrderID) != tradeNo {
-			return nil, fmt.Errorf("easypay query order mismatch")
+	// Validate both echoes when present, rather than letting a matching top
+	// level order number hide a conflicting nested order number.
+	for _, raw := range []json.RawMessage{resp.OutTradeNo, resp.Data.OutTradeNo} {
+		if pickEasyPayJSON(raw, nil) != nil && easyPayJSONScalar(raw) != strings.TrimSpace(outTradeNo) {
+			return nil, fmt.Errorf("easypay query out_trade_no mismatch")
 		}
 	}
 	status := payment.ProviderStatusPending
@@ -394,35 +425,11 @@ func (e *EasyPay) QueryOrder(ctx context.Context, tradeNo string) (*payment.Quer
 			status = payment.ProviderStatusPaid
 		}
 	}
-
-	money := ""
-	if resp.Money != nil {
-		money = *resp.Money
-	} else if resp.Data.Money != nil {
-		money = *resp.Data.Money
-	}
-	responseTradeNo := tradeNo
-	if resp.TradeNo != nil {
-		if *resp.TradeNo != "" {
-			responseTradeNo = *resp.TradeNo
-		}
-	} else if resp.Data.TradeNo != nil && *resp.Data.TradeNo != "" {
-		responseTradeNo = *resp.Data.TradeNo
-	}
-
-	amount, _ := strconv.ParseFloat(money, 64)
-	metadata := e.MerchantIdentityMetadata()
-	if metadata == nil {
-		metadata = map[string]string{}
-	}
-	// Reconciliation may leave unknown states pending, but a security audit
-	// must distinguish an explicit unpaid response from an unrecognized state.
-	metadata["payment_status_known"] = strconv.FormatBool(statusKnown)
-	return &payment.QueryOrderResponse{
-		TradeNo:  responseTradeNo,
-		Status:   status,
-		Amount:   amount,
-		Metadata: metadata,
+	return &easyPayQueryResult{
+		status:      status,
+		statusKnown: statusKnown,
+		money:       easyPayJSONScalar(pickEasyPayJSON(resp.Money, resp.Data.Money)),
+		tradeNo:     easyPayJSONScalar(pickEasyPayJSON(resp.TradeNo, resp.Data.TradeNo)),
 	}, nil
 }
 
@@ -605,6 +612,75 @@ func (e *EasyPay) safeQueryMessage(message string) string {
 	return summarizeEasyPayResponse([]byte(message))
 }
 
+// ConfirmNotification checks a verified success notification against the
+// upstream order before it is fulfilled, so crediting follows the gateway's
+// own order state (paid, amount, trade_no). The query is sent to this
+// instance's own apiBase with its own credentials.
+func (e *EasyPay) ConfirmNotification(ctx context.Context, n *payment.PaymentNotification) error {
+	if n == nil || n.Status != payment.NotificationStatusSuccess {
+		return nil
+	}
+	result, err := e.queryOrder(ctx, n.OrderID)
+	if errors.Is(err, payment.ErrProviderQueryUnsupported) && strings.TrimSpace(n.TradeNo) != "" {
+		var response *payment.QueryOrderResponse
+		response, err = e.QueryOrderByTradeNo(ctx, n.TradeNo)
+		if err == nil {
+			result = &easyPayQueryResult{
+				status:      response.Status,
+				statusKnown: true,
+				money:       strconv.FormatFloat(response.Amount, 'f', -1, 64),
+				tradeNo:     response.TradeNo,
+			}
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("easypay confirm: %w", err)
+	}
+	if result.status != payment.ProviderStatusPaid {
+		return fmt.Errorf("easypay confirm: upstream reports order %s as not paid", n.OrderID)
+	}
+	queriedAmount, err := strconv.ParseFloat(result.money, 64)
+	if err != nil || math.IsNaN(queriedAmount) || math.IsInf(queriedAmount, 0) || queriedAmount <= 0 ||
+		math.IsNaN(n.Amount) || math.IsInf(n.Amount, 0) || n.Amount <= 0 ||
+		math.Abs(queriedAmount-n.Amount) > easypayAmountTolerance {
+		return fmt.Errorf("easypay confirm: amount mismatch: notified %v, upstream %q", n.Amount, result.money)
+	}
+	if result.tradeNo != "" {
+		if n.TradeNo != "" && n.TradeNo != result.tradeNo {
+			return fmt.Errorf("easypay confirm: trade_no mismatch: notified %s, upstream %s", n.TradeNo, result.tradeNo)
+		}
+		n.TradeNo = result.tradeNo
+	}
+	return nil
+}
+
+func easyPayJSONScalar(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var str string
+	if err := json.Unmarshal(raw, &str); err == nil {
+		return strings.TrimSpace(str)
+	}
+	var num json.Number
+	if err := json.Unmarshal(raw, &num); err == nil {
+		return num.String()
+	}
+	return ""
+}
+
+// pickEasyPayJSON returns the top-level field when present, otherwise the
+// nested data field. JSON null counts as absent.
+func pickEasyPayJSON(top, nested json.RawMessage) json.RawMessage {
+	if len(top) > 0 && string(top) != "null" {
+		return top
+	}
+	if len(nested) > 0 && string(nested) != "null" {
+		return nested
+	}
+	return nil
+}
+
 func (e *EasyPay) VerifyNotification(_ context.Context, rawBody string, _ map[string]string) (*payment.PaymentNotification, error) {
 	values, err := url.ParseQuery(rawBody)
 	if err != nil {
@@ -622,7 +698,14 @@ func (e *EasyPay) VerifyNotification(_ context.Context, rawBody string, _ map[st
 		if len(entries) != 1 {
 			return nil, fmt.Errorf("duplicate notify parameter: %q", k)
 		}
-		params[k] = entries[0]
+		v := entries[0]
+		// Notify values are plain tokens; only the merchant-defined product
+		// name is free text. Delimiter characters elsewhere are rejected so
+		// each value maps to exactly one field of the signed string.
+		if k != "name" && strings.ContainsAny(v, "&=") {
+			return nil, fmt.Errorf("invalid notify param value: %s", k)
+		}
+		params[k] = v
 	}
 	sign := params["sign"]
 	if sign == "" {
@@ -631,22 +714,20 @@ func (e *EasyPay) VerifyNotification(_ context.Context, rawBody string, _ map[st
 	if !easyPayVerifySign(params, e.config["pkey"], sign) {
 		return nil, fmt.Errorf("invalid signature")
 	}
+	// Bind the notification to this instance's merchant directly instead of
+	// relying on the order snapshot, which legacy orders do not carry.
+	if expected, actual := strings.TrimSpace(e.config["pid"]), strings.TrimSpace(params["pid"]); actual != expected {
+		return nil, fmt.Errorf("easypay pid mismatch: expected %s, got %s", expected, actual)
+	}
 	status := payment.ProviderStatusFailed
 	if params["trade_status"] == tradeStatusSuccess {
 		status = payment.ProviderStatusSuccess
 	}
 	amount, _ := strconv.ParseFloat(params["money"], 64)
 
-	metadata := e.MerchantIdentityMetadata()
-	if pid := strings.TrimSpace(params["pid"]); pid != "" {
-		if metadata == nil {
-			metadata = map[string]string{}
-		}
-		metadata["pid"] = pid
-	}
 	return &payment.PaymentNotification{
 		TradeNo: params["trade_no"], OrderID: params["out_trade_no"],
-		Amount: amount, Status: status, RawData: rawBody, Metadata: metadata,
+		Amount: amount, Status: status, RawData: rawBody, Metadata: e.MerchantIdentityMetadata(),
 	}, nil
 }
 
