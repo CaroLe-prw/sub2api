@@ -483,7 +483,33 @@ export async function getCapacitySummary(): Promise<
   return data
 }
 
+export interface UserPreferredAccountEntry {
+  user_id: number
+  user_name: string
+  user_email: string
+  account_id: number
+  account_name: string
+  account_status: string
+  in_group: boolean
+}
+
+export async function getPreferredAccounts(groupId: number): Promise<UserPreferredAccountEntry[]> {
+  const { data } = await apiClient.get<UserPreferredAccountEntry[]>(`/admin/groups/${groupId}/preferred-accounts`)
+  return data
+}
+
+export async function setPreferredAccount(groupId: number, userId: number, accountId: number): Promise<void> {
+  await apiClient.put(`/admin/groups/${groupId}/preferred-accounts/${userId}`, { account_id: accountId })
+}
+
+export async function deletePreferredAccount(groupId: number, userId: number): Promise<void> {
+  await apiClient.delete(`/admin/groups/${groupId}/preferred-accounts/${userId}`)
+}
+
 export const groupsAPI = {
+  getPreferredAccounts,
+  setPreferredAccount,
+  deletePreferredAccount,
   list,
   getAll,
   getByPlatform,

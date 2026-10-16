@@ -138,6 +138,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			return
 		}
 		ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
+		ctx = apiKeyService.ContextWithUserAccountPreferences(ctx, apiKey.User.ID)
 		ctx = context.WithValue(ctx, ctxkey.UserGroupRate, service.UserGroupRateContext{GroupID: apiKey.GroupIDValue(), Multiplier: apiKey.EffectiveGroupRateMultiplier()})
 		ctx = context.WithValue(ctx, ctxkey.APIKeyID, apiKey.ID)
 		ctx = context.WithValue(ctx, ctxkey.APIKeyName, apiKey.Name)

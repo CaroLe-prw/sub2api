@@ -82,6 +82,17 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
 
+	if probeCtx, id := s.preferredAccountProbeContext(ctx, groupID, requestedModel, excludedIDs); id > 0 {
+		if account, err := s.SelectAccountForModelWithExclusions(probeCtx, groupID, "", requestedModel, excludedIDs); err == nil && account != nil && account.ID == id {
+			if sessionHash != "" {
+				_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, id)
+			}
+			return account, nil
+		}
+	}
+
+	excludedIDs = excludeUserPreferredAccount(ctx, groupID, excludedIDs)
+
 	// anthropic/gemini 分组支持混合调度（包含启用了 mixed_scheduling 的 antigravity 账户）
 	// 注意：强制平台模式不走混合调度
 	if (platform == PlatformAnthropic || platform == PlatformGemini) && !hasForcePlatform {
@@ -138,6 +149,12 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			"model", requestedModel)
 		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
+
+	if preferred := s.selectUserPreferredAccount(ctx, groupID, sessionHash, requestedModel, excludedIDs); preferred != nil {
+		return preferred, nil
+	}
+
+	excludedIDs = excludeUserPreferredAccount(ctx, groupID, excludedIDs)
 
 	var stickyAccountID int64
 	var stickySource string
@@ -1093,7 +1110,8 @@ func (s *GatewayService) resolvePlatform(ctx context.Context, groupID *int64, gr
 	return PlatformAnthropic, false, nil
 }
 
-func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string, hasForcePlatform bool) ([]Account, bool, error) {
+func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string, hasForcePlatform bool) (result []Account, mixed bool, resultErr error) {
+	defer func() { result = filterPreferredAccountProbe(ctx, result) }()
 	if s.schedulerSnapshot != nil {
 		accounts, useMixed, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
 		if err == nil {
@@ -1594,6 +1612,9 @@ func (s *GatewayService) ReleaseAccountSession(ctx context.Context, account *Acc
 }
 
 func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID int64) (*Account, error) {
+	if id := preferredAccountProbeID(ctx); id > 0 && id != accountID {
+		return nil, nil
+	}
 	var (
 		account *Account
 		err     error

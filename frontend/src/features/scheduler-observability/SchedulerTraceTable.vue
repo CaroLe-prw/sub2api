@@ -39,6 +39,7 @@ const statusClasses: Record<SchedulerTraceStatus, string> = {
 };
 
 const layerClasses: Record<SchedulerDecisionLayer, string> = {
+  user_preferred: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300",
   previous_response_id: "bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300",
   session_hash: "bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300",
   load_balance: "bg-gray-100 text-gray-700 dark:bg-dark-700 dark:text-dark-200",

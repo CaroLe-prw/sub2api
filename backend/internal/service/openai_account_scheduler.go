@@ -92,6 +92,7 @@ type OpenAIAccountScheduleRequest struct {
 	StickyWeighted          bool
 	SubscriptionPriority    bool
 	PreserveStickyBinding   bool
+	preferredAccount        bool
 	// DisableStickyEscape keeps task-owner lookups on their account even when
 	// generic sticky health or concurrency heuristics would prefer another.
 	DisableStickyEscape     bool
@@ -903,6 +904,15 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
+	if preferred := s.selectUserPreferredAccount(ctx, req); preferred != nil {
+		decision.Layer = userPreferredAccountLayer
+		decision.SelectedAccountID = preferred.Account.ID
+		decision.SelectedAccountType = preferred.Account.Type
+		return preferred, decision, nil
+	}
+
+	req.ExcludedIDs = excludeUserPreferredAccount(ctx, req.GroupID, req.ExcludedIDs)
+
 	// An established session owns its account while that account remains healthy.
 	// Weighted scoring is used for initial placement and failover, not to reshuffle
 	// a healthy conversation on every turn.
@@ -963,7 +973,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 ) (*AccountSelectionResult, string, error) {
 	sessionHash := strings.TrimSpace(req.SessionHash)
 	pinned := req.PinnedAccountID > 0
-	if s == nil || s.service == nil || (!pinned && (sessionHash == "" || s.service.cache == nil)) {
+	if s == nil || s.service == nil || (!pinned && !req.preferredAccount && (sessionHash == "" || s.service.cache == nil)) {
 		return nil, "", nil
 	}
 
@@ -1030,6 +1040,9 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		clearBinding()
 		return nil, "", nil
 	}
+	if req.preferredAccount && s.stats.healthGateReasonForRequest(accountID, openAIAccountHealthModel(account, req)) != "" {
+		return nil, "", nil
+	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
 	if slow, _ := s.slowAccountStatus(account, req); slow && !pinned && !req.DisableStickyEscape {
 		req.observation.recordStickyEscape(accountID, openAISlowFirstOutputReason)
@@ -1059,6 +1072,11 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 			Acquired:    true,
 			ReleaseFunc: result.ReleaseFunc,
 		}), "", nil
+	}
+
+	// A preference never makes a request queue while other accounts can serve it.
+	if req.preferredAccount {
+		return nil, "", nil
 	}
 
 	cfg := s.service.schedulingConfig()
@@ -3571,6 +3589,27 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		if preserveGuardianParentBinding {
 			legacySessionHash = ""
 		}
+		if preferredAccountForRequest(ctx, groupID, excludedIDs) > 0 && !s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+			s.ensureOpenAIAccountScheduler()
+			fallbackScheduler := &defaultOpenAIAccountScheduler{service: s, stats: s.openaiAccountStats}
+			preferred := fallbackScheduler.selectUserPreferredAccount(ctx, OpenAIAccountScheduleRequest{
+				GroupID: groupID, Platform: platform, SessionHash: legacySessionHash,
+				RequestedModel: requestedModel, RequiredTransport: requiredTransport,
+				RequiredCapability: requiredCapability, RequiredImageCapability: requiredImageCapability,
+				RequireCompact: requireCompact, ExcludedIDs: excludedIDs,
+				RequirePrivacySet: s.openAIGroupRequiresPrivacySet(ctx, groupID),
+				observation:       &openAIAccountScheduleObservation{},
+			})
+			if preferred != nil {
+				decision.Layer = userPreferredAccountLayer
+				decision.SelectedAccountID = preferred.Account.ID
+				decision.SelectedAccountType = preferred.Account.Type
+				return preferred, decision, nil
+			}
+		}
+
+		excludedIDs = excludeUserPreferredAccount(ctx, groupID, excludedIDs)
+
 		if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
 			effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 			for {

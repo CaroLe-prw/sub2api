@@ -5,6 +5,7 @@ export type SchedulerRequestType = "sync" | "stream" | "ws_v2";
 export type SchedulerCandidateScope = "scored" | "sticky_short_circuit";
 
 export type SchedulerDecisionLayer =
+  | "user_preferred"
   | "previous_response_id"
   | "session_hash"
   | "load_balance";
@@ -27,6 +28,7 @@ export type SchedulerDecisionSummary =
   | "session_sticky_kept"
   | "weighted_sticky_kept"
   | "previous_response_kept"
+  | "user_preferred_account"
   | "load_balance_best_score"
   | "no_available_account";
 

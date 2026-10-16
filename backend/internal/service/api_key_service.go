@@ -292,6 +292,7 @@ type RateLimitCacheInvalidator interface {
 }
 
 type APIKeyService struct {
+	preferredAccounts         *UserPreferredAccountService
 	apiKeyRepo                APIKeyRepository
 	userRepo                  UserRepository
 	groupRepo                 GroupRepository

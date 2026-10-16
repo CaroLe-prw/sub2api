@@ -480,6 +480,15 @@
               </button>
               <button
                 v-if="!authStore.isSimpleMode"
+                data-testid="group-preferred-accounts"
+                @click="preferredAccountsGroup = row; showPreferredAccountsModal = true"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700"
+              >
+                <Icon name="user" size="sm" />
+                <span class="text-xs">{{ t("admin.groups.preferredAccounts.action") }}</span>
+              </button>
+              <button
+                v-if="!authStore.isSimpleMode"
                 data-testid="group-rpm-overrides"
                 @click="handleRPMOverrides(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-orange-600 dark:hover:bg-dark-700 dark:hover:text-orange-400"
@@ -4237,6 +4246,12 @@
       @success="loadGroups"
     />
 
+    <GroupPreferredAccountsModal
+      :show="showPreferredAccountsModal"
+      :group="preferredAccountsGroup"
+      @close="showPreferredAccountsModal = false"
+    />
+
     <!-- Group RPM Overrides Modal -->
     <GroupRPMOverridesModal
       :show="showRPMOverridesModal"
@@ -4306,6 +4321,7 @@ import { platformLabel } from "@/utils/platformColors";
 import Icon from "@/components/icons/Icon.vue";
 import GroupI18nField from "@/components/admin/group/GroupI18nField.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
+import GroupPreferredAccountsModal from "@/components/admin/group/GroupPreferredAccountsModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
 import GroupAccountsModal from "@/components/admin/group/GroupAccountsModal.vue";
 import GroupAccountCostLimitField from "@/components/admin/group/GroupAccountCostLimitField.vue";
@@ -4859,6 +4875,8 @@ const deletingGroup = ref<AdminGroup | null>(null);
 const duplicatingGroupIds = reactive(new Set<number>());
 const showRateMultipliersModal = ref(false);
 const rateMultipliersGroup = ref<AdminGroup | null>(null);
+const showPreferredAccountsModal = ref(false);
+const preferredAccountsGroup = ref<AdminGroup | null>(null);
 const showRPMOverridesModal = ref(false);
 const rpmOverridesGroup = ref<AdminGroup | null>(null);
 const showGroupAccountsModal = ref(false);

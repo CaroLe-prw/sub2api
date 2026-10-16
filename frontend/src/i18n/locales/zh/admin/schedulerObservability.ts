@@ -90,11 +90,13 @@ export default {
         canceled: '客户端已取消',
       },
       layers: {
+        user_preferred: '用户优先账号',
         previous_response_id: 'previous_response',
         session_hash: 'session_hash',
         load_balance: '评分调度',
       },
       summaries: {
+        user_preferred_account: '优先使用该用户在分组中指定的账号',
         sticky_escaped_error_rate: '粘性账号错误率过高，重新选号',
         sticky_escaped_ttft: '粘性账号首字过慢，重新选号',
         sticky_escaped_slow_first_output: '粘性账号连续三次首字过慢，降级后重新选号',

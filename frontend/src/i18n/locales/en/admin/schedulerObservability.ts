@@ -90,11 +90,13 @@ export default {
         canceled: 'Canceled by client',
       },
       layers: {
+        user_preferred: 'User preference',
         previous_response_id: 'previous_response',
         session_hash: 'session_hash',
         load_balance: 'Scored selection',
       },
       summaries: {
+        user_preferred_account: 'Selected the user’s preferred account in this group',
         sticky_escaped_error_rate: 'Sticky account error rate was high; selected again',
         sticky_escaped_ttft: 'Sticky account first output was slow; selected again',
         sticky_escaped_slow_first_output: 'Sticky account had three slow first outputs; deprioritized',

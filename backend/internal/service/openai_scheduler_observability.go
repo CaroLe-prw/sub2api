@@ -1318,6 +1318,9 @@ func schedulerObservabilitySummary(decision OpenAIAccountScheduleDecision) strin
 	if decision.StickyPreviousHit || decision.StickySessionHit {
 		return "weighted_sticky_kept"
 	}
+	if decision.Layer == userPreferredAccountLayer {
+		return "user_preferred_account"
+	}
 	return "load_balance_best_score"
 }
 
