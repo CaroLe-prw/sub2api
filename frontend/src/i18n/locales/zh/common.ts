@@ -223,6 +223,14 @@ export default {
 
   // Auth
   auth: {
+    goCaptcha: {
+      title: '安全验证',
+      slide: '拖动滑块完成拼图',
+      loading: '正在加载拼图…',
+      retry: '换一张拼图',
+      failed: '验证失败或已过期，请重新完成拼图',
+      unavailable: '拼图加载失败，请重试'
+    },
     welcomeBack: '欢迎回来',
     signInToAccount: '登录您的账户以继续',
     signIn: '登录',

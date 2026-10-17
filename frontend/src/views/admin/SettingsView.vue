@@ -2075,7 +2075,7 @@
                     {{ t("admin.settings.captcha.provider") }}
                   </label>
                   <div
-                    class="grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1 dark:bg-dark-700 sm:grid-cols-4"
+                    class="grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1 dark:bg-dark-700 sm:grid-cols-5"
                   >
                     <button
                       type="button"
@@ -2116,6 +2116,13 @@
                     >
                       {{ t("admin.settings.captcha.providerAliyun") }}
                     </button>
+                    <button
+                      data-testid="captcha-provider-gocaptcha"
+                      type="button"
+                      :class="captchaProviderSelection === 'gocaptcha' ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300' : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'"
+                      class="inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
+                      @click="selectCaptchaProvider('gocaptcha')"
+                    >GoCaptcha</button>
                     <button
                       type="button"
                       data-testid="captcha-provider-vaptcha"
@@ -2441,6 +2448,9 @@
                       }}
                     </p>
                   </div>
+                </div>
+                <div v-else-if="captchaProviderSelection === 'gocaptcha'" class="text-sm text-gray-600 dark:text-dark-300">
+                  {{ t('admin.settings.goCaptcha.description') }}
                 </div>
                 <div v-else class="grid grid-cols-1 gap-6">
                   <div>
@@ -10107,6 +10117,7 @@ const form = reactive<SettingsForm>({
   aliyun_captcha_scene_id: "",
   aliyun_captcha_prefix: "",
   aliyun_captcha_region: "cn",
+  go_captcha_enabled: false,
   vaptcha_enabled: false,
   vaptcha_vid: "",
   vaptcha_key: "",
@@ -10313,9 +10324,9 @@ const channelMonitorAnonymousEnabled = computed({
   },
 });
 
-// 人机验证 UI 状态：单卡片「总开关 + 服务商单选」，落库仍是三个独立
+// 人机验证 UI 状态：单卡片「总开关 + 服务商单选」，落库仍是各自独立
 // enabled 键（与上游一致），由下面的映射保证同一时间至多一家启用。
-type CaptchaProviderSelection = "turnstile" | "tencent" | "aliyun" | "vaptcha";
+type CaptchaProviderSelection = "turnstile" | "tencent" | "aliyun" | "vaptcha" | "gocaptcha";
 
 const captchaProviderSelection = ref<CaptchaProviderSelection>("turnstile");
 
@@ -10324,6 +10335,7 @@ function applyCaptchaSelection(provider: CaptchaProviderSelection | null): void 
   form.tencent_captcha_enabled = provider === "tencent";
   form.aliyun_captcha_enabled = provider === "aliyun";
   form.vaptcha_enabled = provider === "vaptcha";
+  form.go_captcha_enabled = provider === "gocaptcha";
 }
 
 // Keep the settings API representation as user IDs; the selector displays emails.
@@ -10344,7 +10356,7 @@ const captchaMasterEnabled = computed({
     form.turnstile_enabled ||
     form.tencent_captcha_enabled ||
     form.aliyun_captcha_enabled ||
-    form.vaptcha_enabled,
+    form.vaptcha_enabled || form.go_captcha_enabled,
   set: (enabled: boolean) =>
     applyCaptchaSelection(enabled ? captchaProviderSelection.value : null),
 });
@@ -10375,6 +10387,8 @@ function syncCaptchaProviderSelection(): void {
     captchaProviderSelection.value = "tencent";
   } else if (form.aliyun_captcha_enabled) {
     captchaProviderSelection.value = "aliyun";
+  } else if (form.go_captcha_enabled) {
+    captchaProviderSelection.value = "gocaptcha";
   } else if (form.vaptcha_enabled) {
     captchaProviderSelection.value = "vaptcha";
   } else if (form.turnstile_enabled) {
@@ -11811,6 +11825,7 @@ async function saveSettings() {
       aliyun_captcha_scene_id: form.aliyun_captcha_scene_id,
       aliyun_captcha_prefix: form.aliyun_captcha_prefix,
       aliyun_captcha_region: form.aliyun_captcha_region,
+      go_captcha_enabled: form.go_captcha_enabled,
       vaptcha_enabled: form.vaptcha_enabled,
       vaptcha_vid: form.vaptcha_vid,
       vaptcha_key: form.vaptcha_key || undefined,

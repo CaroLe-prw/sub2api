@@ -73,6 +73,7 @@ type SystemSettings struct {
 	AliyunCaptchaSceneID                   string   `json:"aliyun_captcha_scene_id"`
 	AliyunCaptchaPrefix                    string   `json:"aliyun_captcha_prefix"`
 	AliyunCaptchaRegion                    string   `json:"aliyun_captcha_region"`
+	GoCaptchaEnabled                       bool     `json:"go_captcha_enabled"`
 	VaptchaEnabled                         bool     `json:"vaptcha_enabled"`
 	VaptchaVID                             string   `json:"vaptcha_vid"`
 	VaptchaKeyConfigured                   bool     `json:"vaptcha_key_configured"`
@@ -409,6 +410,7 @@ type PublicSettings struct {
 	AliyunCaptchaSceneID                string                   `json:"aliyun_captcha_scene_id"`
 	AliyunCaptchaPrefix                 string                   `json:"aliyun_captcha_prefix"`
 	AliyunCaptchaRegion                 string                   `json:"aliyun_captcha_region"`
+	GoCaptchaEnabled                    bool                     `json:"go_captcha_enabled"`
 	VaptchaEnabled                      bool                     `json:"vaptcha_enabled"`
 	VaptchaVID                          string                   `json:"vaptcha_vid"`
 	VaptchaScene                        int                      `json:"vaptcha_scene"`

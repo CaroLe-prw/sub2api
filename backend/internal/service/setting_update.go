@@ -258,6 +258,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if settings.AliyunCaptchaAccessKeySecret != "" {
 		updates[SettingKeyAliyunCaptchaAccessKeySecret] = settings.AliyunCaptchaAccessKeySecret
 	}
+	updates[SettingKeyGoCaptchaEnabled] = strconv.FormatBool(settings.GoCaptchaEnabled)
 	updates[SettingKeyVaptchaEnabled] = strconv.FormatBool(settings.VaptchaEnabled)
 	updates[SettingKeyVaptchaVID] = settings.VaptchaVID
 	updates[SettingKeyVaptchaScene] = strconv.Itoa(settings.VaptchaScene)

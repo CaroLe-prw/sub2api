@@ -870,6 +870,28 @@ describe("admin SettingsView payment visible method controls", () => {
     );
   });
 
+  it("启用 GoCaptcha 无需密钥且与其他验证码互斥", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+    await wrapper.get('[data-testid="captcha-enabled-toggle"]').setValue(true);
+    await wrapper.get('[data-testid="captcha-provider-gocaptcha"]').trigger("click");
+    expect(wrapper.text()).toContain("admin.settings.goCaptcha.description");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      go_captcha_enabled: true,
+      turnstile_enabled: false,
+      tencent_captcha_enabled: false,
+      aliyun_captcha_enabled: false,
+      vaptcha_enabled: false,
+    }));
+    await wrapper.get('[data-testid="captcha-enabled-toggle"]').setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({go_captcha_enabled: false}));
+  });
+
   it("人机验证切换到腾讯天御并保存四项配置", async () => {
     const wrapper = mountView();
     await flushPromises();

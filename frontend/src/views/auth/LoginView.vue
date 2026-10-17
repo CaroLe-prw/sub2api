@@ -91,6 +91,7 @@
             :aliyun-scene-id="aliyunCaptchaSceneId"
             :aliyun-prefix="aliyunCaptchaPrefix"
             :aliyun-region="aliyunCaptchaRegion"
+            :go-captcha-enabled="goCaptchaEnabled"
             :vaptcha-enabled="vaptchaEnabled"
             :vaptcha-vid="vaptchaVid"
             :vaptcha-scene="vaptchaScene"
@@ -283,6 +284,7 @@ const aliyunCaptchaEnabled = ref<boolean>(false)
 const aliyunCaptchaSceneId = ref<string>('')
 const aliyunCaptchaPrefix = ref<string>('')
 const aliyunCaptchaRegion = ref<string>('cn')
+const goCaptchaEnabled = ref(false)
 const vaptchaEnabled = ref(false)
 const vaptchaVid = ref('')
 const vaptchaScene = ref(0)
@@ -314,12 +316,13 @@ const aliyunCaptchaReady = computed(
     Boolean(aliyunCaptchaSceneId.value) &&
     Boolean(aliyunCaptchaPrefix.value)
 )
-// 动作触发式验证码（腾讯/阿里云/VAPTCHA）：提交、OAuth 启动、passkey 时弹窗验证
+// 动作触发式验证码（腾讯/阿里云/VAPTCHA/GoCaptcha）：提交、OAuth 启动、passkey 时弹窗验证
 const actionCaptchaEnabled = computed(
   () =>
     (tencentCaptchaEnabled.value && Boolean(tencentCaptchaAppId.value)) ||
     aliyunCaptchaReady.value ||
-    (vaptchaEnabled.value && Boolean(vaptchaVid.value))
+    (vaptchaEnabled.value && Boolean(vaptchaVid.value)) ||
+    goCaptchaEnabled.value
 )
 const captchaEnabled = computed(
   () =>
@@ -399,6 +402,7 @@ onMounted(async () => {
     aliyunCaptchaSceneId.value = settings.aliyun_captcha_scene_id || ''
     aliyunCaptchaPrefix.value = settings.aliyun_captcha_prefix || ''
     aliyunCaptchaRegion.value = settings.aliyun_captcha_region || 'cn'
+    goCaptchaEnabled.value = settings.go_captcha_enabled ?? false
     vaptchaEnabled.value = settings.vaptcha_enabled ?? false
     vaptchaVid.value = settings.vaptcha_vid || ''
     vaptchaScene.value = settings.vaptcha_scene ?? 0
@@ -591,7 +595,7 @@ async function handleLogin(): Promise<void> {
       email: formData.email,
       password: formData.password,
       turnstile_token:
-        turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value
+        turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value || goCaptchaEnabled.value
           ? turnstileToken.value
           : undefined,
       tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,

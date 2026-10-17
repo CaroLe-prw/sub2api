@@ -71,6 +71,7 @@ type JWTClaims struct {
 
 // AuthService 认证服务
 type AuthService struct {
+	goCaptchaService      *GoCaptchaService
 	entClient             *dbent.Client
 	userRepo              UserRepository
 	redeemRepo            RedeemCodeRepository
@@ -91,7 +92,8 @@ type AuthService struct {
 
 type CaptchaProof struct {
 	// TurnstileToken 承载 Cloudflare token；阿里云复用它承载 captchaVerifyParam，
-	// VAPTCHA 复用它承载 V4 SDK 返回的 token/knock/dfu/ip JSON 证明。
+	// VAPTCHA 复用它承载 V4 SDK 返回的 token/knock/dfu/ip JSON 证明，
+	// GoCaptcha 复用它承载服务端签发的一次性验证凭证。
 	TurnstileToken string
 	TencentTicket  string
 	TencentRandstr string
@@ -424,7 +426,7 @@ func (s *AuthService) VerifyCaptcha(ctx context.Context, proof CaptchaProof, rem
 	tencentEnabled := providerConfig.Tencent.Enabled
 	aliyunEnabled := providerConfig.Aliyun.Enabled
 	vaptchaEnabled := providerConfig.Vaptcha.Enabled
-	if captchaProvidersConflict(turnstileEnabled, tencentEnabled, aliyunEnabled, vaptchaEnabled) {
+	if captchaProvidersConflict(turnstileEnabled, tencentEnabled, aliyunEnabled, vaptchaEnabled, providerConfig.GoCaptchaEnabled) {
 		return ErrCaptchaProviderConflict
 	}
 	if tencentEnabled {
@@ -438,6 +440,12 @@ func (s *AuthService) VerifyCaptcha(ctx context.Context, proof CaptchaProof, rem
 			return ErrAliyunCaptchaNotConfigured
 		}
 		return s.aliyunCaptchaService.VerifyParamWithConfig(ctx, providerConfig.Aliyun, proof.TurnstileToken)
+	}
+	if providerConfig.GoCaptchaEnabled {
+		if s.goCaptchaService == nil {
+			return ErrGoCaptchaNotConfigured
+		}
+		return s.goCaptchaService.VerifyToken(ctx, proof.TurnstileToken, remoteIP)
 	}
 	if vaptchaEnabled {
 		if s.vaptchaService == nil {
@@ -469,7 +477,7 @@ func captchaProvidersConflict(enabled ...bool) bool {
 }
 
 // VerifyActionCaptchaIfEnabled 仅保护动作触发的扩展入口（OAuth 登录启动、passkey 登录），
-// 腾讯天御与阿里云验证码启用时拦截；不扩大 Cloudflare Turnstile 的既有覆盖范围。
+// 腾讯、阿里云、VAPTCHA 与 GoCaptcha 启用时拦截；保持 Turnstile 的既有覆盖范围。
 func (s *AuthService) VerifyActionCaptchaIfEnabled(ctx context.Context, proof CaptchaProof, remoteIP string) error {
 	if s == nil || s.settingService == nil {
 		return ErrServiceUnavailable
@@ -483,10 +491,10 @@ func (s *AuthService) VerifyActionCaptchaIfEnabled(ctx context.Context, proof Ca
 	tencentEnabled := providerConfig.Tencent.Enabled
 	aliyunEnabled := providerConfig.Aliyun.Enabled
 	vaptchaEnabled := providerConfig.Vaptcha.Enabled
-	if !tencentEnabled && !aliyunEnabled && !vaptchaEnabled {
+	if !tencentEnabled && !aliyunEnabled && !vaptchaEnabled && !providerConfig.GoCaptchaEnabled {
 		return nil
 	}
-	if captchaProvidersConflict(providerConfig.TurnstileEnabled, tencentEnabled, aliyunEnabled, vaptchaEnabled) {
+	if captchaProvidersConflict(providerConfig.TurnstileEnabled, tencentEnabled, aliyunEnabled, vaptchaEnabled, providerConfig.GoCaptchaEnabled) {
 		return ErrCaptchaProviderConflict
 	}
 	if aliyunEnabled {
@@ -494,6 +502,12 @@ func (s *AuthService) VerifyActionCaptchaIfEnabled(ctx context.Context, proof Ca
 			return ErrAliyunCaptchaNotConfigured
 		}
 		return s.aliyunCaptchaService.VerifyParamWithConfig(ctx, providerConfig.Aliyun, proof.TurnstileToken)
+	}
+	if providerConfig.GoCaptchaEnabled {
+		if s.goCaptchaService == nil {
+			return ErrGoCaptchaNotConfigured
+		}
+		return s.goCaptchaService.VerifyToken(ctx, proof.TurnstileToken, remoteIP)
 	}
 	if vaptchaEnabled {
 		if s.vaptchaService == nil {

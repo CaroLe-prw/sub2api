@@ -179,6 +179,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAliyunCaptchaSceneID,
 		SettingKeyAliyunCaptchaPrefix,
 		SettingKeyAliyunCaptchaRegion,
+		SettingKeyGoCaptchaEnabled,
 		SettingKeyVaptchaEnabled,
 		SettingKeyVaptchaVID,
 		SettingKeyVaptchaScene,
@@ -330,6 +331,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		AliyunCaptchaSceneID:                settings[SettingKeyAliyunCaptchaSceneID],
 		AliyunCaptchaPrefix:                 settings[SettingKeyAliyunCaptchaPrefix],
 		AliyunCaptchaRegion:                 normalizeAliyunCaptchaRegion(settings[SettingKeyAliyunCaptchaRegion]),
+		GoCaptchaEnabled:                    settings[SettingKeyGoCaptchaEnabled] == "true",
 		VaptchaEnabled:                      settings[SettingKeyVaptchaEnabled] == "true",
 		VaptchaVID:                          settings[SettingKeyVaptchaVID],
 		VaptchaScene:                        parseVaptchaScene(settings[SettingKeyVaptchaScene]),
@@ -601,6 +603,7 @@ type PublicSettingsInjectionPayload struct {
 	AliyunCaptchaSceneID                string                   `json:"aliyun_captcha_scene_id"`
 	AliyunCaptchaPrefix                 string                   `json:"aliyun_captcha_prefix"`
 	AliyunCaptchaRegion                 string                   `json:"aliyun_captcha_region"`
+	GoCaptchaEnabled                    bool                     `json:"go_captcha_enabled"`
 	VaptchaEnabled                      bool                     `json:"vaptcha_enabled"`
 	VaptchaVID                          string                   `json:"vaptcha_vid"`
 	VaptchaScene                        int                      `json:"vaptcha_scene"`
@@ -701,6 +704,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AliyunCaptchaSceneID:                settings.AliyunCaptchaSceneID,
 		AliyunCaptchaPrefix:                 settings.AliyunCaptchaPrefix,
 		AliyunCaptchaRegion:                 settings.AliyunCaptchaRegion,
+		GoCaptchaEnabled:                    settings.GoCaptchaEnabled,
 		VaptchaEnabled:                      settings.VaptchaEnabled,
 		VaptchaVID:                          settings.VaptchaVID,
 		VaptchaScene:                        settings.VaptchaScene,

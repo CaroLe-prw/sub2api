@@ -610,6 +610,7 @@ export interface SystemSettings {
   aliyun_captcha_scene_id: string;
   aliyun_captcha_prefix: string;
   aliyun_captcha_region: string;
+  go_captcha_enabled: boolean;
   vaptcha_enabled: boolean;
   vaptcha_vid: string;
   vaptcha_key_configured: boolean;
@@ -981,6 +982,7 @@ export interface UpdateSettingsRequest {
   aliyun_captcha_scene_id?: string;
   aliyun_captcha_prefix?: string;
   aliyun_captcha_region?: string;
+  go_captcha_enabled?: boolean;
   vaptcha_enabled?: boolean;
   vaptcha_vid?: string;
   vaptcha_key?: string;

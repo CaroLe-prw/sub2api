@@ -280,6 +280,7 @@ const (
 	SettingKeyAliyunCaptchaSceneID         = "aliyun_captcha_scene_id"          // 验证场景 ID（所有认证流程共用）
 	SettingKeyAliyunCaptchaPrefix          = "aliyun_captcha_prefix"            // 身份标，前端 SDK 初始化用
 	SettingKeyAliyunCaptchaRegion          = "aliyun_captcha_region"            // 地域："cn"|"sgp"，决定前端脚本区域与服务端接入点
+	SettingKeyGoCaptchaEnabled             = "go_captcha_enabled"
 	SettingKeyVaptchaEnabled               = "vaptcha_enabled"
 	SettingKeyVaptchaVID                   = "vaptcha_vid"
 	SettingKeyVaptchaKey                   = "vaptcha_key"

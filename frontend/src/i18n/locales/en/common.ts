@@ -223,6 +223,14 @@ export default {
 
   // Auth
   auth: {
+    goCaptcha: {
+      title: 'Security verification',
+      slide: 'Slide to complete the puzzle',
+      loading: 'Loading puzzle…',
+      retry: 'Load another puzzle',
+      failed: 'Verification failed or expired. Please try a new puzzle.',
+      unavailable: 'Unable to load the puzzle. Please retry.'
+    },
     welcomeBack: 'Welcome Back',
     signInToAccount: 'Sign in to your account to continue',
     signIn: 'Sign In',

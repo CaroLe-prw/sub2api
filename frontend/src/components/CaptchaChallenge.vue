@@ -23,6 +23,10 @@
     @expire="emit('expire')"
     @error="emit('error')"
   />
+  <GoCaptchaWidget
+    v-else-if="goCaptchaEnabled"
+    ref="goCaptchaRef"
+  />
   <VaptchaWidget
     v-else-if="vaptchaEnabled && vaptchaVid"
     ref="vaptchaRef"
@@ -39,10 +43,12 @@ import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import TencentCaptchaGate from '@/components/TencentCaptchaGate.vue'
 import AliyunCaptchaWidget from '@/components/AliyunCaptchaWidget.vue'
 import VaptchaWidget from '@/components/VaptchaWidget.vue'
+import GoCaptchaWidget from '@/components/GoCaptchaWidget.vue'
 
-// ActionCaptchaResult 动作触发式验证（腾讯/阿里云/VAPTCHA）的结果：
+// ActionCaptchaResult 动作触发式验证（腾讯/阿里云/VAPTCHA/GoCaptcha）的结果：
 // 腾讯 token=ticket、randstr 非空；阿里云 token=captchaVerifyParam；
-// VAPTCHA token=V4 的 token/knock/dfu/ip JSON，后二者 randstr 恒为空。
+// VAPTCHA token=V4 的 token/knock/dfu/ip JSON；GoCaptcha token=服务端一次性凭证。
+// 除腾讯外 randstr 恒为空。
 export interface ActionCaptchaResult {
   token: string
   randstr: string
@@ -59,6 +65,7 @@ const props = defineProps<{
   aliyunSceneId?: string
   aliyunPrefix?: string
   aliyunRegion?: string
+  goCaptchaEnabled?: boolean
   vaptchaEnabled?: boolean
   vaptchaVid?: string
   vaptchaScene?: number
@@ -73,6 +80,7 @@ const emit = defineEmits<{
 const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
 const tencentRef = ref<InstanceType<typeof TencentCaptchaGate> | null>(null)
 const aliyunRef = ref<InstanceType<typeof AliyunCaptchaWidget> | null>(null)
+const goCaptchaRef = ref<InstanceType<typeof GoCaptchaWidget> | null>(null)
 const vaptchaRef = ref<InstanceType<typeof VaptchaWidget> | null>(null)
 
 function reset(): void {
@@ -80,9 +88,10 @@ function reset(): void {
   tencentRef.value?.reset()
   aliyunRef.value?.reset()
   vaptchaRef.value?.reset()
+  goCaptchaRef.value?.reset()
 }
 
-// verifyAction 弹出当前启用的动作触发式验证码（腾讯/阿里云/VAPTCHA）并等待结果；
+// verifyAction 弹出当前启用的动作触发式验证码（腾讯/阿里云/VAPTCHA/GoCaptcha）并等待结果；
 // 用户关闭弹窗返回 null，验证异常 emit('error') 并返回 null。
 async function verifyAction(): Promise<ActionCaptchaResult | null> {
   if (props.tencentEnabled && props.tencentAppId) {
@@ -100,6 +109,15 @@ async function verifyAction(): Promise<ActionCaptchaResult | null> {
       const param = (await aliyunRef.value?.verify()) ?? null
       if (!param) return null
       return { token: param, randstr: '' }
+    } catch {
+      emit('error')
+      return null
+    }
+  }
+  if (props.goCaptchaEnabled) {
+    try {
+      const token = (await goCaptchaRef.value?.verify()) ?? null
+      return token ? { token, randstr: '' } : null
     } catch {
       emit('error')
       return null

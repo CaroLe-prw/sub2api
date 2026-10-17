@@ -294,6 +294,9 @@ export default {
         regionSgp: 'Singapore',
         regionHint: 'Determines the frontend script region and the server endpoint; must match your captcha instance region'
       },
+      goCaptcha: {
+        description: 'Self-hosted sliding puzzle verification. No third-party account or keys required. Users solve the puzzle when submitting login, registration, and other protected actions.'
+      },
       vaptcha: {
         vid: 'Verification unit VID',
         key: 'Verification unit Key',

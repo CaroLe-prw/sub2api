@@ -59,6 +59,7 @@ type SystemSettings struct {
 	AliyunCaptchaSceneID                   string
 	AliyunCaptchaPrefix                    string
 	AliyunCaptchaRegion                    string
+	GoCaptchaEnabled                       bool
 	VaptchaEnabled                         bool
 	VaptchaVID                             string
 	VaptchaKey                             string
@@ -370,6 +371,7 @@ type PublicSettings struct {
 	AliyunCaptchaSceneID                string
 	AliyunCaptchaPrefix                 string
 	AliyunCaptchaRegion                 string
+	GoCaptchaEnabled                    bool
 	VaptchaEnabled                      bool
 	VaptchaVID                          string
 	VaptchaScene                        int

@@ -562,6 +562,7 @@ type AliyunCaptchaConfig struct {
 }
 
 type CaptchaProviderConfig struct {
+	GoCaptchaEnabled   bool
 	TurnstileEnabled   bool
 	TurnstileSecretKey string
 	Tencent            TencentCaptchaConfig
@@ -584,6 +585,7 @@ func (s *SettingService) GetCaptchaProviderConfig(ctx context.Context) (CaptchaP
 		SettingKeyAliyunCaptchaAccessKeySecret,
 		SettingKeyAliyunCaptchaSceneID,
 		SettingKeyAliyunCaptchaRegion,
+		SettingKeyGoCaptchaEnabled,
 		SettingKeyVaptchaEnabled,
 		SettingKeyVaptchaVID,
 		SettingKeyVaptchaKey,
@@ -593,6 +595,7 @@ func (s *SettingService) GetCaptchaProviderConfig(ctx context.Context) (CaptchaP
 		return CaptchaProviderConfig{}, fmt.Errorf("read captcha provider settings: %w", err)
 	}
 	return CaptchaProviderConfig{
+		GoCaptchaEnabled:   values[SettingKeyGoCaptchaEnabled] == "true",
 		TurnstileEnabled:   values[SettingKeyTurnstileEnabled] == "true",
 		TurnstileSecretKey: values[SettingKeyTurnstileSecretKey],
 		Tencent: TencentCaptchaConfig{

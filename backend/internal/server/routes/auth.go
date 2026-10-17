@@ -43,6 +43,12 @@ func RegisterAuthRoutes(
 			}),
 			h.Auth.Register,
 		)
+		auth.POST("/captcha/go/challenge", rateLimiter.LimitWithOptions("go-captcha-challenge", 20, time.Minute, middleware.RateLimitOptions{
+			FailureMode: middleware.RateLimitFailClose,
+		}), h.Auth.CreateGoCaptchaChallenge)
+		auth.POST("/captcha/go/verify", rateLimiter.LimitWithOptions("go-captcha-verify", 20, time.Minute, middleware.RateLimitOptions{
+			FailureMode: middleware.RateLimitFailClose,
+		}), h.Auth.CheckGoCaptchaChallenge)
 		auth.POST("/login", rateLimiter.LimitWithOptions("auth-login", 20, time.Minute, middleware.RateLimitOptions{
 			FailureMode: middleware.RateLimitFailClose,
 		}), h.Auth.Login)

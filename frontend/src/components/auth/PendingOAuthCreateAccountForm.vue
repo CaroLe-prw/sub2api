@@ -29,6 +29,7 @@
         :aliyun-scene-id="aliyunCaptchaSceneId"
         :aliyun-prefix="aliyunCaptchaPrefix"
         :aliyun-region="aliyunCaptchaRegion"
+        :go-captcha-enabled="goCaptchaEnabled"
         :vaptcha-enabled="vaptchaEnabled"
         :vaptcha-vid="vaptchaVid"
         :vaptcha-scene="vaptchaScene"
@@ -150,6 +151,7 @@ const aliyunCaptchaEnabled = ref(false)
 const aliyunCaptchaSceneId = ref('')
 const aliyunCaptchaPrefix = ref('')
 const aliyunCaptchaRegion = ref('cn')
+const goCaptchaEnabled = ref(false)
 const vaptchaEnabled = ref(false)
 const vaptchaVid = ref('')
 const vaptchaScene = ref(0)
@@ -167,7 +169,8 @@ const actionCaptchaEnabled = computed(
   () =>
     (tencentCaptchaEnabled.value && Boolean(tencentCaptchaAppId.value)) ||
     aliyunCaptchaReady.value ||
-    (vaptchaEnabled.value && Boolean(vaptchaVid.value))
+    (vaptchaEnabled.value && Boolean(vaptchaVid.value)) ||
+    goCaptchaEnabled.value
 )
 const captchaEnabled = computed(
   () =>
@@ -292,7 +295,7 @@ async function handleSendCode() {
     const response = await sendPendingOAuthVerifyCode({
       email: trimmedEmail,
       turnstile_token:
-        turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value
+        turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value || goCaptchaEnabled.value
           ? turnstileToken.value
           : undefined,
       tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
@@ -333,7 +336,7 @@ async function handleSubmit() {
     email: trimmedEmail,
     password: password.value,
     verifyCode: emailVerifyEnabled.value ? verifyCode.value.trim() : '',
-    ...((turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value) && turnstileToken.value
+    ...((turnstileEnabled.value || aliyunCaptchaEnabled.value || vaptchaEnabled.value || goCaptchaEnabled.value) && turnstileToken.value
       ? { turnstileToken: turnstileToken.value }
       : {}),
     ...(tencentCaptchaEnabled.value && turnstileToken.value
@@ -368,6 +371,7 @@ onMounted(async () => {
     aliyunCaptchaSceneId.value = settings.aliyun_captcha_scene_id || ''
     aliyunCaptchaPrefix.value = settings.aliyun_captcha_prefix || ''
     aliyunCaptchaRegion.value = settings.aliyun_captcha_region || 'cn'
+    goCaptchaEnabled.value = settings.go_captcha_enabled ?? false
     vaptchaEnabled.value = settings.vaptcha_enabled ?? false
     vaptchaVid.value = settings.vaptcha_vid || ''
     vaptchaScene.value = settings.vaptcha_scene ?? 0
@@ -383,6 +387,7 @@ onMounted(async () => {
     aliyunCaptchaSceneId.value = ''
     aliyunCaptchaPrefix.value = ''
     aliyunCaptchaRegion.value = 'cn'
+    goCaptchaEnabled.value = false
     vaptchaEnabled.value = false
     vaptchaVid.value = ''
     vaptchaScene.value = 0

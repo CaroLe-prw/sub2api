@@ -129,6 +129,31 @@ describe('Tencent captcha action gate', () => {
     })
   })
 
+  it('requires a GoCaptcha proof for password, OAuth, and passkey login', async () => {
+    getPublicSettingsMock.mockResolvedValue({
+      go_captcha_enabled: true, passkey_enabled: true, github_oauth_enabled: true
+    })
+    verifyActionMock.mockResolvedValue({ token: 'go-proof', randstr: '' })
+    const wrapper = mountLogin()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(loginMock).toHaveBeenCalledWith(expect.objectContaining({ turnstile_token: 'go-proof' }))
+    await wrapper.get('[data-testid="oauth-start"]').trigger('click')
+    await flushPromises()
+    expect(startOAuthLoginMock).toHaveBeenCalledWith(
+      { provider: 'github', params: { redirect: '/dashboard' } }, { turnstile_token: 'go-proof' }
+    )
+    const passkeyButton = wrapper.findAll('button').find(button => button.text().includes('auth.passkeySignIn'))
+    expect(passkeyButton).toBeDefined()
+    await passkeyButton!.trigger('click')
+    await flushPromises()
+    expect(loginWithPasskeyMock).toHaveBeenCalledWith({ turnstile_token: 'go-proof' })
+    expect(verifyActionMock).toHaveBeenCalledTimes(3)
+  })
+
   it('clicking login opens Tencent captcha before calling login', async () => {
     const wrapper = mountLogin()
     await flushPromises()

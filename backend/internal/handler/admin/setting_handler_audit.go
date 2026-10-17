@@ -147,6 +147,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.AliyunCaptchaRegion != after.AliyunCaptchaRegion {
 		changed = append(changed, "aliyun_captcha_region")
 	}
+	if before.GoCaptchaEnabled != after.GoCaptchaEnabled {
+		changed = append(changed, "go_captcha_enabled")
+	}
 	if before.VaptchaEnabled != after.VaptchaEnabled {
 		changed = append(changed, "vaptcha_enabled")
 	}

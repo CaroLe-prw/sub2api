@@ -70,6 +70,7 @@ type UpdateSettingsRequest struct {
 	AliyunCaptchaSceneID         string `json:"aliyun_captcha_scene_id"`
 	AliyunCaptchaPrefix          string `json:"aliyun_captcha_prefix"`
 	AliyunCaptchaRegion          string `json:"aliyun_captcha_region"`
+	GoCaptchaEnabled             bool   `json:"go_captcha_enabled"`
 	VaptchaEnabled               bool   `json:"vaptcha_enabled"`
 	VaptchaVID                   string `json:"vaptcha_vid"`
 	VaptchaKey                   string `json:"vaptcha_key"`
@@ -684,8 +685,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if _, sent := sentFields["vaptcha_enabled"]; !sent {
 		vaptchaEnabled = previousSettings.VaptchaEnabled
 	}
+	if _, sent := sentFields["go_captcha_enabled"]; !sent {
+		req.GoCaptchaEnabled = previousSettings.GoCaptchaEnabled
+	}
 	enabledCaptchaProviders := 0
-	for _, enabled := range []bool{turnstileEnabled, tencentCaptchaEnabled, aliyunCaptchaEnabled, vaptchaEnabled} {
+	for _, enabled := range []bool{turnstileEnabled, tencentCaptchaEnabled, aliyunCaptchaEnabled, vaptchaEnabled, req.GoCaptchaEnabled} {
 		if enabled {
 			enabledCaptchaProviders++
 		}
@@ -1594,6 +1598,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFrom:                            req.SMTPFrom,
 		SMTPFromName:                        req.SMTPFromName,
 		SMTPUseTLS:                          req.SMTPUseTLS,
+		GoCaptchaEnabled:                    req.GoCaptchaEnabled,
 		VaptchaEnabled:                      req.VaptchaEnabled,
 		VaptchaVID:                          req.VaptchaVID,
 		VaptchaKey:                          req.VaptchaKey,
@@ -2353,6 +2358,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AliyunCaptchaEnabled:                                   updatedSettings.AliyunCaptchaEnabled,
 		AliyunCaptchaAccessKeyID:                               updatedSettings.AliyunCaptchaAccessKeyID,
 		AliyunCaptchaAccessKeySecretConfigured:                 updatedSettings.AliyunCaptchaAccessKeySecretConfigured,
+		GoCaptchaEnabled:                                       updatedSettings.GoCaptchaEnabled,
 		VaptchaEnabled:                                         updatedSettings.VaptchaEnabled,
 		VaptchaVID:                                             updatedSettings.VaptchaVID,
 		VaptchaKeyConfigured:                                   updatedSettings.VaptchaKeyConfigured,

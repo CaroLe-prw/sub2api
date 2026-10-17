@@ -376,6 +376,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		AliyunCaptchaSceneID:                   settings[SettingKeyAliyunCaptchaSceneID],
 		AliyunCaptchaPrefix:                    settings[SettingKeyAliyunCaptchaPrefix],
 		AliyunCaptchaRegion:                    normalizeAliyunCaptchaRegion(settings[SettingKeyAliyunCaptchaRegion]),
+		GoCaptchaEnabled:                       settings[SettingKeyGoCaptchaEnabled] == "true",
 		VaptchaEnabled:                         settings[SettingKeyVaptchaEnabled] == "true",
 		VaptchaVID:                             settings[SettingKeyVaptchaVID],
 		VaptchaKeyConfigured:                   settings[SettingKeyVaptchaKey] != "",

@@ -294,6 +294,9 @@ export default {
         regionSgp: '新加坡',
         regionHint: '决定前端脚本接入区域与服务端接入点，需与阿里云验证码实例所属地域一致'
       },
+      goCaptcha: {
+        description: '本地滑块拼图验证，无需第三方账号或密钥。启用后，用户提交登录、注册等操作时完成滑块验证。'
+      },
       vaptcha: {
         vid: '验证单元 VID',
         key: '验证单元 Key',
