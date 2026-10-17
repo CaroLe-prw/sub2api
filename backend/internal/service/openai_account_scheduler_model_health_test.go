@@ -118,7 +118,7 @@ func TestOpenAIAccountScheduler_StickyHealthIsModelScoped(t *testing.T) {
 				require.Len(t, plan.candidates, 1)
 				require.Equal(t, tc.measured, plan.candidates[0].hasTTFT)
 				if tc.measured {
-					require.Equal(t, float64(fast), plan.candidates[0].ttft)
+					require.InDelta(t, float64(fast), plan.candidates[0].ttft, 1e-9)
 				}
 			})
 		}

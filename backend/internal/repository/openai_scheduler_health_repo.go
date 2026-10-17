@@ -58,11 +58,14 @@ func (r *usageLogRepository) GetOpenAISchedulerHealthSnapshots(
 // real user requests, optionally restricted to the accounts visible on the
 // current admin page. Persisted input_tokens excludes cache reads and writes;
 // summing all three reconstructs the prompt-token denominator for cache rates.
+// Scheduler TTFT evidence decays each measured request from its original time;
+// refreshing this snapshot must not make old measurements appear fresh.
 func (r *usageLogRepository) GetSchedulerUserTrafficSnapshots(
 	ctx context.Context,
 	since time.Time,
 	accountIDs []int64,
 ) ([]service.OpenAISchedulerHealthSnapshot, error) {
+	now := time.Now().UTC()
 	rows, err := r.sql.QueryContext(ctx, `
 		WITH successes AS (
 			SELECT account_id,
@@ -73,8 +76,17 @@ func (r *usageLogRepository) GetSchedulerUserTrafficSnapshots(
 			       SUM(GREATEST(cache_read_tokens, 0)::bigint)::bigint AS cache_read_tokens,
 			       SUM(GREATEST(input_tokens, 0)::bigint + GREATEST(cache_creation_tokens, 0)::bigint + GREATEST(cache_read_tokens, 0)::bigint)::bigint AS cache_eligible_tokens,
 			       COUNT(*) FILTER (WHERE input_tokens > 0 OR cache_creation_tokens > 0 OR cache_read_tokens > 0)::bigint AS cache_sample_count,
-			       MAX(created_at) FILTER (WHERE input_tokens > 0 OR cache_creation_tokens > 0 OR cache_read_tokens > 0) AS last_cache_sample_at
+			       MAX(created_at) FILTER (WHERE input_tokens > 0 OR cache_creation_tokens > 0 OR cache_read_tokens > 0) AS last_cache_sample_at,
+			       COUNT(*) FILTER (WHERE first_token_ms > 0 AND created_at <= $3)::bigint AS ttft_sample_count,
+			       MAX(created_at) FILTER (WHERE first_token_ms > 0 AND created_at <= $3) AS last_ttft_sample_at,
+			       SUM(first_token_ms::float8 * ttft_weight) / NULLIF(SUM(ttft_weight), 0) AS weighted_ttft_ms,
+			       SUM(ttft_weight) AS ttft_effective_samples
 			FROM usage_logs
+			CROSS JOIN LATERAL (
+				SELECT CASE WHEN first_token_ms > 0 AND created_at <= $3
+				       THEN EXP(-LN(2.0) * EXTRACT(EPOCH FROM ($3::timestamptz - created_at))::float8 / $4::float8)
+				       ELSE 0::float8 END AS ttft_weight
+			) ttft
 			WHERE created_at >= $1 AND account_id > 0
 			  AND user_id > 0 AND request_type NOT IN (4, 6)
 			  AND (COALESCE(cardinality($2::bigint[]), 0) = 0 OR account_id = ANY($2::bigint[]))
@@ -100,11 +112,13 @@ func (r *usageLogRepository) GetSchedulerUserTrafficSnapshots(
 		       COALESCE(s.success_count, 0), COALESCE(f.failure_count, 0), s.avg_ttft_ms,
 		       s.last_success_at, f.last_failure_at,
 		       COALESCE(s.cache_read_tokens, 0), COALESCE(s.cache_eligible_tokens, 0),
-		       COALESCE(s.cache_sample_count, 0), s.last_cache_sample_at
+		       COALESCE(s.cache_sample_count, 0), s.last_cache_sample_at,
+		       COALESCE(s.ttft_sample_count, 0), s.last_ttft_sample_at,
+		       s.weighted_ttft_ms, COALESCE(s.ttft_effective_samples, 0)
 		FROM successes s
 		FULL OUTER JOIN failures f ON f.account_id = s.account_id AND f.model = s.model
 		ORDER BY 1, 2
-	`, since.UTC(), pq.Array(accountIDs))
+	`, since.UTC(), pq.Array(accountIDs), now, service.SchedulerTTFTHalfLife.Seconds())
 	if err != nil {
 		return nil, err
 	}
@@ -117,9 +131,11 @@ func (r *usageLogRepository) GetSchedulerUserTrafficSnapshots(
 			&item.AccountID, &item.Model, &item.SuccessCount, &item.FailureCount, &item.AvgTTFTMs,
 			&item.LastSuccessAt, &item.LastFailureAt,
 			&item.CacheReadTokens, &item.CacheEligibleTokens, &item.CacheSampleCount, &item.LastCacheSampleAt,
+			&item.TTFTSampleCount, &item.LastTTFTSampleAt, &item.WeightedTTFTMs, &item.TTFTEffectiveSamples,
 		); err != nil {
 			return nil, err
 		}
+		item.TTFTObservedAt = now
 		result = append(result, item)
 	}
 	return result, rows.Err()

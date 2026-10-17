@@ -70,6 +70,11 @@ export interface SchedulerAttempt {
 export type SchedulerCandidateState = "selected" | "tried" | "eligible" | "excluded" | "rejected" | "deprioritized";
 
 export interface SchedulerCandidate {
+  ttftMs?: number | null;
+  ttftSampleCount?: number;
+  ttftLastSampleAt?: string | null;
+  ttftConfidence?: number;
+  ttftSource?: "traffic" | "probe" | "";
   cacheHitRate?: number | null;
   cacheSampleCount?: number;
   cacheScore?: number;

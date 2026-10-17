@@ -24,17 +24,22 @@ const (
 )
 
 type OpenAISchedulerObservabilityCandidate struct {
-	CacheHitRate     *float64 `json:"cacheHitRate"`
-	CacheSampleCount int64    `json:"cacheSampleCount"`
-	CacheScore       float64  `json:"cacheScore"`
-	AccountID        int64    `json:"accountId"`
-	AccountName      string   `json:"accountName"`
-	Rank             int      `json:"rank"`
-	BaseScore        float64  `json:"baseScore"`
-	StickyBonus      float64  `json:"stickyBonus"`
-	TotalScore       float64  `json:"totalScore"`
-	State            string   `json:"state"`
-	Reason           string   `json:"reason,omitempty"`
+	TTFTMs           *float64   `json:"ttftMs"`
+	TTFTSampleCount  int64      `json:"ttftSampleCount"`
+	TTFTLastSampleAt *time.Time `json:"ttftLastSampleAt"`
+	TTFTConfidence   float64    `json:"ttftConfidence"`
+	TTFTSource       string     `json:"ttftSource"`
+	CacheHitRate     *float64   `json:"cacheHitRate"`
+	CacheSampleCount int64      `json:"cacheSampleCount"`
+	CacheScore       float64    `json:"cacheScore"`
+	AccountID        int64      `json:"accountId"`
+	AccountName      string     `json:"accountName"`
+	Rank             int        `json:"rank"`
+	BaseScore        float64    `json:"baseScore"`
+	StickyBonus      float64    `json:"stickyBonus"`
+	TotalScore       float64    `json:"totalScore"`
+	State            string     `json:"state"`
+	Reason           string     `json:"reason,omitempty"`
 }
 
 type OpenAISchedulerObservabilityAttempt struct {

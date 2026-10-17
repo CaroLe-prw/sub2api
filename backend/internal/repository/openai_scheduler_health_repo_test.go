@@ -18,15 +18,20 @@ func TestUsageLogRepository_GetOpenAISchedulerHealthSnapshots(t *testing.T) {
 	repo := newUsageLogRepositoryWithSQL(nil, db)
 	lastSuccess := time.Now().Add(-time.Minute)
 	lastFailure := time.Now().Add(-2 * time.Minute)
+	lastTTFT := time.Now().Add(-3 * time.Minute)
 	rows := sqlmock.NewRows([]string{
 		"account_id", "model", "success_count", "failure_count", "avg_ttft_ms", "last_success_at", "last_failure_at",
 		"cache_read_tokens", "cache_eligible_tokens", "cache_sample_count", "last_cache_sample_at",
-	}).AddRow(int64(35), "gpt-5.6-sol", int64(18), int64(2), float64(920), lastSuccess, lastFailure, int64(9000), int64(10000), int64(18), lastSuccess)
-	mock.ExpectQuery(`(?s)WITH successes AS.*SUM\(GREATEST\(input_tokens, 0\)::bigint \+ GREATEST\(cache_creation_tokens, 0\)::bigint \+ GREATEST\(cache_read_tokens, 0\)::bigint\).*AS cache_sample_count.*user_id > 0 AND request_type NOT IN \(4, 6\).*COALESCE\(s.cache_read_tokens, 0\)`).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(rows)
+		"ttft_sample_count", "last_ttft_sample_at", "weighted_ttft_ms", "ttft_effective_samples",
+	}).
+		AddRow(int64(35), "gpt-5.6-sol", int64(18), int64(2), float64(920), lastSuccess, lastFailure, int64(9000), int64(10000), int64(18), lastSuccess, int64(12), lastTTFT, float64(840), float64(4.25)).
+		AddRow(int64(36), "gpt-5.6-sol", int64(0), int64(1), nil, nil, lastFailure, int64(0), int64(0), int64(0), nil, int64(0), nil, nil, float64(0))
+	mock.ExpectQuery(`(?s)WITH successes AS.*SUM\(GREATEST\(input_tokens, 0\)::bigint \+ GREATEST\(cache_creation_tokens, 0\)::bigint \+ GREATEST\(cache_read_tokens, 0\)::bigint\).*AS cache_sample_count.*user_id > 0 AND request_type NOT IN \(4, 6\).*COALESCE\(s.cache_read_tokens, 0\)`).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), float64(300)).WillReturnRows(rows)
 
+	before := time.Now()
 	snapshots, err := repo.GetOpenAISchedulerHealthSnapshots(context.Background(), time.Now().Add(-30*time.Minute))
 	require.NoError(t, err)
-	require.Len(t, snapshots, 1)
+	require.Len(t, snapshots, 2)
 	require.Equal(t, int64(35), snapshots[0].AccountID)
 	require.Equal(t, "gpt-5.6-sol", snapshots[0].Model)
 	require.Equal(t, int64(18), snapshots[0].SuccessCount)
@@ -40,6 +45,18 @@ func TestUsageLogRepository_GetOpenAISchedulerHealthSnapshots(t *testing.T) {
 	require.EqualValues(t, 18, snapshots[0].CacheSampleCount)
 	require.Equal(t, lastSuccess, *snapshots[0].LastCacheSampleAt)
 	require.InDelta(t, 0.9, *snapshots[0].CacheHitRate(), 0.0001)
+	require.EqualValues(t, 12, snapshots[0].TTFTSampleCount)
+	require.Equal(t, lastTTFT, *snapshots[0].LastTTFTSampleAt)
+	require.InDelta(t, 840, *snapshots[0].WeightedTTFTMs, 0.0001)
+	require.InDelta(t, 4.25, snapshots[0].TTFTEffectiveSamples, 0.0001)
+	require.False(t, snapshots[0].TTFTObservedAt.Before(before))
+	require.False(t, snapshots[0].TTFTObservedAt.After(time.Now()))
+	require.Equal(t, time.UTC, snapshots[0].TTFTObservedAt.Location())
+	require.Zero(t, snapshots[1].TTFTSampleCount)
+	require.Nil(t, snapshots[1].LastTTFTSampleAt)
+	require.Nil(t, snapshots[1].WeightedTTFTMs)
+	require.Zero(t, snapshots[1].TTFTEffectiveSamples)
+	require.Equal(t, snapshots[0].TTFTObservedAt, snapshots[1].TTFTObservedAt)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

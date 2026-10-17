@@ -48,6 +48,13 @@ const messages = vi.hoisted<Record<string, string>>(() => ({
   "admin.schedulerObservability.summaryDetails.sticky_escaped_consecutive_errors":
     "账号 {first} 命中 session_hash，但连续两次失败触发粘性逃逸；排除故障账号后，{final} 在剩余候选中评分最高并完成请求。",
   "admin.schedulerObservability.drawer.candidates": "候选评分",
+  "admin.schedulerObservability.drawer.ttftEvidence": "首字延迟 / 依据",
+  "admin.schedulerObservability.drawer.ttftSamples": "样本 {count}",
+  "admin.schedulerObservability.drawer.ttftConfidence": "可信度 {value}",
+  "admin.schedulerObservability.drawer.ttftLastSample": "最近采样 {time}",
+  "admin.schedulerObservability.drawer.ttftSources.traffic": "真实请求",
+  "admin.schedulerObservability.drawer.ttftSources.probe": "探测",
+  "admin.schedulerObservability.drawer.ttftSources.none": "暂无有效数据",
   "admin.schedulerObservability.drawer.checkedCandidatePool": "已检查 {count} 个候选",
   "admin.schedulerObservability.drawer.selectionFailureHint":
     "最后一次选号检查了 {count} 个账号但未选出可用账号；具体过滤数量见上方时间线，下表仅保留本次轨迹已记录的账号。",
@@ -175,6 +182,47 @@ beforeEach(() => {
 });
 
 describe("SchedulerObservabilityView", () => {
+  it("shows candidate latency evidence without inventing statistics for legacy traces", async () => {
+    const candidate = schedulerTraces[0].candidates[0];
+    const wrapper = mount(SchedulerTraceDrawer, {
+      attachTo: document.body,
+      props: {
+        trace: {
+          ...schedulerTraces[0],
+          candidates: [
+            { ...candidate, accountId: 1, ttftMs: 1000, ttftSampleCount: 12, ttftConfidence: 0.75, ttftLastSampleAt: "2026-10-17T08:09:10+08:00", ttftSource: "traffic" },
+            { ...candidate, accountId: 2, ttftMs: 1010, ttftSampleCount: 1, ttftConfidence: 0.05, ttftLastSampleAt: "2026-10-17T08:10:00+08:00", ttftSource: "probe" },
+            { ...candidate, accountId: 3, ttftMs: null, ttftSampleCount: 0, ttftConfidence: 0, ttftLastSampleAt: null, ttftSource: "" },
+            { ...candidate, accountId: 4 },
+          ],
+        },
+      },
+    });
+    mountedWrappers.push(wrapper);
+    await flushPromises();
+
+    const cells = [...document.body.querySelectorAll('[data-testid="candidate-ttft"]')]
+      .map((cell) => cell.textContent ?? "");
+    expect(cells).toHaveLength(4);
+    expect(cells[0]).toContain("1000ms");
+    expect(cells[0]).toContain("真实请求");
+    expect(cells[0]).toContain("样本 12");
+    expect(cells[0]).toContain("可信度 75.0%");
+    expect(cells[0]).toMatch(/最近采样 \d/);
+    expect(cells[1]).toContain("1010ms");
+    expect(cells[1]).toContain("探测");
+    expect(cells[1]).toContain("样本 1");
+    expect(cells[1]).toContain("可信度 5.0%");
+    expect(cells[2]).toContain("暂无有效数据");
+    expect(cells[2]).toContain("可信度 0.0%");
+    expect(cells[2]).toContain("最近采样 —");
+    expect(cells[3]).toContain("样本 —");
+    expect(cells[3]).toContain("可信度 —");
+    expect(cells[3]).toContain("最近采样 —");
+    expect(cells[3]).not.toContain("0.0%");
+    expect(cells[3]).not.toContain("1970");
+  });
+
   it("explains slow demotion using the original binding rather than the selected account", async () => {
     const wrapper = mount(SchedulerTraceDrawer, {
       attachTo: document.body,

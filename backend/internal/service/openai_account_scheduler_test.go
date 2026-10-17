@@ -3825,8 +3825,8 @@ func TestBuildOpenAISelectionOrder_BiasesTowardFastestMeasuredTTFTWithoutForcing
 	scheduler := &defaultOpenAIAccountScheduler{}
 	plan := openAIAccountLoadPlan{
 		candidates: []openAIAccountCandidateScore{
-			{account: &Account{ID: 111}, loadInfo: &AccountLoadInfo{}, score: 3, ttft: 12_000, hasTTFT: true},
-			{account: &Account{ID: 112}, loadInfo: &AccountLoadInfo{}, score: 3, ttft: 900, hasTTFT: true},
+			{account: &Account{ID: 111}, loadInfo: &AccountLoadInfo{}, score: 3, ttft: 12_000, hasTTFT: true, ttftEvidence: schedulerTTFTSnapshot{confidence: 1}},
+			{account: &Account{ID: 112}, loadInfo: &AccountLoadInfo{}, score: 3, ttft: 900, hasTTFT: true, ttftEvidence: schedulerTTFTSnapshot{confidence: 1}},
 		},
 		topK:                 2,
 		ttftPreferenceWeight: 2.5,
@@ -3855,8 +3855,8 @@ func TestBuildOpenAISelectionOrder_TTFTWeightZeroKeepsWeightedOrder(t *testing.T
 	scheduler := &defaultOpenAIAccountScheduler{}
 	plan := openAIAccountLoadPlan{
 		candidates: []openAIAccountCandidateScore{
-			{account: &Account{ID: 131}, loadInfo: &AccountLoadInfo{}, score: 9, ttft: 12_000, hasTTFT: true},
-			{account: &Account{ID: 132}, loadInfo: &AccountLoadInfo{}, score: 8, ttft: 900, hasTTFT: true},
+			{account: &Account{ID: 131}, loadInfo: &AccountLoadInfo{}, score: 9, ttft: 12_000, hasTTFT: true, ttftEvidence: schedulerTTFTSnapshot{confidence: 1}},
+			{account: &Account{ID: 132}, loadInfo: &AccountLoadInfo{}, score: 8, ttft: 900, hasTTFT: true, ttftEvidence: schedulerTTFTSnapshot{confidence: 1}},
 		},
 		topK:                 2,
 		ttftPreferenceWeight: 0,
@@ -3876,11 +3876,11 @@ func TestBuildOpenAISelectionOrder_TTFTBiasDoesNotOverrideTopKAdmission(t *testi
 	scheduler := &defaultOpenAIAccountScheduler{}
 	plan := openAIAccountLoadPlan{
 		candidates: []openAIAccountCandidateScore{
-			{account: &Account{ID: 121}, loadInfo: &AccountLoadInfo{}, primaryScore: 9, score: 9, ttft: 12_000, hasTTFT: true},
-			{account: &Account{ID: 122}, loadInfo: &AccountLoadInfo{}, primaryScore: 8, score: 8, ttft: 4_000, hasTTFT: true},
+			{account: &Account{ID: 121}, loadInfo: &AccountLoadInfo{}, primaryScore: 9, score: 9, ttft: 12_000, hasTTFT: true, ttftEvidence: schedulerTTFTSnapshot{confidence: 1}},
+			{account: &Account{ID: 122}, loadInfo: &AccountLoadInfo{}, primaryScore: 8, score: 8, ttft: 4_000, hasTTFT: true, ttftEvidence: schedulerTTFTSnapshot{confidence: 1}},
 			// Even a very high complete score cannot cross a lower primary-policy
 			// admission boundary merely because this account has faster TTFT.
-			{account: &Account{ID: 123}, loadInfo: &AccountLoadInfo{}, primaryScore: 1, score: 20, ttft: 900, hasTTFT: true},
+			{account: &Account{ID: 123}, loadInfo: &AccountLoadInfo{}, primaryScore: 1, score: 20, ttft: 900, hasTTFT: true, ttftEvidence: schedulerTTFTSnapshot{confidence: 1}},
 		},
 		topK:                 2,
 		ttftPreferenceWeight: 2.5,

@@ -172,6 +172,16 @@ function percent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function ttftSourceLabel(source: SchedulerCandidate["ttftSource"]): string {
+  if (source == null) return "—";
+  return t(`admin.schedulerObservability.drawer.ttftSources.${source || "none"}`);
+}
+
+function ttftSampleTime(value: SchedulerCandidate["ttftLastSampleAt"]): string {
+  if (!value || !(new Date(value).getTime() > 0)) return "—";
+  return formatDateTime(value);
+}
+
 function outcomeTitle(trace: SchedulerTrace): string {
   if (trace.status === "failed") return t("admin.schedulerObservability.drawer.failureTitle");
   if (trace.status === "canceled") return t("admin.schedulerObservability.drawer.canceledTitle");
@@ -333,10 +343,11 @@ function outcomeExplanation(trace: SchedulerTrace): string {
                 {{ t('admin.schedulerObservability.drawer.selectionFailureHint', { count: lastSelectionFailure.poolSize }) }}
               </p>
               <div class="mt-3 overflow-x-auto rounded-xl border border-gray-200 dark:border-dark-700">
-                <table class="min-w-[560px] w-full text-left">
+                <table class="min-w-[760px] w-full text-left">
                   <thead class="bg-gray-50 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:bg-dark-800 dark:text-dark-400">
                     <tr>
                       <th class="px-3 py-2.5">{{ t("admin.schedulerObservability.drawer.account") }}</th>
+                      <th class="px-3 py-2.5">{{ t("admin.schedulerObservability.drawer.ttftEvidence") }}</th>
                       <th class="px-3 py-2.5 text-right">{{ t("admin.schedulerObservability.drawer.baseScore") }}</th>
                       <th class="px-3 py-2.5 text-right">{{ t("admin.schedulerObservability.drawer.cacheScore") }}</th>
                       <th class="px-3 py-2.5 text-right">{{ t("admin.schedulerObservability.drawer.stickyBonus") }}</th>
@@ -349,6 +360,19 @@ function outcomeExplanation(trace: SchedulerTrace): string {
                       <td class="px-3 py-3">
                         <p class="font-medium text-gray-800 dark:text-dark-100">#{{ candidate.accountId }} {{ candidate.accountName }}</p>
                         <p v-if="candidate.reason" class="mt-0.5 text-[10px] text-gray-500 dark:text-dark-400">{{ reasonLabel(candidate.reason) }}</p>
+                      </td>
+                      <td class="min-w-[200px] px-3 py-3 text-gray-600 dark:text-dark-300" data-testid="candidate-ttft">
+                        <p class="flex items-baseline gap-2">
+                          <span class="font-mono tabular-nums text-gray-800 dark:text-dark-100">{{ candidate.ttftMs != null && candidate.ttftMs > 0 ? `${Math.round(candidate.ttftMs)}ms` : '—' }}</span>
+                          <span class="text-[10px]">{{ ttftSourceLabel(candidate.ttftSource) }}</span>
+                        </p>
+                        <p class="mt-0.5 text-[10px] tabular-nums">
+                          {{ t("admin.schedulerObservability.drawer.ttftSamples", { count: candidate.ttftSampleCount ?? '—' }) }}
+                          · {{ t("admin.schedulerObservability.drawer.ttftConfidence", { value: candidate.ttftConfidence == null ? '—' : percent(candidate.ttftConfidence) }) }}
+                        </p>
+                        <p class="mt-0.5 whitespace-nowrap text-[10px] text-gray-500 dark:text-dark-400">
+                          {{ t("admin.schedulerObservability.drawer.ttftLastSample", { time: ttftSampleTime(candidate.ttftLastSampleAt) }) }}
+                        </p>
                       </td>
                       <td class="px-3 py-3 text-right font-mono tabular-nums text-gray-600 dark:text-dark-300">{{ candidate.baseScore.toFixed(2) }}</td>
                       <td class="px-3 py-3 text-right font-mono tabular-nums text-sky-600 dark:text-sky-300">

@@ -297,6 +297,7 @@ func buildGatewayGroupSelectionOrder(
 	}
 
 	scored := make([]openAIAccountCandidateScore, 0, len(candidates))
+	now := time.Now()
 	byID := make(map[int64]accountWithLoad, len(candidates))
 	accounts := make([]*Account, 0, len(candidates))
 	healthStats := gatewaySchedulerHealthStatsFromContext(ctx)
@@ -317,11 +318,12 @@ func buildGatewayGroupSelectionOrder(
 			priority: openAIAccountSchedulingPriority(candidate.account, groupID),
 		}
 		if healthStats != nil {
-			scoreCandidate.errorRate, scoreCandidate.ttft, scoreCandidate.hasTTFT = healthStats.snapshotForRequest(
+			scoreCandidate.errorRate, _, _ = healthStats.snapshotForRequest(
 				candidate.account.ID,
 				accountSchedulingUpstreamModel(ctx, candidate.account, requestedModel),
 			)
 		}
+		scoreCandidate.setTTFT(healthStats.ttftForRequestNow(candidate.account.ID, accountSchedulingUpstreamModel(ctx, candidate.account, requestedModel)))
 		scored = append(scored, scoreCandidate)
 	}
 	if len(scored) == 0 {
@@ -357,8 +359,6 @@ func buildGatewayGroupSelectionOrder(
 
 	minPriority, maxPriority := scored[0].priority, scored[0].priority
 	maxWaiting := 1
-	minTTFT, maxTTFT := 0.0, 0.0
-	hasTTFTSample := false
 	for i := range scored {
 		if scored[i].priority < minPriority {
 			minPriority = scored[i].priority
@@ -369,22 +369,8 @@ func buildGatewayGroupSelectionOrder(
 		if scored[i].loadInfo.WaitingCount > maxWaiting {
 			maxWaiting = scored[i].loadInfo.WaitingCount
 		}
-		if scored[i].hasTTFT {
-			if !hasTTFTSample {
-				minTTFT, maxTTFT = scored[i].ttft, scored[i].ttft
-				hasTTFTSample = true
-			} else {
-				if scored[i].ttft < minTTFT {
-					minTTFT = scored[i].ttft
-				}
-				if scored[i].ttft > maxTTFT {
-					maxTTFT = scored[i].ttft
-				}
-			}
-		}
 	}
 
-	now := time.Now()
 	minResetRemaining, maxResetRemaining := 0.0, 0.0
 	hasResetSample := false
 	if policy.config.Reset > 0 {
@@ -410,6 +396,7 @@ func buildGatewayGroupSelectionOrder(
 
 	costFactors := gatewaySchedulingCostFactors(accounts)
 	weights := groupOpenAISchedulerWeights(policy.config)
+	ttftFactors := openAITTFTFactors(scored)
 	cacheWeight := schedulerCachePlacementWeight(weights.CacheHitRate, scored, stickyAccountID)
 	stickyBonuses := make(map[int64]float64, len(scored))
 	for i := range scored {
@@ -421,10 +408,7 @@ func buildGatewayGroupSelectionOrder(
 		loadFactor := 1 - clamp01(float64(candidate.loadInfo.LoadRate)/100)
 		queueFactor := 1 - clamp01(float64(candidate.loadInfo.WaitingCount)/float64(maxWaiting))
 		errorFactor := 1 - clamp01(candidate.errorRate)
-		ttftFactor := 0.5
-		if candidate.hasTTFT && hasTTFTSample && maxTTFT > minTTFT {
-			ttftFactor = 1 - clamp01((candidate.ttft-minTTFT)/(maxTTFT-minTTFT))
-		}
+		ttftFactor := ttftFactors[i]
 
 		resetFactor := 0.0
 		if weights.Reset > 0 && hasResetSample {
@@ -483,6 +467,11 @@ func buildGatewayGroupSelectionOrder(
 				reason = healthReasons[candidate.account.ID]
 			}
 			observedCandidates = append(observedCandidates, OpenAISchedulerObservabilityCandidate{
+				TTFTMs:           candidate.ttftEvidence.observedMS(),
+				TTFTSampleCount:  candidate.ttftEvidence.samples,
+				TTFTLastSampleAt: candidate.ttftEvidence.observedAt(),
+				TTFTConfidence:   candidate.ttftEvidence.confidence,
+				TTFTSource:       candidate.ttftEvidence.source,
 				AccountID:        candidate.account.ID,
 				AccountName:      candidate.account.Name,
 				Rank:             index + 1,

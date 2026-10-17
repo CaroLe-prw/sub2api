@@ -246,6 +246,9 @@ type openAIAccountRuntimeStats struct {
 
 type openAIAccountRuntimeStat struct {
 	cacheEvidence     atomic.Pointer[schedulerCacheEvidence]
+	trafficTTFT       schedulerTTFTWindow
+	probeTTFT         schedulerTTFTWindow
+	historyTTFT       atomic.Pointer[schedulerTTFTEvidence]
 	slowFirstOutput   openAISlowFirstOutputHealth
 	errorRateEWMABits atomic.Uint64
 	ttftEWMABits      atomic.Uint64
@@ -323,6 +326,9 @@ func (s *openAIAccountRuntimeStats) reportTrafficStat(stat *openAIAccountRuntime
 	}
 	const alpha = 0.2
 	stat.liveSamples.Add(1)
+	if success && firstTokenMs != nil {
+		stat.trafficTTFT.record(*firstTokenMs, time.Now())
+	}
 
 	errorSample := 1.0
 	if success {
@@ -377,6 +383,9 @@ func (s *openAIAccountRuntimeStats) reportProbe(accountID int64, model string, s
 			updateEWMAAtomic(&stat.probeErrorBits, errorSample, alpha)
 		}
 		updateOptionalEWMAAtomic(&stat.probeTTFTBits, firstTokenMs, alpha)
+		if success && firstTokenMs != nil {
+			stat.probeTTFT.record(*firstTokenMs, time.Now())
+		}
 	}
 }
 
@@ -591,17 +600,22 @@ func (s *openAIAccountRuntimeStats) size() int {
 // account-attributable upstream errors so client cancellations and bad requests
 // do not poison channel health.
 type OpenAISchedulerHealthSnapshot struct {
-	AccountID           int64
-	Model               string
-	SuccessCount        int64
-	FailureCount        int64
-	AvgTTFTMs           *float64
-	LastSuccessAt       *time.Time
-	LastFailureAt       *time.Time
-	CacheReadTokens     int64
-	CacheEligibleTokens int64
-	CacheSampleCount    int64
-	LastCacheSampleAt   *time.Time
+	AccountID            int64
+	Model                string
+	SuccessCount         int64
+	FailureCount         int64
+	AvgTTFTMs            *float64
+	TTFTSampleCount      int64
+	LastTTFTSampleAt     *time.Time
+	WeightedTTFTMs       *float64
+	TTFTEffectiveSamples float64
+	TTFTObservedAt       time.Time
+	LastSuccessAt        *time.Time
+	LastFailureAt        *time.Time
+	CacheReadTokens      int64
+	CacheEligibleTokens  int64
+	CacheSampleCount     int64
+	LastCacheSampleAt    *time.Time
 }
 
 type openAISchedulerHealthSnapshotRepository interface {
@@ -636,6 +650,15 @@ func (s *openAIAccountRuntimeStats) replaceHistory(snapshots []OpenAISchedulerHe
 			}
 			stat.historySamples.Store(total)
 			stat.historyGeneration.Store(generation)
+			stat.historyTTFT.Store(nil)
+			if snapshot.WeightedTTFTMs != nil && snapshot.LastTTFTSampleAt != nil {
+				stat.historyTTFT.Store(&schedulerTTFTEvidence{
+					mean: *snapshot.WeightedTTFTMs, samples: snapshot.TTFTSampleCount,
+					effectiveSamples: snapshot.TTFTEffectiveSamples,
+					lastSampleAt:     *snapshot.LastTTFTSampleAt, observedAt: snapshot.TTFTObservedAt,
+					generation: generation,
+				})
+			}
 			evidence := &schedulerCacheEvidence{
 				readTokens: snapshot.CacheReadTokens, eligibleTokens: snapshot.CacheEligibleTokens,
 				samples: snapshot.CacheSampleCount, refreshedAt: refreshedAt, generation: generation,
@@ -703,6 +726,7 @@ func clearOpenAIHistorySignal(value any) {
 		return
 	}
 	stat.historySamples.Store(0)
+	stat.historyTTFT.Store(nil)
 	stat.cacheEvidence.Store(nil)
 	stat.historyGeneration.Store(0)
 	stat.historyTTFTBits.Store(math.Float64bits(math.NaN()))
@@ -1170,6 +1194,7 @@ func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int6
 }
 
 type openAIAccountCandidateScore struct {
+	ttftEvidence       schedulerTTFTSnapshot
 	cacheHitRate       *float64
 	cacheSampleCount   int64
 	cacheScore         float64
@@ -1264,6 +1289,11 @@ func (o *openAIAccountScheduleObservation) captureCandidates(candidates []openAI
 			state = "excluded"
 		}
 		o.candidates = append(o.candidates, OpenAISchedulerObservabilityCandidate{
+			TTFTMs:           candidate.ttftEvidence.observedMS(),
+			TTFTSampleCount:  candidate.ttftEvidence.samples,
+			TTFTLastSampleAt: candidate.ttftEvidence.observedAt(),
+			TTFTConfidence:   candidate.ttftEvidence.confidence,
+			TTFTSource:       candidate.ttftEvidence.source,
 			AccountID:        candidate.account.ID,
 			AccountName:      candidate.account.Name,
 			Rank:             index + 1,
@@ -1579,38 +1609,16 @@ func openAITTFTSelectionMultipliers(candidates []openAIAccountCandidateScore, pr
 		return multipliers
 	}
 
-	minTTFT, maxTTFT, measured := openAIMeasuredTTFTRange(candidates)
-	if measured < 2 || !(maxTTFT > minTTFT) {
-		return multipliers
-	}
 	// A configuration can intentionally request a strong TTFT preference, but
 	// cap the extra draw multiplier so slower accounts always retain a non-zero
 	// exploration path.
 	strength := math.Min(preferenceWeight, 4)
-	for i, candidate := range candidates {
-		if !validOpenAICandidateTTFT(candidate) {
-			continue
-		}
-		factor := 1 - clamp01((candidate.ttft-minTTFT)/(maxTTFT-minTTFT))
-		multipliers[i] = 1 + strength*factor
+	for i, factor := range openAITTFTFactors(candidates) {
+		// Keep the original maximum fast/slow multiplier ratio (1+strength),
+		// with unknown evidence neutral at 1.
+		multipliers[i] = math.Exp(math.Log1p(strength) * (factor - 0.5))
 	}
 	return multipliers
-}
-
-func openAIMeasuredTTFTRange(candidates []openAIAccountCandidateScore) (minTTFT float64, maxTTFT float64, measured int) {
-	for _, candidate := range candidates {
-		if !validOpenAICandidateTTFT(candidate) {
-			continue
-		}
-		if measured == 0 {
-			minTTFT, maxTTFT = candidate.ttft, candidate.ttft
-		} else {
-			minTTFT = math.Min(minTTFT, candidate.ttft)
-			maxTTFT = math.Max(maxTTFT, candidate.ttft)
-		}
-		measured++
-	}
-	return minTTFT, maxTTFT, measured
 }
 
 func validOpenAICandidateTTFT(candidate openAIAccountCandidateScore) bool {
@@ -1623,6 +1631,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	filtered []*Account,
 	loadMap map[int64]*AccountLoadInfo,
 ) openAIAccountLoadPlan {
+	now := time.Now()
 	allCandidates := make([]openAIAccountCandidateScore, 0, len(filtered))
 	for _, account := range filtered {
 		loadInfo, loadKnown := loadMap[account.ID]
@@ -1630,9 +1639,9 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			loadInfo = &AccountLoadInfo{AccountID: account.ID}
 			loadKnown = false
 		}
-		errorRate, ttft, hasTTFT := 0.0, 0.0, false
+		errorRate := 0.0
 		if s.stats != nil {
-			errorRate, ttft, hasTTFT = s.stats.snapshotForRequest(
+			errorRate, _, _ = s.stats.snapshotForRequest(
 				account.ID,
 				openAIAccountHealthModel(account, req),
 			)
@@ -1644,10 +1653,9 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			excluded:           req.observation.isStickyEscapeAccount(account.ID),
 			stickyTTFTFallback: req.observation.isStickyTTFTFallback(account.ID),
 			errorRate:          errorRate,
-			ttft:               ttft,
-			hasTTFT:            hasTTFT,
 		})
 		item := &allCandidates[len(allCandidates)-1]
+		item.setTTFT(s.stats.ttftForRequestNow(account.ID, openAIAccountHealthModel(account, req)))
 		item.slowDeprioritized, item.slowProbeDue = s.slowAccountStatus(account, req)
 		if item.slowDeprioritized && !item.stickyTTFTFallback {
 			req.observation.recordCandidateReason(account.ID, openAISlowFirstOutputReason)
@@ -1719,8 +1727,6 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	maxWaiting := 1
 	loadRateSum := 0.0
 	loadRateSumSquares := 0.0
-	minTTFT, maxTTFT := 0.0, 0.0
-	hasTTFTSample := false
 	for i := range candidates {
 		candidate := &candidates[i]
 		candidate.priority = openAIAccountSchedulingPriority(candidate.account, req.GroupID)
@@ -1733,19 +1739,6 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		if candidate.loadInfo.WaitingCount > maxWaiting {
 			maxWaiting = candidate.loadInfo.WaitingCount
 		}
-		if candidate.hasTTFT && candidate.ttft > 0 {
-			if !hasTTFTSample {
-				minTTFT, maxTTFT = candidate.ttft, candidate.ttft
-				hasTTFTSample = true
-			} else {
-				if candidate.ttft < minTTFT {
-					minTTFT = candidate.ttft
-				}
-				if candidate.ttft > maxTTFT {
-					maxTTFT = candidate.ttft
-				}
-			}
-		}
 		loadRate := float64(candidate.loadInfo.LoadRate)
 		loadRateSum += loadRate
 		loadRateSumSquares += loadRate * loadRate
@@ -1755,7 +1748,6 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	weights := s.service.openAIWSSchedulerWeightsForRequest(ctx)
 	cacheWeight := schedulerCachePlacementWeight(weights.CacheHitRate, candidates, req.StickyAccountID, req.StickyPreviousAccountID)
 	plan.ttftPreferenceWeight = weights.TTFT
-	now := time.Now()
 	upstreamCostFactors := map[int64]float64(nil)
 	if req.UseUpstreamTokenCost && weights.UpstreamCost > 0 {
 		accounts := make([]*Account, 0, len(candidates))
@@ -1826,6 +1818,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		}
 	}
 
+	ttftFactors := openAITTFTFactors(candidates)
 	bestPrimaryScore := -math.MaxFloat64
 	for i := range candidates {
 		item := &candidates[i]
@@ -1836,10 +1829,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		loadFactor := 1 - clamp01(float64(item.loadInfo.LoadRate)/100.0)
 		queueFactor := 1 - clamp01(float64(item.loadInfo.WaitingCount)/float64(maxWaiting))
 		errorFactor := 1 - clamp01(item.errorRate)
-		ttftFactor := 0.5
-		if item.hasTTFT && hasTTFTSample && maxTTFT > minTTFT {
-			ttftFactor = 1 - clamp01((item.ttft-minTTFT)/(maxTTFT-minTTFT))
-		}
+		ttftFactor := ttftFactors[i]
 		resetFactor := 0.0
 		if weights.Reset > 0 && hasResetSample {
 			if end, ok := openAISchedulingResetWindowEnd(item.account, now); ok {

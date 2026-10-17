@@ -22,10 +22,11 @@ func buildOpenAISchedulerBenchmarkCandidates(size int) []openAIAccountCandidateS
 				LoadRate:     (i * 17) % 100,
 				WaitingCount: (i * 11) % 13,
 			},
-			score:     float64((i*29)%1000) / 100,
-			errorRate: float64((i * 5) % 100 / 100),
-			ttft:      float64(30 + (i*3)%500),
-			hasTTFT:   i%3 != 0,
+			score:        float64((i*29)%1000) / 100,
+			errorRate:    float64((i * 5) % 100 / 100),
+			ttft:         float64(30 + (i*3)%500),
+			hasTTFT:      i%3 != 0,
+			ttftEvidence: schedulerTTFTSnapshot{confidence: 1},
 		})
 	}
 	return candidates
