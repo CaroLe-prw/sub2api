@@ -188,6 +188,11 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 
 	// 账号级请求头覆写：能力探测与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
+	req, err = prepareOpenAIAPIKeyDeviceRequest(req, account)
+	if err != nil {
+		logger.LegacyPrintf("service.openai_probe", "probe_device_convergence_failed: account_id=%d err=%v", accountID, err)
+		return
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

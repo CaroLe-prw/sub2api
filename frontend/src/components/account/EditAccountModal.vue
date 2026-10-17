@@ -812,6 +812,27 @@
         </div>
       </div>
 
+      <div
+        v-if="account.platform === 'openai' && account.type === 'apikey'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <label for="edit-openai-apikey-device-convergence" class="input-label mb-0">
+              {{ t('admin.accounts.openai.apiKeyDeviceConvergence') }}
+            </label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.apiKeyDeviceConvergenceDesc') }}
+            </p>
+          </div>
+          <Toggle
+            id="edit-openai-apikey-device-convergence"
+            v-model="openAIAPIKeyDeviceConvergenceEnabled"
+            data-testid="openai-apikey-device-convergence-toggle"
+          />
+        </div>
+      </div>
+
       <!-- OpenAI/Grok OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
       <div
         v-if="(account.platform === 'openai' || account.platform === 'grok') && account.type === 'oauth'"
@@ -4004,6 +4025,7 @@ const openAIImagesUrlToB64JsonEnabled = ref(false)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
+const openAIAPIKeyDeviceConvergenceEnabled = ref(false)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
@@ -4537,6 +4559,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openAICompactModelMappings.value = []
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
+  openAIAPIKeyDeviceConvergenceEnabled.value = false
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAppServerEnabled.value = false
   codexFingerprintMode.value = 'off'
@@ -4557,6 +4580,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       : ''
     openAICompactMode.value = (extra?.openai_compact_mode as OpenAICompactMode) || 'auto'
     if (newAccount.type === 'apikey') {
+      openAIAPIKeyDeviceConvergenceEnabled.value = extra?.openai_apikey_device_convergence_enabled === true
       openAIResponsesMode.value = normalizeOpenAIResponsesMode(extra?.openai_responses_mode)
       openAIEndpointCapabilities.value = readOpenAIEndpointCapabilities(
         newAccount.credentials as Record<string, unknown> | undefined
@@ -6140,6 +6164,13 @@ const handleSubmit = async () => {
       } else if (props.account.type === 'apikey') {
         newExtra.openai_apikey_responses_websockets_v2_mode = openaiAPIKeyResponsesWebSocketV2Mode.value
         newExtra.openai_apikey_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiAPIKeyResponsesWebSocketV2Mode.value)
+        if (openAIAPIKeyDeviceConvergenceEnabled.value) {
+          newExtra.openai_apikey_device_convergence_enabled = true
+        } else {
+          delete newExtra.openai_apikey_device_convergence_enabled
+        }
+        // 种子由后端维护，避免账号编辑回传旧的系统值。
+        delete newExtra.codex_fingerprint_seed
       }
       delete newExtra.responses_websockets_v2_enabled
       delete newExtra.openai_ws_enabled

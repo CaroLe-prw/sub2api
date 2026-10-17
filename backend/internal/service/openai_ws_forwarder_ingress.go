@@ -1022,6 +1022,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		if err != nil {
 			return nil, err
 		}
+		upstreamPayload, _, err = rewriteOpenAIAPIKeyDeviceBody(upstreamPayload, account)
+		if err != nil {
+			return nil, err
+		}
 		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(upstreamPayload), s.openAIWSWriteTimeout()); err != nil {
 			return nil, wrapOpenAIWSIngressTurnError(
 				"write_upstream",

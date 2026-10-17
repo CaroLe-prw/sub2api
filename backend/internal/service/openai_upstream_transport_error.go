@@ -118,6 +118,17 @@ func isClientCanceledTransportError(ctx context.Context, err error) bool {
 //
 // passthrough tags the Ops error event for the OpenAI passthrough forward path.
 func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Context, c *gin.Context, account *Account, err error, passthrough bool) error {
+	var deviceErr *openAIAPIKeyDeviceConvergenceError
+	if errors.As(err, &deviceErr) {
+		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+		if c != nil && c.Writer != nil && !c.Writer.Written() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+				"type": "invalid_request_error", "code": "device_metadata_invalid",
+				"message": "Device metadata could not be normalized for this account.",
+			}})
+		}
+		return deviceErr
+	}
 	if isClientCanceledTransportError(ctx, err) {
 		return err
 	}

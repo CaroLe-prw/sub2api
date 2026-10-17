@@ -329,6 +329,19 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 	require.Nil(t, got.Extra["unused_large_field"])
 }
 
+func TestBuildSchedulerMetadataAccount_KeepsAPIKeyDeviceConvergenceIdentity(t *testing.T) {
+	account := service.Account{
+		ID: 42, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Extra: map[string]any{
+			"openai_apikey_device_convergence_enabled": true,
+			"codex_fingerprint_seed":                   "11111111-1111-4111-8111-111111111111",
+		},
+	}
+	got := buildSchedulerMetadataAccount(account)
+	require.True(t, got.IsOpenAIAPIKeyDeviceConvergenceEnabled())
+	require.Equal(t, account.Extra["codex_fingerprint_seed"], got.Extra["codex_fingerprint_seed"])
+}
+
 func TestBuildSchedulerMetadataAccount_KeepsGrokMediaEligibility(t *testing.T) {
 	t.Run("explicit override", func(t *testing.T) {
 		account := service.Account{

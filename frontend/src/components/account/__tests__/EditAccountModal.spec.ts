@@ -1231,6 +1231,70 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('upstream_request_id_header')
   })
 
+  it.each([undefined, false, 'true'])('defaults API key device convergence to off for %s', async (setting) => {
+    const account = buildAccount()
+    account.extra = { openai_apikey_device_convergence_enabled: setting }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="openai-apikey-device-convergence-toggle"]').attributes('aria-checked')).toBe('false')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledOnce()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_apikey_device_convergence_enabled')
+    wrapper.unmount()
+  })
+
+  it.each([false, true])('saves API key device convergence when toggled from %s', async (enabled) => {
+    const account = buildAccount()
+    account.extra = {
+      openai_apikey_device_convergence_enabled: enabled,
+      codex_fingerprint_seed: 'server-managed-seed',
+      retained_setting: 'keep',
+      openai_compact_mode: 'force_on',
+    }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    const toggle = wrapper.get('[data-testid="openai-apikey-device-convergence-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe(String(enabled))
+    expect(wrapper.find('[data-testid="edit-codex-fingerprint-mode-select"]').exists()).toBe(false)
+    await toggle.trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledOnce()
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra?.openai_apikey_device_convergence_enabled).toBe(enabled ? undefined : true)
+    expect(extra).toMatchObject({ retained_setting: 'keep', openai_compact_mode: 'force_on' })
+    expect(extra).not.toHaveProperty('codex_fingerprint_seed')
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['openai', 'oauth'],
+    ['openai', 'setup-token'],
+    ['anthropic', 'apikey'],
+    ['gemini', 'apikey'],
+    ['grok', 'apikey'],
+  ])('hides API key device convergence for %s %s accounts', (platform, type) => {
+    const account = { ...buildAccount(), platform, type }
+    const wrapper = mountModal(account)
+    expect(wrapper.find('[data-testid="openai-apikey-device-convergence-toggle"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('reloads API key device convergence when switching edited accounts', async () => {
+    const enabledAccount = buildAccount()
+    enabledAccount.extra = { openai_apikey_device_convergence_enabled: true }
+    const wrapper = mountModal(enabledAccount)
+    expect(wrapper.get('[data-testid="openai-apikey-device-convergence-toggle"]').attributes('aria-checked')).toBe('true')
+    await wrapper.setProps({ account: { ...buildAccount(), id: 2 } })
+    expect(wrapper.get('[data-testid="openai-apikey-device-convergence-toggle"]').attributes('aria-checked')).toBe('false')
+    wrapper.unmount()
+  })
+
   it('writes images_url_to_b64_json into extra when toggled on', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()

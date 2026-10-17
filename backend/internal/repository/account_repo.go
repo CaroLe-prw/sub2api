@@ -89,8 +89,16 @@ func codexFingerprintSeedValidSQL(extraExpr string) string {
 	return "(" + value + " ~ '" + codexFingerprintSeedCanonicalPattern + "' AND " + value + " <> '" + codexFingerprintNilSeed + "')"
 }
 
-func ensureCodexFingerprintSeedSQL(extraExpr string) string {
-	return "CASE WHEN platform = 'openai' AND type = 'oauth' THEN " +
+func ensureCodexFingerprintSeedSQL(extraExpr string, updates map[string]any) string {
+	eligible := "(type = 'apikey' AND (" + extraExpr + ") -> 'openai_apikey_device_convergence_enabled' = 'true'::jsonb)"
+	// Retain the existing OAuth opt-in parser (including whitespace handling).
+	// An API-key-only toggle must not initialize unrelated OAuth identities.
+	if service.ShouldEnsureCodexFingerprintSeedForExtraUpdates(map[string]any{
+		"codex_fingerprint_mode": updates["codex_fingerprint_mode"],
+	}) {
+		eligible = "type = 'oauth' OR " + eligible
+	}
+	return "CASE WHEN platform = 'openai' AND (" + eligible + ") THEN " +
 		"jsonb_set(" + extraExpr + ", '{codex_fingerprint_seed}', " +
 		"CASE WHEN " + codexFingerprintSeedValidSQL("extra") +
 		" THEN to_jsonb(extra ->> 'codex_fingerprint_seed') ELSE to_jsonb(gen_random_uuid()::text) END, true) " +
@@ -2889,7 +2897,7 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 		extraExpression = "(" + extraExpression + ") - 'upstream_billing_probe'"
 	}
 	if service.ShouldEnsureCodexFingerprintSeedForExtraUpdates(updates) {
-		extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
+		extraExpression = ensureCodexFingerprintSeedSQL(extraExpression, updates)
 	}
 	result, err := client.ExecContext(
 		ctx,
@@ -3514,7 +3522,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			extraExpression = "CASE" + strings.Join(caseBranches, "") + " ELSE " + extraExpression + " END"
 		}
 		if updates.EnsureCodexFingerprintSeed {
-			extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
+			extraExpression = ensureCodexFingerprintSeedSQL(extraExpression, updates.Extra)
 		}
 		setClauses = append(setClauses, "extra = "+extraExpression)
 	}

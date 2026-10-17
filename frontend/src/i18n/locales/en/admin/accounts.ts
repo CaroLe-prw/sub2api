@@ -893,6 +893,8 @@ export default {
         codexFingerprintDevice: 'Device only',
         codexFingerprintSession: 'Device + Session',
         codexFingerprintFull: 'Full convergence',
+        apiKeyDeviceConvergence: 'Device-only convergence',
+        apiKeyDeviceConvergenceDesc: 'Off by default. Use a stable installation ID for this account in request headers and bodies, preserving existing session, cache, and continuation rules. Applies only to supported device identifiers.',
         codexTurnTicket: 'Codex 292 ticket',
         codexTurnTicketDesc: 'Ticket status for the configured models. Requests are paused without a valid ticket only when fail-closed is enabled.',
         codexTurnTicketMissing: 'No valid ticket; requests remain allowed',

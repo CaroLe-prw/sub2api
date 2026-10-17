@@ -404,6 +404,58 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]?.extra).not.toHaveProperty('images_url_to_b64_json')
   })
 
+  it('leaves API key device convergence off by default', async () => {
+    const wrapper = await submitApiKeyAccount('openai')
+
+    expect(wrapper.get('[data-testid="openai-apikey-device-convergence-toggle"]').attributes('aria-checked')).toBe('false')
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).not.toHaveProperty('openai_apikey_device_convergence_enabled')
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).not.toHaveProperty('codex_fingerprint_seed')
+  })
+
+  it.each([1, 2])('persists API key device convergence only when enabled (%s toggle clicks)', async (clicks) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    // Switching account type must not carry OAuth session/full convergence into API key accounts.
+    await wrapper.get('[data-testid="create-codex-fingerprint-mode-select"]').setValue('full')
+    await selectButtonByText(wrapper, 'API Key')
+    expect(wrapper.find('[data-testid="create-codex-fingerprint-mode-select"]').exists()).toBe(false)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('OpenAI device convergence')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    for (let click = 0; click < clicks; click += 1) {
+      await wrapper.get('[data-testid="openai-apikey-device-convergence-toggle"]').trigger('click')
+    }
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    const extra = createAccountMock.mock.calls[0]?.[0]?.extra
+    expect(extra?.openai_apikey_device_convergence_enabled).toBe(clicks === 1 ? true : undefined)
+    expect(extra).not.toHaveProperty('codex_fingerprint_mode')
+    expect(extra).not.toHaveProperty('codex_fingerprint_seed')
+  })
+
+  it('isolates API key device convergence from OAuth and other platforms', async () => {
+    const wrapper = mountModal()
+    expect(wrapper.find('[data-testid="openai-apikey-device-convergence-toggle"]').exists()).toBe(false)
+    await selectButtonByText(wrapper, 'OpenAI')
+    expect(wrapper.find('[data-testid="openai-apikey-device-convergence-toggle"]').exists()).toBe(false)
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('[data-testid="openai-apikey-device-convergence-toggle"]').trigger('click')
+    await selectButtonByText(wrapper, 'Anthropic')
+    await selectButtonByText(wrapper, 'admin.accounts.claudeConsole')
+    expect(wrapper.find('[data-testid="openai-apikey-device-convergence-toggle"]').exists()).toBe(false)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Anthropic account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_apikey_device_convergence_enabled).toBeUndefined()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    expect(wrapper.get('[data-testid="openai-apikey-device-convergence-toggle"]').attributes('aria-checked')).toBe('false')
+  })
+
   it('sends images_url_to_b64_json in extra when the toggle is enabled', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')

@@ -1001,6 +1001,8 @@ export default {
         codexFingerprintDevice: '仅设备',
         codexFingerprintSession: '设备+会话',
         codexFingerprintFull: '完全收敛',
+        apiKeyDeviceConvergence: '仅设备收敛',
+        apiKeyDeviceConvergenceDesc: '默认关闭。开启后，同一账号在请求头和请求体中使用固定的安装 ID，保留现有会话、缓存和续接规则。仅处理受支持的设备标识。',
         codexTurnTicket: 'Codex 292 门票',
         codexTurnTicketDesc: '显示已配置模型的门票状态。仅在启用缺票拦截时，没有有效门票的模型才会暂停调度。',
         codexTurnTicketMissing: '暂无有效门票，仍允许请求',

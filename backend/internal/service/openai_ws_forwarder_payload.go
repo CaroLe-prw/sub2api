@@ -186,6 +186,9 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）。
 	// 覆盖所有 WS 模式（ctx_pool/dedicated/passthrough）的握手头。
 	account.ApplyHeaderOverrides(headers)
+	if err := applyOpenAIAPIKeyDeviceHeaders(headers, account); err != nil {
+		return nil, sessionResolution, err
+	}
 	stripOpenAIResponsesLiteHeaderForUnsupportedModel(headers, account, nil, routingModel)
 	setOpenAICodexRoutingHint(headers, account, routingModel, routingServiceTier)
 	logOpenAIRoutingDiagnostics(
@@ -207,6 +210,17 @@ func (s *OpenAIGatewayService) buildOpenAIWSCreatePayload(reqBody map[string]any
 	payload := make(map[string]any, len(reqBody)+1)
 	for k, v := range reqBody {
 		payload[k] = v
+	}
+	// turn-metadata is injected below; don't mutate the original retry/failover
+	// input through the otherwise shallow payload copy.
+	if account.IsOpenAIAPIKeyDeviceConvergenceEnabled() {
+		if metadata, ok := payload["client_metadata"].(map[string]any); ok {
+			cloned := make(map[string]any, len(metadata))
+			for key, value := range metadata {
+				cloned[key] = value
+			}
+			payload["client_metadata"] = cloned
+		}
 	}
 
 	delete(payload, "background")
