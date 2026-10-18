@@ -227,6 +227,17 @@ async function openCodexImportStep(toggleClicks = 0) {
 }
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
+  it('preserves the form during leave and resets it after the animation', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Keep while closing')
+    await wrapper.setProps({ show: false })
+    expect((wrapper.vm as any).form.name).toBe('Keep while closing')
+    wrapper.findComponent(BaseDialogStub).vm.$emit('after-leave')
+    await flushPromises()
+    expect((wrapper.vm as any).form.name).toBe('')
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     authIsSimpleMode.value = true
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })

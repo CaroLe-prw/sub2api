@@ -1246,12 +1246,12 @@ const load = async (options: AccountLoadOptions = {}) => {
   await Promise.all(refreshTasks)
 }
 
-const reload = async () => {
+const reload = async (options: { silent?: boolean } = {}) => {
   syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
-  await baseReload()
+  await baseReload(options)
   await Promise.all([refreshTodayStatsBatch(), loadPoolMonitorOverview()])
 }
 
@@ -2028,7 +2028,8 @@ const handleEdit = async (a: AccountListItem) => {
   showEdit.value = true
 }
 const handleAccountCreated = async () => {
-  await reload()
+  enterAutoRefreshSilentWindow()
+  await reload({ silent: true })
 }
 const openMenu = (a: Account, e: MouseEvent) => {
   menu.acc = a

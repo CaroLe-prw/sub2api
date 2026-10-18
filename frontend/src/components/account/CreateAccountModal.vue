@@ -4,6 +4,7 @@
     :title="t('admin.accounts.createAccount')"
     width="wide"
     @close="handleClose"
+    @after-leave="resetForm"
   >
     <!-- Step Indicator for OAuth accounts -->
     <div v-if="isOAuthFlow" class="mb-6 flex items-center justify-center">
@@ -5215,8 +5216,6 @@ watch(
         antigravityModelMappings.value = []
         antigravityModelRestrictionMode.value = 'mapping'
       }
-    } else {
-      resetForm()
     }
   }
 )

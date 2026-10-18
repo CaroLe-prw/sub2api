@@ -37,6 +37,20 @@ describe('useTableLoader', () => {
     vi.useRealTimers()
   })
 
+  it('keeps existing rows visible during a silent reload', async () => {
+    const fetchFn = createMockFetchFn([{ id: 1 }], 1, 1)
+    const { items, loading, reload } = useTableLoader({ fetchFn })
+    await reload()
+    let resolveRefresh!: (value: any) => void
+    fetchFn.mockImplementationOnce(() => new Promise(resolve => { resolveRefresh = resolve }))
+    const pending = reload({ silent: true })
+    expect(loading.value).toBe(false)
+    expect(items.value).toEqual([{ id: 1 }])
+    resolveRefresh({ items: [{ id: 2 }], total: 1, pages: 1 })
+    await pending
+    expect(items.value).toEqual([{ id: 2 }])
+  })
+
   // --- 基础加载 ---
 
   describe('基础加载', () => {

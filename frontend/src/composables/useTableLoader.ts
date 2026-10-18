@@ -40,13 +40,13 @@ export function useTableLoader<T, P extends Record<string, any>>(options: TableL
     return error?.name === 'AbortError' || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError'
   }
 
-  const load = async () => {
+  const load = async (options: { silent?: boolean } = {}) => {
     if (abortController) {
       abortController.abort()
     }
     const currentController = new AbortController()
     abortController = currentController
-    loading.value = true
+    loading.value = !options.silent
 
     try {
       const response = await fetchFn(
@@ -71,9 +71,9 @@ export function useTableLoader<T, P extends Record<string, any>>(options: TableL
     }
   }
 
-  const reload = () => {
+  const reload = (options: { silent?: boolean } = {}) => {
     pagination.page = 1
-    return load()
+    return load(options)
   }
 
   const debouncedReload = useDebounceFn(reload, debounceMs)

@@ -112,6 +112,8 @@ type OpenAIAccountScheduleRequest struct {
 	// Retry latency-only sticky candidates after every ordinary pool has had
 	// a chance to acquire, including lower subscription/capability tiers.
 	allowStickyTTFTFallback bool
+	// A final retry of a user preference may bypass latency vetoes only.
+	preferredLatencyFallback bool
 }
 
 type openAIGroupSchedulerPolicyContextKey struct{}
@@ -145,10 +147,11 @@ type OpenAIAccountScheduleDecision struct {
 }
 
 type openAIAccountScheduleObservation struct {
-	stickyEscapeReason  string
-	stickyEscapeReasons map[int64]string
-	candidates          []OpenAISchedulerObservabilityCandidate
-	candidateReasons    map[int64]string
+	preferredLatencyFallbackID int64
+	stickyEscapeReason         string
+	stickyEscapeReasons        map[int64]string
+	candidates                 []OpenAISchedulerObservabilityCandidate
+	candidateReasons           map[int64]string
 }
 
 type OpenAIAccountSchedulerMetricsSnapshot struct {
@@ -934,6 +937,14 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		decision.SelectedAccountType = preferred.Account.Type
 		return preferred, decision, nil
 	}
+	callerExcludedIDs := req.ExcludedIDs
+	// Finish before the observation defer. Keep caller exclusions, but honor
+	// binding-preservation flags raised by the ordinary sticky escape below.
+	defer func() {
+		fallbackReq := req
+		fallbackReq.ExcludedIDs = callerExcludedIDs
+		s.finishUserPreferredLatencyFallback(ctx, fallbackReq, &selectionResult, &decision, &selectionErr)
+	}()
 
 	req.ExcludedIDs = excludeUserPreferredAccount(ctx, req.GroupID, req.ExcludedIDs)
 
@@ -945,7 +956,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		if err != nil {
 			return nil, decision, err
 		}
-		if selection != nil && selection.Account != nil {
+		if selection != nil && selection.Account != nil && (selection.Acquired || observation.preferredLatencyFallbackID == 0) {
 			decision.Layer = openAIAccountScheduleLayerSessionSticky
 			decision.StickySessionHit = true
 			decision.SelectedAccountID = selection.Account.ID
@@ -1068,11 +1079,12 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		return nil, "", nil
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
-	if slow, _ := s.slowAccountStatus(account, req); slow && !pinned && !req.DisableStickyEscape {
+	allowPreferredLatency := req.preferredAccount && req.preferredLatencyFallback
+	if slow, _ := s.slowAccountStatus(account, req); slow && !pinned && !req.DisableStickyEscape && !allowPreferredLatency {
 		req.observation.recordStickyEscape(accountID, openAISlowFirstOutputReason)
 		return nil, openAISlowFirstOutputReason, nil
 	}
-	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, openAIAccountHealthModel(account, req), escapeCfg); !pinned && !req.DisableStickyEscape && shouldEscape {
+	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, openAIAccountHealthModel(account, req), escapeCfg); !pinned && !req.DisableStickyEscape && shouldEscape && (!allowPreferredLatency || reason != "ttft") {
 		slog.Info("sticky_escape_triggered",
 			"account_id", accountID,
 			"model", openAIAccountHealthModel(account, req),
@@ -1710,7 +1722,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		candidateCount:            len(candidates),
 		// The avoided account may be in a different subscription pool. Exhaust
 		// this pool's alternatives before making that account eligible again.
-		includeOverflowFallback: req.observation.hasStickyTTFTFallback(),
+		includeOverflowFallback: req.observation.hasStickyTTFTFallback() || (req.observation != nil && req.observation.preferredLatencyFallbackID > 0),
 	}
 	for _, candidate := range candidates {
 		if candidate.slowDeprioritized || candidate.stickyTTFTFallback {
@@ -3510,7 +3522,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	platform string,
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
-) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+) (selectionResult *AccountSelectionResult, decision OpenAIAccountScheduleDecision, selectionErr error) {
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	ctx = s.withOpenAIGroupSchedulerPolicyContext(ctx, groupID)
 	if policy, ok := openAIGroupSchedulerPolicyFromContext(ctx); ok && policy.config.UpstreamCost > 0 {
@@ -3527,7 +3539,6 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		ctx = s.withOpenAIProfitControlGate(ctx, groupID)
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
-	decision := OpenAIAccountScheduleDecision{}
 	preserveGuardianParentBinding := preserveOpenAIGuardianParentBinding(ctx, sessionHash)
 	guardianParentAccountID := int64(0)
 	if strings.TrimSpace(previousResponseID) == "" {
@@ -3579,17 +3590,20 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		if preserveGuardianParentBinding {
 			legacySessionHash = ""
 		}
+		preferredObservation := &openAIAccountScheduleObservation{}
 		if preferredAccountForRequest(ctx, groupID, excludedIDs) > 0 && !s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 			s.ensureOpenAIAccountScheduler()
 			fallbackScheduler := &defaultOpenAIAccountScheduler{service: s, stats: s.openaiAccountStats}
-			preferred := fallbackScheduler.selectUserPreferredAccount(ctx, OpenAIAccountScheduleRequest{
+			preferredReq := OpenAIAccountScheduleRequest{
 				GroupID: groupID, Platform: platform, SessionHash: legacySessionHash,
 				RequestedModel: requestedModel, RequiredTransport: requiredTransport,
 				RequiredCapability: requiredCapability, RequiredImageCapability: requiredImageCapability,
 				RequireCompact: requireCompact, ExcludedIDs: excludedIDs,
 				RequirePrivacySet: s.openAIGroupRequiresPrivacySet(ctx, groupID),
-				observation:       &openAIAccountScheduleObservation{},
-			})
+				observation:       preferredObservation,
+			}
+			defer fallbackScheduler.finishUserPreferredLatencyFallback(ctx, preferredReq, &selectionResult, &decision, &selectionErr)
+			preferred := fallbackScheduler.selectUserPreferredAccount(ctx, preferredReq)
 			if preferred != nil {
 				decision.Layer = userPreferredAccountLayer
 				decision.SelectedAccountID = preferred.Account.ID
@@ -3600,46 +3614,37 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 
 		excludedIDs = excludeUserPreferredAccount(ctx, groupID, excludedIDs)
 
-		if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
-			effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
-			for {
-				selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, platform, legacySessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost)
-				if err != nil {
-					return nil, decision, err
-				}
-				if selection == nil || selection.Account == nil {
-					return selection, decision, nil
-				}
-				if accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) {
-					applyLegacySelectionDecision(&decision, selection)
-					return selection, decision, nil
-				}
-				if selection.ReleaseFunc != nil {
-					selection.ReleaseFunc()
-				}
-				if effectiveExcludedIDs == nil {
-					effectiveExcludedIDs = make(map[int64]struct{})
-				}
-				if _, exists := effectiveExcludedIDs[selection.Account.ID]; exists {
-					return nil, decision, ErrNoAvailableAccounts
-				}
-				effectiveExcludedIDs[selection.Account.ID] = struct{}{}
-			}
-		}
-
 		effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
+		var waitingSelection *AccountSelectionResult
 		for {
 			selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, platform, legacySessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost)
 			if err != nil {
+				if waitingSelection != nil && (errors.Is(err, ErrNoAvailableAccounts) || errors.Is(err, ErrNoAvailableCompactAccounts)) {
+					applyLegacySelectionDecision(&decision, waitingSelection)
+					return waitingSelection, decision, nil
+				}
 				return nil, decision, err
 			}
 			if selection == nil || selection.Account == nil {
+				if waitingSelection != nil {
+					applyLegacySelectionDecision(&decision, waitingSelection)
+					return waitingSelection, decision, nil
+				}
 				return selection, decision, nil
 			}
-			if s.isOpenAIAccountTransportCompatible(selection.Account, requiredTransport) &&
-				accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) {
-				applyLegacySelectionDecision(&decision, selection)
-				return selection, decision, nil
+			transportCompatible := requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE ||
+				s.isOpenAIAccountTransportCompatible(selection.Account, requiredTransport)
+			if transportCompatible && accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) {
+				if selection.Acquired || preferredObservation.preferredLatencyFallbackID == 0 {
+					applyLegacySelectionDecision(&decision, selection)
+					return selection, decision, nil
+				}
+				// A queued alternative is not yet usable. Try the rest of the
+				// group before the latency fallback, retaining a wait plan if
+				// the preference also cannot acquire a slot.
+				if waitingSelection == nil {
+					waitingSelection = selection
+				}
 			}
 			if selection.ReleaseFunc != nil {
 				selection.ReleaseFunc()

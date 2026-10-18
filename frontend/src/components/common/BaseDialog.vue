@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <Transition name="modal">
+    <Transition name="modal" @after-leave="handleAfterLeave">
       <div
         v-if="show"
         class="modal-overlay"
@@ -73,6 +73,7 @@ interface Props {
 
 interface Emits {
   (e: 'close'): void
+  (e: 'after-leave'): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -122,6 +123,17 @@ const updateScrollLock = (isOpen: boolean) => {
   document.body.classList.toggle('modal-open', openDialogs.size > 0)
 }
 
+// Release the background only once the closing animation finishes.
+const handleAfterLeave = () => {
+  if (props.show) return
+  updateScrollLock(false)
+  if (openDialogs.size === 0 && previousActiveElement?.isConnected) {
+    previousActiveElement.focus({ preventScroll: true })
+  }
+  previousActiveElement = null
+  emit('after-leave')
+}
+
 // Prevent body scroll when modal is open and manage focus
 watch(
   () => props.show,
@@ -141,15 +153,8 @@ watch(
         const firstFocusable = dialogRef.value.querySelector<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
         )
-        firstFocusable?.focus()
+        firstFocusable?.focus({ preventScroll: true })
       }
-    } else {
-      updateScrollLock(false)
-      // 恢复之前的焦点
-      if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
-        previousActiveElement.focus()
-      }
-      previousActiveElement = null
     }
   },
   { immediate: true }

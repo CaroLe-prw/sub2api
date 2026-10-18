@@ -131,8 +131,9 @@ func filterPreferredAccountProbe(ctx context.Context, accounts []Account) []Acco
 	return nil
 }
 
-// Do not immediately retry an unavailable preference through sticky affinity
-// or a last-resort pool in the same selection round.
+// Keep an unavailable preference out of ordinary sticky/scored selection. The
+// OpenAI scheduler may explicitly retry a latency-only veto after alternatives
+// are exhausted, using the original caller exclusions and all hard gates.
 func excludeUserPreferredAccount(ctx context.Context, groupID *int64, excluded map[int64]struct{}) map[int64]struct{} {
 	id := preferredAccountForRequest(ctx, groupID, excluded)
 	if id <= 0 {

@@ -26,6 +26,20 @@ func TestAPIKeyDeviceConvergenceSeedAtomicLifecycle(t *testing.T) {
 		{service.PlatformAnthropic, service.AccountTypeAPIKey, `{}`},
 	}
 	ids := make([]int64, 0, len(fixtures))
+	t.Cleanup(func() {
+		if len(ids) == 0 {
+			return
+		}
+		// Bulk events have no account_id; their fixture IDs live in the payload.
+		_, outboxErr := integrationDB.ExecContext(context.Background(), `
+DELETE FROM scheduler_outbox
+WHERE account_id = ANY($1::bigint[])
+   OR (event_type = $2 AND payload->'account_ids' = to_jsonb($1::bigint[]))
+`, pq.Array(ids), service.SchedulerOutboxEventAccountBulkChanged)
+		_, accountsErr := integrationDB.ExecContext(context.Background(), `DELETE FROM accounts WHERE id = ANY($1)`, pq.Array(ids))
+		require.NoError(t, outboxErr, "clean up fixture scheduler events")
+		require.NoError(t, accountsErr, "clean up fixture accounts")
+	})
 	for _, fixture := range fixtures {
 		var id int64
 		require.NoError(t, integrationDB.QueryRowContext(ctx, `
@@ -34,10 +48,6 @@ VALUES ($1, $2, $3, $4::jsonb) RETURNING id
 `, "apikey-device-"+uuid.NewString(), fixture.platform, fixture.typ, fixture.extra).Scan(&id))
 		ids = append(ids, id)
 	}
-	t.Cleanup(func() {
-		_, _ = integrationDB.ExecContext(context.Background(), `DELETE FROM scheduler_outbox WHERE account_id = ANY($1)`, pq.Array(ids))
-		_, _ = integrationDB.ExecContext(context.Background(), `DELETE FROM accounts WHERE id = ANY($1)`, pq.Array(ids))
-	})
 	readSeed := func(id int64) string {
 		t.Helper()
 		var seed string

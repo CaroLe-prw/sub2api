@@ -13,6 +13,7 @@ describe('stacked dialog Escape handling', () => {
     expect(child.emitted('close')).toHaveLength(1)
     expect(parent.emitted('close')).toBeUndefined()
     await child.setProps({ show: false })
+    ;(child.vm as any).handleAfterLeave()
     pressEscape()
     expect(parent.emitted('close')).toHaveLength(1)
   })

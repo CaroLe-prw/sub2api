@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -49,7 +50,14 @@ func withUserPreferredAccountRateCeiling(ctx context.Context, groupID *int64) co
 // fresh DB check, cost guard, transport/capability and concurrency checks.
 func (s *defaultOpenAIAccountScheduler) selectUserPreferredAccount(ctx context.Context, req OpenAIAccountScheduleRequest) *AccountSelectionResult {
 	id := preferredAccountForRequest(ctx, req.GroupID, req.ExcludedIDs)
+	return s.selectUserPreferredAccountID(ctx, req, id)
+}
+
+func (s *defaultOpenAIAccountScheduler) selectUserPreferredAccountID(ctx context.Context, req OpenAIAccountScheduleRequest, id int64) *AccountSelectionResult {
 	if id == 0 || req.PinnedAccountID > 0 {
+		return nil
+	}
+	if _, excluded := req.ExcludedIDs[id]; excluded {
 		return nil
 	}
 	ctx = withUserPreferredAccountRateCeiling(ctx, req.GroupID)
@@ -57,7 +65,11 @@ func (s *defaultOpenAIAccountScheduler) selectUserPreferredAccount(ctx context.C
 	preferredReq.preferredAccount = true
 	preferredReq.StickyAccountID = id
 	preferredReq.PreserveStickyBinding = true
-	selection, _, err := s.selectBySessionHash(ctx, preferredReq)
+	selection, reason, err := s.selectBySessionHash(ctx, preferredReq)
+	if err == nil && selection == nil && !req.preferredLatencyFallback && req.observation != nil &&
+		(reason == "ttft" || reason == openAISlowFirstOutputReason) {
+		req.observation.preferredLatencyFallbackID = id
+	}
 	if err != nil || selection == nil || !selection.Acquired {
 		return nil
 	}
@@ -65,6 +77,48 @@ func (s *defaultOpenAIAccountScheduler) selectUserPreferredAccount(ctx context.C
 		_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, id)
 	}
 	return selection
+}
+
+// Run after ordinary group selection, with the original caller exclusions.
+// Only the latency-vetoed preference can be retried, and the normal fresh
+// account/model/health/concurrency checks and strict group ceiling still apply.
+func (s *defaultOpenAIAccountScheduler) finishUserPreferredLatencyFallback(
+	ctx context.Context, req OpenAIAccountScheduleRequest,
+	selection **AccountSelectionResult, decision *OpenAIAccountScheduleDecision, selectionErr *error,
+) {
+	if req.observation == nil || req.observation.preferredLatencyFallbackID <= 0 ||
+		(*selection != nil && (*selection).Acquired) ||
+		(*selectionErr != nil && !errors.Is(*selectionErr, ErrNoAvailableAccounts) && !errors.Is(*selectionErr, ErrNoAvailableCompactAccounts)) {
+		return
+	}
+	id := req.observation.preferredLatencyFallbackID
+	req.preferredLatencyFallback = true
+	fallback := s.selectUserPreferredAccountID(ctx, req, id)
+	if fallback == nil {
+		return
+	}
+	*selection, *selectionErr = fallback, nil
+	decision.Layer = userPreferredAccountLayer
+	decision.SelectedAccountID = fallback.Account.ID
+	decision.SelectedAccountType = fallback.Account.Type
+	decision.StickyPreviousHit = false
+	decision.StickySessionHit = false
+	decision.StickyEscapeReason = req.observation.stickyEscapeReason
+	if decision.CandidateCount < 1 {
+		decision.CandidateCount = 1
+	}
+	// The preference was deliberately absent from ordinary scoring. Include
+	// its successful fallback in the trace instead of leaving an empty table.
+	candidate := OpenAISchedulerObservabilityCandidate{
+		AccountID: id, AccountName: fallback.Account.Name,
+		State: "selected", Reason: req.observation.candidateReasons[id],
+	}
+	if len(req.observation.candidates) >= 12 {
+		req.observation.candidates = req.observation.candidates[:11]
+	}
+	candidate.Rank = len(req.observation.candidates) + 1
+	req.observation.candidates = append(req.observation.candidates, candidate)
+	decision.Candidates = cloneSchedulerCandidates(req.observation.candidates)
 }
 
 func (s *GatewayService) preferredAccountProbeContext(ctx context.Context, groupID *int64, model string, excluded map[int64]struct{}) (context.Context, int64) {
