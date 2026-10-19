@@ -512,6 +512,9 @@ export default {
     usage: {
       title: 'Usage Records',
       description: 'View and manage all user usage records',
+      excludeUserFilter: 'Exclude user email',
+      searchExcludedUserPlaceholder: 'Search email to exclude…',
+      exclusionCleanupHint: 'Clear the excluded user filter before cleaning up usage',
       userFilter: 'User',
       searchUserPlaceholder: 'Search user by email...',
       searchApiKeyPlaceholder: 'Search API key by name...',

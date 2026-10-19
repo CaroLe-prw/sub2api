@@ -14,6 +14,9 @@ import (
 )
 
 type dashboardUsageRepoCapture struct {
+	trendExcludedUser int64
+	modelExcludedUser int64
+	groupExcludedUser int64
 	service.UsageLogRepository
 	trendRequestType      *int16
 	trendStream           *bool
@@ -39,6 +42,7 @@ func (s *dashboardUsageRepoCapture) GetUsageTrendWithUsageFilters(
 	s.trendRequestType = filters.RequestType
 	s.trendStream = filters.Stream
 	s.trendNativeCompaction = filters.NativeCompactionV2
+	s.trendExcludedUser = filters.ExcludeUserID
 	s.trendMismatch = filters.UpstreamModelMismatch
 	return []usagestats.TrendDataPoint{}, nil
 }
@@ -67,6 +71,7 @@ func (s *dashboardUsageRepoCapture) GetModelStatsWithUsageFiltersBySource(
 	s.modelRequestType = filters.RequestType
 	s.modelStream = filters.Stream
 	s.modelNativeCompaction = filters.NativeCompactionV2
+	s.modelExcludedUser = filters.ExcludeUserID
 	s.modelMismatch = filters.UpstreamModelMismatch
 	return []usagestats.ModelStat{}, nil
 }
@@ -77,6 +82,7 @@ func (s *dashboardUsageRepoCapture) GetGroupStatsWithUsageFilters(
 	filters usagestats.UsageLogFilters,
 ) ([]usagestats.GroupStat, error) {
 	s.groupNativeCompaction = filters.NativeCompactionV2
+	s.groupExcludedUser = filters.ExcludeUserID
 	s.groupMismatch = filters.UpstreamModelMismatch
 	return []usagestats.GroupStat{}, nil
 }
@@ -114,6 +120,7 @@ func newDashboardRequestTypeTestRouter(repo *dashboardUsageRepoCapture) *gin.Eng
 	handler := NewDashboardHandler(dashboardSvc, nil)
 	router := gin.New()
 	router.GET("/admin/dashboard/trend", handler.GetUsageTrend)
+	router.GET("/admin/dashboard/snapshot-v2", handler.GetSnapshotV2)
 	router.GET("/admin/dashboard/models", handler.GetModelStats)
 	router.GET("/admin/dashboard/groups", handler.GetGroupStats)
 	router.GET("/admin/dashboard/users-ranking", handler.GetUserSpendingRanking)
@@ -323,4 +330,29 @@ func TestDashboardUsersRankingLimitAndCache(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec2.Code)
 	require.Equal(t, "hit", rec2.Header().Get("X-Snapshot-Cache"))
+}
+
+func TestDashboardExcludeUserPropagationAndCacheIsolation(t *testing.T) {
+	resetDashboardReadCachesForTest()
+	repo := &dashboardUsageRepoCapture{}
+	router := newDashboardRequestTypeTestRouter(repo)
+	for _, id := range []string{"42", "43"} {
+		for _, path := range []string{"trend", "models", "groups", "snapshot-v2"} {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/dashboard/"+path+"?exclude_user_id="+id+"&include_stats=false&include_group_stats=true&start_date=2026-01-01&end_date=2026-01-02", nil))
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		}
+		expected := int64(42)
+		if id == "43" {
+			expected = 43
+		}
+		require.Equal(t, expected, repo.trendExcludedUser)
+		require.Equal(t, expected, repo.modelExcludedUser)
+		require.Equal(t, expected, repo.groupExcludedUser)
+	}
+	for _, path := range []string{"trend", "models", "groups", "snapshot-v2"} {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/dashboard/"+path+"?exclude_user_id=-1", nil))
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+	}
 }

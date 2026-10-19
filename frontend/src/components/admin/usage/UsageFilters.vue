@@ -41,6 +41,43 @@
           </div>
         </div>
 
+        <!-- Excluded User Search -->
+        <div v-if="allowUserExclusion && mode !== 'errors'" ref="excludedUserSearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
+          <label class="input-label">{{ t('admin.usage.excludeUserFilter') }}</label>
+          <input
+            v-model="excludedUserKeyword"
+            type="text"
+            class="input pr-8"
+            :placeholder="t('admin.usage.searchExcludedUserPlaceholder')"
+            @input="debounceExcludedUserSearch"
+            @focus="showExcludedUserDropdown = true"
+          />
+          <button
+            v-if="filters.exclude_user_id"
+            type="button"
+            @click="clearExcludedUser"
+            class="absolute right-2 top-9 text-gray-400"
+            aria-label="Clear excluded user filter"
+          >
+            ✕
+          </button>
+          <div
+            v-if="showExcludedUserDropdown && (excludedUserResults.length > 0 || excludedUserKeyword)"
+            class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border bg-white shadow-lg dark:bg-dark-800"
+          >
+            <button
+              v-for="u in excludedUserResults"
+              :key="u.id"
+              type="button"
+              @click="selectExcludedUser(u)"
+              class="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-dark-700"
+            >
+              <span>{{ u.email }}<span v-if="u.deleted" class="ml-1 text-xs text-gray-400">（{{ t('admin.usage.userDeletedBadge') }}）</span></span>
+              <span class="ml-2 text-xs text-gray-400">#{{ u.id }}</span>
+            </button>
+          </div>
+        </div>
+
         <!-- API Key Search -->
         <div ref="apiKeySearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
           <label class="input-label">{{ t('usage.apiKeyFilter') }}</label>
@@ -186,7 +223,7 @@
         </button>
         <slot name="after-reset" />
         <template v-if="mode === 'usage'">
-          <button type="button" @click="$emit('cleanup')" class="btn btn-danger">
+          <button type="button" @click="$emit('cleanup')" class="btn btn-danger" :disabled="!!filters.exclude_user_id" :title="filters.exclude_user_id ? t('admin.usage.exclusionCleanupHint') : undefined">
             {{ t('admin.usage.cleanup.button') }}
           </button>
           <button type="button" @click="$emit('export')" :disabled="exporting" class="btn btn-primary">
@@ -214,6 +251,7 @@ interface Props {
   startDate: string
   endDate: string
   showActions?: boolean
+  allowUserExclusion?: boolean
   modelOptions?: string[]
   /**
    * errors 模式:隐藏用量专属字段/按钮,显示错误类型+状态码(错误请求 tab 用)
@@ -226,6 +264,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   showActions: true,
+  allowUserExclusion: true,
   mode: 'usage',
   flat: false
 })
@@ -250,6 +289,13 @@ const userResults = ref<SimpleUser[]>([])
 const showUserDropdown = ref(false)
 let userSearchTimeout: ReturnType<typeof setTimeout> | null = null
 let userSearchSequence = 0
+
+const excludedUserSearchRef = ref<HTMLElement | null>(null)
+const excludedUserKeyword = ref('')
+const excludedUserResults = ref<SimpleUser[]>([])
+const showExcludedUserDropdown = ref(false)
+let excludedUserSearchTimeout: ReturnType<typeof setTimeout> | null = null
+let excludedUserSearchSequence = 0
 
 const apiKeyKeyword = ref('')
 const apiKeyResults = ref<SimpleApiKey[]>([])
@@ -364,6 +410,38 @@ const debounceUserSearch = () => {
   }, 300)
 }
 
+const clearPendingExcludedUserSearch = () => {
+  if (excludedUserSearchTimeout) {
+    clearTimeout(excludedUserSearchTimeout)
+    excludedUserSearchTimeout = null
+  }
+  excludedUserSearchSequence += 1
+}
+
+const debounceExcludedUserSearch = () => {
+  clearPendingExcludedUserSearch()
+  const query = excludedUserKeyword.value.trim()
+  if (!query) {
+    excludedUserResults.value = []
+    return
+  }
+
+  const sequence = excludedUserSearchSequence
+  excludedUserSearchTimeout = setTimeout(async () => {
+    excludedUserSearchTimeout = null
+    try {
+      const results = await adminAPI.usage.searchUsers(query)
+      if (sequence === excludedUserSearchSequence) {
+        excludedUserResults.value = results.sort((a, b) => Number(a.deleted) - Number(b.deleted))
+      }
+    } catch {
+      if (sequence === excludedUserSearchSequence) {
+        excludedUserResults.value = []
+      }
+    }
+  }, 300)
+}
+
 const debounceApiKeySearch = () => {
   if (apiKeySearchTimeout) clearTimeout(apiKeySearchTimeout)
   apiKeySearchTimeout = setTimeout(async () => {
@@ -382,6 +460,7 @@ const selectUser = async (u: SimpleUser) => {
   clearPendingUserSearch()
   userKeyword.value = u.email
   showUserDropdown.value = false
+  filters.value.exclude_user_id = undefined
   filters.value.user_id = u.id
   clearApiKey()
 
@@ -402,6 +481,26 @@ const clearUser = () => {
   showUserDropdown.value = false
   filters.value.user_id = undefined
   clearApiKey()
+  emitChange()
+}
+
+const selectExcludedUser = (u: SimpleUser) => {
+  clearPendingExcludedUserSearch()
+  excludedUserKeyword.value = u.email
+  excludedUserResults.value = []
+  showExcludedUserDropdown.value = false
+  filters.value.user_id = undefined
+  filters.value.exclude_user_id = u.id
+  clearApiKey()
+  emitChange()
+}
+
+const clearExcludedUser = () => {
+  clearPendingExcludedUserSearch()
+  excludedUserKeyword.value = ''
+  excludedUserResults.value = []
+  showExcludedUserDropdown.value = false
+  filters.value.exclude_user_id = undefined
   emitChange()
 }
 
@@ -471,6 +570,7 @@ const onDocumentClick = (e: MouseEvent) => {
   const clickedInsideApiKey = apiKeySearchRef.value?.contains(target) ?? false
   const clickedInsideAccount = accountSearchRef.value?.contains(target) ?? false
 
+  if (!excludedUserSearchRef.value?.contains(target)) showExcludedUserDropdown.value = false
   if (!clickedInsideUser) showUserDropdown.value = false
   if (!clickedInsideApiKey) showApiKeyDropdown.value = false
   if (!clickedInsideAccount) showAccountDropdown.value = false
@@ -523,6 +623,18 @@ watch(
   }
 )
 
+watch(
+  () => filters.value.exclude_user_id,
+  (userId) => {
+    if (!userId) {
+      clearPendingExcludedUserSearch()
+      excludedUserKeyword.value = ''
+      excludedUserResults.value = []
+      showExcludedUserDropdown.value = false
+    }
+  }
+)
+
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick)
   try {
@@ -534,6 +646,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  clearPendingExcludedUserSearch()
   clearPendingUserSearch()
   document.removeEventListener('click', onDocumentClick)
 })

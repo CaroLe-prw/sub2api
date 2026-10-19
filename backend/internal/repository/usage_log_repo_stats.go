@@ -659,6 +659,10 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 	conditions := make([]string, 0, 9)
 	args := make([]any, 0, 9)
 
+	if filters.ExcludeUserID > 0 {
+		conditions = append(conditions, fmt.Sprintf("user_id <> $%d", len(args)+1))
+		args = append(args, filters.ExcludeUserID)
+	}
 	if filters.UserID > 0 {
 		conditions = append(conditions, fmt.Sprintf("user_id = $%d", len(args)+1))
 		args = append(args, filters.UserID)

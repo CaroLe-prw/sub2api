@@ -779,12 +779,13 @@ describe('admin UsageView model audit export', () => {
 		vi.advanceTimersByTime(120)
 		await flushPromises()
 		;(wrapper.vm as any).filters.native_compaction_v2 = true
+    ;(wrapper.vm as any).filters.exclude_user_id = 42
 
 		await (wrapper.vm as any).exportToExcel()
 		await flushPromises()
 
 		expect(exportList).toHaveBeenCalledWith(
-			expect.objectContaining({ native_compaction_v2: true }),
+			expect.objectContaining({ native_compaction_v2: true, exclude_user_id: 42 }),
 			expect.anything()
 		)
 
@@ -799,4 +800,66 @@ describe('admin UsageView model audit export', () => {
 		expect(row.slice(4, 8)).toEqual(['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'Yes'])
 		expect(saveAs).toHaveBeenCalledTimes(1)
 	})
+})
+
+describe('admin UsageView excluded user filter', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    list.mockReset().mockResolvedValue({ items: [], total: 0, pages: 0 })
+    getStats.mockReset().mockResolvedValue({
+      total_requests: 0,
+      total_input_tokens: 0,
+      total_output_tokens: 0,
+      total_cache_tokens: 0,
+      total_tokens: 0,
+      total_cost: 0,
+      total_actual_cost: 0,
+      average_duration_ms: 0,
+    })
+    getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
+    getModelStats.mockReset().mockResolvedValue({ models: [] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('propagates the filter to list/stats/model/snapshot requests and clears it on reset', async () => {
+    const wrapper = mountRouteFilteredUsageView()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    list.mockClear()
+    getStats.mockClear()
+    getModelStats.mockClear()
+    getSnapshotV2.mockClear()
+
+    ;(wrapper.vm as any).filters.exclude_user_id = 42
+    ;(wrapper.vm as any).applyFilters()
+    await flushPromises()
+
+    expect((wrapper.vm as any).breakdownFilters.exclude_user_id).toBe(42)
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ exclude_user_id: 42 }),
+      expect.anything()
+    )
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ exclude_user_id: 42 }))
+    expect(getModelStats).toHaveBeenCalledWith(expect.objectContaining({ exclude_user_id: 42 }))
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ exclude_user_id: 42 }))
+
+    list.mockClear()
+    getStats.mockClear()
+    getModelStats.mockClear()
+    getSnapshotV2.mockClear()
+
+    ;(wrapper.vm as any).resetFilters()
+    await flushPromises()
+
+    expect((wrapper.vm as any).filters.exclude_user_id).toBeUndefined()
+    expect((wrapper.vm as any).breakdownFilters).not.toHaveProperty('exclude_user_id')
+    for (const request of [list, getStats, getModelStats, getSnapshotV2]) {
+      expect(request.mock.calls.at(-1)?.[0].exclude_user_id).toBeUndefined()
+    }
+    wrapper.unmount()
+  })
 })

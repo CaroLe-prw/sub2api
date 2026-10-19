@@ -22,6 +22,14 @@ func TestUsageStatsCacheKey_StableAndDistinct(t *testing.T) {
 	other.Model = "gpt-4o"
 	require.NotEqual(t, k1, usageStatsCacheKey(other), "different model must change key")
 
+	excluded := base
+	excluded.ExcludeUserID = 7
+	require.NotEqual(t, k1, usageStatsCacheKey(excluded))
+	excluded.ExcludeUserID = 8
+	otherExcluded := base
+	otherExcluded.ExcludeUserID = 7
+	require.NotEqual(t, usageStatsCacheKey(excluded), usageStatsCacheKey(otherExcluded))
+
 	withUser := base
 	withUser.UserID = 7
 	require.NotEqual(t, k1, usageStatsCacheKey(withUser), "different user must change key")

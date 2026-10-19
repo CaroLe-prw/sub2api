@@ -100,3 +100,26 @@ func TestGetUserBreakdownStatsFiltersNativeCompactionV2(t *testing.T) {
 	require.Empty(t, rows)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestGetUserBreakdownStatsFiltersExcludeUserID(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+	start := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	excludeUserID := int64(42)
+
+	mock.ExpectQuery(regexp.QuoteMeta("AND ul.user_id <> $3")).
+		WithArgs(start, end, excludeUserID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"user_id", "email", "requests", "input_tokens", "output_tokens",
+			"cache_tokens", "total_tokens", "cost", "actual_cost", "account_cost",
+		}))
+
+	rows, err := repo.GetUserBreakdownStats(context.Background(), start, end, usagestats.UserBreakdownDimension{
+		ExcludeUserID: excludeUserID,
+	}, 0)
+
+	require.NoError(t, err)
+	require.Empty(t, rows)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

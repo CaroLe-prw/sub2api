@@ -1204,3 +1204,85 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 	})
 
 }
+
+func TestUsageLogRepositoryListWithFiltersExcludeUserID(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := &usageLogRepository{sql: db}
+	excludeUserID := int64(42)
+	filters := usagestats.UsageLogFilters{ExcludeUserID: excludeUserID, ExactTotal: true}
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM usage_logs WHERE user_id <> \\$1").
+		WithArgs(excludeUserID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
+	mock.ExpectQuery("SELECT .* FROM usage_logs WHERE user_id <> \\$1 ORDER BY id DESC LIMIT \\$2 OFFSET \\$3").
+		WithArgs(excludeUserID, 20, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	logs, page, err := repo.ListWithFilters(context.Background(), pagination.PaginationParams{Page: 1, PageSize: 20}, filters)
+	require.NoError(t, err)
+	require.Empty(t, logs)
+	require.NotNil(t, page)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUsageLogRepositoryUsageAggregatesFilterExcludeUserID(t *testing.T) {
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	excludeUserID := int64(42)
+	filters := usagestats.UsageLogFilters{ExcludeUserID: excludeUserID}
+
+	t.Run("stats", func(t *testing.T) {
+		db, mock := newSQLMock(t)
+		repo := &usageLogRepository{sql: db}
+		mock.ExpectQuery("(?s)FROM usage_logs\\s+WHERE user_id <> \\$1.*GROUP BY GROUPING SETS").
+			WithArgs(excludeUserID).
+			WillReturnRows(sqlmock.NewRows([]string{
+				"inbound_grouped", "upstream_grouped", "inbound_endpoint", "upstream_endpoint",
+				"requests", "input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens",
+				"cost", "actual_cost", "account_cost", "avg_duration_ms",
+			}))
+
+		_, err := repo.GetStatsWithFilters(context.Background(), filters)
+		require.NoError(t, err)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("trend bypasses preaggregate", func(t *testing.T) {
+		db, mock := newSQLMock(t)
+		repo := &usageLogRepository{sql: db}
+		mock.ExpectQuery("(?s)FROM usage_logs.*AND user_id <> \\$3").
+			WithArgs(start, end, excludeUserID).
+			WillReturnRows(sqlmock.NewRows([]string{"date", "requests", "input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens", "total_tokens", "cost", "actual_cost"}))
+
+		_, err := repo.GetUsageTrendWithUsageFilters(context.Background(), start, end, "day", filters)
+		require.NoError(t, err)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("model", func(t *testing.T) {
+		db, mock := newSQLMock(t)
+		repo := &usageLogRepository{sql: db}
+		mock.ExpectQuery("(?s)FROM usage_logs.*AND user_id <> \\$3").
+			WithArgs(start, end, excludeUserID).
+			WillReturnRows(sqlmock.NewRows([]string{
+				"model", "requests", "input_tokens", "output_tokens", "cache_creation_tokens",
+				"cache_read_tokens", "total_tokens", "cost", "actual_cost", "account_cost",
+			}))
+
+		_, err := repo.GetModelStatsWithUsageFiltersBySource(context.Background(), start, end, filters, usagestats.ModelSourceRequested)
+		require.NoError(t, err)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("group", func(t *testing.T) {
+		db, mock := newSQLMock(t)
+		repo := &usageLogRepository{sql: db}
+		mock.ExpectQuery("(?s)FROM usage_logs ul.*AND ul.user_id <> \\$3").
+			WithArgs(start, end, excludeUserID).
+			WillReturnRows(sqlmock.NewRows([]string{"group_id", "group_name", "requests", "total_tokens", "cost", "actual_cost", "account_cost"}))
+
+		_, err := repo.GetGroupStatsWithUsageFilters(context.Background(), start, end, filters)
+		require.NoError(t, err)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+}

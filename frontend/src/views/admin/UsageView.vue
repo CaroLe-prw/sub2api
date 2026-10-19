@@ -242,6 +242,7 @@ const balanceHistoryUser = ref<AdminUser | null>(null)
 const breakdownFilters = computed(() => {
   const f: Record<string, any> = {}
   if (filters.value.user_id) f.user_id = filters.value.user_id
+  if (filters.value.exclude_user_id) f.exclude_user_id = filters.value.exclude_user_id
   if (filters.value.api_key_id) f.api_key_id = filters.value.api_key_id
   if (filters.value.account_id) f.account_id = filters.value.account_id
   if (filters.value.group_id) f.group_id = filters.value.group_id
@@ -268,7 +269,7 @@ const handleUserClick = async (userId: number) => {
 // Drill down from the per-user token ranking: scope the whole usage view to
 // that user and jump to the usage-detail tab so the drill-down is visible.
 const handleRankingSelectUser = (userId: number, email: string) => {
-  filters.value = { ...filters.value, user_id: userId }
+  filters.value = { ...filters.value, user_id: userId, exclude_user_id: undefined }
   usageFiltersRef.value?.setUserKeyword?.(email || '')
   activeTab.value = 'usage'
   applyFilters()
@@ -446,6 +447,7 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
       start_date: filters.value.start_date || startDate.value,
       end_date: filters.value.end_date || endDate.value,
       user_id: filters.value.user_id,
+      exclude_user_id: filters.value.exclude_user_id,
       model: filters.value.model,
       api_key_id: filters.value.api_key_id,
       account_id: filters.value.account_id,
@@ -497,6 +499,7 @@ const loadChartData = async () => {
       end_date: filters.value.end_date || endDate.value,
       granularity: granularity.value,
       user_id: filters.value.user_id,
+      exclude_user_id: filters.value.exclude_user_id,
       model: filters.value.model,
       api_key_id: filters.value.api_key_id,
       account_id: filters.value.account_id,
@@ -561,7 +564,9 @@ const handleIpGeoBatchFailed = () => {
   appStore.showError(t('usage.ipGeo.batchFailed'))
 }
 const cancelExport = () => exportAbortController?.abort()
-const openCleanupDialog = () => { cleanupDialogVisible.value = true }
+const openCleanupDialog = () => {
+  if (!filters.value.exclude_user_id) cleanupDialogVisible.value = true
+}
 const getRequestTypeLabel = (log: AdminUsageLog): string => {
   const requestType = resolveUsageRequestType(log)
   if (requestType === 'cyber') return t('usage.cyber')
@@ -798,6 +803,11 @@ const rankingRef = ref<InstanceType<typeof UserTokenRanking> | null>(null)
 
 const switchTab = (tab: DetailTab) => {
   activeTab.value = tab
+  if (tab === 'errors' && filters.value.exclude_user_id) {
+    filters.value.exclude_user_id = undefined
+    applyFilters()
+    return
+  }
   if (tab === 'errors' && errRows.value.length === 0) loadAdminErrors()
   if (tab === 'ranking') rankingMounted.value = true
 }

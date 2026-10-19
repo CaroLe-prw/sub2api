@@ -48,6 +48,7 @@ export interface TrendParams {
   start_date?: string
   end_date?: string
   granularity?: 'day' | 'hour'
+  exclude_user_id?: number
   user_id?: number
   api_key_id?: number
   model?: string
@@ -80,6 +81,7 @@ export async function getUsageTrend(params?: TrendParams): Promise<TrendResponse
 export interface ModelStatsParams {
   start_date?: string
   end_date?: string
+  exclude_user_id?: number
   user_id?: number
   api_key_id?: number
   model?: string
@@ -112,6 +114,7 @@ export async function getModelStats(params?: ModelStatsParams): Promise<ModelSta
 export interface GroupStatsParams {
   start_date?: string
   end_date?: string
+  exclude_user_id?: number
   user_id?: number
   api_key_id?: number
   account_id?: number
@@ -176,6 +179,7 @@ export interface UserBreakdownParams {
   // Sort column for the ranking (allowlisted server-side; falls back to actual_cost)
   sort_by?: 'total_tokens' | 'input_tokens' | 'output_tokens' | 'cache_tokens' | 'requests' | 'cost' | 'actual_cost'
   // Additional filter conditions
+  exclude_user_id?: number
   user_id?: number
   api_key_id?: number
   account_id?: number

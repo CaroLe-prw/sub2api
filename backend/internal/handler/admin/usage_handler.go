@@ -73,6 +73,11 @@ func (h *UsageHandler) List(c *gin.Context) {
 	}
 
 	// Parse filters
+	excludeUserID, err := parseExcludeUserID(c)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 	var userID, apiKeyID, accountID, groupID int64
 	if userIDStr := c.Query("user_id"); userIDStr != "" {
 		id, err := strconv.ParseInt(userIDStr, 10, 64)
@@ -190,6 +195,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 		SortOrder: c.DefaultQuery("sort_order", "desc"),
 	}
 	filters := usagestats.UsageLogFilters{
+		ExcludeUserID:         excludeUserID,
 		UserID:                userID,
 		APIKeyID:              apiKeyID,
 		AccountID:             accountID,
@@ -225,6 +231,11 @@ func (h *UsageHandler) List(c *gin.Context) {
 // GET /api/v1/admin/usage/stats
 func (h *UsageHandler) Stats(c *gin.Context) {
 	// Parse filters - same as List endpoint
+	excludeUserID, err := parseExcludeUserID(c)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 	var userID, apiKeyID, accountID, groupID int64
 	if userIDStr := c.Query("user_id"); userIDStr != "" {
 		id, err := strconv.ParseInt(userIDStr, 10, 64)
@@ -350,6 +361,7 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 
 	// Build filters and call GetStatsWithFilters
 	filters := usagestats.UsageLogFilters{
+		ExcludeUserID:         excludeUserID,
 		UserID:                userID,
 		APIKeyID:              apiKeyID,
 		AccountID:             accountID,

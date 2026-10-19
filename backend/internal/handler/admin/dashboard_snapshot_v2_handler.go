@@ -37,6 +37,7 @@ type dashboardSnapshotV2Response struct {
 }
 
 type dashboardSnapshotV2Filters struct {
+	ExcludeUserID         int64
 	UserID                int64
 	APIKeyID              int64
 	AccountID             int64
@@ -50,6 +51,7 @@ type dashboardSnapshotV2Filters struct {
 }
 
 type dashboardSnapshotV2CacheKey struct {
+	ExcludeUserID         int64  `json:"exclude_user_id"`
 	StartTime             string `json:"start_time"`
 	EndTime               string `json:"end_time"`
 	Granularity           string `json:"granularity"`
@@ -100,6 +102,7 @@ func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
 		StartTime:             startTime.UTC().Format(time.RFC3339),
 		EndTime:               endTime.UTC().Format(time.RFC3339),
 		Granularity:           granularity,
+		ExcludeUserID:         filters.ExcludeUserID,
 		UserID:                filters.UserID,
 		APIKeyID:              filters.APIKeyID,
 		AccountID:             filters.AccountID,
@@ -192,6 +195,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.NativeCompactionV2,
 			filters.BillingType,
 			filters.UpstreamModelMismatch,
+			filters.ExcludeUserID,
 		)
 		if err != nil {
 			return nil, errors.New("failed to get usage trend")
@@ -214,6 +218,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.NativeCompactionV2,
 			filters.BillingType,
 			filters.UpstreamModelMismatch,
+			filters.ExcludeUserID,
 		)
 		if err != nil {
 			return nil, errors.New("failed to get model statistics")
@@ -235,6 +240,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.NativeCompactionV2,
 			filters.BillingType,
 			filters.UpstreamModelMismatch,
+			filters.ExcludeUserID,
 		)
 		if err != nil {
 			return nil, errors.New("failed to get group statistics")
@@ -254,8 +260,13 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 }
 
 func parseDashboardSnapshotV2Filters(c *gin.Context) (*dashboardSnapshotV2Filters, error) {
+	excludeUserID, err := parseExcludeUserID(c)
+	if err != nil {
+		return nil, err
+	}
 	filters := &dashboardSnapshotV2Filters{
-		Model: strings.TrimSpace(c.Query("model")),
+		ExcludeUserID: excludeUserID,
+		Model:         strings.TrimSpace(c.Query("model")),
 	}
 
 	if userIDStr := strings.TrimSpace(c.Query("user_id")); userIDStr != "" {

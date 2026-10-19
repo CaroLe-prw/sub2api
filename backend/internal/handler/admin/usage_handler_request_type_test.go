@@ -217,3 +217,25 @@ func TestAdminUsageStatsInvalidStream(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestAdminUsageExcludeUser(t *testing.T) {
+	for _, path := range []string{"/admin/usage", "/admin/usage/stats"} {
+		t.Run(path, func(t *testing.T) {
+			repo := &adminUsageRepoCapture{}
+			router := newAdminUsageRequestTypeTestRouter(repo)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?exclude_user_id=42&nocache=true", nil))
+			require.Equal(t, http.StatusOK, rec.Code)
+			if path == "/admin/usage" {
+				require.Equal(t, int64(42), repo.listFilters.ExcludeUserID)
+			} else {
+				require.Equal(t, int64(42), repo.statsFilters.ExcludeUserID)
+			}
+			for _, value := range []string{"0", "-1", "bad", "1.5", "9223372036854775808"} {
+				rec = httptest.NewRecorder()
+				router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path+"?exclude_user_id="+value, nil))
+				require.Equal(t, http.StatusBadRequest, rec.Code, value)
+			}
+		})
+	}
+}

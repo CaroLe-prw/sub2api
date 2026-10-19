@@ -509,6 +509,9 @@ export default {
     usage: {
       title: '使用记录',
       description: '查看和管理所有用户的使用记录',
+      excludeUserFilter: '排除用户邮箱',
+      searchExcludedUserPlaceholder: '搜索要排除的邮箱…',
+      exclusionCleanupHint: '请先清除排除用户筛选，再使用清理功能',
       userFilter: '用户',
       searchUserPlaceholder: '按邮箱搜索用户...',
       searchApiKeyPlaceholder: '按名称搜索 API 密钥...',

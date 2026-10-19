@@ -78,8 +78,9 @@ vi.mock('@/api/admin', () => ({
 
 // Default props helper
 const defaultFilters = () => ({
-  user_id: undefined,
-  api_key_id: undefined,
+  user_id: undefined as number | undefined,
+  exclude_user_id: undefined as number | undefined,
+  api_key_id: undefined as number | undefined,
   account_id: undefined,
   model: null,
   request_type: null,
@@ -306,5 +307,63 @@ describe('UsageFilters — native compaction filter', () => {
 
     expect(filters.native_compaction_v2).toBe(true)
     expect(wrapper.emitted('change')).toBeTruthy()
+  })
+})
+
+
+describe('UsageFilters — excluded user', () => {
+  beforeEach(() => { vi.useFakeTimers(); mockSearchUsers.mockReset() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('searches and excludes the selected email, clears conflicting filters, and resets the label', async () => {
+    mockSearchUsers.mockResolvedValue([{ id: 42, email: 'exclude@test.com', deleted: false }])
+    const filters = defaultFilters()
+    filters.user_id = 7
+    filters.api_key_id = 8
+    const wrapper = mountFilters(filters)
+    const input = wrapper.find('input[placeholder="admin.usage.searchExcludedUserPlaceholder"]')
+    await input.trigger('focus')
+    await input.setValue('exclude')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+    const option = wrapper.findAll('button').find(b => b.text().includes('exclude@test.com'))!
+    await option.trigger('click')
+    expect(filters.exclude_user_id).toBe(42)
+    expect(filters.user_id).toBeUndefined()
+    expect(filters.api_key_id).toBeUndefined()
+    expect(wrapper.emitted('change')).toBeTruthy()
+    expect((input.element as HTMLInputElement).value).toBe('exclude@test.com')
+    await wrapper.setProps({ modelValue: defaultFilters() })
+    expect((input.element as HTMLInputElement).value).toBe('')
+    wrapper.unmount()
+  })
+
+  it('ignores a stale excluded-user search after clearing the input', async () => {
+    const pending = deferred<Array<{ id: number; email: string; deleted: boolean }>>()
+    mockSearchUsers.mockReturnValue(pending.promise)
+    const wrapper = mountFilters()
+    const input = wrapper.find('input[placeholder="admin.usage.searchExcludedUserPlaceholder"]')
+    await input.trigger('focus')
+    await input.setValue('stale')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+    await input.setValue('')
+    pending.resolve([{ id: 42, email: 'stale@test.com', deleted: false }])
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('stale@test.com')
+    wrapper.unmount()
+  })
+
+  it('hides exclusion in cleanup and errors, and disables cleanup while excluding a user', async () => {
+    const filters = defaultFilters()
+    filters.exclude_user_id = 42
+    const wrapper = mountFilters(filters)
+    await wrapper.setProps({ showActions: true })
+    expect(wrapper.find('button.btn-danger').attributes('disabled')).toBeDefined()
+    await wrapper.setProps({ allowUserExclusion: false })
+    expect(wrapper.find('input[placeholder="admin.usage.searchExcludedUserPlaceholder"]').exists()).toBe(false)
+    await wrapper.setProps({ allowUserExclusion: true, mode: 'errors' })
+    expect(wrapper.find('input[placeholder="admin.usage.searchExcludedUserPlaceholder"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 })

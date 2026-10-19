@@ -11,6 +11,7 @@ import (
 var usageStatsCache = newSnapshotCache(30 * time.Second)
 
 type usageStatsCacheKeyData struct {
+	ExcludeUserID         int64  `json:"exclude_user_id"`
 	StartTime             string `json:"start_time"`
 	EndTime               string `json:"end_time"`
 	UserID                int64  `json:"user_id"`
@@ -38,6 +39,7 @@ func usageStatsCacheKey(filters usagestats.UsageLogFilters) string {
 	return mustMarshalDashboardCacheKey(usageStatsCacheKeyData{
 		StartTime:             start,
 		EndTime:               end,
+		ExcludeUserID:         filters.ExcludeUserID,
 		UserID:                filters.UserID,
 		APIKeyID:              filters.APIKeyID,
 		AccountID:             filters.AccountID,
