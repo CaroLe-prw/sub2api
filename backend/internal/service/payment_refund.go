@@ -171,7 +171,7 @@ func (s *PaymentService) RequestRefund(ctx context.Context, oid, uid int64, reas
 	by := fmt.Sprintf("%d", uid)
 	c, err := s.entClient.PaymentOrder.Update().Where(paymentorder.IDEQ(oid), paymentorder.UserIDEQ(uid), paymentorder.StatusEQ(OrderStatusCompleted), paymentorder.OrderTypeEQ(payment.OrderTypeBalance)).SetStatus(OrderStatusRefundRequested).SetRefundRequestedAt(now).SetRefundRequestReason(nr).SetRefundRequestedBy(by).SetRefundAmount(o.Amount).Save(ctx)
 	if err != nil {
-		return fmt.Errorf("update: %w", err)
+		return invoiceRefundError(fmt.Errorf("update: %w", err))
 	}
 	if c == 0 {
 		return infraerrors.Conflict("CONFLICT", "order status changed")
@@ -307,7 +307,7 @@ func (s *PaymentService) invalidateRefundBalanceCache(ctx context.Context, userI
 func (s *PaymentService) ExecuteRefund(ctx context.Context, p *RefundPlan) (*RefundResult, error) {
 	c, err := s.entClient.PaymentOrder.Update().Where(paymentorder.IDEQ(p.OrderID), paymentorder.StatusIn(OrderStatusCompleted, OrderStatusRefundRequested, OrderStatusRefundFailed)).SetStatus(OrderStatusRefunding).Save(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("lock: %w", err)
+		return nil, invoiceRefundError(fmt.Errorf("lock: %w", err))
 	}
 	if c == 0 {
 		return nil, infraerrors.Conflict("CONFLICT", "order status changed")

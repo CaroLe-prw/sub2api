@@ -206,6 +206,8 @@ export default {
     subscribe: '订阅',
     docs: '文档',
     myOrders: '我的订单',
+    invoices: '我的发票',
+    adminInvoices: '发票管理',
     orderManagement: '订单管理',
     paymentDashboard: '支付概览',
     paymentConfig: '支付配置',

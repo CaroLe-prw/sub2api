@@ -95,8 +95,8 @@ func TestParsePaymentConfig(t *testing.T) {
 	t.Run("empty vals uses defaults", func(t *testing.T) {
 		t.Parallel()
 		cfg := svc.parsePaymentConfig(map[string]string{})
-		if cfg.Enabled {
-			t.Fatal("expected Enabled=false by default")
+		if !cfg.Enabled {
+			t.Fatal("expected Enabled=true by default (payment is default-on unless explicitly disabled)")
 		}
 		if cfg.MinAmount != 1 {
 			t.Fatalf("expected MinAmount=1, got %v", cfg.MinAmount)
@@ -118,6 +118,14 @@ func TestParsePaymentConfig(t *testing.T) {
 		}
 		if cfg.AlipayMobilePrecreateDeepLink {
 			t.Fatal("expected AlipayMobilePrecreateDeepLink=false by default")
+		}
+	})
+
+	t.Run("explicit false disables payment", func(t *testing.T) {
+		t.Parallel()
+		cfg := svc.parsePaymentConfig(map[string]string{SettingPaymentEnabled: "false"})
+		if cfg.Enabled {
+			t.Fatal("expected Enabled=false when payment_enabled is explicitly false")
 		}
 	})
 

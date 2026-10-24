@@ -1,0 +1,21 @@
+export default {
+  management: '发票管理',
+  adminHint: '审核申请后手动开票，上传发票供用户下载。开票手续费由平台承担。',
+  enabled: '开放发票申请',
+  openPlatform: '前往开票平台',
+  applicationHint: '选择充值订单并填写抬头，管理员审核后人工开票。支付手续费和赠送额度不计入票面金额。',
+  back: '返回选单',
+  fillDetails: '填写开票信息',
+  copyDetails: '复制开票资料',
+  copied: '开票资料已复制',
+  invoiceNumber: '发票号码（选填）',
+  upload: '上传发票',
+  uploadHint: '发票文件（PDF / PNG / JPG，最大20MB）',
+  approveHint: '通过后进入待人工开票，请在开票平台自行办理，再回来上传发票。',
+  externalChecked: '我已核对原平台开票结果，上传的是该申请对应的发票',
+  notIssued: '我已确认尚未开票，且外部申请已取消或未受理；取消后释放订单占用',
+  legacyHint: '这是之前提交过外部平台的记录。请先人工核对原申请结果，避免重复开票。',
+  saved: '已保存',
+  fileTooLarge: '文件不能超过20MB',
+  events: { create: '提交申请', approve: '审核通过', reject: '驳回申请', withdraw: '用户撤回', cancel: '取消申请', upload: '上传发票', update: '处理记录' }
+}

@@ -181,6 +181,12 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 		return nil, err
 	}
 	providerSnapshot := buildPaymentOrderProviderSnapshot(sel, req)
+	if req.OrderType == payment.OrderTypeBalance {
+		if providerSnapshot == nil {
+			providerSnapshot = map[string]any{}
+		}
+		providerSnapshot["invoice_principal_cent"] = decimal.NewFromFloat(limitAmount).Mul(decimal.NewFromInt(100)).Round(0).StringFixed(0)
+	}
 	selectedInstanceID := ""
 	selectedProviderKey := ""
 	if sel != nil {

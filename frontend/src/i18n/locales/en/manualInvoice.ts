@@ -1,0 +1,21 @@
+export default {
+  management: 'Invoice Management',
+  adminHint: 'Review applications, issue invoices manually, then upload files for users. The platform pays issuance fees.',
+  enabled: 'Accept invoice applications',
+  openPlatform: 'Open invoicing platform',
+  applicationHint: 'Select top-up orders and enter billing details. An administrator reviews and issues the invoice manually. Payment fees and bonus credit are excluded.',
+  back: 'Back to orders',
+  fillDetails: 'Enter billing details',
+  copyDetails: 'Copy billing details',
+  copied: 'Billing details copied',
+  invoiceNumber: 'Invoice number (optional)',
+  upload: 'Upload invoice',
+  uploadHint: 'Invoice file (PDF / PNG / JPG, up to 20 MB)',
+  approveHint: 'Approval moves this request to manual issuance. Issue the invoice on the invoicing platform, then upload the file here.',
+  externalChecked: 'I verified the original platform result; this file belongs to this application',
+  notIssued: 'I verified no invoice was issued and any external request was cancelled or refused; release these orders',
+  legacyHint: 'This application was previously sent to an external platform. Verify its original result before proceeding to avoid duplicate issuance.',
+  saved: 'Saved',
+  fileTooLarge: 'The file must not exceed 20 MB',
+  events: { create: 'Application submitted', approve: 'Approved', reject: 'Rejected', withdraw: 'Withdrawn by user', cancel: 'Cancelled', upload: 'Invoice uploaded', update: 'Status update' }
+}

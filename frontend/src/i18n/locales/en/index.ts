@@ -7,6 +7,7 @@ import admin from './admin'
 import misc from './misc'
 import checkIn from './checkIn'
 import lottery from './lottery'
+import invoice from './invoice'
 
 export default {
   ...landing,
@@ -18,4 +19,5 @@ export default {
   ...misc,
   ...checkIn,
   ...lottery,
+  ...invoice,
 }

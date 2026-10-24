@@ -17,7 +17,7 @@
                 <span v-if="entry.row.model && entry.row.group_name" class="model-label" :title="entry.row.model">{{ entry.row.model }}</span>
               </div>
             </div>
-            <span class="health-badge" :data-state="entry.row.health.overall">{{ t(`channelMonitorV2.cards.states.${entry.row.health.overall}`) }}</span>
+            <span class="health-badge" :data-state="monitorAvailabilityHealth(entry.row.metrics)">{{ t(`channelMonitorV2.cards.states.${monitorAvailabilityHealth(entry.row.metrics)}`) }}</span>
           </header>
 
           <dl class="channel-metrics">
@@ -27,7 +27,7 @@
             </div>
             <div class="channel-metric">
               <dt>{{ t('channelMonitorV2.cards.availability') }}</dt>
-              <dd :data-state="entry.row.health.error_rate">{{ monitorAvailability(entry.row.metrics) }}</dd>
+              <dd :data-state="monitorAvailabilityHealth(entry.row.metrics)">{{ monitorAvailability(entry.row.metrics) }}</dd>
             </div>
             <div class="channel-metric" :title="latency(entry.row.metrics)">
               <dt>{{ t('channelMonitorV2.metrics.ttft') }}</dt>
@@ -46,7 +46,7 @@
                 :key="slot.time"
                 type="button"
                 class="history-slot"
-                :class="`availability-${monitorAvailabilityState(slot.bucket?.metrics)}`"
+                :class="`availability-${monitorAvailabilityHealth(slot.bucket?.metrics)}`"
                 :title="slotLabel(slot)"
                 :aria-label="slotLabel(slot)"
                 :aria-pressed="selectedKey === `${entry.key}:${slot.time}`"
@@ -74,7 +74,7 @@ import type { MonitorCoverage, MonitorMatrixRow, MonitorMetric } from '@/api/cha
 import ProviderIcon from '@/components/user/monitor/ProviderIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatLatencyPrivacy, formatMonitorMs, ttftDisplayState } from './monitorFormat'
-import { monitorAvailability, monitorAvailabilityState, monitorCacheRate, monitorCardSlots, monitorPlatformName } from './monitorCards'
+import { monitorAvailability, monitorAvailabilityHealth, monitorAvailabilityState, monitorCacheRate, monitorCardSlots, monitorPlatformName } from './monitorCards'
 
 const props = defineProps<{
   rows: MonitorMatrixRow[]
@@ -162,9 +162,8 @@ watch(() => props.coverage, () => { selectedKey.value = null })
 .history-slot:hover span, .history-slot:focus-visible span { opacity: .65; }
 .history-slot:focus-visible, .history-slot[aria-pressed="true"] { outline: 2px solid #94a3b8; }
 .availability-unknown { --pulse-color: #adbacb; --pulse-height: 4px; }
-.availability-success { --pulse-color: #0db783; }
-.availability-partial { --pulse-color: #f5a300; --pulse-height: 12px; }
-.availability-failed { --pulse-color: #f34f59; --pulse-height: 5px; }
+.availability-healthy { --pulse-color: #0db783; }
+.availability-warning { --pulse-color: #f5a300; --pulse-height: 12px; }
 .history-axis { display: flex; justify-content: space-between; margin-top: 5px; font-size: 8px; color: var(--card-muted); font-family: ui-monospace, monospace; }
 .history-detail { margin-top: 12px; color: var(--card-muted); font-size: 11px; line-height: 1.7; }
 .cards-empty { padding: 64px 24px; text-align: center; border-radius: 8px; background: var(--card-surface); }

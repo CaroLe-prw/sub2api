@@ -1057,6 +1057,8 @@ var ProviderSet = wire.NewSet(
 	ProvidePaymentService,
 	ProvidePaymentOrderExpiryService,
 	ProvidePaymentVerificationService,
+	ProvideInvoiceService,
+	ProvideInvoiceNotificationService,
 	ProvideBalanceNotifyService,
 	ProvideChannelMonitorService,
 	ProvideChannelMonitorRunner,
@@ -1177,4 +1179,12 @@ func ProvidePaymentVerificationService(repo PaymentVerificationRepository, payme
 	svc.SetLeaderLock(lockCache, db)
 	svc.Start()
 	return svc
+}
+
+func ProvideInvoiceService(db *sql.DB) *InvoiceService { return NewInvoiceService(db) }
+
+func ProvideInvoiceNotificationService(db *sql.DB, emails *NotificationEmailService, users UserRepository, settings *SettingService) *InvoiceNotificationService {
+	s := NewInvoiceNotificationService(db, emails, users, settings)
+	s.Start()
+	return s
 }

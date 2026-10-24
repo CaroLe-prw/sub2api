@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -215,13 +216,17 @@ func NewPaymentConfigService(entClient *dbent.Client, settingRepo SettingReposit
 	return &PaymentConfigService{entClient: entClient, settingRepo: settingRepo, encryptionKey: encryptionKey}
 }
 
+// paymentEnabledDefaultOn reports payment enablement with a default-on policy:
+// the feature stays on unless the setting exists and is explicitly "false".
+func paymentEnabledDefaultOn(val string) bool { return val != "false" }
+
 // IsPaymentEnabled returns whether the payment system is enabled.
 func (s *PaymentConfigService) IsPaymentEnabled(ctx context.Context) bool {
 	val, err := s.settingRepo.GetValue(ctx, SettingPaymentEnabled)
 	if err != nil {
-		return false
+		return errors.Is(err, ErrSettingNotFound)
 	}
-	return val == "true"
+	return paymentEnabledDefaultOn(val)
 }
 
 // GetPaymentConfig returns the full payment configuration.
@@ -251,7 +256,7 @@ func (s *PaymentConfigService) GetPaymentConfig(ctx context.Context) (*PaymentCo
 
 func (s *PaymentConfigService) parsePaymentConfig(vals map[string]string) *PaymentConfig {
 	cfg := &PaymentConfig{
-		Enabled:                   vals[SettingPaymentEnabled] == "true",
+		Enabled:                   paymentEnabledDefaultOn(vals[SettingPaymentEnabled]),
 		MinAmount:                 pcParseFloat(vals[SettingMinRechargeAmount], 1),
 		MaxAmount:                 pcParseFloat(vals[SettingMaxRechargeAmount], 0),
 		DailyLimit:                pcParseFloat(vals[SettingDailyRechargeLimit], 0),

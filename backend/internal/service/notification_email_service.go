@@ -20,6 +20,7 @@ import (
 )
 
 const (
+	NotificationEmailEventInvoiceApplication          = "invoice.application_submitted"
 	NotificationEmailEventAuthVerifyCode              = "auth.verify_code"
 	NotificationEmailEventAuthPasswordReset           = "auth.password_reset"
 	NotificationEmailEventNotificationEmailVerifyCode = "notification_email.verify_code"
@@ -516,6 +517,11 @@ func (s *NotificationEmailService) sampleVariables(ctx context.Context, event, l
 	variables := make(map[string]string, len(info.Placeholders))
 	for key, value := range notificationEmailSampleVariables(locale) {
 		variables[key] = value
+	}
+	if event == NotificationEmailEventInvoiceApplication {
+		for key, value := range map[string]string{"invoice_id": "INV-example", "applicant_name": "Example User", "applicant_email": "user@example.com", "invoice_company": "Example Ltd", "invoice_tax_number": "913100000000000000", "invoice_amount": "800.00", "invoice_item": "Technical services", "invoice_order_count": "2", "invoice_created_at": "2026-10-23 12:00:00 UTC", "invoice_review_url": "https://example.com/admin/invoices?q=INV-example", "invoice_review_display": "block"} {
+			variables[key] = value
+		}
 	}
 	variables["site_name"] = s.siteName(ctx)
 	if variables["unsubscribe_url"] == "" && info.Optional {
@@ -1021,6 +1027,7 @@ func addNotificationEmailOpsSummarySampleVariables(variables map[string]string) 
 }
 
 var notificationEmailEventOrder = []string{
+	NotificationEmailEventInvoiceApplication,
 	NotificationEmailEventAuthVerifyCode,
 	NotificationEmailEventAuthPasswordReset,
 	NotificationEmailEventNotificationEmailVerifyCode,
@@ -1037,6 +1044,10 @@ var notificationEmailEventOrder = []string{
 }
 
 var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
+	NotificationEmailEventInvoiceApplication: {
+		Event: NotificationEmailEventInvoiceApplication, Label: "New invoice application", Description: "Sent to the primary active administrator when a user submits an invoice application.", Category: "admin", Optional: false,
+		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...), "invoice_id", "applicant_name", "applicant_email", "invoice_company", "invoice_tax_number", "invoice_amount", "invoice_item", "invoice_order_count", "invoice_created_at", "invoice_review_url", "invoice_review_display"),
+	},
 	NotificationEmailEventAuthVerifyCode: {
 		Event:        NotificationEmailEventAuthVerifyCode,
 		Label:        "Email verification code",
@@ -1155,6 +1166,26 @@ var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
 }
 
 var notificationEmailOfficialTemplates = map[string]map[string]notificationEmailOfficialTemplate{
+	NotificationEmailEventInvoiceApplication: {
+		notificationEmailDefaultLocale: {
+			Subject: "[{{site_name}}] Invoice application awaiting review: {{invoice_company}}",
+			HTML: notificationEmailCard("#0d9488", "New invoice application", `
+<p>Hello {{recipient_name}}, a new invoice application is awaiting review.</p>
+<p>Application: <strong>{{invoice_id}}</strong><br>Applicant: {{applicant_name}} ({{applicant_email}})</p>
+<p>Buyer: {{invoice_company}}<br>Tax ID: {{invoice_tax_number}}<br>Amount: <strong>CNY {{invoice_amount}}</strong><br>Item: {{invoice_item}}<br>Orders: {{invoice_order_count}}<br>Submitted: {{invoice_created_at}}</p>
+<p style="display: {{invoice_review_display}}"><a href="{{invoice_review_url}}">Review application</a></p>
+<p>Open Invoice Management in the admin panel and search for the application number. Review the request, issue the invoice manually, then upload the file.</p>`),
+		},
+		notificationEmailLocaleChinese: {
+			Subject: "[{{site_name}}] 新发票申请待审核：{{invoice_company}}",
+			HTML: notificationEmailCard("#0d9488", "新发票申请", `
+<p>{{recipient_name}}，您好：有一笔新的发票申请等待审核。</p>
+<p>申请单号：<strong>{{invoice_id}}</strong><br>申请人：{{applicant_name}}（{{applicant_email}}）</p>
+<p>购方名称：{{invoice_company}}<br>税号：{{invoice_tax_number}}<br>开票金额：<strong>¥{{invoice_amount}}</strong><br>开票项目：{{invoice_item}}<br>关联订单：{{invoice_order_count}}笔<br>申请时间：{{invoice_created_at}}</p>
+<p style="display: {{invoice_review_display}}"><a href="{{invoice_review_url}}">前往审核</a></p>
+<p>也可进入后台“发票管理”，按申请单号搜索。审核后请手工开票并上传发票文件。</p>`),
+		},
+	},
 	NotificationEmailEventAuthVerifyCode: {
 		notificationEmailDefaultLocale: {
 			Subject: "[{{site_name}}] Email verification code",

@@ -79,25 +79,27 @@ describe('channel status cards', () => {
     expect(slots[1].bucket).toBe(channel.buckets[0])
     expect(slots[2].bucket).toBeUndefined()
   })
-  it('colors history by interval availability even when overall health is critical', async () => {
+  it('colors cards and history using the 60% availability threshold even when overall health is critical', async () => {
     const channel = row()
+    channel.metrics = { ...metrics, availability_rate: 0.905 }
     channel.health = { ...channel.health, overall: 'critical', ttft: 'critical', score: 10 }
-    channel.buckets = [1, 0.751, 0, null].map((rate, index) => ({
+    channel.buckets = [1, 0.751, 0.6, 0.599999, 0, null].map((rate, index) => ({
       bucket_start: `2026-09-18T08:${String(index * 5).padStart(2, '0')}:00Z`,
       metrics: { ...metrics, availability_rate: rate, availability_source: 'probe' as const },
       health: channel.health,
     }))
     const wrapper = mount(MonitorChannelCards, {
-      props: { rows: [channel], coverage: { ...coverage, requested_end: '2026-09-18T08:20:00Z' }, countdown: 299, refreshing: false },
+      props: { rows: [channel], coverage: { ...coverage, requested_end: '2026-09-18T08:30:00Z' }, countdown: 299, refreshing: false },
     })
-    expect(wrapper.get('.health-badge').attributes('data-state')).toBe('critical')
+    expect(wrapper.get('.health-badge').attributes('data-state')).toBe('healthy')
+    expect(wrapper.findAll('.channel-metric dd')[1].attributes('data-state')).toBe('healthy')
     const slots = wrapper.findAll('.history-slot')
     expect(slots.map(slot => slot.classes().find(name => name.startsWith('availability-'))))
-      .toEqual(['availability-success', 'availability-partial', 'availability-failed', 'availability-unknown'])
+      .toEqual(['availability-healthy', 'availability-healthy', 'availability-healthy', 'availability-warning', 'availability-warning', 'availability-unknown'])
     expect(slots[0].attributes('aria-label')).toContain('全部可用')
     expect(slots[1].attributes('title')).toContain('部分不可用')
-    expect(slots[2].attributes('title')).toContain('全部不可用')
-    expect(slots[3].attributes('title')).toContain('无样本')
+    expect(slots[4].attributes('title')).toContain('全部不可用')
+    expect(slots[5].attributes('title')).toContain('无样本')
     await slots[0].trigger('click')
     expect(wrapper.get('.history-detail').text()).toContain('全部可用')
     expect(wrapper.get('.history-detail').text()).not.toContain('异常')
@@ -113,7 +115,7 @@ describe('channel status cards', () => {
     expect(wrapper.findAll('.channel-metric dd').slice(0, 3).map(el => el.text())).toEqual(['-', '100.0%', '-'])
     expect(wrapper.text()).not.toContain('12345')
     expect(wrapper.findAll('.history-slot')[0].classes()).toContain('availability-unknown')
-    expect(wrapper.findAll('.history-slot')[1].classes()).toContain('availability-success')
+    expect(wrapper.findAll('.history-slot')[1].classes()).toContain('availability-healthy')
     await wrapper.findAll('.history-slot')[1].trigger('click')
     expect(wrapper.find('.history-detail').text()).toContain('账户探测')
     await wrapper.findAll('.history-slot')[1].trigger('click')

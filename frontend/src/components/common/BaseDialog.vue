@@ -3,7 +3,7 @@
     <Transition name="modal" @after-leave="handleAfterLeave">
       <div
         v-if="show"
-        class="modal-overlay"
+        :class="['modal-overlay', placement === 'right' ? '!items-stretch !justify-end !p-0' : '']"
         :style="zIndexStyle"
         :aria-labelledby="dialogId"
         role="dialog"
@@ -14,9 +14,9 @@
         <div ref="dialogRef" :class="['modal-content', widthClasses]" @click.stop>
           <!-- Header -->
           <div class="modal-header">
-            <h3 :id="dialogId" class="modal-title">
-              {{ title }}
-            </h3>
+            <slot name="header" :title-id="dialogId">
+              <h3 :id="dialogId" class="modal-title">{{ title }}</h3>
+            </slot>
             <button
               v-if="showCloseButton"
               @click="emit('close')"
@@ -69,6 +69,7 @@ interface Props {
   closeOnClickOutside?: boolean
   showCloseButton?: boolean
   zIndex?: number
+  placement?: 'center' | 'right'
 }
 
 interface Emits {
@@ -81,7 +82,8 @@ const props = withDefaults(defineProps<Props>(), {
   closeOnEscape: true,
   closeOnClickOutside: false,
   showCloseButton: true,
-  zIndex: 50
+  zIndex: 50,
+  placement: 'center'
 })
 
 const emit = defineEmits<Emits>()
@@ -92,6 +94,7 @@ const zIndexStyle = computed(() => {
 })
 
 const widthClasses = computed(() => {
+  if (props.placement === 'right') return 'w-full sm:max-w-xl !h-[100dvh] !max-h-[100dvh] !rounded-none'
   // Width guidance: narrow=confirm/short prompts, normal=standard forms,
   // wide=multi-section forms or rich content, extra-wide=analytics/tables,
   // full=full-screen or very dense layouts.

@@ -15,6 +15,13 @@ export function monitorAvailability(metric: MonitorMetric): string {
   return rate == null ? '-' : formatMonitorPercent(rate)
 }
 
+/** Card status and history colors share the same unrounded 60% threshold. */
+export function monitorAvailabilityHealth(metric?: MonitorMetric): 'healthy' | 'warning' | 'unknown' {
+  const rate = monitorAvailabilityRate(metric)
+  if (rate == null) return 'unknown'
+  return rate < 0.6 ? 'warning' : 'healthy'
+}
+
 export type MonitorAvailabilityState = 'success' | 'partial' | 'failed' | 'unknown'
 
 /** Classify the unrounded availability, independently of latency/cache scoring. */

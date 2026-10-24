@@ -206,6 +206,8 @@ export default {
     subscribe: 'Subscription',
     docs: 'Docs',
     myOrders: 'My Orders',
+    invoices: 'My Invoices',
+    adminInvoices: 'Invoices',
     orderManagement: 'Orders',
     paymentDashboard: 'Payment Dashboard',
     paymentConfig: 'Payment Config',

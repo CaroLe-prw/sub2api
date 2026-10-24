@@ -8,6 +8,7 @@ import audit from './audit'
 import promptAudit from './promptAudit'
 import schedulerObservability from './schedulerObservability'
 import plugins from './plugins'
+import invoice from './invoice'
 
 export default {
   ...overview,
@@ -20,4 +21,5 @@ export default {
   ...promptAudit,
   ...schedulerObservability,
   ...plugins,
+  ...invoice,
 }

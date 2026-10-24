@@ -360,6 +360,14 @@
     @apply bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400;
   }
 
+  .badge-info {
+    @apply bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400;
+  }
+
+  .badge-secondary {
+    @apply bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-dark-400;
+  }
+
   .badge-gray {
     @apply bg-gray-100 text-gray-700 dark:bg-dark-700 dark:text-dark-300;
   }
