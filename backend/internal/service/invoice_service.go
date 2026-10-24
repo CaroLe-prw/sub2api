@@ -33,13 +33,34 @@ func invoiceDBError(err error) error {
 	return err
 }
 func (s *InvoiceService) GetConfig(ctx context.Context) (*InvoiceConfig, error) {
-	c := &InvoiceConfig{}
-	err := s.db.QueryRowContext(ctx, `SELECT enabled FROM invoice_settings WHERE id=1`).Scan(&c.Enabled)
-	return c, err
+	return scanInvoiceConfig(s.db.QueryRowContext(ctx, invoiceConfigSelect))
 }
 func (s *InvoiceService) UpdateConfig(ctx context.Context, in InvoiceConfig) (*InvoiceConfig, error) {
-	_, err := s.db.ExecContext(ctx, `UPDATE invoice_settings SET enabled=$1,updated_at=NOW() WHERE id=1`, in.Enabled)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	old, err := scanInvoiceConfig(tx.QueryRowContext(ctx, invoiceConfigSelect+` FOR UPDATE`))
+	if err != nil {
+		return nil, err
+	}
+	if in.FeeTiers == nil {
+		in.MinAmountCent = old.MinAmountCent
+		in.FeeTiers = old.FeeTiers
+	}
+	if err = validateInvoicePricing(in.MinAmountCent, in.FeeTiers); err != nil {
+		return nil, err
+	}
+	version := old.PricingVersion
+	if old.MinAmountCent != in.MinAmountCent || invoiceJSON(old.FeeTiers) != invoiceJSON(in.FeeTiers) {
+		version++
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE invoice_settings SET enabled=$1,min_amount_cent=$2,fee_tiers=$3,pricing_version=$4,updated_at=NOW() WHERE id=1`, in.Enabled, in.MinAmountCent, invoiceJSON(in.FeeTiers), version)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	return s.GetConfig(ctx)
@@ -210,11 +231,11 @@ func (s *InvoiceService) Create(ctx context.Context, user int64, in InvoiceCreat
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	var enabled bool
-	if err = tx.QueryRowContext(ctx, `SELECT enabled FROM invoice_settings WHERE id=1 FOR SHARE`).Scan(&enabled); err != nil {
+	cfg, err := scanInvoiceConfig(tx.QueryRowContext(ctx, invoiceConfigSelect+` FOR SHARE`))
+	if err != nil {
 		return nil, err
 	}
-	if !enabled {
+	if !cfg.Enabled {
 		return nil, invoiceBad("发票申请暂未开放")
 	}
 	record := &InvoiceRecord{ID: "INV_" + strings.ReplaceAll(uuid.NewString(), "-", ""), UserID: user, Status: InvoiceReview, Manual: true, InvoiceType: in.InvoiceType, InvoiceCategory: in.InvoiceCategory, Quantity: in.Quantity, UnitPriceCent: in.UnitPriceCent, InvoiceTitle: in.InvoiceTitle, Remark: in.Remark, InvoiceItem: in.InvoiceItem, Specification: in.Specification, Unit: in.Unit, Orders: []InvoiceOrder{}}
@@ -234,6 +255,19 @@ func (s *InvoiceService) Create(ctx context.Context, user int64, in InvoiceCreat
 	}
 	if record.AmountCent > 9000000000000000 {
 		return nil, invoiceBad("合计金额超出范围")
+	}
+	quote, err := invoiceFeeQuote(cfg, record.AmountCent)
+	if err != nil {
+		return nil, err
+	}
+	if in.ExpectedAmountCent != nil && *in.ExpectedAmountCent != quote.AmountCent || in.ExpectedFeeCent != nil && *in.ExpectedFeeCent != quote.FeeCent || in.PricingVersion != 0 && in.PricingVersion != quote.PricingVersion || quote.FeeCent > 0 && (in.ExpectedFeeCent == nil || in.PricingVersion != quote.PricingVersion) {
+		return nil, invoiceConflict("手续费报价已变化，请重新核对后提交")
+	}
+	record.ServiceFeeCent = quote.FeeCent
+	record.FeeRateBps = quote.RateBps
+	record.FeePricingVersion = quote.PricingVersion
+	if quote.FeeCent > 0 {
+		record.Status = InvoicePendingPayment
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO invoice_applications(id,user_id,status,data) VALUES($1,$2,$3,$4)`, record.ID, user, record.Status, invoiceJSON(record)); err != nil {
 		return nil, err
@@ -255,8 +289,10 @@ func (s *InvoiceService) Create(ctx context.Context, user int64, in InvoiceCreat
 	}
 	// Persist the notification atomically with the application. SMTP failures
 	// must not roll back a valid application or cause duplicate submissions.
-	if _, err = tx.ExecContext(ctx, `INSERT INTO invoice_admin_notifications(application_id) VALUES($1)`, record.ID); err != nil {
-		return nil, err
+	if record.Status == InvoiceReview {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO invoice_admin_notifications(application_id) VALUES($1)`, record.ID); err != nil {
+			return nil, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
@@ -266,7 +302,9 @@ func (s *InvoiceService) Create(ctx context.Context, user int64, in InvoiceCreat
 
 const invoiceSelect = `SELECT id,user_id,status,data,created_at,updated_at,
  EXISTS(SELECT 1 FROM invoice_files f WHERE f.application_id=invoice_applications.id),
- (payload IS NOT NULL AND NOT COALESCE((data->>'manual')::boolean,FALSE))
+ (payload IS NOT NULL AND NOT COALESCE((data->>'manual')::boolean,FALSE)),
+ COALESCE((SELECT status FROM payment_orders WHERE id=NULLIF(invoice_applications.data->>'fee_payment_order_id','0')::bigint),''),
+ EXISTS(SELECT 1 FROM invoice_fee_payments fp JOIN payment_orders po ON po.id=fp.payment_order_id WHERE fp.application_id=invoice_applications.id AND fp.refund_required AND po.status IN ('PAID','RECHARGING','COMPLETED','REFUNDING','REFUND_PENDING','REFUND_FAILED','PARTIALLY_REFUNDED'))
  FROM invoice_applications`
 
 func scanInvoice(row invoiceScanner) (*InvoiceRecord, error) {
@@ -274,8 +312,9 @@ func scanInvoice(row invoiceScanner) (*InvoiceRecord, error) {
 	var uid int64
 	var raw []byte
 	var created, updated time.Time
-	var downloadable, requiresManualCheck bool
-	if err := row.Scan(&id, &uid, &status, &raw, &created, &updated, &downloadable, &requiresManualCheck); err != nil {
+	var downloadable, requiresManualCheck, refundRequired bool
+	var paymentStatus string
+	if err := row.Scan(&id, &uid, &status, &raw, &created, &updated, &downloadable, &requiresManualCheck, &paymentStatus, &refundRequired); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, infraerrors.NotFound("INVOICE_NOT_FOUND", "发票申请不存在")
 		}
@@ -287,6 +326,8 @@ func scanInvoice(row invoiceScanner) (*InvoiceRecord, error) {
 	}
 	r.Downloadable = downloadable && status == InvoiceCompleted
 	r.RequiresManualCheck = requiresManualCheck
+	r.FeePaymentStatus = paymentStatus
+	r.FeeRefundRequired = refundRequired
 	r.ID = id
 	r.UserID = uid
 	r.Status = status
@@ -377,6 +418,9 @@ func saveInvoice(ctx context.Context, tx *sql.Tx, r *InvoiceRecord, actor, actio
 		return err
 	}
 	if slices.Contains([]string{InvoiceRejected, InvoiceWithdrawn, InvoiceCancelled, InvoiceFailed}, r.Status) {
+		if _, err = tx.ExecContext(ctx, `UPDATE invoice_fee_payments SET refund_required=TRUE WHERE application_id=$1`, r.ID); err != nil {
+			return err
+		}
 		if _, err = tx.ExecContext(ctx, `UPDATE invoice_order_links SET active=FALSE WHERE application_id=$1`, r.ID); err != nil {
 			return err
 		}
@@ -399,7 +443,7 @@ func (s *InvoiceService) Action(ctx context.Context, id string, user, actor int6
 	}
 	switch action {
 	case "withdraw":
-		if r.Status != InvoiceReview {
+		if r.Status != InvoiceReview && r.Status != InvoicePendingPayment {
 			return nil, invoiceConflict("只有待审核申请可撤回")
 		}
 		r.Status = InvoiceWithdrawn
@@ -410,6 +454,9 @@ func (s *InvoiceService) Action(ctx context.Context, id string, user, actor int6
 		r.Status = InvoiceRejected
 		r.ReviewNote = note
 	case "approve":
+		if r.ServiceFeeCent > 0 && (!r.FeePaid || r.FeePaymentStatus != "COMPLETED") {
+			return nil, invoiceConflict("手续费尚未支付，不能审核开票")
+		}
 		if r.Status != InvoiceReview || r.RequiresManualCheck {
 			return nil, invoiceConflict("申请已处理，请刷新")
 		}
@@ -430,7 +477,7 @@ func (s *InvoiceService) Action(ctx context.Context, id string, user, actor int6
 		r.Manual = true
 		r.ReviewNote = note
 	case "cancel":
-		if !slices.Contains([]string{InvoiceApproved, InvoiceSubmitting, InvoiceProcessing, InvoiceUnknown, InvoiceAttention, InvoiceCancelling}, r.Status) {
+		if !slices.Contains([]string{InvoicePendingPayment, InvoiceApproved, InvoiceSubmitting, InvoiceProcessing, InvoiceUnknown, InvoiceAttention, InvoiceCancelling}, r.Status) {
 			return nil, invoiceConflict("当前状态不允许取消")
 		}
 		if !confirmNotIssued || note == "" {
@@ -459,6 +506,9 @@ func (s *InvoiceService) Action(ctx context.Context, id string, user, actor int6
 // Translate the database-level race guard into a useful payment API error.
 func invoiceRefundError(err error) error {
 	var p *pq.Error
+	if errors.As(err, &p) && p.Constraint == "invoice_fee_refund_guard" {
+		return invoiceConflict("请先驳回或取消对应发票申请后退还手续费")
+	}
 	if errors.As(err, &p) && p.Constraint == "invoice_refund_guard" {
 		return invoiceConflict("订单已有发票申请，请先撤回或确认取消；已开票订单需人工处理")
 	}

@@ -19,7 +19,7 @@
         </label>
       </div>
       <button v-if="hasMoreOrders" data-testid="invoice-load-more" type="button" class="btn btn-secondary" :disabled="ordersLoading" @click="loadOrders(true)">{{ t('invoice.apply.loadMoreOrders') }}</button>
-      <p class="text-xs text-gray-500">{{ t('invoice.apply.orderLimit') }}</p>
+      <p class="text-xs text-gray-500">{{ t('invoice.apply.orderLimit') }}</p><p v-if="pricing" class="text-sm text-primary-600">{{ t('invoice.fees.minimumHint', { amount: formatInvoiceCent(pricing.min_amount_cent) }) }}</p>
     </div>
 
     <form v-else-if="step === 2" id="invoice-apply-form" class="space-y-6 py-3 sm:space-y-7" @submit.prevent="reviewApplication">
@@ -36,7 +36,7 @@
         <div><label class="invoice-form-label" for="invoice-buyer">{{ t('invoice.apply.companyName') }}</label><input id="invoice-buyer" v-model="form.company_name" class="input invoice-form-input" minlength="2" maxlength="200" :placeholder="t('invoice.form.buyerPlaceholder')" required /></div>
         <div><label class="invoice-form-label" for="invoice-tax">{{ t('invoice.apply.taxNumber') }} <span class="invoice-optional">{{ t('invoice.apply.optional') }}</span></label><input id="invoice-tax" v-model="form.tax_number" class="input invoice-form-input uppercase" maxlength="20" :placeholder="t('invoice.apply.taxNumberPlaceholder')" /><p class="invoice-form-hint">{{ t('invoice.form.taxHint') }}</p></div>
         <div><label class="invoice-form-label" for="invoice-amount">{{ t('invoice.apply.amount') }}</label><input id="invoice-amount" class="input invoice-form-input bg-gray-50 dark:bg-dark-900" :value="formatInvoiceCent(totalAmountCent)" readonly /><p class="invoice-form-hint">{{ t('invoice.form.amountHint') }}</p></div>
-        <div><label class="invoice-form-label" for="invoice-type">{{ t('invoice.apply.invoiceType') }}</label><select id="invoice-type" v-model="form.invoice_type" class="input invoice-form-input"><optgroup :label="t('invoice.form.normalInvoice')"><option value="NORMAL">{{ t('invoice.form.normalLabel') }}</option></optgroup></select><p class="invoice-form-hint text-primary-600">{{ t('invoice.form.feeHint') }}</p></div>
+        <div><label class="invoice-form-label" for="invoice-type">{{ t('invoice.apply.invoiceType') }}</label><select id="invoice-type" v-model="form.invoice_type" class="input invoice-form-input"><optgroup :label="t('invoice.form.normalInvoice')"><option value="NORMAL">{{ t('invoice.form.normalLabel') }}</option></optgroup></select><p class="invoice-form-hint text-primary-600">{{ feeEstimate === null ? t('invoice.fees.minimumHint', { amount: formatInvoiceCent(pricing?.min_amount_cent) }) : t('invoice.fees.estimated', { amount: formatInvoiceCent(feeEstimate) }) }}</p></div>
         <div><label class="invoice-form-label" for="invoice-category">{{ t('invoice.apply.category') }}</label><select id="invoice-category" v-model="form.invoice_category" class="input invoice-form-input"><option :value="MANUAL_INVOICE_CATEGORY">{{ t('invoice.form.categoryLabel') }}</option></select></div>
         <div><label class="invoice-form-label" for="invoice-item">{{ t('invoice.apply.invoiceItem') }}</label><select id="invoice-item" v-model="form.invoice_item" class="input invoice-form-input"><option v-for="(item, index) in MANUAL_INVOICE_ITEMS" :key="item" :value="item">{{ t(`invoice.form.items.${index}`) }}</option></select></div>
         <div><label class="invoice-form-label" for="invoice-email">{{ t('invoice.apply.deliveryEmail') }} <span class="invoice-optional">{{ t('invoice.apply.optional') }}</span></label><input id="invoice-email" v-model="form.delivery_email" class="input invoice-form-input" type="email" maxlength="254" :placeholder="t('invoice.apply.deliveryEmailPlaceholder')" /><p class="invoice-form-hint">{{ t('invoice.form.emailHint') }}</p></div>
@@ -46,17 +46,17 @@
     </form>
 
     <div v-else class="space-y-5 py-3">
-      <div class="rounded-xl bg-primary-50 p-4 text-sm text-primary-800 dark:bg-primary-900/30 dark:text-primary-200">{{ t('invoice.form.reviewHint') }}</div>
+      <div class="rounded-xl bg-primary-50 p-4 text-sm text-primary-800 dark:bg-primary-900/30 dark:text-primary-200">{{ t('invoice.fees.reviewHint') }}<p class="mt-2">{{ t('invoice.fees.appliedRate', { rate: (feeQuote?.rate_bps || 0) / 100 }) }}</p><p class="mt-2 font-bold">{{ t('invoice.fees.amountDue') }}：¥{{ formatInvoiceCent(feeQuote?.fee_cent) }}</p></div>
       <dl class="grid gap-5 sm:grid-cols-2"><div v-for="field in reviewFields" :key="field.label"><dt class="text-sm text-gray-500">{{ t(field.label) }}</dt><dd class="mt-1 whitespace-pre-wrap break-all font-medium">{{ field.value || t('invoice.confirm.notProvided') }}</dd></div></dl>
       <label class="flex items-start gap-2 rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-900"><input v-model="confirmed" class="mt-0.5" type="checkbox" data-testid="invoice-confirmed" />{{ t('invoice.form.confirmCorrect') }}</label>
     </div>
-    <div class="mt-4 flex justify-between rounded-xl bg-gray-50 p-3 text-sm dark:bg-dark-900"><span>{{ t('invoice.apply.selectedCount', { count: selectedOrderIds.length }) }}</span><strong>{{ t('invoice.apply.totalAmount') }}：¥{{ formatInvoiceCent(totalAmountCent) }}</strong></div>
+    <div class="mt-4 flex justify-between rounded-xl bg-gray-50 p-3 text-sm dark:bg-dark-900"><span>{{ t('invoice.apply.selectedCount', { count: selectedOrderIds.length }) }}</span><strong>{{ t('invoice.apply.totalAmount') }}：¥{{ formatInvoiceCent(step === 3 && feeQuote ? feeQuote.amount_cent : totalAmountCent) }}</strong></div>
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button class="btn btn-secondary" :disabled="submitting" @click="goBack">{{ step === 3 ? t('invoice.confirm.back') : step === 2 ? t('invoice.manual.back') : t('common.cancel') }}</button>
-        <button v-if="step === 1" data-testid="invoice-next" class="btn btn-primary" :disabled="!selectedOrderIds.length" @click="step = 2">{{ t('invoice.manual.fillDetails') }}</button>
-        <button v-else-if="step === 2" class="btn btn-primary" type="submit" form="invoice-apply-form" data-testid="invoice-review">{{ t('invoice.apply.review') }}</button>
-        <button v-else class="btn btn-primary" :disabled="submitting || !confirmed" data-testid="invoice-submit" @click="handleSubmit">{{ submitting ? t('common.processing') : t('invoice.confirm.submit') }}</button>
+        <button class="btn btn-secondary" :disabled="submitting || quoting" @click="goBack">{{ step === 3 ? t('invoice.confirm.back') : step === 2 ? t('invoice.manual.back') : t('common.cancel') }}</button>
+        <button v-if="step === 1" data-testid="invoice-next" class="btn btn-primary" :disabled="!selectedOrderIds.length || !!pricing && totalAmountCent < pricing.min_amount_cent" @click="step = 2">{{ t('invoice.manual.fillDetails') }}</button>
+        <button v-else-if="step === 2" class="btn btn-primary" type="submit" form="invoice-apply-form" data-testid="invoice-review" :disabled="quoting">{{ t('invoice.apply.review') }}</button>
+        <button v-else class="btn btn-primary" :disabled="submitting || !confirmed" data-testid="invoice-submit" @click="handleSubmit">{{ submitting ? t('common.processing') : feeQuote && feeQuote.fee_cent > 0 ? t('invoice.fees.submitPay') : t('invoice.confirm.submit') }}</button>
       </div>
     </template>
   </BaseDialog>
@@ -82,12 +82,12 @@ import { useAppStore } from '@/stores'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { invoiceAPI } from '@/api/invoice'
-import type { InvoiceOrder, InvoiceTitle } from '@/types/invoice'
+import type { InvoiceOrder, InvoiceTitle, InvoiceRecord, InvoiceConfig, InvoiceFeeQuote } from '@/types/invoice'
 import { formatInvoiceCent } from './invoiceUtils'
 import { MANUAL_INVOICE_ITEMS, MANUAL_INVOICE_CATEGORY, parseInvoicePaste, parseInvoiceUnitPrice } from './invoiceForm'
 import { formatOrderDateTime } from '@/components/payment/orderUtils'
 const props = defineProps<{ show: boolean }>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'created'): void }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'created', record: InvoiceRecord): void }>()
 const { t } = useI18n()
 const appStore = useAppStore()
 const step = ref(1), detailsOpen = ref(false), pasteOpen = ref(false), pasteText = ref(''), confirmed = ref(false), unitPrice = ref('')
@@ -96,11 +96,18 @@ const ordersLoading = ref(false), hasMoreOrders = ref(false), nextOrderCursor = 
 let generation = 0
 const emptyForm = () => ({ company_name: '', tax_number: '', delivery_email: '', invoice_type: 'NORMAL' as const, invoice_category: MANUAL_INVOICE_CATEGORY, invoice_item: MANUAL_INVOICE_ITEMS[0] as string, quantity: '', specification: '', unit: '', remark: '', save_title: false })
 const form = reactive(emptyForm())
+const pricing = ref<InvoiceConfig | null>(null), feeQuote = ref<InvoiceFeeQuote | null>(null), quoting = ref(false)
+const feeEstimate = computed(() => {
+  if (!pricing.value?.fee_tiers?.length || totalAmountCent.value < pricing.value.min_amount_cent) return null
+  let rate = 0
+  for (const tier of pricing.value.fee_tiers) if (totalAmountCent.value >= tier.min_amount_cent) rate = tier.rate_bps
+  return Number((BigInt(totalAmountCent.value) * BigInt(rate) + 9999n) / 10000n)
+})
 const totalAmountCent = computed(() => orders.value.filter(o => selectedOrderIds.value.includes(o.id)).reduce((sum, o) => sum + o.amount_cent, 0))
 const detailsSummary = computed(() => [form.specification, form.unit, form.quantity, unitPrice.value ? `¥${unitPrice.value}` : '', form.remark].filter(Boolean).join(' / '))
 const reviewFields = computed(() => [
   { label: 'invoice.apply.companyName', value: form.company_name }, { label: 'invoice.apply.taxNumber', value: form.tax_number },
-  { label: 'invoice.apply.amount', value: `¥${formatInvoiceCent(totalAmountCent.value)}` }, { label: 'invoice.apply.invoiceType', value: t('invoice.form.normalLabel') },
+  { label: 'invoice.apply.amount', value: `¥${formatInvoiceCent(feeQuote.value?.amount_cent ?? totalAmountCent.value)}` }, { label: 'invoice.apply.invoiceType', value: t('invoice.form.normalLabel') },
   { label: 'invoice.apply.category', value: t('invoice.form.categoryLabel') }, { label: 'invoice.apply.invoiceItem', value: form.invoice_item },
   { label: 'invoice.apply.deliveryEmail', value: form.delivery_email }, { label: 'invoice.apply.specification', value: form.specification },
   { label: 'invoice.apply.unit', value: form.unit }, { label: 'invoice.form.quantity', value: form.quantity },
@@ -121,12 +128,16 @@ function validateDetails(): boolean {
   return true
 }
 function finishDetails() { if (validateDetails()) detailsOpen.value = false }
-function reviewApplication() {
+async function reviewApplication() {
+ if (quoting.value) return
   form.company_name = form.company_name.trim(); form.tax_number = form.tax_number.trim().toUpperCase()
   if (form.company_name.length < 2 || form.company_name.length > 200) { appStore.showError(t('invoice.apply.errCompanyName')); return }
   if (form.tax_number && !/^[A-Z0-9]{15,20}$/.test(form.tax_number)) { appStore.showError(t('invoice.apply.errTaxNumber')); return }
   if (!validateDetails()) { detailsOpen.value = true; return }
-  confirmed.value = false; step.value = 3
+  quoting.value = true
+  const current = generation
+  try { const { data } = await invoiceAPI.quote([...selectedOrderIds.value]); if (current !== generation) return; feeQuote.value = data; confirmed.value = false; step.value = 3 }
+  catch (err) { if (current === generation) report(err) } finally { if (current === generation) quoting.value = false }
 }
 function closeApplication() { if (!submitting.value) { detailsOpen.value = false; emit('close') } }
 function goBack() { if (step.value > 1) { step.value -= 1; confirmed.value = false } else closeApplication() }
@@ -142,11 +153,11 @@ async function loadOrders(append = false) {
   } catch (err) { if (current === generation) report(err) } finally { if (current === generation) ordersLoading.value = false }
 }
 async function handleSubmit() {
-  if (submitting.value || step.value !== 3 || !confirmed.value) return
+  if (submitting.value || step.value !== 3 || !confirmed.value || !feeQuote.value) return
   submitting.value = true
   try {
-    await invoiceAPI.create({ ...form, unit_price_cent: parseInvoiceUnitPrice(unitPrice.value), order_ids: [...selectedOrderIds.value] })
-    appStore.showSuccess(t('invoice.apply.submitSuccess')); emit('created'); emit('close')
+    const { data } = await invoiceAPI.create({ ...form, unit_price_cent: parseInvoiceUnitPrice(unitPrice.value), order_ids: [...selectedOrderIds.value], expected_amount_cent: feeQuote.value.amount_cent, expected_fee_cent: feeQuote.value.fee_cent, pricing_version: feeQuote.value.pricing_version })
+    appStore.showSuccess(t('invoice.apply.submitSuccess')); emit('created', data); emit('close')
   } catch (err) { report(err) } finally { submitting.value = false }
 }
 watch(() => props.show, async open => {
@@ -154,9 +165,11 @@ watch(() => props.show, async open => {
   if (!open) return
   const current = generation
   step.value = 1; orders.value = []; selectedOrderIds.value = []; titles.value = []; nextOrderCursor.value = 0; hasMoreOrders.value = false
-  pasteText.value = ''; pasteOpen.value = false; unitPrice.value = ''; confirmed.value = false; Object.assign(form, emptyForm())
+  pricing.value = null; feeQuote.value = null; quoting.value = false; pasteText.value = ''; pasteOpen.value = false; unitPrice.value = ''; confirmed.value = false; Object.assign(form, emptyForm())
   void loadOrders()
-  try { const { data } = await invoiceAPI.getTitles(); if (current === generation) titles.value = data } catch { /* Optional saved titles. */ }
+  const results = await Promise.allSettled([invoiceAPI.getTitles(), invoiceAPI.getConfig()]); if (current !== generation) return
+  if (results[0].status === 'fulfilled') titles.value = results[0].value.data
+  if (results[1].status === 'fulfilled') pricing.value = results[1].value.data
 }, { immediate: true })
 </script>
 <style scoped>

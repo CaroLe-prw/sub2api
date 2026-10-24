@@ -17,7 +17,7 @@ func TestInvoiceManualRoutesRequireAuthentication(t *testing.T) {
 	deny := func(c *gin.Context) { c.AbortWithStatus(http.StatusUnauthorized) }
 	RegisterInvoiceRoutes(r.Group("/api/v1"), &handler.InvoiceHandler{}, middleware.JWTAuthMiddleware(deny), middleware.AdminAuthMiddleware(deny), middleware.AuditLogMiddleware(func(c *gin.Context) { c.Next() }), nil, middleware.NewPanelRateLimiter(nil, nil))
 	for _, tc := range []struct{ method, path string }{
-		{"GET", "/invoices/config"}, {"POST", "/invoices"}, {"GET", "/invoices/INV/download"},
+		{"POST", "/invoices/quote"}, {"GET", "/invoices/INV/payment"}, {"POST", "/admin/invoices/INV/refund-fee"}, {"GET", "/invoices/config"}, {"POST", "/invoices"}, {"GET", "/invoices/INV/download"},
 		{"PUT", "/admin/invoices/config"}, {"POST", "/admin/invoices/INV/action"}, {"POST", "/admin/invoices/INV/file"}, {"GET", "/admin/invoices/INV/download"},
 	} {
 		w := httptest.NewRecorder()

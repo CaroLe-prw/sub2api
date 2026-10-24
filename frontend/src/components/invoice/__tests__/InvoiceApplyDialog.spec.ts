@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import InvoiceApplyDialog from '../InvoiceApplyDialog.vue'
 
-const api = vi.hoisted(() => ({ getEligibleOrders: vi.fn(), getTitles: vi.fn(), create: vi.fn() }))
+const api = vi.hoisted(() => ({ getEligibleOrders: vi.fn(), getTitles: vi.fn(), getConfig: vi.fn(), quote: vi.fn(), create: vi.fn() }))
 vi.mock('@/api/invoice', () => ({ invoiceAPI: api }))
 vi.mock('@/stores', () => ({ useAppStore: () => ({ showError: vi.fn(), showSuccess: vi.fn() }) }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
@@ -14,7 +14,7 @@ async function openDialog() {
   } } })
   await wrapper.setProps({ show: true }); await flushPromises(); return wrapper
 }
-beforeEach(() => { vi.resetAllMocks(); api.getTitles.mockResolvedValue({ data: [] }) })
+beforeEach(() => { vi.resetAllMocks(); api.getTitles.mockResolvedValue({ data: [] }); api.getConfig.mockResolvedValue({ data: { enabled: true, min_amount_cent: 10000, fee_tiers: [{ min_amount_cent: 10000, rate_bps: 0 }], pricing_version: 1 } }); api.quote.mockResolvedValue({ data: { amount_cent: 10000, fee_cent: 0, rate_bps: 0, pricing_version: 1 } }) })
 describe('invoice order selection', () => {
   it('loads the next cursor and retains selected orders', async () => {
     api.getEligibleOrders.mockResolvedValueOnce({ data: { items: Array.from({ length: 200 }, (_, i) => order(i + 1)), next_after: 200, has_more: true } })
@@ -59,6 +59,7 @@ describe('invoice order selection', () => {
     await wrapper.get('[data-testid="invoice-submit"]').trigger('click'); await flushPromises()
     expect(api.create).toHaveBeenCalledWith(expect.objectContaining({ order_ids: [1], company_name: 'Example Ltd', tax_number: '', invoice_type: 'NORMAL', quantity: '2.5', unit_price_cent: 320, remark: 'Optional billing detail' }))
     expect(api.create.mock.calls[0][0]).not.toHaveProperty('amount_cent')
+    expect(api.create.mock.calls[0][0]).toHaveProperty('expected_fee_cent', 0)
     expect(api.create.mock.calls[0][0]).not.toHaveProperty('option_id')
     expect(wrapper.emitted('created')).toHaveLength(1)
   })

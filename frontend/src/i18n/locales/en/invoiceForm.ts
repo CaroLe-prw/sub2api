@@ -15,7 +15,7 @@ export default {
   normalLabel: 'Tax-exempt or taxable invoice',
   categoryLabel: 'Production and consumer services',
   items: { '0': 'Technical services', '1': 'AI subscription services', '2': 'Computing services' },
-  feeHint: 'The platform pays issuance fees. Your balance will not be charged.',
+  feeHint: 'Pay the tiered invoice fee online. Your site balance is not deducted.',
   emailHint: 'Optional contact or delivery address for the administrator. Download the file from your application history.',
   detailsHint: 'Specification, unit, quantity, unit price and invoice remark',
   detailsEyebrow: 'OPTIONAL DETAILS',
@@ -23,6 +23,6 @@ export default {
   remarkHint: 'The administrator reviews remarks when issuing the invoice. Enter actual business details.',
   quantityError: 'Quantity must be positive, with up to 12 integer digits and 6 decimal places.',
   priceError: 'Unit price must be positive, with at most two decimal places.',
-  reviewHint: 'Check the buyer details and selected orders. The administrator will issue the invoice manually, with fees paid by the platform.',
+  reviewHint: 'Check the buyer details, selected orders and fee. The administrator reviews the application after payment and issues the invoice manually.',
   confirmCorrect: 'I have checked the billing information and confirm it is correct.'
 }

@@ -10,9 +10,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type InvoiceHandler struct{ svc *service.InvoiceService }
+type InvoiceHandler struct {
+	svc      *service.InvoiceService
+	payments *service.PaymentService
+}
 
-func NewInvoiceHandler(s *service.InvoiceService) *InvoiceHandler { return &InvoiceHandler{svc: s} }
+func NewInvoiceHandler(s *service.InvoiceService, p *service.PaymentService) *InvoiceHandler {
+	return &InvoiceHandler{svc: s, payments: p}
+}
 func invoiceRespond(c *gin.Context, v any, e error) {
 	if e != nil {
 		response.ErrorFrom(c, e)
@@ -180,4 +185,73 @@ func (h *InvoiceHandler) Upload(c *gin.Context) {
 	}
 	result, err := h.svc.Upload(c.Request.Context(), c.Param("id"), actor.UserID, content, c.PostForm("invoice_number"), c.PostForm("confirm_external_checked") == "true")
 	invoiceRespond(c, result, err)
+}
+
+func (h *InvoiceHandler) Quote(c *gin.Context) {
+	u, ok := requireAuth(c)
+	if !ok {
+		return
+	}
+	var in struct {
+		OrderIDs []int64 `json:"order_ids"`
+	}
+	if c.ShouldBindJSON(&in) != nil {
+		response.BadRequest(c, "Invalid orders")
+		return
+	}
+	value, err := h.svc.Quote(c.Request.Context(), u.UserID, in.OrderIDs)
+	invoiceRespond(c, value, err)
+}
+func (h *InvoiceHandler) FeePayment(c *gin.Context) {
+	u, ok := requireAuth(c)
+	if !ok {
+		return
+	}
+	value, err := h.svc.FeePayment(c.Request.Context(), c.Param("id"), u.UserID)
+	invoiceRespond(c, value, err)
+}
+func (h *InvoiceHandler) RefundFee(c *gin.Context) {
+	if _, ok := requireAuth(c); !ok {
+		return
+	}
+	ctx := c.Request.Context()
+	id := c.Param("id")
+	if _, err := h.svc.Detail(ctx, id, 0); err != nil {
+		invoiceRespond(c, nil, err)
+		return
+	}
+	ids, err := h.svc.RefundableFeeOrders(ctx, id)
+	if err != nil {
+		invoiceRespond(c, nil, err)
+		return
+	}
+	for _, oid := range ids {
+		order, err := h.payments.GetOrderByID(ctx, oid)
+		if err != nil {
+			invoiceRespond(c, nil, err)
+			return
+		}
+		if order.Status == "REFUND_PENDING" {
+			if _, err = h.payments.QueryAndFinalizeRefund(ctx, oid); err != nil {
+				invoiceRespond(c, nil, err)
+				return
+			}
+			continue
+		}
+		plan, result, err := h.payments.PrepareRefund(ctx, oid, 0, "发票申请关闭或重复支付，退还开票手续费", false, false)
+		if err != nil {
+			invoiceRespond(c, nil, err)
+			return
+		}
+		if result != nil {
+			invoiceRespond(c, result, nil)
+			return
+		}
+		if _, err = h.payments.ExecuteRefund(ctx, plan); err != nil {
+			invoiceRespond(c, nil, err)
+			return
+		}
+	}
+	value, err := h.svc.Detail(ctx, id, 0)
+	invoiceRespond(c, value, err)
 }

@@ -4,6 +4,7 @@
  */
 
 export type InvoiceStatus =
+  | 'PENDING_PAYMENT'
   | 'PENDING_REVIEW'
   | 'APPROVED'
   | 'SUBMITTING'
@@ -17,7 +18,9 @@ export type InvoiceStatus =
   | 'REJECTED'
   | 'WITHDRAWN'
 
-export interface InvoiceConfig { enabled: boolean }
+export interface InvoiceFeeTier { min_amount_cent: number; rate_bps: number }
+export interface InvoiceConfig { enabled: boolean; min_amount_cent: number; fee_tiers: InvoiceFeeTier[]; pricing_version: number }
+export interface InvoiceFeeQuote { amount_cent: number; fee_cent: number; rate_bps: number; pricing_version: number }
 
 export interface InvoiceTitle {
   id: number
@@ -27,6 +30,9 @@ export interface InvoiceTitle {
 }
 
 export interface InvoiceCreate {
+  expected_amount_cent?: number
+  expected_fee_cent?: number
+  pricing_version?: number
   invoice_type?: 'NORMAL'
   invoice_category?: string
   quantity?: string
@@ -58,6 +64,13 @@ export interface InvoiceOrderPage {
 }
 
 export interface InvoiceRecord {
+  service_fee_cent: number
+  fee_rate_bps: number
+  fee_pricing_version: number
+  fee_paid: boolean
+  fee_payment_order_id: number
+  fee_payment_status: string
+  fee_refund_required: boolean
   invoice_type?: string
   invoice_category?: string
   quantity?: string

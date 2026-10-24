@@ -14,6 +14,7 @@ import type {
 } from '@/types/invoice'
 
 export const adminInvoiceAPI = {
+  refundFee(id: string) { return apiClient.post<InvoiceDetail>(`/admin/invoices/${id}/refund-fee`) },
   getConfig() {
     return apiClient.get<InvoiceConfig>('/admin/invoices/config')
   },

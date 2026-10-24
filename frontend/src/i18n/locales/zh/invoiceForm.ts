@@ -15,7 +15,7 @@ export default {
   normalLabel: '票面免税或有税',
   categoryLabel: '生产生活服务',
   items: { '0': '技术服务费', '1': 'AI订阅服务费', '2': '计算服务费' },
-  feeHint: '开票手续费由平台承担，不扣除您的余额。',
+  feeHint: '开票手续费按阶梯价在线支付，不扣除站内余额。',
   emailHint: '填写后供管理员寄送或联系；发票也可在申请记录中下载。',
   detailsHint: '规格型号、单位、数量、单价和发票备注',
   detailsEyebrow: '选填信息',
@@ -23,6 +23,6 @@ export default {
   remarkHint: '备注供管理员开票时核对，请按实际业务填写。',
   quantityError: '数量须大于0，最多12位整数和6位小数。',
   priceError: '单价须大于0，最多保留两位小数。',
-  reviewHint: '请核对购方信息和所选订单。管理员审核后将人工开票，手续费由平台承担。',
+  reviewHint: '请核对购方信息、所选订单和手续费。支付成功后由管理员审核并人工开票。',
   confirmCorrect: '我已核对以上开票信息，确认准确无误。'
 }

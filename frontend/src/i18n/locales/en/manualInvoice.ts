@@ -1,6 +1,6 @@
 export default {
   management: 'Invoice Management',
-  adminHint: 'Review applications, issue invoices manually, then upload files for users. The platform pays issuance fees.',
+  adminHint: 'Review applications, issue invoices manually, then upload files for users. Paid tiers enter review after fee payment.',
   enabled: 'Accept invoice applications',
   openPlatform: 'Open invoicing platform',
   applicationHint: 'Select top-up orders and enter billing details. An administrator reviews and issues the invoice manually. Payment fees and bonus credit are excluded.',

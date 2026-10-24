@@ -39,6 +39,7 @@ func reviewInvoiceDB(t *testing.T) (*sql.DB, *InvoiceService) {
 	})
 	_, e = db.Exec(`CREATE TABLE users(id BIGINT PRIMARY KEY);INSERT INTO users VALUES(1),(2);
  CREATE TABLE payment_orders(id BIGSERIAL PRIMARY KEY,user_id BIGINT NOT NULL, out_trade_no TEXT NOT NULL DEFAULT '',
+ paid_at TIMESTAMPTZ,completed_at TIMESTAMPTZ,updated_at TIMESTAMPTZ DEFAULT NOW(),expires_at TIMESTAMPTZ DEFAULT NOW()+interval '1 hour',payment_type TEXT DEFAULT 'alipay',pay_url TEXT,qr_code TEXT,amount NUMERIC DEFAULT 0,
  pay_amount NUMERIC NOT NULL DEFAULT 102,fee_rate NUMERIC NOT NULL DEFAULT 2,provider_snapshot JSONB,
  status TEXT NOT NULL DEFAULT 'COMPLETED',order_type TEXT NOT NULL DEFAULT 'balance',
  refund_amount NUMERIC NOT NULL DEFAULT 0,refund_at TIMESTAMPTZ,refund_requested_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`)
@@ -50,6 +51,10 @@ func reviewInvoiceDB(t *testing.T) (*sql.DB, *InvoiceService) {
 	mailMigration, e := migrations.FS.ReadFile("248_invoice_admin_notifications.sql")
 	require.NoError(t, e)
 	_, e = db.Exec(string(mailMigration))
+	require.NoError(t, e)
+	feeMigration, e := migrations.FS.ReadFile("249_invoice_fee_payments.sql")
+	require.NoError(t, e)
+	_, e = db.Exec(string(feeMigration))
 	require.NoError(t, e)
 	_, e = db.Exec(`UPDATE invoice_settings SET enabled=true`)
 	require.NoError(t, e)

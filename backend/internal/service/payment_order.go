@@ -36,6 +36,20 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	if !cfg.Enabled {
 		return nil, infraerrors.Forbidden("PAYMENT_DISABLED", "payment system is disabled")
 	}
+	if req.OrderType == payment.OrderTypeInvoiceFee {
+		if s.invoiceService == nil {
+			return nil, invoiceBad("发票服务未启用")
+		}
+		amount, err := s.invoiceService.PaymentAmount(ctx, req.InvoiceID, req.UserID)
+		if err != nil {
+			return nil, err
+		}
+		req.Amount = decimal.NewFromInt(amount).Div(decimal.NewFromInt(100)).InexactFloat64()
+		// Invoice fee checkout uses the existing desktop QR/hosted flow even in a webview.
+		req.IsMobile = false
+		req.IsWeChatBrowser = false
+		req.OpenID = ""
+	}
 	plan, err := s.validateOrderInput(ctx, req, cfg)
 	if err != nil {
 		return nil, err
@@ -54,12 +68,18 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 		s.notificationEmailService.RememberRecipientLocale(ctx, req.UserID, user.Email, req.Locale)
 	}
 	feeRate := cfg.RechargeFeeRate
+	if req.OrderType == payment.OrderTypeInvoiceFee {
+		feeRate = 0
+	}
 	methodCurrency := payment.DefaultPaymentCurrency
 	if s.configService != nil {
 		methodCurrency, err = s.configService.ValidateMethodCurrencyConsistency(ctx, req.PaymentType)
 		if err != nil {
 			return nil, err
 		}
+	}
+	if req.OrderType == payment.OrderTypeInvoiceFee && methodCurrency != "CNY" {
+		return nil, invoiceBad("开票手续费仅支持人民币支付")
 	}
 	orderAmount := req.Amount
 	limitAmount := req.Amount
@@ -88,6 +108,9 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	selectedCurrency := payment.DefaultPaymentCurrency
 	if sel != nil {
 		selectedCurrency = paymentProviderConfigCurrency(sel.ProviderKey, sel.Config)
+	}
+	if req.OrderType == payment.OrderTypeInvoiceFee && selectedCurrency != "CNY" {
+		return nil, invoiceBad("请选择人民币支付通道")
 	}
 	if selectedCurrency != methodCurrency {
 		payAmountStr, payAmount, err = calculateCreateOrderPayAmountForOrderType(limitAmount, feeRate, selectedCurrency, req.OrderType, cfg.SubscriptionUSDToCNYRate)
@@ -126,6 +149,11 @@ func (s *PaymentService) validateOrderInput(ctx context.Context, req CreateOrder
 		if cfg.BalanceDisabled {
 			return nil, infraerrors.Forbidden("BALANCE_PAYMENT_DISABLED", "balance recharge has been disabled")
 		}
+	case payment.OrderTypeInvoiceFee:
+		if req.InvoiceID == "" || math.IsNaN(req.Amount) || math.IsInf(req.Amount, 0) || req.Amount <= 0 {
+			return nil, invoiceBad("手续费申请或金额无效")
+		}
+		return nil, nil
 	case payment.OrderTypeSubscription:
 		return s.validateSubOrder(ctx, req)
 	default:
@@ -165,6 +193,12 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if req.OrderType == payment.OrderTypeInvoiceFee {
+		if err = s.lockInvoiceForFeeOrder(ctx, tx, req, payAmount); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := s.checkPendingLimit(ctx, tx, req.UserID, cfg.MaxPendingOrders); err != nil {
 		return nil, err
 	}
@@ -181,6 +215,13 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 		return nil, err
 	}
 	providerSnapshot := buildPaymentOrderProviderSnapshot(sel, req)
+	if req.OrderType == payment.OrderTypeInvoiceFee {
+		if providerSnapshot == nil {
+			providerSnapshot = map[string]any{}
+		}
+		providerSnapshot["invoice_application_id"] = req.InvoiceID
+		providerSnapshot["currency"] = "CNY"
+	}
 	if req.OrderType == payment.OrderTypeBalance {
 		if providerSnapshot == nil {
 			providerSnapshot = map[string]any{}
@@ -234,6 +275,11 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 	order, err = tx.PaymentOrder.UpdateOneID(order.ID).SetRechargeCode(code).Save(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("set recharge code: %w", err)
+	}
+	if req.OrderType == payment.OrderTypeInvoiceFee {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO invoice_fee_payments(payment_order_id,application_id) VALUES($1,$2)`, order.ID, req.InvoiceID); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit order transaction: %w", err)
@@ -431,6 +477,9 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 			WithMetadata(map[string]string{"provider": sel.ProviderKey, "instance_id": sel.InstanceID})
 	}
 	subject := s.buildPaymentSubject(plan, limitAmount, cfg, sel)
+	if req.OrderType == payment.OrderTypeInvoiceFee {
+		subject = "开票手续费"
+	}
 	outTradeNo := order.OutTradeNo
 	canonicalReturnURL, err := CanonicalizeReturnURL(req.ReturnURL, req.SrcHost, req.SrcURL)
 	if err != nil {

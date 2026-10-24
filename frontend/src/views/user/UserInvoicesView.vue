@@ -58,8 +58,10 @@
           <template #cell-created_at="{ value }">
             <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatOrderDateTime(value) }}</span>
           </template>
+          <template #cell-service_fee_cent="{ value }">¥{{ formatInvoiceCent(value || 0) }}</template>
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-2">
+              <button v-if="row.status === 'PENDING_PAYMENT'" class="btn btn-primary btn-sm" @click="paymentTarget = row">{{ t('invoice.fees.payTitle') }}</button>
               <button
                 @click="openDetail(row)"
                 class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary-600 hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-900/20"
@@ -77,7 +79,7 @@
                 <span>{{ t('invoice.actions.download') }}</span>
               </button>
               <button
-                v-if="row.status === 'PENDING_REVIEW'"
+                v-if="['PENDING_REVIEW', 'PENDING_PAYMENT'].includes(row.status)"
                 @click="withdrawTarget = row"
                 class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-yellow-600 hover:bg-yellow-50 dark:text-yellow-400 dark:hover:bg-yellow-900/20"
               >
@@ -112,6 +114,7 @@
       </template>
     </TablePageLayout>
 
+    <InvoiceFeePaymentDialog :show="!!paymentTarget" :record="paymentTarget" @close="paymentTarget = null" @paid="fetchInvoices" />
     <!-- Apply Invoice Dialog -->
     <InvoiceApplyDialog
       :show="showApplyDialog"
@@ -161,6 +164,7 @@ import SearchInput from '@/components/common/SearchInput.vue'
 import Select from '@/components/common/Select.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
+import InvoiceFeePaymentDialog from '@/components/invoice/InvoiceFeePaymentDialog.vue'
 import InvoiceApplyDialog from '@/components/invoice/InvoiceApplyDialog.vue'
 import InvoiceDetailDialog from '@/components/invoice/InvoiceDetailDialog.vue'
 import type { Column } from '@/components/common/types'
@@ -171,6 +175,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 const INVOICE_STATUSES: InvoiceStatus[] = [
+  'PENDING_PAYMENT',
   'PENDING_REVIEW',
   'APPROVED',
   'SUBMITTING',
@@ -193,6 +198,7 @@ const configLoaded = ref(false)
 const statusFilter = ref('')
 const searchQuery = ref('')
 const showApplyDialog = ref(false)
+const paymentTarget = ref<InvoiceRecord | null>(null)
 const detailRecordId = ref<string | null>(null)
 const withdrawTarget = ref<InvoiceRecord | null>(null)
 const downloadingId = ref<string | null>(null)
@@ -207,6 +213,7 @@ const columns = computed((): Column[] => [
   { key: 'status', label: t('invoice.columns.status') },
   { key: 'company_name', label: t('invoice.columns.companyName') },
   { key: 'amount_cent', label: t('invoice.columns.amount') },
+  { key: 'service_fee_cent', label: t('invoice.fees.fee') },
   { key: 'created_at', label: t('invoice.columns.createdAt') },
   { key: 'actions', label: t('common.actions') },
 ])
@@ -302,7 +309,8 @@ async function confirmWithdraw() {
   }
 }
 
-function handleCreated() {
+function handleCreated(record: InvoiceRecord) {
+  if (record.status === 'PENDING_PAYMENT') paymentTarget.value = record
   pagination.page = 1
   fetchInvoices()
 }

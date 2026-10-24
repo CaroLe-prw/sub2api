@@ -71,6 +71,7 @@ func generateRandomString(n int) string {
 }
 
 type CreateOrderRequest struct {
+	InvoiceID       string
 	UserID          int64
 	Amount          float64
 	PaymentType     string
@@ -188,6 +189,7 @@ type TopUsersByCurrency map[string][]TopUserStat
 // --- Service ---
 
 type PaymentService struct {
+	invoiceService           *InvoiceService
 	providerMu               sync.Mutex
 	providersLoaded          bool
 	entClient                *dbent.Client

@@ -26,6 +26,20 @@ async function selectFile(wrapper: ReturnType<typeof openPage>) {
   await input.trigger('change'); return file
 }
 describe('manual invoice administration', () => {
+  it('does not turn an empty minimum into zero-priced configuration', async () => {
+    const wrapper = openPage(); await flushPromises()
+    await wrapper.findAll('input[type="number"]')[0].setValue('')
+    await wrapper.findAll('button').find(b => b.text() === 'common.save')!.trigger('click'); await flushPromises()
+    expect(api.updateConfig).not.toHaveBeenCalled()
+  })
+
+  it('saves the minimum and tier rates in cents and basis points', async () => {
+    api.updateConfig.mockResolvedValue({ data: { enabled: true } })
+    const wrapper = openPage(); await flushPromises()
+    await wrapper.findAll('button').find(b => b.text() === 'common.save')!.trigger('click'); await flushPromises()
+    expect(api.updateConfig).toHaveBeenCalledWith({ enabled: true, min_amount_cent: 10000, fee_tiers: [{ min_amount_cent: 10000, rate_bps: 0 }, { min_amount_cent: 20000, rate_bps: 600 }, { min_amount_cent: 30000, rate_bps: 700 }] })
+  })
+
   it('shows a simple manual page and uploads the approved invoice', async () => {
     const wrapper = openPage(); await flushPromises()
     expect(wrapper.find('input[type="password"]').exists()).toBe(false)

@@ -1,11 +1,14 @@
 import manual from './manualInvoice'
 import form from './invoiceForm'
+import fees from './invoiceFees'
 export default {
   invoice: {
     manual,
     form,
+    fees,
     searchPlaceholder: '搜索抬头 / 税号 / 申请单号',
     status: {
+      PENDING_PAYMENT: '待支付手续费',
       PENDING_REVIEW: '待审核',
       APPROVED: '待人工开票',
       SUBMITTING: '提交中',
@@ -38,7 +41,7 @@ export default {
       notEnabledHint: '如有开票需求，请联系站点管理员',
       noRecords: '暂无发票申请记录'
     },
-    confirmWithdraw: '确定撤回该发票申请吗？撤回后订单可重新申请开票。',
+    confirmWithdraw: '确定撤回申请吗？订单可重新申请开票，如已支付手续费，由管理员原路退还。',
     withdrawSuccess: '已撤回申请',
     apply: {
       loadMoreOrders: '加载更多充值订单',

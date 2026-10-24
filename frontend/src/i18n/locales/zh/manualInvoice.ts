@@ -1,6 +1,6 @@
 export default {
   management: '发票管理',
-  adminHint: '审核申请后手动开票，上传发票供用户下载。开票手续费由平台承担。',
+  adminHint: '审核申请后手动开票，上传发票供用户下载。收费档位支付后进入审核。',
   enabled: '开放发票申请',
   openPlatform: '前往开票平台',
   applicationHint: '选择充值订单并填写抬头，管理员审核后人工开票。支付手续费和赠送额度不计入票面金额。',

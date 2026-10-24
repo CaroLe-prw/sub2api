@@ -234,6 +234,9 @@ func (s *PaymentService) PrepareRefund(ctx context.Context, oid int64, amt float
 	if amt <= 0 {
 		amt = o.Amount
 	}
+	if o.OrderType == payment.OrderTypeInvoiceFee && amt != o.Amount {
+		return nil, nil, infraerrors.BadRequest("INVOICE_FEE_FULL_REFUND_ONLY", "开票手续费需全额退还")
+	}
 	orderCurrency := PaymentOrderCurrency(o)
 	if amt-o.Amount > paymentAmountToleranceForCurrency(orderCurrency) {
 		return nil, nil, infraerrors.BadRequest("REFUND_AMOUNT_EXCEEDED", "refund amount exceeds recharge")
@@ -256,6 +259,11 @@ func (s *PaymentService) PrepareRefund(ctx context.Context, oid int64, amt float
 }
 
 func (s *PaymentService) prepDeduct(ctx context.Context, o *dbent.PaymentOrder, p *RefundPlan, force bool) *RefundResult {
+	if o.OrderType == payment.OrderTypeInvoiceFee {
+		p.DeductionType = payment.DeductionTypeNone
+		p.DeductBalance = false
+		return nil
+	}
 	if o.OrderType == payment.OrderTypeSubscription {
 		p.DeductionType = payment.DeductionTypeSubscription
 		if o.SubscriptionGroupID != nil && o.SubscriptionDays != nil {

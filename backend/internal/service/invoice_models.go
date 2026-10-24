@@ -5,18 +5,19 @@ import (
 )
 
 const (
-	InvoiceReview     = "PENDING_REVIEW"
-	InvoiceApproved   = "APPROVED"
-	InvoiceSubmitting = "SUBMITTING"
-	InvoiceProcessing = "PROCESSING"
-	InvoiceUnknown    = "UNKNOWN"
-	InvoiceAttention  = "NEEDS_ATTENTION"
-	InvoiceCancelling = "CANCELLING"
-	InvoiceCompleted  = "COMPLETED"
-	InvoiceCancelled  = "CANCELLED"
-	InvoiceFailed     = "FAILED"
-	InvoiceRejected   = "REJECTED"
-	InvoiceWithdrawn  = "WITHDRAWN"
+	InvoicePendingPayment = "PENDING_PAYMENT"
+	InvoiceReview         = "PENDING_REVIEW"
+	InvoiceApproved       = "APPROVED"
+	InvoiceSubmitting     = "SUBMITTING"
+	InvoiceProcessing     = "PROCESSING"
+	InvoiceUnknown        = "UNKNOWN"
+	InvoiceAttention      = "NEEDS_ATTENTION"
+	InvoiceCancelling     = "CANCELLING"
+	InvoiceCompleted      = "COMPLETED"
+	InvoiceCancelled      = "CANCELLED"
+	InvoiceFailed         = "FAILED"
+	InvoiceRejected       = "REJECTED"
+	InvoiceWithdrawn      = "WITHDRAWN"
 )
 
 // Historical API snapshots are retained for existing records only. New
@@ -35,7 +36,10 @@ type InvoiceOption struct {
 	IssuanceTiming         string   `json:"issuanceTiming"`
 }
 type InvoiceConfig struct {
-	Enabled bool `json:"enabled"`
+	Enabled        bool             `json:"enabled"`
+	MinAmountCent  int64            `json:"min_amount_cent"`
+	FeeTiers       []InvoiceFeeTier `json:"fee_tiers"`
+	PricingVersion int64            `json:"pricing_version"`
 }
 type InvoiceTitle struct {
 	ID            int64  `json:"id"`
@@ -44,10 +48,13 @@ type InvoiceTitle struct {
 	DeliveryEmail string `json:"delivery_email"`
 }
 type InvoiceCreate struct {
-	InvoiceType     string `json:"invoice_type"`
-	InvoiceCategory string `json:"invoice_category"`
-	Quantity        string `json:"quantity"`
-	UnitPriceCent   *int64 `json:"unit_price_cent,omitempty"`
+	ExpectedAmountCent *int64 `json:"expected_amount_cent,omitempty"`
+	ExpectedFeeCent    *int64 `json:"expected_fee_cent,omitempty"`
+	PricingVersion     int64  `json:"pricing_version"`
+	InvoiceType        string `json:"invoice_type"`
+	InvoiceCategory    string `json:"invoice_category"`
+	Quantity           string `json:"quantity"`
+	UnitPriceCent      *int64 `json:"unit_price_cent,omitempty"`
 	InvoiceTitle
 	OrderIDs      []int64 `json:"order_ids"`
 	InvoiceItem   string  `json:"invoice_item"`
@@ -70,6 +77,13 @@ type InvoiceOrderPage struct {
 	HasMore   bool           `json:"has_more"`
 }
 type InvoiceRecord struct {
+	ServiceFeeCent      int64      `json:"service_fee_cent"`
+	FeeRateBps          int64      `json:"fee_rate_bps"`
+	FeePricingVersion   int64      `json:"fee_pricing_version"`
+	FeePaid             bool       `json:"fee_paid"`
+	FeePaymentOrderID   int64      `json:"fee_payment_order_id"`
+	FeePaymentStatus    string     `json:"fee_payment_status"`
+	FeeRefundRequired   bool       `json:"fee_refund_required"`
 	InvoiceType         string     `json:"invoice_type"`
 	InvoiceCategory     string     `json:"invoice_category"`
 	Quantity            string     `json:"quantity"`

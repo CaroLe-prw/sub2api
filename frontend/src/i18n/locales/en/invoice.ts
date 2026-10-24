@@ -1,11 +1,14 @@
 import manual from './manualInvoice'
 import form from './invoiceForm'
+import fees from './invoiceFees'
 export default {
   invoice: {
     manual,
     form,
+    fees,
     searchPlaceholder: 'Search title / tax no. / application no.',
     status: {
+      PENDING_PAYMENT: 'Awaiting fee payment',
       PENDING_REVIEW: 'Pending Review',
       APPROVED: 'Awaiting manual issuance',
       SUBMITTING: 'Submitting',

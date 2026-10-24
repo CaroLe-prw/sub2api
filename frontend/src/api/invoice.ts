@@ -3,8 +3,10 @@
  */
 
 import { apiClient } from './client'
+import type { CreateOrderResult } from '@/types/payment'
 import type {
   InvoiceCreate,
+  InvoiceFeeQuote,
   InvoiceDetail,
   InvoiceListParams,
   InvoiceConfig,
@@ -35,6 +37,8 @@ export function parseInvoiceDownload(
 }
 
 export const invoiceAPI = {
+  quote(orderIds: number[]) { return apiClient.post<InvoiceFeeQuote>('/invoices/quote', { order_ids: orderIds }) },
+  feePayment(id: string) { return apiClient.get<CreateOrderResult | null>(`/invoices/${id}/payment`) },
   getConfig() { return apiClient.get<InvoiceConfig>('/invoices/config') },
 
   /** List completed top-up orders eligible for invoicing */

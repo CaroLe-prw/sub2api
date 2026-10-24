@@ -3,6 +3,7 @@
  */
 
 const INVOICE_STATUS_BADGE_MAP: Record<string, string> = {
+  PENDING_PAYMENT: 'badge-warning',
   PENDING_REVIEW: 'badge-warning',
   APPROVED: 'badge-info',
   SUBMITTING: 'badge-info',

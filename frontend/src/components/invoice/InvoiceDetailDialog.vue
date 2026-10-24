@@ -58,6 +58,8 @@ const fields = computed(() => {
   return [
     { key: 'id', label: 'invoice.detail.applicationNo', value: d.id },
     { key: 'amount', label: 'invoice.detail.amount', value: `¥${formatInvoiceCent(d.amount_cent)}` },
+    { key: 'fee', label: 'invoice.fees.fee', value: `¥${formatInvoiceCent(d.service_fee_cent || 0)}` },
+    { key: 'feeStatus', label: 'invoice.fees.feeStatus', value: t(d.fee_refund_required ? 'invoice.fees.refundPending' : d.fee_payment_status === 'REFUNDED' ? 'invoice.fees.refunded' : !d.service_fee_cent ? 'invoice.fees.free' : d.fee_paid ? 'invoice.fees.paid' : 'invoice.fees.unpaid') },
     { key: 'type', label: 'invoice.apply.invoiceType', value: d.invoice_type === 'NORMAL' ? t('invoice.form.normalLabel') : '' },
     { key: 'category', label: 'invoice.apply.category', value: d.invoice_category },
     { key: 'quantity', label: 'invoice.form.quantity', value: d.quantity },

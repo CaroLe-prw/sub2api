@@ -53,6 +53,9 @@ func (s *InvoiceService) Upload(ctx context.Context, id string, actor int64, con
 	if err != nil {
 		return nil, err
 	}
+	if r.ServiceFeeCent > 0 && (!r.FeePaid || r.FeePaymentStatus != "COMPLETED") {
+		return nil, invoiceConflict("手续费未支付或已退款，不能上传发票")
+	}
 	legacy := r.RequiresManualCheck
 	allowed := r.Status == InvoiceApproved || legacy && slices.Contains([]string{InvoiceSubmitting, InvoiceProcessing, InvoiceUnknown, InvoiceAttention, InvoiceCancelling, InvoiceCompleted}, r.Status)
 	if !allowed || r.Downloadable {

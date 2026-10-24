@@ -49,6 +49,7 @@ const (
 // Order types distinguish balance recharges from subscription purchases.
 const (
 	OrderTypeBalance      = "balance"
+	OrderTypeInvoiceFee   = "invoice_fee"
 	OrderTypeSubscription = "subscription"
 )
 

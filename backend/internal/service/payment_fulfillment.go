@@ -206,15 +206,16 @@ func (s *PaymentService) toPaid(ctx context.Context, o *dbent.PaymentOrder, trad
 	previousStatus := o.Status
 	now := time.Now()
 	grace := now.Add(-paymentGraceMinutes * time.Minute)
+	recoverable := paymentorder.And(paymentorder.StatusEQ(OrderStatusExpired), paymentorder.UpdatedAtGTE(grace))
+	if o.OrderType == payment.OrderTypeInvoiceFee {
+		recoverable = paymentorder.StatusIn(OrderStatusExpired, OrderStatusFailed)
+	}
 	c, err := s.entClient.PaymentOrder.Update().Where(
 		paymentorder.IDEQ(o.ID),
 		paymentorder.Or(
 			paymentorder.StatusEQ(OrderStatusPending),
 			paymentorder.StatusEQ(OrderStatusCancelled),
-			paymentorder.And(
-				paymentorder.StatusEQ(OrderStatusExpired),
-				paymentorder.UpdatedAtGTE(grace),
-			),
+			recoverable,
 		),
 	).SetStatus(OrderStatusPaid).SetPayAmount(paid).SetPaymentTradeNo(tradeNo).SetPaidAt(now).ClearFailedAt().ClearFailedReason().Save(ctx)
 	if err != nil {
@@ -276,6 +277,8 @@ func (s *PaymentService) executeFulfillment(ctx context.Context, oid int64) erro
 	switch o.OrderType {
 	case payment.OrderTypeSubscription:
 		return s.ExecuteSubscriptionFulfillment(ctx, oid)
+	case payment.OrderTypeInvoiceFee:
+		return s.ExecuteInvoiceFeeFulfillment(ctx, oid)
 	case payment.OrderTypeBalance:
 		return s.ExecuteBalanceFulfillment(ctx, oid)
 	default:
@@ -286,7 +289,7 @@ func (s *PaymentService) executeFulfillment(ctx context.Context, oid int64) erro
 }
 
 func isSupportedPaymentOrderType(orderType string) bool {
-	return orderType == payment.OrderTypeBalance || orderType == payment.OrderTypeSubscription
+	return orderType == payment.OrderTypeInvoiceFee || orderType == payment.OrderTypeBalance || orderType == payment.OrderTypeSubscription
 }
 
 func (s *PaymentService) rejectUnsupportedOrderType(ctx context.Context, o *dbent.PaymentOrder) {

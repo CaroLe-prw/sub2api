@@ -1188,7 +1188,7 @@ onMounted(async () => {
         window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY),
         { resumeToken: routeResumeToken },
       )
-      if (restored) {
+      if (restored && restored.orderType !== 'invoice_fee') {
         paymentState.value = restored
         paymentPhase.value = 'paying'
         const restoredMethod = normalizeVisibleMethod(restored.paymentType)
@@ -1196,7 +1196,7 @@ onMounted(async () => {
         if (restoredMethod) {
           selectedMethod.value = restoredMethod
         }
-      } else {
+      } else if (!restored) {
         removeRecoverySnapshot()
       }
     }
