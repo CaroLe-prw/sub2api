@@ -3832,7 +3832,7 @@ func (s *OpenAIGatewayService) openAIStickyEscapeConfig() openAIStickyEscapeConf
 		}
 		ttftMs := float64(cfg.StickyEscapeTTFTMs)
 		if ttftMs <= 0 {
-			ttftMs = 8000
+			ttftMs = 15000
 		}
 		errorRate := cfg.StickyEscapeErrorRate
 		if errorRate < 0 || errorRate > 1 {
@@ -3849,7 +3849,7 @@ func (s *OpenAIGatewayService) openAIStickyEscapeConfig() openAIStickyEscapeConf
 	}
 	return openAIStickyEscapeConfig{
 		enabled:   true,
-		ttftMs:    8000,
+		ttftMs:    15000,
 		errorRate: 0.5,
 	}
 }
