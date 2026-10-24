@@ -1662,7 +1662,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			account:            account,
 			loadInfo:           loadInfo,
 			loadKnown:          loadKnown,
-			excluded:           req.observation.isStickyEscapeAccount(account.ID),
+			excluded:           len(filtered) > 1 && req.observation.isStickyEscapeAccount(account.ID),
 			stickyTTFTFallback: req.observation.isStickyTTFTFallback(account.ID),
 			errorRate:          errorRate,
 		})

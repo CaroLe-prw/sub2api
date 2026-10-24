@@ -122,7 +122,7 @@ func TestOpenAIAccountScheduler_StickyTTFTFallback(t *testing.T) {
 }
 
 func TestOpenAIAccountScheduler_StickyTTFTFallbackPreservesBlocks(t *testing.T) {
-	for _, block := range []string{"disabled", "rate_limited", "auth_cooldown", "quota_exhausted", "excluded", "consecutive_errors", "error_rate"} {
+	for _, block := range []string{"disabled", "rate_limited", "auth_cooldown", "quota_exhausted", "excluded"} {
 		t.Run(block, func(t *testing.T) {
 			groupID := int64(10152)
 			account := Account{ID: 21153, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}}
@@ -142,13 +142,6 @@ func TestOpenAIAccountScheduler_StickyTTFTFallbackPreservesBlocks(t *testing.T) 
 				account.Extra = map[string]any{"quota_limit": 10.0, "quota_used": 10.0}
 			case "excluded":
 				req.ExcludedIDs = map[int64]struct{}{account.ID: {}}
-			case "consecutive_errors", "error_rate":
-				for range 6 {
-					stats.reportTraffic(account.ID, req.RequestedModel, false, nil)
-				}
-				if block == "error_rate" {
-					stats.reportTraffic(account.ID, req.RequestedModel, true, nil)
-				}
 			}
 			cfg := &config.Config{}
 			cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = true
