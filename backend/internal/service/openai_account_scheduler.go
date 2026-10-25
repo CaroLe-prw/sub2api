@@ -1118,7 +1118,12 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	cfg := s.service.schedulingConfig()
 	// WaitPlan.MaxConcurrency 使用 Concurrency（非 EffectiveLoadFactor），因为 WaitPlan 控制的是 Redis 实际并发槽位等待。
 	if s.service.concurrencyService != nil {
-		if !pinned && !req.DisableStickyEscape && escapeCfg.enabled && acquireErr == nil && result != nil && !result.Acquired {
+		// Load-aware scheduling must not defeat the cache binding it exists to
+		// preserve: a full sticky account joins its bounded wait queue first and
+		// only spills to a cache-cold account once that queue is full. This keeps
+		// the advanced scheduler aligned with the legacy path, which has always
+		// waited before spilling (selectAccountForModelWithExclusions).
+		if s.shouldSpillStickyOnConcurrencyFull(ctx, req, accountID, escapeCfg, acquireErr, result) {
 			errorRate, ttft, _ := s.stats.snapshotForRequest(accountID, openAIAccountHealthModel(account, req))
 			slog.Info("sticky_escape_triggered",
 				"account_id", accountID,
@@ -1141,6 +1146,57 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		}), "", nil
 	}
 	return nil, "", nil
+}
+
+// shouldSpillStickyOnConcurrencyFull decides whether a full sticky account
+// should immediately spill to a cache-cold account instead of waiting for its
+// own slot to free up.
+//
+// Waiting is the default: the whole point of the sticky binding is that the
+// conversation keeps hitting the same upstream account, because prompt caches
+// are account-scoped and a spill throws away every cached token in the context.
+// A bounded wait therefore costs a little first-token latency and saves a full
+// cache miss, and the wait is bounded twice over (MaxWaiting queue slots and
+// StickySessionWaitTimeout). Only spill when:
+//
+//   - the caller pinned the account (pinned tasks must never move), or
+//   - the escape feature is off for this request, or
+//   - load already has no free slot AND the account's wait queue is already
+//     full, i.e. queueing would be rejected anyway and the request would fail
+//     with 429 rather than make progress on another account.
+//
+// Reading the wait queue costs one Redis GET, and only on the rare path where
+// the slot acquisition already failed.
+func (s *defaultOpenAIAccountScheduler) shouldSpillStickyOnConcurrencyFull(
+	ctx context.Context,
+	req OpenAIAccountScheduleRequest,
+	accountID int64,
+	escapeCfg openAIStickyEscapeConfig,
+	acquireErr error,
+	result *AcquireResult,
+) bool {
+	if req.PinnedAccountID > 0 || req.DisableStickyEscape {
+		return false
+	}
+	if !escapeCfg.enabled || acquireErr != nil || result == nil || result.Acquired {
+		return false
+	}
+	// No concurrency service means no queue either; the caller falls through to
+	// its own handling, so never report a spill here.
+	if s == nil || s.service == nil || s.service.concurrencyService == nil {
+		return false
+	}
+	cfg := s.service.schedulingConfig()
+	if cfg.StickySessionMaxWaiting <= 0 {
+		return true
+	}
+	waitingCount, err := s.service.concurrencyService.GetAccountWaitingCount(ctx, accountID)
+	if err != nil {
+		// Fail open to the old behaviour (spill) rather than park the request on a
+		// queue we cannot observe; a broken counter must not stall traffic.
+		return true
+	}
+	return waitingCount >= cfg.StickySessionMaxWaiting
 }
 
 func openAIStickyAccountMatchesGroup(account *Account, groupID *int64) bool {

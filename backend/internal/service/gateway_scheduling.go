@@ -922,9 +922,11 @@ func (s *GatewayService) schedulingConfig() config.GatewaySchedulingConfig {
 	if s.cfg != nil {
 		return s.cfg.Gateway.Scheduling
 	}
+	// Mirrors the viper defaults in config.Load; keep both in sync so a service
+	// built without config behaves like a loaded one.
 	return config.GatewaySchedulingConfig{
 		StickySessionMaxWaiting:  3,
-		StickySessionWaitTimeout: 45 * time.Second,
+		StickySessionWaitTimeout: 15 * time.Second,
 		FallbackWaitTimeout:      30 * time.Second,
 		FallbackMaxWaiting:       100,
 		LoadBatchEnabled:         true,

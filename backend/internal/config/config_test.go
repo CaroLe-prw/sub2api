@@ -414,11 +414,14 @@ func TestLoadDefaultSchedulingConfig(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
+	// Queueing on the bound account beats spilling to a cache-cold one, but the
+	// queue only needs to absorb the rare moment a high-concurrency account is
+	// truly saturated; a wider queue there just delays the inevitable spill.
 	if cfg.Gateway.Scheduling.StickySessionMaxWaiting != 3 {
 		t.Fatalf("StickySessionMaxWaiting = %d, want 3", cfg.Gateway.Scheduling.StickySessionMaxWaiting)
 	}
-	if cfg.Gateway.Scheduling.StickySessionWaitTimeout != 120*time.Second {
-		t.Fatalf("StickySessionWaitTimeout = %v, want 120s", cfg.Gateway.Scheduling.StickySessionWaitTimeout)
+	if cfg.Gateway.Scheduling.StickySessionWaitTimeout != 15*time.Second {
+		t.Fatalf("StickySessionWaitTimeout = %v, want 15s", cfg.Gateway.Scheduling.StickySessionWaitTimeout)
 	}
 	if cfg.Gateway.Scheduling.FallbackWaitTimeout != 30*time.Second {
 		t.Fatalf("FallbackWaitTimeout = %v, want 30s", cfg.Gateway.Scheduling.FallbackWaitTimeout)

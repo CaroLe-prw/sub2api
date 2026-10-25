@@ -599,12 +599,51 @@ gateway:
   # Scheduling configuration
   # 调度配置
   scheduling:
-    # Sticky session max waiting queue size
-    # 粘性会话最大排队长度
+    # Sticky session max waiting queue size.
+    # 粘性会话最大排队长度。
+    #
+    # This is an ACCOUNT-WIDE queue, not a per-session allowance: it caps how many
+    # requests across all users and conversations may wait for a slot on one
+    # account at the same time. A request that finds the queue full is rejected
+    # with 429 (gateway_queue_full) or spilled to another account.
+    # 这是「账号级全局队列」而不是每会话额度：它限制所有用户、所有会话在同一个
+    # 账号上同时等待槽位的请求总数。队列已满时请求会收到 429 或溢出到其他账号。
+    #
+    # Why wait at all: upstream prompt caches are scoped per account, so spilling
+    # to a different account discards every cached token in the conversation and
+    # pays a full cache write instead. Waiting a moment on your own account is
+    # usually far cheaper than a cold re-send.
+    # 为什么要排队：上游 prompt cache 按账号隔离，换号会丢掉整段上下文缓存并重新
+    # 付一次 cache write。在自己账号上稍等一下，通常远比整段冷重发便宜。
+    #
+    # Sizing: this queue only needs to absorb the brief moment when an account is
+    # genuinely saturated, not to be a throughput buffer. With high account
+    # concurrency it almost never fills: a request only queues once in-flight +
+    # waiting already reaches the account concurrency, and per-user concurrency
+    # (default.user_concurrency, default 5) limits how fast one account saturates.
+    # Raise it only if you run low-concurrency accounts (concurrency 1-5) where
+    # same-conversation turns regularly collide. Do not raise it past roughly 2-3x
+    # the account concurrency: the queue counts toward LoadRate
+    # (= (in-flight + waiting) / concurrency), and a LoadRate far above 100% makes
+    # the cache-placement logic treat the account as full and stop sending it new
+    # conversations.
+    # 取值：这个队列只用于吸收账号真正打满的短暂瞬间，不是吞吐缓冲。账号并发较高时
+    # 几乎不会满：只有当「在飞 + 排队」已经达到账号并发时才会排队，而用户级并发
+    # （default.user_concurrency，默认 5）限制了单账号被打满的速度。
+    # 只有在使用低并发账号（并发 1-5）且同会话轮次经常碰撞时才需要调大。
+    # 不要超过账号并发的 2-3 倍：排队数会计入 LoadRate
+    # （= (在飞 + 排队) / 并发），LoadRate 远超 100% 会让缓存放置逻辑把该账号
+    # 判定为已满、不再向它分配新会话。
     sticky_session_max_waiting: 3
-    # Sticky session wait timeout (duration)
-    # 粘性会话等待超时（时间段）
-    sticky_session_wait_timeout: 120s
+    # Sticky session wait timeout (duration).
+    # 粘性会话等待超时。
+    #
+    # This is pure latency before the first token, so it must stay clearly below
+    # client-side timeouts. Beyond ~15-30s a user has already given up, and waiting
+    # longer is worse than taking the cache-cold spill.
+    # 这段时间完全发生在首个 token 之前，必须明显小于客户端超时。超过 15-30s 用户
+    # 早已放弃，再等下去比直接换号吃冷缓存更差。
+    sticky_session_wait_timeout: 15s
     # Fallback wait timeout (duration)
     # 兜底排队等待超时（时间段）
     fallback_wait_timeout: 30s

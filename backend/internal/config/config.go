@@ -1570,7 +1570,18 @@ type TLSProfileConfig struct {
 // GatewaySchedulingConfig accounts scheduling configuration.
 type GatewaySchedulingConfig struct {
 	// 粘性会话排队配置
-	StickySessionMaxWaiting  int           `mapstructure:"sticky_session_max_waiting"`
+	//
+	// StickySessionMaxWaiting 是账号级全局队列：它是「所有会话在这个账号上
+	// 同时在等槽位的请求数」上限，不是每会话的排队额度。
+	//
+	// 排队只发生在账号真正打满的瞬间（在飞 + 排队已达账号并发），作用是让本轮
+	// 少丢一次上游缓存：prompt cache 按账号隔离，换号会丢掉整段上下文缓存并重新
+	// 付 cache write。它不是吞吐缓冲——并发较高的账号几乎不会触顶，把队列调大
+	// 只会推迟必然发生的溢出，并推高 LoadRate 拖累新会话放置。
+	// 具体取值见 deploy/config.example.yaml 的调优说明。
+	StickySessionMaxWaiting int `mapstructure:"sticky_session_max_waiting"`
+	// StickySessionWaitTimeout 是排队上限等待时长。它是首个 token 前的纯等待，
+	// 必须明显小于客户端超时，否则排队成功时用户早已放弃。
 	StickySessionWaitTimeout time.Duration `mapstructure:"sticky_session_wait_timeout"`
 
 	// 兜底排队配置
@@ -2657,7 +2668,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.max_line_size", 500*1024*1024)
 	viper.SetDefault("gateway.response_diagnostics_max_body_bytes", 1024*1024)
 	viper.SetDefault("gateway.scheduling.sticky_session_max_waiting", 3)
-	viper.SetDefault("gateway.scheduling.sticky_session_wait_timeout", 120*time.Second)
+	viper.SetDefault("gateway.scheduling.sticky_session_wait_timeout", 15*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_wait_timeout", 30*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_max_waiting", 100)
 	viper.SetDefault("gateway.scheduling.fallback_selection_mode", "last_used")

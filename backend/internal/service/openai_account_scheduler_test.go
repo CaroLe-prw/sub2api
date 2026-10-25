@@ -2839,6 +2839,168 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyEscape
 	}
 }
 
+// A full sticky account must join its own bounded wait queue before spilling to a
+// cache-cold account: upstream prompt caches are account-scoped, so spilling
+// discards the whole conversation's cached context.
+func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyWaitsWhileQueueHasRoom(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(101031)
+	accounts := []Account{
+		{ID: 21311, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}},
+		{ID: 21312, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, GroupIDs: []int64{groupID}},
+	}
+	cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:session_hash_sticky_busy_wait": 21311}}
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = true
+	cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 15000
+	cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate = 0.5
+	cfg.Gateway.Scheduling.StickySessionMaxWaiting = 8
+	cfg.Gateway.Scheduling.StickySessionWaitTimeout = 15 * time.Second
+	concurrencyCache := schedulerTestConcurrencyCache{
+		acquireResults: map[int64]bool{21311: false, 21312: true},
+		// Queue has room (3 < 8): wait instead of spilling.
+		waitCounts: map[int64]int{21311: 3},
+		loadMap: map[int64]*AccountLoadInfo{
+			21311: {AccountID: 21311, LoadRate: 90, WaitingCount: 3},
+			21312: {AccountID: 21312, LoadRate: 1, WaitingCount: 0},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cache:              cache,
+		cfg:                cfg,
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+		openaiAccountStats: newOpenAIAccountRuntimeStats(),
+	}
+
+	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_hash_sticky_busy_wait", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(21311), selection.Account.ID, "busy sticky account with queue room must be waited on, not replaced")
+	require.False(t, selection.Acquired)
+	require.NotNil(t, selection.WaitPlan)
+	require.Equal(t, int64(21311), selection.WaitPlan.AccountID)
+	require.Equal(t, 8, selection.WaitPlan.MaxWaiting)
+	require.Equal(t, 15*time.Second, selection.WaitPlan.Timeout)
+	require.Equal(t, openAIAccountScheduleLayerSessionSticky, decision.Layer)
+	require.True(t, decision.StickySessionHit)
+	require.Empty(t, decision.StickyEscapeReason, "queueing is not a sticky escape")
+	require.Equal(t, int64(21311), cache.sessionBindings["openai:session_hash_sticky_busy_wait"])
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+// Once the bounded queue is full, waiting can only produce a 429, so spilling to
+// another account is strictly better than failing the request.
+func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusySpillsWhenQueueFull(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		wait int
+	}{
+		{name: "at_capacity", wait: 8},
+		{name: "over_capacity", wait: 20},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			groupID := int64(101032)
+			accounts := []Account{
+				{ID: 21321, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}},
+				{ID: 21322, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, GroupIDs: []int64{groupID}},
+			}
+			cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:session_hash_sticky_queue_full": 21321}}
+			cfg := &config.Config{}
+			cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = true
+			cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 15000
+			cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate = 0.5
+			cfg.Gateway.Scheduling.StickySessionMaxWaiting = 8
+			cfg.Gateway.Scheduling.StickySessionWaitTimeout = 15 * time.Second
+			concurrencyCache := schedulerTestConcurrencyCache{
+				acquireResults: map[int64]bool{21321: false, 21322: true},
+				waitCounts:     map[int64]int{21321: tc.wait},
+				loadMap: map[int64]*AccountLoadInfo{
+					21321: {AccountID: 21321, LoadRate: 95, WaitingCount: tc.wait},
+					21322: {AccountID: 21322, LoadRate: 1, WaitingCount: 0},
+				},
+			}
+			svc := &OpenAIGatewayService{
+				accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+				cache:              cache,
+				cfg:                cfg,
+				rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+				concurrencyService: NewConcurrencyService(concurrencyCache),
+				openaiAccountStats: newOpenAIAccountRuntimeStats(),
+			}
+
+			selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_hash_sticky_queue_full", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
+			require.NoError(t, err)
+			require.NotNil(t, selection)
+			require.NotNil(t, selection.Account)
+			require.Equal(t, int64(21322), selection.Account.ID, "a full queue must spill instead of queueing into a guaranteed 429")
+			require.Nil(t, selection.WaitPlan)
+			require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
+			require.False(t, decision.StickySessionHit)
+			require.Equal(t, "concurrency_full", decision.StickyEscapeReason)
+			require.Equal(t, int64(21321), cache.sessionBindings["openai:session_hash_sticky_queue_full"],
+				"a spill must not rewrite the durable binding")
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+		})
+	}
+}
+
+func TestShouldSpillStickyOnConcurrencyFull(t *testing.T) {
+	newScheduler := func(cache ConcurrencyCache) *defaultOpenAIAccountScheduler {
+		cfg := &config.Config{}
+		cfg.Gateway.Scheduling.StickySessionMaxWaiting = 8
+		cfg.Gateway.Scheduling.StickySessionWaitTimeout = 15 * time.Second
+		svc := &OpenAIGatewayService{cfg: cfg, concurrencyService: NewConcurrencyService(cache)}
+		return &defaultOpenAIAccountScheduler{service: svc, stats: newOpenAIAccountRuntimeStats()}
+	}
+	waits := func(count int) ConcurrencyCache {
+		return schedulerTestConcurrencyCache{acquireResults: map[int64]bool{7: false}, waitCounts: map[int64]int{7: count}}
+	}
+	full := &AcquireResult{Acquired: false}
+	escapeOn := openAIStickyEscapeConfig{enabled: true, ttftMs: 15000, errorRate: 0.5}
+
+	for _, tc := range []struct {
+		name   string
+		req    OpenAIAccountScheduleRequest
+		escape openAIStickyEscapeConfig
+		cache  ConcurrencyCache
+		result *AcquireResult
+		want   bool
+	}{
+		{name: "queue_has_room", escape: escapeOn, cache: waits(3), result: full, want: false},
+		{name: "queue_full", escape: escapeOn, cache: waits(8), result: full, want: true},
+		{name: "pinned_never_spills", req: OpenAIAccountScheduleRequest{PinnedAccountID: 7}, escape: escapeOn, cache: waits(99), result: full, want: false},
+		{name: "escape_disabled_never_spills", req: OpenAIAccountScheduleRequest{DisableStickyEscape: true}, escape: escapeOn, cache: waits(99), result: full, want: false},
+		{name: "escape_feature_off", escape: openAIStickyEscapeConfig{enabled: false}, cache: waits(99), result: full, want: false},
+		{name: "slot_acquired", escape: escapeOn, cache: waits(99), result: &AcquireResult{Acquired: true}, want: false},
+		{name: "acquire_error", escape: escapeOn, cache: waits(99), result: nil, want: false},
+		// An unreadable counter must not park traffic: fall back to the old spill.
+		{name: "counter_unavailable_fails_open", escape: escapeOn, cache: waitCountErrorCache{}, result: full, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			scheduler := newScheduler(tc.cache)
+			require.Equal(t, tc.want, scheduler.shouldSpillStickyOnConcurrencyFull(context.Background(), tc.req, 7, tc.escape, nil, tc.result))
+		})
+	}
+}
+
+// waitCountErrorCache makes the wait-queue read fail so the spill decision has to
+// pick a safe direction when the queue state is unknown.
+type waitCountErrorCache struct {
+	ConcurrencyCache
+}
+
+func (waitCountErrorCache) GetAccountWaitingCount(context.Context, int64) (int, error) {
+	return 0, errors.New("redis unavailable")
+}
+
 func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeDisabledKeepsLegacyBehavior(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(10104)
