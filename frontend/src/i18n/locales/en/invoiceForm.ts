@@ -4,7 +4,7 @@ export default {
   pasteTitle: 'Quick fill',
   optionalTool: 'Optional',
   pasteHint: 'Paste billing information to extract the buyer name, tax ID and email',
-  pastePlaceholder: '购方名称：Example Ltd\n税号：913100000000000000\n邮箱：billing@example.com',
+  pastePlaceholder: "购方名称：Example Ltd\n税号：913100000000000000\n邮箱：billing{'@'}example.com",
   tryPaste: 'Try it⌄', collapse: 'Collapse⌃', fillFields: 'Fill the form',
   pasteEmpty: 'No fields recognized. Use labeled lines or enter the details manually.',
   pasteDone: 'Fields filled. Review the results before submitting.',

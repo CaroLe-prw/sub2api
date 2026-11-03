@@ -799,7 +799,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponseWithReasoning(
 			)
 		}
 	}
-	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminalWithFirstOutput(
+	finalResponse, usage, acc, priorModels, err := s.readOpenAICompatBufferedTerminalWithFirstOutput(
 		resp, c, "openai chat_completions buffered", requestID, account, deadline, onTimeout,
 	)
 	if err != nil {
@@ -814,6 +814,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponseWithReasoning(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
+	priorModels.apply(observer)
 	observer.Observe(finalResponse.Model, true)
 	observer.ObserveServiceTier(finalResponse.ServiceTier, true)
 	if strings.TrimSpace(finalResponse.Status) == "failed" {

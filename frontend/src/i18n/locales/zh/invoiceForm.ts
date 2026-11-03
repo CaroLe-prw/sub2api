@@ -4,7 +4,7 @@ export default {
   pasteTitle: '智能填单',
   optionalTool: '快速填写',
   pasteHint: '粘贴开票信息，自动提取购方名称、税号和邮箱',
-  pastePlaceholder: '购方名称：示例有限公司\n税号：913100000000000000\n邮箱：billing@example.com',
+  pastePlaceholder: "购方名称：示例有限公司\n税号：913100000000000000\n邮箱：billing{'@'}example.com",
   tryPaste: '试一试⌄', collapse: '收起⌃', fillFields: '填入表单',
   pasteEmpty: '未识别到信息，请按“名称：…”等格式填写，或手动输入。',
   pasteDone: '已填入识别结果，请核对后提交',
