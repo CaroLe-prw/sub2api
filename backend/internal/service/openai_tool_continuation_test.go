@@ -298,3 +298,12 @@ func TestAnalyzeToolCallOutputContextCoverageBytes(t *testing.T) {
 		})
 	}
 }
+
+func TestHasEncryptedAgentMessage(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, HasEncryptedAgentMessage([]byte(`{"input":[{"type":"agent_message","content":[{"type":"input_text","text":"envelope"},{"type":"encrypted_content","encrypted_content":"cipher"}]}]}`)))
+	require.True(t, HasEncryptedAgentMessage([]byte(`{"input":{"type":"agent_message","content":"[{\"type\":\"encrypted_content\",\"encrypted_content\":\"cipher\"}]"}}`)))
+	require.False(t, HasEncryptedAgentMessage([]byte(`{"input":[{"type":"agent_message","content":[{"type":"input_text","text":"plain"}]}]}`)))
+	require.False(t, HasEncryptedAgentMessage([]byte(`{"input":[{"type":"message","content":"hello"}]}`)))
+}

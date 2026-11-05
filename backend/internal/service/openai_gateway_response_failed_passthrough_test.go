@@ -135,6 +135,25 @@ func TestResponsesStreamAccessStateFailoverPrecedesPassthroughRule(t *testing.T)
 	}
 }
 
+func TestResponsesStreamEncryptedFunctionOutputRequestsBodyRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stream := "event: response.failed\n" +
+		`data: {"type":"response.failed","response":{"status":"failed","error":{"code":"invalid_encrypted_content","message":"Encrypted function output content could not be decrypted or decoded."}}}` + "\n\n"
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(stream)),
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 13, Platform: PlatformOpenAI, Type: AccountTypeOAuth}, time.Now(), "gpt-6.1-sol", "gpt-6.1-sol")
+	var retryErr *openAIStreamRequestBodyRetryError
+	require.ErrorAs(t, err, &retryErr)
+	require.Contains(t, string(retryErr.responseBody), "invalid_encrypted_content")
+}
+
 func TestResponsesStreamCyberPolicyPrecedesPassthroughRule(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	stream := "event: error\n" +

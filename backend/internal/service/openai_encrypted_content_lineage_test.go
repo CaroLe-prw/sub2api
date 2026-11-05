@@ -28,6 +28,30 @@ func TestCollectOpenAIEncryptedContentDigestsRaw(t *testing.T) {
 	require.Nil(t, collectOpenAIEncryptedContentDigestsRaw([]byte(`{"model":"gpt-5"}`)))
 }
 
+func TestCollectOpenAIEncryptedFunctionOutputDigestsRaw(t *testing.T) {
+	t.Parallel()
+
+	digests := collectOpenAIEncryptedFunctionOutputDigestsRaw([]byte(`{"input":[
+		{"type":"function_call_output","call_id":"call_1","output":[
+			{"type":"input_text","text":"keep"},
+			{"type":"encrypted_content","encrypted_content":"tool-cipher"}
+		]},
+		{"type":"agent_message","content":[{"type":"encrypted_content","encrypted_content":"agent-cipher"}]},
+		{"type":"reasoning","encrypted_content":"reasoning-cipher"}
+	]}`))
+	require.Equal(t, []string{
+		openAIEncryptedContentDigest("tool-cipher"),
+	}, digests)
+}
+
+func TestOpenAIStreamEncryptedFunctionOutputRejection(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, openAIStreamEncryptedFunctionOutputRejection([]byte(`{"type":"response.failed","response":{"error":{"code":"invalid_encrypted_content","message":"Encrypted function output content could not be decrypted or decoded."}}}`)))
+	require.True(t, openAIStreamEncryptedFunctionOutputRejection([]byte(`{"type":"error","error":{"code":"invalid_encrypted_content","message":"Encrypted function output content could not be decrypted or decoded."}}`)))
+	require.False(t, openAIStreamEncryptedFunctionOutputRejection([]byte(`{"type":"response.failed","response":{"error":{"code":"invalid_encrypted_content","message":"The encrypted content could not be verified."}}}`)))
+}
+
 func TestStripOpenAIInvalidEncryptedContentItems(t *testing.T) {
 	t.Parallel()
 
@@ -83,6 +107,37 @@ func TestStripOpenAIInvalidEncryptedContentItems(t *testing.T) {
 			"input": []any{
 				map[string]any{"type": "reasoning", "encrypted_content": "fresh-cipher"},
 			},
+		}
+		require.Zero(t, stripOpenAIInvalidEncryptedContentItems(reqBody, invalid))
+	})
+
+	t.Run("nested_function_output_keeps_plaintext", func(t *testing.T) {
+		t.Parallel()
+		reqBody := map[string]any{
+			"input": []any{map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_1",
+				"output": []any{
+					map[string]any{"type": "input_text", "text": "keep"},
+					map[string]any{"type": "encrypted_content", "encrypted_content": "stale-cipher"},
+				},
+			}},
+		}
+		require.Equal(t, 1, stripOpenAIInvalidEncryptedContentItems(reqBody, invalid))
+		input := reqBody["input"].([]any)
+		output := input[0].(map[string]any)["output"].([]any)
+		require.Len(t, output, 1)
+		require.Equal(t, "input_text", output[0].(map[string]any)["type"])
+	})
+
+	t.Run("nested_pure_ciphertext_is_preserved", func(t *testing.T) {
+		t.Parallel()
+		reqBody := map[string]any{
+			"input": []any{map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_1",
+				"output":  []any{map[string]any{"type": "encrypted_content", "encrypted_content": "stale-cipher"}},
+			}},
 		}
 		require.Zero(t, stripOpenAIInvalidEncryptedContentItems(reqBody, invalid))
 	})

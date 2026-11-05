@@ -95,6 +95,34 @@ func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyDropsMissingEncryptedReas
 	require.Equal(t, "function_call_output", gjson.GetBytes(retryBody, "input.1.type").String())
 }
 
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyStripsEncryptedFunctionOutput(t *testing.T) {
+	body := []byte(`{"model":"gpt-6.1-sol","input":[
+		{"type":"function_call_output","call_id":"call_1","output":[
+			{"type":"input_text","text":"keep this tool result"},
+			{"type":"encrypted_content","encrypted_content":"stale-tool-cipher"}
+		]},
+		{"type":"message","role":"user","content":"continue"}
+	]}`)
+	responseBody := []byte(`{"type":"response.failed","response":{"error":{"code":"invalid_encrypted_content","type":"invalid_request_error","message":"Encrypted function output content could not be decrypted or decoded."}}}`)
+
+	retryBody, reason, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "encrypted function output recovery", reason)
+	require.Equal(t, "input_text", gjson.GetBytes(retryBody, "input.0.output.0.type").String())
+	require.False(t, gjson.GetBytes(retryBody, "input.0.output.1").Exists())
+}
+
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyPreservesPureEncryptedFunctionOutput(t *testing.T) {
+	body := []byte(`{"input":[{"type":"function_call_output","call_id":"call_1","output":[{"type":"encrypted_content","encrypted_content":"stale-tool-cipher"}]}]}`)
+	responseBody := []byte(`{"error":{"code":"invalid_encrypted_content","message":"Encrypted function output content could not be decrypted or decoded."}}`)
+
+	retryBody, _, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Nil(t, retryBody)
+}
+
 func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyDoesNotDropNonReasoningMissingEncryptedItem(t *testing.T) {
 	body := []byte(`{"input":[{"type":"message","role":"user","content":"keep"},{"type":"message","role":"assistant","content":"also keep"}]}`)
 	responseBody := []byte(`{"error":{"code":"missing_required_parameter","message":"Missing required parameter: 'input[1].encrypted_content'.","param":"input[1].encrypted_content"}}`)

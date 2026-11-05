@@ -1965,6 +1965,18 @@ func openAIStreamFailedEventShouldFailover(payload []byte, message string, conte
 	return true
 }
 
+func openAIStreamEncryptedFunctionOutputRejection(payload []byte) bool {
+	if len(bytes.TrimSpace(payload)) == 0 || !gjson.ValidBytes(payload) {
+		return false
+	}
+	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.code").String()))
+	if code == "" {
+		code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.code").String()))
+	}
+	message := strings.ToLower(strings.TrimSpace(extractOpenAISSEErrorMessage(payload)))
+	return code == "invalid_encrypted_content" && strings.Contains(message, "encrypted function output")
+}
+
 func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
 	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
 		return false

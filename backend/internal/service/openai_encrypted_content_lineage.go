@@ -29,12 +29,13 @@ func openAIEncryptedContentDigest(encrypted string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// openAIEncryptedLineageItemType 限定 lineage 覆盖的项类型，与剥离端
-// sanitizeEncryptedReasoningInputItem 能处理的类型对称；其他类型即使携带
-// encrypted_content 也不收摘要，避免记入永远剥不掉的摘要后每轮空转解码。
+// openAIEncryptedLineageItemType 限定 lineage 覆盖的项类型，与剥离端能处理的
+// 类型对称；其他类型即使携带 encrypted_content 也不收摘要，避免记入永远
+// 剥不掉的摘要后每轮空转解码。function_call_output/agent_message 的密文
+// 只在同一 output/content 数组还保留明文片段时才会被安全剥离。
 func openAIEncryptedLineageItemType(itemType string) bool {
 	switch strings.TrimSpace(itemType) {
-	case "reasoning", "compaction", "compaction_summary":
+	case "reasoning", "compaction", "compaction_summary", "function_call_output", "agent_message":
 		return true
 	default:
 		return false
@@ -53,13 +54,22 @@ func collectOpenAIEncryptedContentDigestsRaw(payload []byte) []string {
 	}
 	var digests []string
 	appendItem := func(item gjson.Result) {
-		if !openAIEncryptedLineageItemType(item.Get("type").String()) {
+		itemType := item.Get("type").String()
+		if !openAIEncryptedLineageItemType(itemType) {
 			return
 		}
 		encrypted := item.Get("encrypted_content")
 		if encrypted.Type == gjson.String && encrypted.String() != "" {
 			digests = append(digests, openAIEncryptedContentDigest(encrypted.String()))
 		}
+		var nested gjson.Result
+		switch strings.TrimSpace(itemType) {
+		case "function_call_output":
+			nested = item.Get("output")
+		case "agent_message":
+			nested = item.Get("content")
+		}
+		collectOpenAINestedEncryptedContentDigests(nested, &digests)
 	}
 	if input.IsArray() {
 		input.ForEach(func(_, item gjson.Result) bool {
@@ -72,6 +82,121 @@ func collectOpenAIEncryptedContentDigestsRaw(payload []byte) []string {
 		appendItem(input)
 	}
 	return digests
+}
+
+func collectOpenAINestedEncryptedContentDigests(value gjson.Result, digests *[]string) {
+	if digests == nil || !value.Exists() {
+		return
+	}
+	if value.Type == gjson.String {
+		var decoded any
+		if err := json.Unmarshal([]byte(value.String()), &decoded); err == nil {
+			collectOpenAINestedEncryptedContentDigestsRaw(decoded, digests)
+		}
+		return
+	}
+	if value.IsArray() {
+		var encryptedValues []string
+		plainSurvivor := false
+		value.ForEach(func(_, item gjson.Result) bool {
+			if item.Get("type").String() == "encrypted_content" {
+				if encrypted := item.Get("encrypted_content"); encrypted.Type == gjson.String && encrypted.String() != "" {
+					encryptedValues = append(encryptedValues, encrypted.String())
+				}
+			} else {
+				plainSurvivor = true
+			}
+			return true
+		})
+		if plainSurvivor {
+			for _, encrypted := range encryptedValues {
+				*digests = append(*digests, openAIEncryptedContentDigest(encrypted))
+			}
+		}
+	}
+}
+
+func collectOpenAINestedEncryptedContentDigestsRaw(value any, digests *[]string) {
+	if digests == nil {
+		return
+	}
+	parts, ok := value.([]any)
+	if !ok {
+		return
+	}
+	var encryptedValues []string
+	plainSurvivor := false
+	for _, raw := range parts {
+		part, ok := raw.(map[string]any)
+		if !ok || strings.TrimSpace(stringFromAny(part["type"])) != "encrypted_content" {
+			plainSurvivor = true
+			continue
+		}
+		encrypted := strings.TrimSpace(stringFromAny(part["encrypted_content"]))
+		if encrypted != "" {
+			encryptedValues = append(encryptedValues, encrypted)
+		}
+	}
+	if plainSurvivor {
+		for _, encrypted := range encryptedValues {
+			*digests = append(*digests, openAIEncryptedContentDigest(encrypted))
+		}
+	}
+}
+
+func collectOpenAIEncryptedFunctionOutputDigestsRaw(payload []byte) []string {
+	if len(payload) == 0 {
+		return nil
+	}
+	input := gjson.Get(openAIWSPayloadStringView(payload), "input")
+	if !input.Exists() {
+		return nil
+	}
+	var digests []string
+	appendItem := func(item gjson.Result) {
+		itemType := strings.TrimSpace(item.Get("type").String())
+		if itemType != "function_call_output" && itemType != "agent_message" {
+			return
+		}
+		if itemType == "function_call_output" {
+			collectOpenAINestedEncryptedContentDigests(item.Get("output"), &digests)
+		} else {
+			collectOpenAINestedEncryptedContentDigests(item.Get("content"), &digests)
+		}
+	}
+	if input.IsArray() {
+		input.ForEach(func(_, item gjson.Result) bool {
+			appendItem(item)
+			return true
+		})
+	} else if input.IsObject() {
+		appendItem(input)
+	}
+	return digests
+}
+
+func stripOpenAIEncryptedFunctionOutputRaw(payload []byte) ([]byte, int, error) {
+	digests := collectOpenAIEncryptedFunctionOutputDigestsRaw(payload)
+	if len(digests) == 0 {
+		return payload, 0, nil
+	}
+	invalid := make(map[string]struct{}, len(digests))
+	for _, digest := range digests {
+		invalid[digest] = struct{}{}
+	}
+	var decoded map[string]any
+	if err := decodeOpenAIJSONUseNumber(payload, &decoded); err != nil {
+		return payload, 0, err
+	}
+	stripped := stripOpenAIInvalidEncryptedContentItems(decoded, invalid)
+	if stripped == 0 {
+		return payload, 0, nil
+	}
+	rebuilt, err := marshalOpenAIUpstreamJSON(decoded)
+	if err != nil {
+		return payload, 0, err
+	}
+	return rebuilt, stripped, nil
 }
 
 // stripOpenAIInvalidEncryptedContentItems 剥离 input 中摘要命中 invalid 的密文
@@ -92,14 +217,17 @@ func stripOpenAIInvalidEncryptedContentItems(reqBody map[string]any, invalid map
 		if !ok {
 			return item, false, true
 		}
+		itemType := strings.TrimSpace(stringFromAny(inputItem["type"]))
 		encrypted, ok := inputItem["encrypted_content"].(string)
-		if !ok || encrypted == "" {
-			return item, false, true
+		if ok && encrypted != "" {
+			if _, hit := invalid[openAIEncryptedContentDigest(encrypted)]; hit {
+				return sanitizeEncryptedReasoningInputItem(item)
+			}
 		}
-		if _, hit := invalid[openAIEncryptedContentDigest(encrypted)]; !hit {
-			return item, false, true
+		if itemType == "function_call_output" || itemType == "agent_message" {
+			return stripOpenAINestedEncryptedContentItem(inputItem, itemType, invalid)
 		}
-		return sanitizeEncryptedReasoningInputItem(item)
+		return item, false, true
 	}
 	switch input := inputValue.(type) {
 	case []any:
@@ -156,12 +284,23 @@ func openAIRawPayloadHasInvalidEncryptedContent(payload []byte, invalid map[stri
 	}
 	hit := false
 	checkItem := func(item gjson.Result) bool {
+		itemType := item.Get("type").String()
 		encrypted := item.Get("encrypted_content")
-		if encrypted.Type != gjson.String || encrypted.String() == "" {
+		if encrypted.Type == gjson.String && encrypted.String() != "" {
+			if _, matched := invalid[openAIEncryptedContentDigest(encrypted.String())]; matched {
+				return true
+			}
+		}
+		var nested gjson.Result
+		switch strings.TrimSpace(itemType) {
+		case "function_call_output":
+			nested = item.Get("output")
+		case "agent_message":
+			nested = item.Get("content")
+		default:
 			return false
 		}
-		_, matched := invalid[openAIEncryptedContentDigest(encrypted.String())]
-		return matched
+		return openAINestedEncryptedContentHasInvalidDigest(nested, invalid)
 	}
 	if input.IsArray() {
 		input.ForEach(func(_, item gjson.Result) bool {
@@ -188,11 +327,11 @@ func stripOpenAIInvalidEncryptedContentFromReplayItems(items []json.RawMessage, 
 	}
 	hit := false
 	for _, item := range items {
-		encrypted := gjson.Get(openAIWSPayloadStringView(item), "encrypted_content")
-		if encrypted.Type != gjson.String || encrypted.String() == "" {
+		var decoded map[string]any
+		if err := decodeOpenAIJSONUseNumber(item, &decoded); err != nil {
 			continue
 		}
-		if _, matched := invalid[openAIEncryptedContentDigest(encrypted.String())]; matched {
+		if openAIInputItemHasInvalidEncryptedContent(decoded, invalid) {
 			hit = true
 			break
 		}
@@ -208,16 +347,7 @@ func stripOpenAIInvalidEncryptedContentFromReplayItems(items []json.RawMessage, 
 			next = append(next, item)
 			continue
 		}
-		encrypted, ok := decoded["encrypted_content"].(string)
-		if !ok || encrypted == "" {
-			next = append(next, item)
-			continue
-		}
-		if _, matched := invalid[openAIEncryptedContentDigest(encrypted)]; !matched {
-			next = append(next, item)
-			continue
-		}
-		nextItem, changed, keep := sanitizeEncryptedReasoningInputItem(decoded)
+		nextItem, changed, keep := stripOpenAIInvalidEncryptedContentItem(decoded, invalid)
 		if !changed {
 			next = append(next, item)
 			continue
@@ -238,6 +368,136 @@ func stripOpenAIInvalidEncryptedContentFromReplayItems(items []json.RawMessage, 
 		return items, 0
 	}
 	return next, stripped
+}
+
+func openAIInputItemHasInvalidEncryptedContent(item map[string]any, invalid map[string]struct{}) bool {
+	if item == nil {
+		return false
+	}
+	if encrypted := strings.TrimSpace(stringFromAny(item["encrypted_content"])); encrypted != "" {
+		if _, ok := invalid[openAIEncryptedContentDigest(encrypted)]; ok {
+			return true
+		}
+	}
+	itemType := strings.TrimSpace(stringFromAny(item["type"]))
+	if itemType != "function_call_output" && itemType != "agent_message" {
+		return false
+	}
+	value := item["output"]
+	if itemType == "agent_message" {
+		value = item["content"]
+	}
+	return openAINestedEncryptedContentHasInvalidDigestRaw(value, invalid)
+}
+
+func stripOpenAIInvalidEncryptedContentItem(item map[string]any, invalid map[string]struct{}) (any, bool, bool) {
+	if item == nil {
+		return item, false, true
+	}
+	if encrypted := strings.TrimSpace(stringFromAny(item["encrypted_content"])); encrypted != "" {
+		if _, ok := invalid[openAIEncryptedContentDigest(encrypted)]; ok {
+			return sanitizeEncryptedReasoningInputItem(item)
+		}
+	}
+	itemType := strings.TrimSpace(stringFromAny(item["type"]))
+	if itemType == "function_call_output" || itemType == "agent_message" {
+		return stripOpenAINestedEncryptedContentItem(item, itemType, invalid)
+	}
+	return item, false, true
+}
+
+func openAINestedEncryptedContentHasInvalidDigest(value any, invalid map[string]struct{}) bool {
+	if value == nil {
+		return false
+	}
+	if raw, ok := value.(string); ok {
+		var decoded any
+		if json.Unmarshal([]byte(raw), &decoded) != nil {
+			return false
+		}
+		return openAINestedEncryptedContentHasInvalidDigest(decoded, invalid)
+	}
+	parts, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, raw := range parts {
+		part, ok := raw.(map[string]any)
+		if !ok || strings.TrimSpace(stringFromAny(part["type"])) != "encrypted_content" {
+			continue
+		}
+		if _, matched := invalid[openAIEncryptedContentDigest(strings.TrimSpace(stringFromAny(part["encrypted_content"])))]; matched {
+			return true
+		}
+	}
+	return false
+}
+
+func openAINestedEncryptedContentHasInvalidDigestRaw(value any, invalid map[string]struct{}) bool {
+	return openAINestedEncryptedContentHasInvalidDigest(value, invalid)
+}
+
+func stripOpenAINestedEncryptedContentItem(item map[string]any, itemType string, invalid map[string]struct{}) (any, bool, bool) {
+	field := "output"
+	if itemType == "agent_message" {
+		field = "content"
+	}
+	value, exists := item[field]
+	if !exists {
+		return item, false, true
+	}
+	cleaned, changed, safe := stripOpenAINestedEncryptedContentValue(value, invalid)
+	if !changed || !safe {
+		return item, false, true
+	}
+	item[field] = cleaned
+	return item, true, true
+}
+
+func stripOpenAINestedEncryptedContentValue(value any, invalid map[string]struct{}) (any, bool, bool) {
+	stringEncoded, isString := value.(string)
+	if isString {
+		var decoded any
+		if json.Unmarshal([]byte(stringEncoded), &decoded) != nil {
+			return value, false, true
+		}
+		cleaned, changed, safe := stripOpenAINestedEncryptedContentValue(decoded, invalid)
+		if !changed || !safe {
+			return value, false, safe
+		}
+		encoded, err := json.Marshal(cleaned)
+		if err != nil {
+			return value, false, true
+		}
+		return string(encoded), true, true
+	}
+	parts, ok := value.([]any)
+	if !ok {
+		return value, false, true
+	}
+	filtered := make([]any, 0, len(parts))
+	changed := false
+	plainSurvivor := false
+	for _, raw := range parts {
+		part, ok := raw.(map[string]any)
+		if !ok || strings.TrimSpace(stringFromAny(part["type"])) != "encrypted_content" {
+			filtered = append(filtered, raw)
+			plainSurvivor = true
+			continue
+		}
+		encrypted := strings.TrimSpace(stringFromAny(part["encrypted_content"]))
+		if _, matched := invalid[openAIEncryptedContentDigest(encrypted)]; !matched {
+			filtered = append(filtered, raw)
+			continue
+		}
+		changed = true
+	}
+	if !changed || !plainSurvivor {
+		// A pure encrypted output has no recoverable context. Keep it intact so the
+		// caller can surface the upstream error instead of silently changing the task.
+		return value, false, len(filtered) > 0
+	}
+	return filtered, true, true
 }
 
 // stripOpenAIInvalidEncryptedContentRaw 是 raw JSON 版剥离：先零成本探测，命中

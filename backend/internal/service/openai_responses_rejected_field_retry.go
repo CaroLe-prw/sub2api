@@ -136,6 +136,15 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 	if param == "" {
 		param = strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "response.error.param").String()))
 	}
+	if code == "invalid_encrypted_content" && strings.Contains(message, "encrypted function output") {
+		retryBody, stripped, err := stripOpenAIEncryptedFunctionOutputRaw(body)
+		if err != nil {
+			return nil, "", false, fmt.Errorf("strip encrypted function output: %w", err)
+		}
+		if stripped > 0 {
+			return retryBody, "encrypted function output recovery", true, nil
+		}
+	}
 	if code == "invalid_function_parameters" &&
 		openAIResponsesToolParametersParamPattern.MatchString(param) &&
 		openAIResponsesMissingSchemaTypePattern.MatchString(message) {

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -298,6 +299,74 @@ func AnalyzeToolCallOutputContextCoverageBytes(body []byte) ToolCallOutputContex
 	}
 	coverage.ContextCoversAllCallIDs = true
 	return coverage
+}
+
+// HasEncryptedAgentMessage reports whether a Responses input carries a Codex
+// MultiAgentV2 agent_message whose content includes an opaque encrypted part.
+// Such content is issued by a specific upstream/session and must not be replayed
+// on a different account during continuation scheduling.
+func HasEncryptedAgentMessage(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	input := gjson.GetBytes(body, "input")
+	if !input.Exists() {
+		return false
+	}
+	hasEncrypted := func(item gjson.Result) bool {
+		if strings.TrimSpace(item.Get("type").String()) != "agent_message" {
+			return false
+		}
+		content := item.Get("content")
+		if content.Type == gjson.String {
+			var decoded any
+			if json.Unmarshal([]byte(content.String()), &decoded) != nil {
+				return false
+			}
+			return hasEncryptedAgentMessageParts(decoded)
+		}
+		if !content.IsArray() {
+			return false
+		}
+		found := false
+		content.ForEach(func(_, part gjson.Result) bool {
+			if part.Get("type").String() == "encrypted_content" && strings.TrimSpace(part.Get("encrypted_content").String()) != "" {
+				found = true
+				return false
+			}
+			return true
+		})
+		return found
+	}
+	if input.IsArray() {
+		found := false
+		input.ForEach(func(_, item gjson.Result) bool {
+			if hasEncrypted(item) {
+				found = true
+				return false
+			}
+			return true
+		})
+		return found
+	}
+	return input.IsObject() && hasEncrypted(input)
+}
+
+func hasEncryptedAgentMessageParts(value any) bool {
+	parts, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, raw := range parts {
+		part, ok := raw.(map[string]any)
+		if !ok || strings.TrimSpace(firstNonEmptyString(part["type"])) != "encrypted_content" {
+			continue
+		}
+		if strings.TrimSpace(firstNonEmptyString(part["encrypted_content"])) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateFunctionCallOutputContext 为 handler 提供低开销校验结果：

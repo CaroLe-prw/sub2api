@@ -630,6 +630,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				}
 				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted)
 				if !outputStarted && !cyberHit {
+					if openAIStreamEncryptedFunctionOutputRejection(dataBytes) {
+						sawFailedEvent = true
+						streamEarlyErr = &openAIStreamRequestBodyRetryError{responseBody: append([]byte(nil), dataBytes...)}
+						return
+					}
 					if openAIStreamMissingEncryptedContentRejection(dataBytes) {
 						sawFailedEvent = true
 						streamEarlyErr = &openAIStreamRequestBodyRetryError{responseBody: append([]byte(nil), dataBytes...)}
