@@ -31,6 +31,7 @@ func TestGetByKeyForAuthCarriesProfitControlProjection(t *testing.T) {
 		ProfitMinMargin:          0.2,
 		ProfitSafetyBuffer:       0.05,
 		MaxAccountCostMultiplier: &maxAccountCostMultiplier,
+		RequirePrivacySet:        true,
 	})
 	user := mustCreateUser(t, integrationEntClient, &service.User{
 		Email: fmt.Sprintf("profit-proj-%d@example.com", suffix), Concurrency: 5,
@@ -63,4 +64,6 @@ func TestGetByKeyForAuthCarriesProfitControlProjection(t *testing.T) {
 	require.InDelta(t, 0.05, got.Group.ProfitSafetyBuffer, 1e-9)
 	require.NotNil(t, got.Group.MaxAccountCostMultiplier)
 	require.InDelta(t, 0.04, *got.Group.MaxAccountCostMultiplier, 1e-9)
+	// OpenAI 选号从认证分组读取隐私门，漏列会放行未设置隐私的账号。
+	require.True(t, got.Group.RequirePrivacySet, "require_privacy_set 必须进入认证投影")
 }

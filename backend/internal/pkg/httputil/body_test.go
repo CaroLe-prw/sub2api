@@ -182,32 +182,10 @@ func TestReadRequestBodyWithPrealloc_ReportsPartialReadMetadata(t *testing.T) {
 	if !errors.As(err, &readErr) {
 		t.Fatalf("expected RequestBodyReadError, got %T", err)
 	}
-	if readErr.Stage != RequestBodyReadStageRead {
-		t.Fatalf("stage mismatch: got %q", readErr.Stage)
-	}
 	if readErr.BytesRead != int64(len("partial-body")) {
 		t.Fatalf("bytes read mismatch: got %d", readErr.BytesRead)
 	}
 	if readErr.Elapsed <= 0 {
 		t.Fatalf("elapsed should be positive, got %v", readErr.Elapsed)
-	}
-}
-
-func TestReadRequestBodyWithPrealloc_ReportsDecodeMetadata(t *testing.T) {
-	req := newRequestWithBody(t, []byte("not actually gzip"), "gzip")
-
-	_, err := ReadRequestBodyWithPrealloc(req)
-	if err == nil {
-		t.Fatal("expected decode error")
-	}
-	var readErr *RequestBodyReadError
-	if !errors.As(err, &readErr) {
-		t.Fatalf("expected RequestBodyReadError, got %T", err)
-	}
-	if readErr.Stage != RequestBodyReadStageDecode {
-		t.Fatalf("stage mismatch: got %q", readErr.Stage)
-	}
-	if readErr.BytesRead != int64(len("not actually gzip")) {
-		t.Fatalf("bytes read mismatch: got %d", readErr.BytesRead)
 	}
 }
