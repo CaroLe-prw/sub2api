@@ -63,6 +63,12 @@ type rpmOverrideRepoStub struct {
 	calls    int32
 }
 
+// GetByUserAndGroup 只有 snapshot 构建（api_key_auth_cache_impl）会用到，
+// checkRPM 分支不关心专属倍率，这里返回 nil 表示"无专属倍率"。
+func (s *rpmOverrideRepoStub) GetByUserAndGroup(_ context.Context, _, _ int64) (*float64, error) {
+	return nil, nil
+}
+
 func (s *rpmOverrideRepoStub) GetRPMOverrideByUserAndGroup(_ context.Context, _, _ int64) (*int, error) {
 	atomic.AddInt32(&s.calls, 1)
 	if s.err != nil {

@@ -124,10 +124,17 @@ func TestStripOpenAIInvalidEncryptedContentItems(t *testing.T) {
 			}},
 		}
 		require.Equal(t, 1, stripOpenAIInvalidEncryptedContentItems(reqBody, invalid))
-		input := reqBody["input"].([]any)
-		output := input[0].(map[string]any)["output"].([]any)
+		input, ok := reqBody["input"].([]any)
+		require.True(t, ok, "input 应保持为数组")
+		require.NotEmpty(t, input)
+		inputItem, ok := input[0].(map[string]any)
+		require.True(t, ok, "input 元素应保持为对象")
+		output, ok := inputItem["output"].([]any)
+		require.True(t, ok, "function_call_output 的 output 应保持为数组")
 		require.Len(t, output, 1)
-		require.Equal(t, "input_text", output[0].(map[string]any)["type"])
+		outputItem, ok := output[0].(map[string]any)
+		require.True(t, ok, "嵌套 output 元素应保持为对象")
+		require.Equal(t, "input_text", outputItem["type"])
 	})
 
 	t.Run("nested_pure_ciphertext_is_preserved", func(t *testing.T) {
