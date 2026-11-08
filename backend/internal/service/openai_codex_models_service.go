@@ -2099,6 +2099,19 @@ func adjustCodexModelsManifestResponsesLite(body []byte) ([]byte, error) {
 	return adjustAPIKeyCodexModelsManifest(body, nil)
 }
 
+// apiKeyCodexModelsWithoutResponsesLite 是 API Key 侧额外需要声明走完整
+// Responses 的模型清单（上游口径）：这些客户端在 Lite 模式下不会安装
+// web.run，因此 manifest 必须关闭 use_responses_lite。与本地
+// openAIModelsWithoutResponsesLite 取并集使用。
+var apiKeyCodexModelsWithoutResponsesLite = map[string]struct{}{
+	"gpt-6.1-terra": {},
+	"gpt-6.1-sol":   {},
+	"gpt-6-astra":   {},
+	"gpt-5.6-sol":   {},
+	"gpt-5.6-terra": {},
+	"gpt-5.6-luna":  {},
+}
+
 func adjustAPIKeyCodexModelsManifest(body []byte, account *Account) ([]byte, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
@@ -2123,7 +2136,11 @@ func adjustAPIKeyCodexModelsManifest(body []byte, account *Account) ([]byte, err
 		if account != nil {
 			target = account.GetMappedModel(slug)
 		}
-		if !openAIModelRequiresFullResponses(target) && target != "gpt-6.1-sol" {
+		targeted := openAIModelRequiresFullResponses(target)
+		if !targeted {
+			_, targeted = apiKeyCodexModelsWithoutResponsesLite[strings.ToLower(strings.TrimSpace(target))]
+		}
+		if !targeted {
 			continue
 		}
 		var useResponsesLite bool
