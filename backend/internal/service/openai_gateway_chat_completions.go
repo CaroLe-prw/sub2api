@@ -334,6 +334,23 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		return nil, err
 	}
 
+	// json_object 模式的 input 兜底：OpenAI 的 Responses 校验只扫描 input（instructions
+	// 不参与），Chat Completions 侧 response_format=json_object 的请求若没有把「JSON」
+	// 写进任何消息，转换后同样会被上游 400 拒绝。
+	if account.Platform == PlatformOpenAI {
+		hintedBody, hintSite, hintErr := applyOpenAIResponsesJSONObjectPromptHint(responsesBody)
+		if hintErr != nil {
+			return nil, fmt.Errorf("apply json_object prompt hint: %w", hintErr)
+		}
+		if hintSite != "" {
+			responsesBody = hintedBody
+			logger.L().Debug("openai chat_completions: injected json_object prompt hint",
+				zap.Int64("account_id", account.ID),
+				zap.String("site", hintSite),
+			)
+		}
+	}
+
 	// 5. Get access token
 	token, _, err := s.getRequestCredential(ctx, c, account)
 	if err != nil {

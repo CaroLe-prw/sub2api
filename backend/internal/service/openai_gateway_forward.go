@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"go.uber.org/zap"
 )
 
 // Forward forwards request to OpenAI API
@@ -757,6 +758,24 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 		if truncateOpenAIResponsesInputText(decoded) {
 			markDecodedModified()
+		}
+	}
+
+	// json_object 模式的 input 兜底：OpenAI 的 Responses 校验只扫描 input，
+	// instructions 不参与；客户端把「只输出 JSON」的约束只写进 instructions 时，
+	// 上游会以 400 拒绝整条请求（Response input messages must contain the word
+	// 'json' …）。这里补一条与客户端意图一致的极短提示，避免整单失败。
+	if account.Platform == PlatformOpenAI && openAIResponsesBodyUsesJSONObjectFormat(body) {
+		decoded, decodeErr := ensureReqBody()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if injected, site := ensureOpenAIResponsesJSONObjectPromptHint(decoded); injected {
+			markDecodedModified()
+			logger.L().Debug("openai responses: injected json_object prompt hint",
+				zap.Int64("account_id", account.ID),
+				zap.String("site", site),
+			)
 		}
 	}
 
