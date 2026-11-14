@@ -146,6 +146,7 @@ docs/*
 !docs/ASYNC_IMAGE_TASKS.md
 !docs/MERGE_V0.1.170.zh-CN.md
 !docs/RELEASE_V0.1.171.zh-CN.md
+!docs/OPENAI_IMAGES_CODEX.md
 !docs/BATCH_IMAGE_MVP.md
 !docs/COMPOSITE_GROUPS.md
 !docs/PLUGIN_DEVELOPMENT.md

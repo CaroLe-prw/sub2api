@@ -599,7 +599,7 @@ func TestSanitizeOpenAIResponsesToolParameterTypes_RewriteCountIndependentOfHits
 		defer cancel()
 		executable, err := os.Executable()
 		require.NoError(t, err)
-		cmd := exec.CommandContext(ctx, executable, "-test.run=^"+t.Name()+"$", "-test.count=1")
+		cmd := exec.CommandContext(ctx, executable, "-test.run=^"+t.Name()+"$", "-test.count=1", "-test.timeout=1m")
 		cmd.Env = append(os.Environ(), childEnv+"=1")
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, "isolated allocation check failed:\n%s", output)
