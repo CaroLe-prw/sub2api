@@ -28,6 +28,11 @@ func applyForcedCodexInstructionsTemplate(
 		return false, nil
 	}
 
+	model, _ := reqBody["model"].(string)
+	if codexUsesCacheableInstructions(firstNonEmpty(data.UpstreamModel, model)) {
+		return applyCodexCacheableInstructionsTemplate(reqBody, rendered, data.ExistingInstructions), nil
+	}
+
 	existing, _ := reqBody["instructions"].(string)
 	if strings.TrimSpace(existing) == rendered {
 		return false, nil

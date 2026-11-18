@@ -335,13 +335,12 @@ gateway:
   # 默认 false：保持纯文本 Codex 请求不被改写；客户端显式提供 image_generation tool 时，
   # 仍会在分组允许图片生成的情况下正常转发。
   codex_image_generation_bridge_enabled: false
-  # Optional: template file used to build the final top-level Codex `instructions`.
-  # 可选：用于构建最终 Codex 顶层 `instructions` 的模板文件路径。
+  # Optional: server Codex instructions template file. GPT-6.2 writes reusable
+  # guidance into the leading developer input; older models use `instructions`.
+  # 可选：服务端 Codex 指令模板。GPT-6.2 写入首条 developer input；旧模型使用顶层 instructions。
   #
-  # This is applied on the `/v1/messages -> Responses/Codex` conversion path,
-  # after Claude `system` has already been normalized into Codex `instructions`.
-  # 该模板作用于 `/v1/messages -> Responses/Codex` 转换链路，且发生在 Claude `system`
-  # 已经被归一化为 Codex `instructions` 之后。
+  # Applied on `/v1/messages -> Responses/Codex` after normalizing Claude system.
+  # 该模板作用于 `/v1/messages -> Responses/Codex` 转换链路，在归一化 Claude system 后执行。
   #
   # The template can reference:
   # 模板可引用：
@@ -351,10 +350,12 @@ gateway:
   # - {{ .BillingModel }}         : billing model
   # - {{ .UpstreamModel }}        : final upstream model
   #
-  # If you want to preserve client system prompts, keep {{ .ExistingInstructions }}
-  # somewhere in the template. If omitted, the template output fully replaces it.
-  # 如需保留客户端 system 提示词，请在模板中显式包含 {{ .ExistingInstructions }}。
-  # 若省略，则模板输出会完全覆盖它。
+  # Include {{ .ExistingInstructions }} to embed the client system prompt.
+  # GPT-6.2 replaces the initial text-only developer message only if the rendered
+  # template retains that prompt verbatim; otherwise it prepends a separate message.
+  # Client input and explicit turn-scoped instructions are not discarded.
+  # 使用 {{ .ExistingInstructions }} 可嵌入客户端 system 提示词。GPT-6.2 仅在模板完整保留
+  # 原提示词时合并首条纯文本 developer 消息，否则新增前置消息，不丢弃客户端 input 或逐轮指令。
   #
   # Docker users can mount a host file to /app/data/codex-instructions.md.tmpl
   # and point this field there.
@@ -976,8 +977,8 @@ idempotency:
 # 并发等待配置
 # =============================================================================
 concurrency:
-  # SSE ping interval during concurrency wait (seconds)
-  # 并发等待期间的 SSE ping 间隔（秒）
+  # SSE ping interval during concurrency wait (seconds); 0 disables pings to avoid committing HTTP status early
+  # 并发等待期间的 SSE ping 间隔（秒）；0 禁用 ping，避免提前写入 HTTP 状态码
   ping_interval: 10
 
 # =============================================================================
@@ -1254,6 +1255,11 @@ pricing:
   # Gemini 显式缓存存储单价（每 token 每小时，USD）优先取这里的 cache_storage_cost_per_token_per_hour 字段，
   # 未配置时使用内置官方价（先按已发布型号，再按 Pro / Flash 系列兜底）；两者都没有的模型拒绝创建缓存。
   # 目录中不存在的模型条目还须同时提供 input_cost_per_token / output_cost_per_token。
+  # Explicit nonnegative DeepSeek input/output/cache-read token prices here,
+  # including zero, are final rates and do not receive the official peak multiplier.
+  # Omitted or null fields still use the official defaults and peak/off-peak rules.
+  # DeepSeek 的输入/输出/缓存读单价若在此显式设为非负值（含 0），按该价计费，
+  # 不叠加官方高峰倍率；省略或 null 的字段仍按官方默认价与峰谷规则计费。
   # override_file: "./data/model_pricing_overrides.json"
   # Update interval in hours
   # 更新间隔（小时）

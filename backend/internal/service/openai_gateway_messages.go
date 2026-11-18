@@ -245,7 +245,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			templateUpstreamModel = codexResult.NormalizedModel
 		}
 		existingInstructions, _ := reqBody["instructions"].(string)
-		if strings.TrimSpace(existingInstructions) == "" {
+		if codexUsesCacheableInstructions(templateUpstreamModel) {
+			// Only the initial reusable developer prompt belongs in the template.
+			// Do not pull later conversation updates into the cached prefix.
+			existingInstructions = codexInitialDeveloperInstructions(reqBody)
+		} else if strings.TrimSpace(existingInstructions) == "" {
 			existingInstructions = extractPromptLikeInstructionsFromInput(reqBody)
 		}
 		if _, err := applyForcedCodexInstructionsTemplate(reqBody, forcedTemplateText, forcedCodexInstructionsTemplateData{
@@ -267,7 +271,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		if codexResult.PromptCacheKey != "" {
 			promptCacheKey = codexResult.PromptCacheKey
 		}
-		applyCodexAccountIdentityClientMetadataMap(reqBody, codexAccountIdentitySource(c, account), apiKeyID)
+		applyCodexAccountIdentityClientMetadataMap(reqBody, codexAccountIdentitySource(c, account), apiKeyID, codexClientSessionID(c))
 		delete(reqBody, "prompt_cache_key")
 		if shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
 			compatTurnState = s.getOpenAICompatSessionTurnState(ctx, c, account, promptCacheKey)
@@ -749,7 +753,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponseWithReaso
 	// accumulated delta events so the client receives the full content.
 	acc.SupplementResponseOutput(finalResponse)
 
-	anthropicResp := apicompat.ResponsesToAnthropic(finalResponse, originalModel)
+	anthropicResp := apicompat.ResponsesToAnthropic(finalResponse, compositeClientModel(c.Request.Context(), originalModel))
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -909,6 +913,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminalWithFirstOutput(
 	onFirstOutputTimeout func() error,
 ) (*apicompat.ResponsesResponse, OpenAIUsage, *apicompat.BufferedResponseAccumulator, openAICompatPriorModelAudit, error) {
 	acc := apicompat.NewBufferedResponseAccumulator()
+	acc.XAIServerSideSearch = account != nil && account.IsGrok()
 	var usage OpenAIUsage
 	if resp == nil || resp.Body == nil {
 		return nil, usage, acc, openAICompatPriorModelAudit{}, errors.New("upstream response body is nil")
@@ -1140,14 +1145,13 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 	guardFirstOutput := firstOutputTimeout > 0
 
 	state := apicompat.NewResponsesEventToAnthropicState()
-	state.Model = originalModel
+	state.Model = compositeClientModel(c.Request.Context(), originalModel)
+	state.XAIServerSideSearch = account != nil && account.IsGrok()
 	var usage OpenAIUsage
 	responseID := ""
 	var firstTokenMs *int
 	clientDisconnected := false
 	clientOutputStarted := false
-	pendingFirstOutputSSE := make([]string, 0, 4)
-	pendingFirstOutputBytes := 0
 	var streamFailoverErr error
 	var streamNonFailoverErr error
 	terminalEventType := ""
@@ -1196,6 +1200,34 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 		return out
 	}
 
+	// Until the first content_block_delta the translated prelude is held, so a
+	// failure before any content reaches the client still fails over and the
+	// next attempt starts a fresh message.
+	var held strings.Builder
+	emit := func(sse string, release bool) error {
+		if !clientOutputStarted && !release {
+			_, _ = held.WriteString(sse)
+			return nil
+		}
+		writeStreamHeaders()
+		if held.Len() > 0 {
+			sse = held.String() + sse
+			held.Reset()
+		}
+		if _, err := fmt.Fprint(c.Writer, sse); err != nil {
+			return err
+		}
+		clientOutputStarted = true
+		return nil
+	}
+	// A failure that does not fail over still shows the client the prelude it
+	// would have seen without holding.
+	releaseHeld := func() {
+		if held.Len() > 0 && !clientDisconnected && emit("", true) == nil {
+			c.Writer.Flush()
+		}
+	}
+
 	// processDataLine handles a single "data: ..." SSE line from upstream.
 	processDataLine := func(payload string) bool {
 		payload = string(restoreCodexToolNamesFromContext(c, []byte(payload)))
@@ -1224,6 +1256,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(eventType) || isBareErrorEvent
 		if isTerminalEvent {
 			terminalEventType = eventType
+			if event.Usage != nil {
+				usage = copyOpenAIUsageFromResponsesUsage(event.Usage)
+			}
 			if event.Response != nil {
 				if id := strings.TrimSpace(event.Response.ID); id != "" {
 					responseID = id
@@ -1231,9 +1266,6 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 				if event.Response.Usage != nil {
 					usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
 				}
-			}
-			if event.Usage != nil {
-				usage = copyOpenAIUsageFromResponsesUsage(event.Usage)
 			}
 			// cyber_policy 致命不可重试：标记供 handler 事后记录；以 Anthropic SSE error 事件
 			// 回写让客户端感知并停止重试（F4），丢弃后续转换输出。
@@ -1249,12 +1281,11 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 						UpstreamOutTok: usage.OutputTokens,
 					})
 					if !clientDisconnected {
-						writeStreamHeaders()
 						clientMsg := msg
 						if clientMsg == "" {
 							clientMsg = "Request blocked by upstream cyber-security policy"
 						}
-						if _, err := fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE("invalid_request_error", clientMsg)); err == nil {
+						if emit(buildAnthropicStreamErrorSSE("invalid_request_error", clientMsg), true) == nil {
 							c.Writer.Flush()
 						}
 						clientDisconnected = true
@@ -1273,6 +1304,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 					streamFailoverErr = s.newOpenAIStreamFailoverErrorWithModel(c, account, false, requestID, payloadBytes, message, upstreamModel, resp.Header)
 					return true
 				}
+				s.handleOpenAIStreamTerminalAccountSideEffects(c, account, payloadBytes, message, resp.Header, upstreamModel)
 				message = s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "http_error", payloadBytes, message)
 				errStatus, errType, errMsg := http.StatusBadGateway, "api_error", message
 				// 统一走语义状态推断 + body 归一化（与 /v1/responses 路径一致），
@@ -1287,14 +1319,11 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 					MarkResponseCommitted(c)
 				}
 				if !clientDisconnected {
-					if !clientOutputStarted {
+					if !clientOutputStarted && held.Len() == 0 {
 						writeAnthropicError(c, errStatus, errType, errMsg)
 						clientOutputStarted = true
-					} else {
-						writeStreamHeaders()
-						if _, err := fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE(errType, errMsg)); err == nil {
-							c.Writer.Flush()
-						}
+					} else if emit(buildAnthropicStreamErrorSSE(errType, errMsg), true) == nil {
+						c.Writer.Flush()
 					}
 				}
 				streamNonFailoverErr = fmt.Errorf("upstream response failed: %s", errMsg)
@@ -1314,44 +1343,27 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 					)
 					continue
 				}
-				if guardFirstOutput && firstTokenMs == nil {
-					pendingFirstOutputBytes += len(sse)
-					if pendingFirstOutputBytes > openAIFirstOutputStageMaxBytes {
-						failoverErr := s.newOpenAIStreamFailoverError(
-							c, account, false, requestID, nil, "OpenAI messages first-output staging limit exceeded",
-						)
-						failoverErr.SafeToFailoverAfterWrite = true
-						streamFailoverErr = failoverErr
-						return true
-					}
-					pendingFirstOutputSSE = append(pendingFirstOutputSSE, sse)
-					continue
+				release := isTerminalEvent || evt.Type == "content_block_delta"
+				if guardFirstOutput && !clientOutputStarted && !release && held.Len()+len(sse) > openAIFirstOutputStageMaxBytes {
+					failoverErr := s.newOpenAIStreamFailoverError(
+						c, account, false, requestID, nil, "OpenAI messages first-output staging limit exceeded",
+					)
+					failoverErr.SafeToFailoverAfterWrite = true
+					streamFailoverErr = failoverErr
+					return true
 				}
-				writeStreamHeaders()
-				if !clientOutputStarted && len(pendingFirstOutputSSE) > 0 {
-					for _, pending := range pendingFirstOutputSSE {
-						if _, err := fmt.Fprint(c.Writer, pending); err != nil {
-							clientDisconnected = true
-							break
-						}
-					}
-					pendingFirstOutputSSE = pendingFirstOutputSSE[:0]
-					pendingFirstOutputBytes = 0
-					if clientDisconnected {
-						break
-					}
-				}
-				if _, err := fmt.Fprint(c.Writer, sse); err != nil {
+				if err := emit(sse, release); err != nil {
 					clientDisconnected = true
 					logger.L().Info("openai messages stream: client disconnected, continuing to drain upstream for billing",
 						zap.String("request_id", requestID),
 					)
 					break
 				}
-				clientOutputStarted = true
 			}
 		}
-		if len(events) > 0 && !clientDisconnected {
+		// gin's Flush commits the 200 header first; flushing while the prelude
+		// is held would make the attempt ineligible for failover.
+		if clientOutputStarted && len(events) > 0 && !clientDisconnected {
 			c.Writer.Flush()
 		}
 		return isTerminalEvent
@@ -1371,15 +1383,13 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 				if err != nil {
 					continue
 				}
-				writeStreamHeaders()
-				if _, err := fmt.Fprint(c.Writer, sse); err != nil {
+				if err := emit(sse, true); err != nil {
 					clientDisconnected = true
 					logger.L().Info("openai messages stream: client disconnected during final flush",
 						zap.String("request_id", requestID),
 					)
 					break
 				}
-				clientOutputStarted = true
 			}
 			if !clientDisconnected {
 				c.Writer.Flush()
@@ -1399,6 +1409,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 		}
 	}
 	missingTerminalErr := func() (*OpenAIForwardResult, error) {
+		if !clientOutputStarted && c.Request.Context().Err() != nil {
+			clientDisconnected = true
+		}
 		result := resultWithUsage()
 		if clientDisconnected {
 			return result, fmt.Errorf("stream usage incomplete: missing terminal event")
@@ -1439,6 +1452,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 		}
 		if err := scanner.Err(); err != nil {
 			handleScanErr(err)
+			releaseHeld()
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", err)
 		}
 		if frame, ok := parser.Finish(); ok {
@@ -1544,6 +1558,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 			}
 			if ev.err != nil {
 				handleScanErr(ev.err)
+				releaseHeld()
 				return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", ev.err)
 			}
 			lastDataAt = time.Now()
@@ -1572,6 +1587,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 				zap.String("model", originalModel),
 				zap.Duration("interval", streamInterval),
 			)
+			releaseHeld()
 			return resultWithUsage(), fmt.Errorf("stream data interval timeout")
 
 		case <-firstOutputCh:
@@ -1591,15 +1607,19 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 			if clientDisconnected {
 				continue
 			}
-			if guardFirstOutput && firstTokenMs == nil {
+			// While the prelude is held nothing else reaches the client, so every
+			// tick pings. Account headers stay private and the bytes count as
+			// keepalive: the attempt that finally answers may be another one.
+			if clientOutputStarted && time.Since(lastDataAt) < keepaliveInterval {
 				continue
 			}
-			if time.Since(lastDataAt) < keepaliveInterval {
-				continue
+			if clientOutputStarted {
+				writeStreamHeaders()
+			} else {
+				setSSEHeaders(c)
 			}
-			// Send Anthropic-format ping event
-			writeStreamHeaders()
-			if _, err := fmt.Fprint(c.Writer, "event: ping\ndata: {\"type\":\"ping\"}\n\n"); err != nil {
+			n, err := fmt.Fprint(c.Writer, "event: ping\ndata: {\"type\":\"ping\"}\n\n")
+			if err != nil {
 				// Client disconnected
 				logger.L().Info("openai messages stream: client disconnected during keepalive",
 					zap.String("request_id", requestID),
@@ -1607,14 +1627,25 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponseWithReasoning(
 				clientDisconnected = true
 				continue
 			}
-			clientOutputStarted = true
+			if !clientOutputStarted {
+				recordOpenAIStreamKeepaliveBytes(c, n)
+			}
 			c.Writer.Flush()
 		}
 	}
 }
 
 // writeAnthropicError writes an error response in Anthropic Messages API format.
+// Once the response is committed as SSE (keepalive pings went out), a bare JSON
+// body would be unreadable to the client's SSE parser, so the error is written
+// as an SSE error event instead.
 func writeAnthropicError(c *gin.Context, statusCode int, errType, message string) {
+	if c.Writer.Written() && strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream") {
+		if _, err := fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE(errType, message)); err == nil {
+			c.Writer.Flush()
+		}
+		return
+	}
 	c.JSON(statusCode, gin.H{
 		"type": "error",
 		"error": gin.H{

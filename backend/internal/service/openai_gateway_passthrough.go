@@ -219,7 +219,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthroughAttempt(
 			reqStream = false
 		}
 
-		accountScopedBody, accountScoped, scopeErr := applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+		accountScopedBody, accountScoped, scopeErr := applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c), codexClientSessionID(c))
 		if scopeErr != nil {
 			return nil, scopeErr
 		}
@@ -1883,6 +1883,33 @@ func applyOpenAIStreamFailedErrorPassthroughRule(
 	)
 }
 
+// OpenAIStreamFailedFrame is the in-stream failed or error frame behind a
+// failover, kept so an exhausted failover can still apply the error
+// passthrough rules that would have matched the frame.
+type OpenAIStreamFailedFrame struct {
+	Platform string
+	Payload  []byte
+	Message  string
+}
+
+// ApplyOpenAIStreamFailedFrameRule applies the error passthrough rules to the
+// frame that triggered an exhausted failover, matching it the way
+// applyOpenAIStreamFailedErrorPassthroughRule does for an in-band frame.
+func ApplyOpenAIStreamFailedFrameRule(c *gin.Context, failoverErr *UpstreamFailoverError) (status int, errType string, errMsg string, matched bool) {
+	if failoverErr == nil || failoverErr.StreamFailedFrame == nil {
+		return 0, "", "", false
+	}
+	frame := failoverErr.StreamFailedFrame
+	status, errType, errMsg, matched = applyOpenAIStreamFailedErrorPassthroughRule(c, frame.Platform, frame.Payload, frame.Message)
+	if !matched {
+		return 0, "", "", false
+	}
+	if errMsg == "" {
+		errMsg = frame.Message
+	}
+	return status, errType, errMsg, true
+}
+
 func openAIStreamFailedEventShouldFailover(payload []byte, message string, contexts ...*gin.Context) bool {
 	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
 		return false
@@ -2267,6 +2294,9 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverErrorWithModel(
 		failoverErr.MinimumSameAccountRetries = 1
 		failoverErr.RequestScopedTransient = true
 		failoverErr.Reason = openAIResponsesItemNotPersistedReason
+	}
+	if len(payload) > 0 && account != nil {
+		failoverErr.StreamFailedFrame = &OpenAIStreamFailedFrame{Platform: account.Platform, Payload: payload, Message: message}
 	}
 	return failoverErr
 }

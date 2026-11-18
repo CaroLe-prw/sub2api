@@ -155,6 +155,7 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		OpenAISchedulerProfile:      g.OpenAISchedulerProfile,
 		OpenAISchedulerConfig:       g.OpenAISchedulerConfig,
 		ForceOpenAIFast:             g.ForceOpenAIFast,
+		ForceOpenAIUltrafast:        g.ForceOpenAIUltrafast,
 		FreeOpenAIFast:              g.FreeOpenAIFast,
 		ProfitControlEnabled:        g.ProfitControlEnabled,
 		ProfitMinMargin:             g.ProfitMinMargin,
