@@ -56,8 +56,8 @@ func TestOpenAIIdleDeadlineDoesNotReplayBeforeOrAfterOutput(t *testing.T) {
 				MaxLineSize: defaultMaxLineSize, StreamDataIntervalTimeout: 1,
 			}}}
 			pr, pw := io.Pipe()
-			defer pr.Close()
-			defer pw.Close()
+			defer func() { require.NoError(t, pr.Close()) }()
+			defer func() { require.NoError(t, pw.Close()) }()
 			go func() {
 				frame := "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r\"}}\n\n"
 				if output {
@@ -93,8 +93,8 @@ func TestOpenAIIdleDeadlineKeepsPreludePrivateUntilExplicitFailure(t *testing.T)
 		MaxLineSize: defaultMaxLineSize, StreamDataIntervalTimeout: 1, StreamKeepaliveInterval: 1,
 	}}}
 	pr, pw := io.Pipe()
-	defer pr.Close()
-	defer pw.Close()
+	defer func() { require.NoError(t, pr.Close()) }()
+	defer func() { require.NoError(t, pw.Close()) }()
 	go func() {
 		_, _ = io.WriteString(pw, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"r\"}}\n\n")
 		time.Sleep(1300 * time.Millisecond)

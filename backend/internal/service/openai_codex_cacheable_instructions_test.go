@@ -11,6 +11,13 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func requireCodexInputType[T any](t *testing.T, value any) T {
+	t.Helper()
+	result, ok := value.(T)
+	require.Truef(t, ok, "expected %T, got %T", result, value)
+	return result
+}
+
 func TestCodexGPT62StableInstructionsStayInInput(t *testing.T) {
 	for _, model := range []string{"gpt-6.2-sol", "gpt-6.2-astra", "openai/gpt-6.2-sol-high"} {
 		for _, omit := range []bool{false, true} {
@@ -21,11 +28,11 @@ func TestCodexGPT62StableInstructionsStayInInput(t *testing.T) {
 				result := applyCodexOAuthTransformWithOptions(body, codexOAuthTransformOptions{OmitPromotedSystemMessagesFromInput: omit})
 				require.NoError(t, result.Error)
 				require.Equal(t, "this turn only", body["instructions"])
-				input := body["input"].([]any)
+				input := requireCodexInputType[[]any](t, body["input"])
 				require.Len(t, input, 4)
-				require.Equal(t, "developer", input[0].(map[string]any)["role"])
-				require.Equal(t, "stable policy", extractTextFromContent(input[0].(map[string]any)["content"]))
-				require.Equal(t, "later update", input[2].(map[string]any)["content"])
+				require.Equal(t, "developer", requireCodexInputType[map[string]any](t, input[0])["role"])
+				require.Equal(t, "stable policy", extractTextFromContent(requireCodexInputType[map[string]any](t, input[0])["content"]))
+				require.Equal(t, "later update", requireCodexInputType[map[string]any](t, input[2])["content"])
 				before, err := json.Marshal(body)
 				require.NoError(t, err)
 				applyCodexOAuthTransformWithOptions(body, codexOAuthTransformOptions{OmitPromotedSystemMessagesFromInput: omit})
@@ -44,11 +51,11 @@ func TestCodexGPT62DefaultInstructionsAreCacheable(t *testing.T) {
 			result := applyCodexOAuthTransform(body, false, false)
 			require.NoError(t, result.Error)
 			require.Equal(t, "", body["instructions"])
-			items := body["input"].([]any)
+			items := requireCodexInputType[[]any](t, body["input"])
 			require.Len(t, items, 2)
-			require.Equal(t, "developer", items[0].(map[string]any)["role"])
-			require.Equal(t, defaultCodexSynthInstructions(model), extractTextFromContent(items[0].(map[string]any)["content"]))
-			require.Equal(t, "hello", items[1].(map[string]any)["content"])
+			require.Equal(t, "developer", requireCodexInputType[map[string]any](t, items[0])["role"])
+			require.Equal(t, defaultCodexSynthInstructions(model), extractTextFromContent(requireCodexInputType[map[string]any](t, items[0])["content"]))
+			require.Equal(t, "hello", requireCodexInputType[map[string]any](t, items[1])["content"])
 			applyCodexOAuthTransform(body, false, false)
 			require.Len(t, body["input"], 2, "must not duplicate the synthesized prefix on retry")
 		}
@@ -114,10 +121,10 @@ func TestCodexGPT62ForcedTemplateUsesStableDeveloperPrefix(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, changed)
 		require.Equal(t, "this turn only", body["instructions"])
-		items := body["input"].([]any)
+		items := requireCodexInputType[[]any](t, body["input"])
 		require.Len(t, items, 3)
-		require.Equal(t, "server policy\n\nclient policy", extractTextFromContent(items[0].(map[string]any)["content"]))
-		require.Equal(t, "later update", items[2].(map[string]any)["content"])
+		require.Equal(t, "server policy\n\nclient policy", extractTextFromContent(requireCodexInputType[map[string]any](t, items[0])["content"]))
+		require.Equal(t, "later update", requireCodexInputType[map[string]any](t, items[2])["content"])
 		changed, err = applyForcedCodexInstructionsTemplate(body, "server policy\n\n{{ .ExistingInstructions }}", data)
 		require.NoError(t, err)
 		require.False(t, changed)
@@ -211,10 +218,10 @@ func TestCodexGPT62LaterDeveloperUpdateKeepsSynthesizedPrefix(t *testing.T) {
 		map[string]any{"role": "user", "content": "continue"},
 	}}
 	applyCodexOAuthTransform(next, false, false)
-	items := next["input"].([]any)
+	items := requireCodexInputType[[]any](t, next["input"])
 	require.Len(t, items, 5)
-	require.Equal(t, first["input"].([]any)[:2], items[:2], "new developer updates must not remove the already-synthesized prefix")
-	require.Equal(t, "later update", items[3].(map[string]any)["content"])
+	require.Equal(t, requireCodexInputType[[]any](t, first["input"])[:2], items[:2], "new developer updates must not remove the already-synthesized prefix")
+	require.Equal(t, "later update", requireCodexInputType[map[string]any](t, items[3])["content"])
 }
 
 func TestCodexGPT62MixedTemplateContentIsNotDiscarded(t *testing.T) {
@@ -225,7 +232,7 @@ func TestCodexGPT62MixedTemplateContentIsNotDiscarded(t *testing.T) {
 	changed, err := applyForcedCodexInstructionsTemplate(body, "server\n{{ .ExistingInstructions }}", forcedCodexInstructionsTemplateData{ExistingInstructions: "client policy", UpstreamModel: "gpt-6.2-sol"})
 	require.NoError(t, err)
 	require.True(t, changed)
-	items := body["input"].([]any)
+	items := requireCodexInputType[[]any](t, body["input"])
 	require.Len(t, items, 3)
 	retained, err := json.Marshal(items[1:])
 	require.NoError(t, err)
