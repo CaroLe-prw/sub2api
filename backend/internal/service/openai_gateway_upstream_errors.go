@@ -118,6 +118,15 @@ func isOpenAIInstructionsRequiredError(upstreamStatusCode int, upstreamMsg strin
 	return false
 }
 
+// Codex may report capacity with invalid_request_error rather than an overload
+// code. Treat that specific provider message like model capacity, not a client
+// validation failure, so pre-output retries stay inside the gateway.
+func isOpenAIModelCapacityMessage(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	return strings.Contains(lower, "selected model is at capacity") ||
+		strings.Contains(lower, "codex is at capacity")
+}
+
 func isOpenAIServerOverloadedMessage(text string) bool {
 	lower := strings.ToLower(strings.TrimSpace(text))
 	return strings.Contains(lower, "server") && strings.Contains(lower, "overloaded")
@@ -169,7 +178,7 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 		return false
 	}
 	if upstreamStatusCode != http.StatusBadRequest {
-		return false
+		return isOpenAIModelCapacityError(upstreamStatusCode, upstreamMsg, upstreamBody)
 	}
 
 	match := func(text string) bool {
@@ -183,7 +192,7 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 		if strings.Contains(lower, "an error occurred while processing your request") {
 			return true
 		}
-		if strings.Contains(lower, "selected model is at capacity") {
+		if isOpenAIModelCapacityMessage(lower) {
 			return true
 		}
 		return strings.Contains(lower, "you can retry your request") &&
@@ -253,7 +262,7 @@ func isOpenAIRequestScopedCapacityError(upstreamStatusCode int, upstreamMsg stri
 		return false
 	}
 	containsCapacityMessage := func(text string) bool {
-		return strings.Contains(strings.ToLower(strings.TrimSpace(text)), "selected model is at capacity") ||
+		return isOpenAIModelCapacityMessage(text) ||
 			isOpenAIServerOverloadedMessage(text)
 	}
 	if containsCapacityMessage(upstreamMsg) {
@@ -264,7 +273,7 @@ func isOpenAIRequestScopedCapacityError(upstreamStatusCode int, upstreamMsg stri
 			return true
 		}
 	}
-	if containsCapacityMessage(string(upstreamBody)) {
+	if !gjson.ValidBytes(upstreamBody) && containsCapacityMessage(string(upstreamBody)) {
 		return true
 	}
 	for _, path := range []string{"error.code", "response.error.code", "code"} {
@@ -282,7 +291,7 @@ func isOpenAIModelCapacityError(upstreamStatusCode int, upstreamMsg string, upst
 		return false
 	}
 	match := func(text string) bool {
-		return strings.Contains(strings.ToLower(strings.TrimSpace(text)), "selected model is at capacity")
+		return isOpenAIModelCapacityMessage(text)
 	}
 	if match(upstreamMsg) {
 		return true
@@ -295,7 +304,7 @@ func isOpenAIModelCapacityError(upstreamStatusCode int, upstreamMsg string, upst
 			return true
 		}
 	}
-	return match(string(upstreamBody))
+	return !gjson.ValidBytes(upstreamBody) && match(string(upstreamBody))
 }
 
 func shouldRetryOpenAIOAuthCapacityOnSameAccount(account *Account, statusCode int, upstreamMsg string, upstreamBody []byte) bool {

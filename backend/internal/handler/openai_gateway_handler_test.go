@@ -2795,6 +2795,17 @@ func runOpenAIResponsesWebSocketUsageLimitCase(t *testing.T, mode string, follow
 }
 
 func TestOpenAIResponsesWebSocket_CapacityFailureRetriesSamePoolAccount(t *testing.T) {
+	for _, message := range []string{
+		"Selected model is at capacity. Please try a different model.",
+		"Codex is at capacity, please try again later",
+	} {
+		t.Run(message, func(t *testing.T) {
+			testOpenAIResponsesWebSocketCapacityFailureRetriesSamePoolAccount(t, message)
+		})
+	}
+}
+
+func testOpenAIResponsesWebSocketCapacityFailureRetriesSamePoolAccount(t *testing.T, capacityMessage string) {
 	gin.SetMode(gin.TestMode)
 
 	var upstreamAttempts atomic.Int32
@@ -2819,7 +2830,7 @@ func TestOpenAIResponsesWebSocket_CapacityFailureRetriesSamePoolAccount(t *testi
 			`{"type":"response.created","response":{"id":"resp_capacity_retry"}}`,
 		}
 		if attempt == 1 {
-			events = append(events, `{"type":"response.failed","response":{"id":"resp_capacity_retry","error":{"type":"invalid_request_error","message":"Selected model is at capacity. Please try a different model."}}}`)
+			events = append(events, fmt.Sprintf(`{"type":"response.failed","response":{"id":"resp_capacity_retry","error":{"type":"invalid_request_error","message":%q}}}`, capacityMessage))
 		} else {
 			events = append(events,
 				`{"type":"response.output_text.delta","response_id":"resp_capacity_retry","delta":"recovered"}`,
