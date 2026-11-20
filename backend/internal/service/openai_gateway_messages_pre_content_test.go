@@ -129,21 +129,22 @@ func TestForwardAsAnthropic_TerminalBeforeContentReleasesPrelude(t *testing.T) {
 	require.True(t, start >= 0 && delta > start && stop > delta, "body order: %q", body)
 }
 
-func TestForwardAsAnthropic_IntervalTimeoutReleasesPrelude(t *testing.T) {
+func TestForwardAsAnthropic_IdlePreludeWaitsForExplicitFailure(t *testing.T) {
 	cfg := rawChatCompletionsTestConfig()
 	cfg.Gateway.StreamDataIntervalTimeout = 1
 	pr, pw := io.Pipe()
-	defer func() { _ = pw.Close() }()
+	defer func() { _ = pr.Close() }()
 	go func() {
+		defer func() { _ = pw.Close() }()
 		_, _ = io.WriteString(pw, preContentCreatedFrame)
+		time.Sleep(1300 * time.Millisecond)
+		_, _ = io.WriteString(pw, preContentFailoverFailed)
 	}()
 	rec, _, err := forwardPreContent(t, cfg, nil, pr)
 
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "stream data interval timeout")
 	var failoverErr *UpstreamFailoverError
-	require.False(t, errors.As(err, &failoverErr))
-	require.Contains(t, rec.Body.String(), "message_start")
+	require.ErrorAs(t, err, &failoverErr)
+	require.NotContains(t, rec.Body.String(), "message_start")
 }
 
 func TestWriteAnthropicErrorAfterCommittedSSE(t *testing.T) {

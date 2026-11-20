@@ -631,6 +631,19 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 		failoverErr.SameAccountRetryDeadline = s.openAIOAuth429RetryDeadline(account, model)
 		failoverErr.SameAccountRetryDelay = openAIOAuth429SameAccountRetryDelay(responseHeaders, failoverErr.SameAccountRetryDeadline)
 	}
+	// Give Codex capacity time to recover before spending the same-account retry.
+	if !shouldDisable && statusCode == http.StatusTooManyRequests &&
+		gjson.GetBytes(responseBody, "error.code").String() == "turn_rate_limit_exceeded" &&
+		strings.Contains(strings.ToLower(upstreamMsg), "codex is at capacity") &&
+		parseRetryAfterResetTime(responseHeaders, time.Now()) == nil {
+		delay := openAIOAuth429MaxRetryDelay
+		if deadline := failoverErr.SameAccountRetryDeadline; !deadline.IsZero() {
+			delay = min(delay, time.Until(deadline))
+		}
+		if delay > failoverErr.SameAccountRetryDelay {
+			failoverErr.SameAccountRetryDelay = delay
+		}
+	}
 	return failoverErr
 }
 

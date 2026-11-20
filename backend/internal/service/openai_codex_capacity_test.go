@@ -95,3 +95,19 @@ func TestOpenAICodexCapacityBeforeOutputReturnsFailover(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexCapacity429WaitsBeforeRetry(t *testing.T) {
+	s := &OpenAIGatewayService{}
+	account := &Account{ID: 7, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	body := []byte(`{"error":{"code":"turn_rate_limit_exceeded","message":"Codex is at capacity, please try again later"}}`)
+	for _, tc := range []struct {
+		headers http.Header
+		want    time.Duration
+	}{
+		{nil, 8 * time.Second},
+		{http.Header{"Retry-After": []string{"3"}}, 3 * time.Second},
+	} {
+		err := s.newOpenAIAccountFailoverErrorWithClassificationHeaders(account, "gpt-6-astra", http.StatusTooManyRequests, tc.headers, tc.headers, body, codexCapacityTestMessage, false, false)
+		require.Equal(t, tc.want, err.SameAccountRetryDelay)
+	}
+}
