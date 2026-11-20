@@ -1419,7 +1419,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	// 解析渠道级模型映射
 	channelMappingMsg, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 	if channelMappingMsg.Mapped {
-		routingModel = channelMappingMsg.MappedModel
 		preferredMappedModel = channelMappingMsg.MappedModel
 	}
 	mappedBodyForMessages := newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
