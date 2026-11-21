@@ -1342,11 +1342,11 @@ export default {
       candyTestInterval: {
         invalid: 'Enter a whole number from 0 to 86400 seconds; 0 disables automatic checks.',
         label: 'Candy test interval (seconds)',
-        hint: '0 disables automatic checks; use 1–86400 seconds to enable. The server checks active primary OpenAI OAuth accounts with this group’s model, even when this page is closed, consuming quota. Intervals start after completion; checks on the same account never overlap. Each group has its own schedule.'
+        hint: '0 disables automatic checks; use 1–86400 seconds to enable. The server checks active primary OpenAI OAuth accounts with this group’s model, even when this page is closed, consuming quota. Intervals start after completion; checks on the same account never overlap. Each group has its own schedule. Wrong answers block scheduling while retests continue; a passing retest clears the block. Network/API errors leave the previous verdict unchanged.'
       },
       candyTestModel: {
         label: 'Candy test model',
-        hint: 'Only for candy checks on OpenAI OAuth accounts in this group; normal requests are unchanged. Blank defaults to gpt-6.2-sol. Use an upstream text model ID; model aliases are not applied. If groups disagree, select a group in the account list first.'
+        hint: 'Only sets the candy-check model for OpenAI OAuth accounts in this group; normal request models are unchanged. Blank defaults to gpt-6.2-sol. Use an upstream text model ID; model aliases are not applied. If groups disagree, select a group in the account list first.'
       },
       openaiMessages: {
         title: 'OpenAI Messages Dispatch',

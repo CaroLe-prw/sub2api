@@ -1393,6 +1393,15 @@ func (c *schedulerCache) mgetChunked(ctx context.Context, keys []string) ([]any,
 }
 
 func buildSchedulerMetadataAccount(account service.Account) service.Account {
+	extra := filterSchedulerExtra(account.Extra)
+	// Project the effective verdict for old snapshots too, without copying the
+	// diagnostic history into every candidate pool. Retests persist the flag.
+	if account.IsCandyTestBlocked() {
+		if extra == nil {
+			extra = make(map[string]any)
+		}
+		extra[service.CandyTestBlockedExtraKey] = true
+	}
 	return service.Account{
 		ID:                      account.ID,
 		Name:                    account.Name,
@@ -1420,7 +1429,7 @@ func buildSchedulerMetadataAccount(account service.Account) service.Account {
 		AccountGroups:           filterSchedulerAccountGroups(account.AccountGroups),
 		GroupIDs:                filterSchedulerGroupIDs(account.GroupIDs, account.AccountGroups),
 		Credentials:             filterSchedulerCredentials(account.Credentials),
-		Extra:                   filterSchedulerExtra(account.Extra),
+		Extra:                   extra,
 	}
 }
 
@@ -1589,6 +1598,7 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		service.UpstreamBillingProbeExtraKey,
 		service.OpenAIUpstreamRateCalibrationExtraKey,
 		service.GrokMediaEligibleExtraKey,
+		service.CandyTestBlockedExtraKey,
 		"grok_billing_snapshot",
 	}
 	filtered := make(map[string]any)

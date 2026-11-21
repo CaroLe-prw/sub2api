@@ -43,8 +43,29 @@ describe('AccountCandyTestCell', () => {
     await flushPromises()
     expect(runCandyTest).toHaveBeenCalledWith(42, 7, expect.any(AbortSignal))
     expect(wrapper.emitted('updated')?.[0]).toEqual([result()])
-    expect(wrapper.get('[data-testid="candy-test-counts"]').text()).toContain('1,3,1')
+    expect(wrapper.get('[data-testid="candy-test-counts"]').text()).toContain('1,2,1')
     expect(wrapper.findAll('[data-status]').map(node => node.attributes('data-status'))).toEqual(['passed', 'failed', 'error'])
+    wrapper.unmount()
+  })
+  it.each([
+    { passed: 12, failed: 0, errors: 1, expected: '12,12,1' },
+    { passed: 12, failed: 1, errors: 1, expected: '12,13,1' },
+    { passed: 0, failed: 0, errors: 3, expected: '0,0,3' }
+  ])('counts only conclusive answers in the pass denominator: %o', ({ passed, failed, errors, expected }) => {
+    const saved: CandyTestSnapshot = {
+      total: passed + failed + errors, passed, failed, errors,
+      last_verdict: failed > 0 ? 'failed' : passed > 0 ? 'passed' : undefined,
+      // The retained history is not the denominator: cumulative counts survive rollover.
+      recent: [result().recent[2]]
+    }
+    const original = account({ schedulable: true, extra: { candy_test: saved } })
+    const wrapper = mount(AccountCandyTestCell, { props: { account: original } })
+    expect(wrapper.get('[data-testid="candy-test-counts"]').text()).toBe(`admin.accounts.candyTest.counts:${expected}`)
+    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(failed > 0)
+    expect(wrapper.findAll('[data-status="error"]')).toHaveLength(1)
+    expect(saved.total).toBe(passed + failed + errors)
+    expect(original.schedulable).toBe(true)
+    expect(runCandyTest).not.toHaveBeenCalled()
     wrapper.unmount()
   })
   it('disables duplicate requests while the first test is pending', async () => {
@@ -92,4 +113,36 @@ describe('AccountCandyTestCell', () => {
     expect(runCandyTest.mock.calls[0][2].aborted).toBe(true)
     expect(showError).not.toHaveBeenCalled()
   })
+  it('shows a scheduling block after a wrong answer even when the latest test is an API error', () => {
+    const wrapper = mount(AccountCandyTestCell, { props: { account: account({ extra: { candy_test: result() } }) } })
+    expect(wrapper.text()).toContain('admin.accounts.candyTest.error')
+    expect(wrapper.get('[data-testid="candy-scheduling-blocked"]').text()).toBe('admin.accounts.candyTest.blocked')
+    wrapper.unmount()
+  })
+  it.each([undefined, 'passed', 'failed'] as const)('uses the persisted verdict %s when recent history contains only errors', (verdict) => {
+    const snapshot: CandyTestSnapshot = {
+      last_verdict: verdict, total: 14, passed: verdict === 'passed' ? 1 : 0,
+      failed: verdict === 'failed' ? 1 : 0, errors: verdict ? 13 : 14,
+      recent: Array.from({ length: 12 }, () => result().recent[2])
+    }
+    const wrapper = mount(AccountCandyTestCell, { props: { account: account({ extra: { candy_test: snapshot } }) } })
+    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(verdict === 'failed')
+    wrapper.unmount()
+  })
+  it('removes the scheduling block after a passing retest without changing the manual switch', async () => {
+    const original = account({ schedulable: false, extra: { candy_test: result() } })
+    const wrapper = mount(AccountCandyTestCell, { props: { account: original } })
+    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(true)
+    const passing: CandyTestSnapshot = {
+      ...result(), last_verdict: 'passed', total: 4, passed: 2,
+      recent: [...result().recent, { status: 'passed', model: 'gpt-6.2-sol', checked_at: '2026-11-21T04:00:00Z', latency_ms: 1000 }]
+    }
+    runCandyTest.mockResolvedValue(passing)
+    await wrapper.get('button').trigger('click'); await flushPromises()
+    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(false)
+    expect(wrapper.emitted('updated')?.[0]).toEqual([passing])
+    expect(original.schedulable).toBe(false)
+    wrapper.unmount()
+  })
+
 })

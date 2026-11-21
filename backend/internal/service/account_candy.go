@@ -16,8 +16,11 @@ import (
 const (
 	defaultCandyTestModel = "gpt-6.2-sol"
 	CandyTestExtraKey     = "candy_test"
-	candyTestHistoryLimit = 12
-	candyTestTimeout      = 90 * time.Second
+	// Keep this separate from diagnostic history so only eligibility transitions
+	// invalidate scheduler pools. The manual Schedulable setting is never changed.
+	CandyTestBlockedExtraKey = "candy_test_blocked"
+	candyTestHistoryLimit    = 12
+	candyTestTimeout         = 90 * time.Second
 	// The answer is deliberately NOT included in the upstream prompt.
 	candyTestPrompt = `不使用任何外部工具回答以下问题：
 
@@ -44,12 +47,14 @@ type CandyTestSchedule struct {
 }
 
 type CandyTestSnapshot struct {
-	Total     int                         `json:"total"`
-	Passed    int                         `json:"passed"`
-	Failed    int                         `json:"failed"`
-	Errors    int                         `json:"errors"`
-	Recent    []CandyTestSample           `json:"recent"`
-	Schedules map[int64]CandyTestSchedule `json:"schedules,omitempty"`
+	// Errors are inconclusive; only a complete answer can change this verdict.
+	LastVerdict string                      `json:"last_verdict,omitempty"`
+	Total       int                         `json:"total"`
+	Passed      int                         `json:"passed"`
+	Failed      int                         `json:"failed"`
+	Errors      int                         `json:"errors"`
+	Recent      []CandyTestSample           `json:"recent"`
+	Schedules   map[int64]CandyTestSchedule `json:"schedules,omitempty"`
 }
 
 // Match the requested rule: a literal 21 with no adjacent digit. Do not inspect
@@ -82,15 +87,43 @@ func readCandyTestSnapshot(extra map[string]any) (CandyTestSnapshot, error) {
 		snapshot.Total != snapshot.Passed+snapshot.Failed+snapshot.Errors {
 		return snapshot, fmt.Errorf("invalid candy test counters")
 	}
+	// Upgrade old snapshots from the most recent conclusive answer, not counters.
+	if snapshot.LastVerdict != "passed" && snapshot.LastVerdict != "failed" {
+		snapshot.LastVerdict = ""
+		for i := len(snapshot.Recent) - 1; i >= 0; i-- {
+			if snapshot.Recent[i].Status == "passed" || snapshot.Recent[i].Status == "failed" {
+				snapshot.LastVerdict = snapshot.Recent[i].Status
+				break
+			}
+		}
+	}
 	return snapshot, nil
+}
+
+// IsCandyTestBlocked deliberately does not conflate API failures with wrong
+// answers. Legacy snapshots without a dedicated flag use their latest verdict.
+func (a *Account) IsCandyTestBlocked() bool {
+	if a == nil || a.Platform != PlatformOpenAI || a.Type != AccountTypeOAuth {
+		return false
+	}
+	if blocked, ok := a.Extra[CandyTestBlockedExtraKey].(bool); ok {
+		return blocked
+	}
+	if a.Extra[CandyTestExtraKey] == nil {
+		return false
+	}
+	snapshot, err := readCandyTestSnapshot(a.Extra)
+	return err == nil && snapshot.LastVerdict == "failed"
 }
 
 func appendCandyTestSample(snapshot *CandyTestSnapshot, sample CandyTestSample) {
 	snapshot.Total++
 	switch sample.Status {
 	case "passed":
+		snapshot.LastVerdict = "passed"
 		snapshot.Passed++
 	case "failed":
+		snapshot.LastVerdict = "failed"
 		snapshot.Failed++
 	default:
 		snapshot.Errors++
@@ -171,7 +204,7 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 
 	testCtx, cancel := context.WithTimeout(ctx, candyTestTimeout)
 	defer cancel()
-	result, err := s.runTestBackgroundWithPrompt(testCtx, accountID, model, candyTestPrompt, false, AccountTestOptions{ExactModel: true})
+	result, err := s.runTestBackgroundWithPrompt(testCtx, accountID, model, candyTestPrompt, false, AccountTestOptions{ExactModel: true, PreserveAccountState: true})
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +242,15 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 
 	// Use the parent context so a probe timeout can still be persisted. Never
 	// swallow a database error and report an unpersisted success to the client.
-	if err := s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{CandyTestExtraKey: snapshot}); err != nil {
+	updates := map[string]any{CandyTestExtraKey: snapshot}
+	blocked := snapshot.LastVerdict == "failed"
+	current, recorded := account.Extra[CandyTestBlockedExtraKey].(bool)
+	if !recorded || current != blocked {
+		// One atomic extra write publishes the verdict and the scheduler gate. The
+		// non-neutral flag creates an outbox event and refreshes cached eligibility.
+		updates[CandyTestBlockedExtraKey] = blocked
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, accountID, updates); err != nil {
 		return nil, fmt.Errorf("save candy test history: %w", err)
 	}
 	return &snapshot, nil

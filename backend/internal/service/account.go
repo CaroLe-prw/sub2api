@@ -207,7 +207,7 @@ func (a *Account) EffectiveLoadFactor() int {
 }
 
 func (a *Account) IsSchedulable() bool {
-	if !a.IsActive() || !a.Schedulable {
+	if !a.IsActive() || !a.Schedulable || a.IsCandyTestBlocked() {
 		return false
 	}
 	now := time.Now()

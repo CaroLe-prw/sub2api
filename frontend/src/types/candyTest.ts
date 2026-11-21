@@ -6,6 +6,8 @@ export interface CandyTestSample {
 }
 
 export interface CandyTestSnapshot {
+  last_verdict?: 'passed' | 'failed'
+  // All attempts, including API errors. The pass ratio uses passed + failed instead.
   total: number
   passed: number
   failed: number

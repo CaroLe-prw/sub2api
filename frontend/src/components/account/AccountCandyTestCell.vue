@@ -13,9 +13,12 @@
       <span class="h-1.5 w-1.5 rounded-full bg-current" :class="{ 'animate-pulse': running }" aria-hidden="true" />
       <span aria-live="polite">{{ t('admin.accounts.candyTest.title') }} · {{ statusLabel }}</span>
     </button>
+    <span v-if="schedulingBlocked" class="text-xs text-red-600 dark:text-red-400" :title="t('admin.accounts.candyTest.blockedHint')" data-testid="candy-scheduling-blocked">
+      {{ t('admin.accounts.candyTest.blocked') }}
+    </span>
     <template v-if="snapshot">
       <span class="whitespace-nowrap text-xs text-gray-500 dark:text-gray-400" data-testid="candy-test-counts">
-        {{ t('admin.accounts.candyTest.counts', { passed: snapshot.passed, total: snapshot.total, errors: snapshot.errors }) }}
+        {{ t('admin.accounts.candyTest.counts', { passed: snapshot.passed, total: snapshot.passed + snapshot.failed, errors: snapshot.errors }) }}
       </span>
       <div class="flex gap-0.5" :aria-label="t('admin.accounts.candyTest.history')">
         <span
@@ -57,6 +60,11 @@ const snapshot = computed(() => {
   // A list refresh started before the test may contain an older snapshot.
   return Date.parse(lastSample(persisted)?.checked_at ?? '') >= Date.parse(lastSample(localResult.value)?.checked_at ?? '')
     ? persisted : localResult.value
+})
+const schedulingBlocked = computed(() => {
+  const value = snapshot.value
+  const verdict = value?.last_verdict ?? [...(value?.recent ?? [])].reverse().find(sample => sample.status !== 'error')?.status
+  return verdict === 'failed'
 })
 const status = computed(() => running.value ? 'running' : lastSample(snapshot.value)?.status ?? 'untested')
 const statusLabel = computed(() => t(`admin.accounts.candyTest.${status.value}`))
