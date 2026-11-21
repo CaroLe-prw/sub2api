@@ -296,6 +296,9 @@ func accountTestGeminiUsage(data map[string]any) UsageTokens {
 type AccountTestOptions struct {
 	ImageDataURL string
 	AudioDataURL string
+	// ReasoningEffort is internal-only: diagnostics may explicitly request an
+	// OpenAI reasoning level without changing ordinary connectivity tests.
+	ReasoningEffort string
 	// ExactModel is internal-only: fixed-model diagnostics must not silently
 	// become a different test through an account's model aliases.
 	ExactModel bool
@@ -1157,6 +1160,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth, prompt)
+	if effort := strings.TrimSpace(firstAccountTestOptions(opts).ReasoningEffort); effort != "" {
+		payload["reasoning"] = map[string]any{"effort": effort}
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may

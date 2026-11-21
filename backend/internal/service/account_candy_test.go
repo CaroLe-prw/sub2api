@@ -92,6 +92,7 @@ func TestRunCandyTestPersistsActualResultsAndExactModel(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "gpt-6.2-sol", gjson.GetBytes(body, "model").String())
 	require.Equal(t, candyTestPrompt, gjson.GetBytes(body, "input.0.content.0.text").String())
+	require.Equal(t, "max", gjson.GetBytes(body, "reasoning.effort").String())
 	require.False(t, gjson.GetBytes(body, "tools").Exists())
 	require.NotContains(t, candyTestPrompt, "21")
 }
@@ -269,4 +270,52 @@ func TestCandyAnswerDetailsDoNotFabricateLegacyAnswers(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "response_text")
 	require.NotContains(t, string(encoded), "response_truncated")
+}
+
+// Assert the actual outbound request, not only the internal options, for both
+// candy entry points. Ordinary connectivity probes must retain their defaults.
+func TestCandyTestMaxReasoningIsScopedToDiagnostics(t *testing.T) {
+	for _, mode := range []string{"manual", "scheduled", "ordinary"} {
+		t.Run(mode, func(t *testing.T) {
+			account := automaticCandyAccount()
+			upstream := &queuedHTTPUpstream{responses: []*http.Response{candyResponse("21")}}
+			svc := &AccountTestService{accountRepo: &candyAccountRepo{account: account}, httpUpstream: upstream}
+			ctx := context.Background()
+			switch mode {
+			case "manual":
+				result, err := svc.RunCandyTest(ctx, account.ID, 7)
+				require.NoError(t, err)
+				require.Equal(t, 1, result.Passed)
+			case "scheduled":
+				result, err := svc.RunScheduledCandyTest(ctx, account.ID, 7)
+				require.NoError(t, err)
+				require.Equal(t, 1, result.Passed)
+			case "ordinary":
+				result, err := svc.runTestBackgroundWithPrompt(ctx, account.ID, defaultCandyTestModel, "hi", false)
+				require.NoError(t, err)
+				require.Equal(t, "success", result.Status)
+			}
+			require.Len(t, upstream.requests, 1)
+			body, err := io.ReadAll(upstream.requests[0].Body)
+			require.NoError(t, err)
+			if mode == "ordinary" {
+				require.False(t, gjson.GetBytes(body, "reasoning").Exists())
+			} else {
+				require.Equal(t, "max", gjson.GetBytes(body, "reasoning.effort").String())
+			}
+		})
+	}
+}
+
+func TestCandyTestUnsupportedMaxIsAPIErrorNotWrongAnswer(t *testing.T) {
+	account := candyAccount()
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{newJSONResponse(400, `{"error":{"message":"Unsupported reasoning effort: max"}}`)}}
+	svc := &AccountTestService{accountRepo: &candyAccountRepo{account: account}, httpUpstream: upstream}
+	result, err := svc.RunCandyTest(context.Background(), account.ID, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Errors)
+	require.Zero(t, result.Failed)
+	require.False(t, account.IsCandyTestBlocked())
+	require.True(t, account.Schedulable)
+	require.Len(t, upstream.requests, 1, "do not silently retry with lower reasoning")
 }

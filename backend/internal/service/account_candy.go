@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	defaultCandyTestModel = "gpt-6.2-sol"
-	CandyTestExtraKey     = "candy_test"
+	defaultCandyTestModel    = "gpt-6.2-sol"
+	candyTestReasoningEffort = "max"
+	CandyTestExtraKey        = "candy_test"
 	// Keep this separate from diagnostic history so only eligibility transitions
 	// invalidate scheduler pools. The manual Schedulable setting is never changed.
 	CandyTestBlockedExtraKey   = "candy_test_blocked"
@@ -223,7 +224,7 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 
 	testCtx, cancel := context.WithTimeout(ctx, candyTestTimeout)
 	defer cancel()
-	result, err := s.runTestBackgroundWithPrompt(testCtx, accountID, model, candyTestPrompt, false, AccountTestOptions{ExactModel: true, PreserveAccountState: true})
+	result, err := s.runTestBackgroundWithPrompt(testCtx, accountID, model, candyTestPrompt, false, AccountTestOptions{ExactModel: true, PreserveAccountState: true, ReasoningEffort: candyTestReasoningEffort})
 	if err != nil {
 		return nil, err
 	}
