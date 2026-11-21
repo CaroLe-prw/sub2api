@@ -274,6 +274,8 @@ func ProvideAccountTestService(
 	openAIGatewayService *OpenAIGatewayService,
 	settingService *SettingService,
 	pluginManager *PluginManager,
+	lockCache LeaderLockCache,
+	db *sql.DB,
 ) *AccountTestService {
 	service := NewAccountTestService(
 		accountRepo,
@@ -290,6 +292,7 @@ func ProvideAccountTestService(
 	service.SetSettingService(settingService)
 	service.SetProbeUsageDependencies(usageLogRepo, billingService)
 	service.SetPluginManager(pluginManager)
+	service.SetCandyTestLeaderLock(lockCache, db)
 	return service
 }
 
@@ -992,6 +995,7 @@ var ProviderSet = wire.NewSet(
 	ProvideRateLimitService,
 	ProvideAccountUsageService,
 	ProvideAccountTestService,
+	ProvideCandyTestRunner,
 	ProvideUpstreamBillingProbeService,
 	ProvideOllamaCloudUsageService,
 	ProvideOpenCodeGoUsageService,
@@ -1201,4 +1205,10 @@ func ProvideInvoiceNotificationService(db *sql.DB, emails *NotificationEmailServ
 	s := NewInvoiceNotificationService(db, emails, users, settings)
 	s.Start()
 	return s
+}
+
+func ProvideCandyTestRunner(groups GroupRepository, accounts AccountRepository, tester *AccountTestService) *CandyTestRunner {
+	runner := NewCandyTestRunner(groups, accounts, tester)
+	runner.Start()
+	return runner
 }

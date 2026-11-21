@@ -4,6 +4,7 @@
  */
 
 import { apiClient, buildApiUrl } from '../client'
+import type { CandyTestSnapshot } from '@/types/candyTest'
 import { ADMIN_UI_REQUEST_HEADER } from '../adminUIRequest'
 import type { OpenAIReferralRefreshResult, OpenAIReferralSendResult } from '@/types/openaiReferrals'
 import type {
@@ -311,6 +312,15 @@ export async function testAccount(id: number): Promise<{
     message: string
     latency_ms?: number
   }>(`/admin/accounts/${id}/test`)
+  return data
+}
+
+/** A single explicit OAuth candy check; never called during list loading. */
+export async function runCandyTest(id: number, groupId?: number, signal?: AbortSignal): Promise<CandyTestSnapshot> {
+  const { data } = await apiClient.post<CandyTestSnapshot>(`/admin/accounts/${id}/candy-test`, { group_id: groupId }, {
+    timeout: 100000,
+    signal
+  })
   return data
 }
 
@@ -1357,6 +1367,7 @@ export const accountsAPI = {
   delete: deleteAccount,
   toggleStatus,
   testAccount,
+  runCandyTest,
   runTokenAudit,
   runTokenAuditStream,
   retryTokenAuditSample,

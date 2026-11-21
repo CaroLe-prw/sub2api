@@ -1337,6 +1337,15 @@ export default {
         fallbackHint: '非 Claude Code 请求将使用此分组，留空则直接拒绝',
         noFallback: '不降级（直接拒绝）'
       },
+      candyTestInterval: {
+        invalid: '请输入 0–86400 之间的整数秒数，0 表示关闭自动检测。',
+        label: '糖果检测间隔（秒）',
+        hint: '0 关闭自动检测，1–86400 秒开启。后台按本分组模型检测启用中的 OpenAI OAuth 主账号，关闭页面仍会执行并消耗额度。间隔从上次检测完成起计算，同一账号不并发检测；跨分组分别计时。'
+      },
+      candyTestModel: {
+        label: '糖果检测模型',
+        hint: '仅用于本分组 OpenAI OAuth 账号的糖果检测，不影响正常请求。留空默认 gpt-6.2-sol，填写上游实际文本模型 ID；检测不会应用模型别名映射。账号跨分组且模型不同时，请先按分组筛选再检测。'
+      },
       openaiMessages: {
         title: 'OpenAI Messages 调度配置',
         allowDispatch: '允许 /v1/messages 调度',

@@ -302,6 +302,8 @@ type CreateGroupInput struct {
 	ForceOpenAIUltrafast        bool
 	FreeOpenAIFast              bool
 	DefaultMappedModel          string
+	CandyTestModel              string
+	CandyTestIntervalSeconds    int
 	RequireOAuthOnly            bool
 	RequirePrivacySet           bool
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
@@ -391,6 +393,8 @@ type UpdateGroupInput struct {
 	ForceOpenAIUltrafast        *bool
 	FreeOpenAIFast              *bool
 	DefaultMappedModel          *string
+	CandyTestModel              *string
+	CandyTestIntervalSeconds    *int
 	RequireOAuthOnly            *bool
 	RequirePrivacySet           *bool
 	MessagesDispatchModelConfig *OpenAIMessagesDispatchModelConfig

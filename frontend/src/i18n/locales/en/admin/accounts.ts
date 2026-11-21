@@ -1,5 +1,19 @@
 export default {
     accounts: {
+      candyTest: {
+        title: 'Candy test',
+        untested: 'Not tested',
+        running: 'Testing',
+        passed: 'Passed',
+        failed: 'Failed',
+        error: 'API error',
+        counts: 'Passed {passed}/{total} · API errors {errors}',
+        history: 'Last 12 candy checks (green: passed, red: failed, yellow: API error)',
+        run: 'Run one candy test for {name}',
+        hint: 'OpenAI OAuth only: click to run one candy question with the group model (default: gpt-6.2-sol) using upstream quota. A standalone 21 in the answer passes. Records results without toggling scheduling; green/red/yellow mean passed/failed/API error.',
+        groupRequired: 'This account has different candy-test models across groups. Filter the account list by a group before testing.',
+        requestFailed: 'Candy test request or result saving failed. Refresh the list before retrying.'
+      },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',

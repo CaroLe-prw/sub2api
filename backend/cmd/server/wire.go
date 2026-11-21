@@ -124,6 +124,7 @@ func provideCleanup(
 	grokOAuth *service.GrokOAuthService,
 	openAIGateway *service.OpenAIGatewayService,
 	scheduledTestRunner *service.ScheduledTestRunnerService,
+	candyTestRunner *service.CandyTestRunner,
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	paymentVerification *service.PaymentVerificationService,
@@ -391,6 +392,12 @@ func provideCleanup(
 			{"OpenAICodexTicketHarvester", func() error {
 				if openAIGateway != nil {
 					openAIGateway.StopOpenAICodexTicketHarvester()
+				}
+				return nil
+			}},
+			{"CandyTestRunner", func() error {
+				if candyTestRunner != nil {
+					candyTestRunner.Stop()
 				}
 				return nil
 			}},

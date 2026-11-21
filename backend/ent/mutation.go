@@ -22365,6 +22365,9 @@ type GroupMutation struct {
 	free_openai_fast                        *bool
 	require_oauth_only                      *bool
 	require_privacy_set                     *bool
+	candy_test_interval_seconds             *int
+	addcandy_test_interval_seconds          *int
+	candy_test_model                        *string
 	default_mapped_model                    *string
 	messages_dispatch_model_config          *domain.OpenAIMessagesDispatchModelConfig
 	model_allowlist                         *domain.GroupModelAllowlist
@@ -25594,6 +25597,98 @@ func (m *GroupMutation) ResetRequirePrivacySet() {
 	m.require_privacy_set = nil
 }
 
+// SetCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field.
+func (m *GroupMutation) SetCandyTestIntervalSeconds(i int) {
+	m.candy_test_interval_seconds = &i
+	m.addcandy_test_interval_seconds = nil
+}
+
+// CandyTestIntervalSeconds returns the value of the "candy_test_interval_seconds" field in the mutation.
+func (m *GroupMutation) CandyTestIntervalSeconds() (r int, exists bool) {
+	v := m.candy_test_interval_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCandyTestIntervalSeconds returns the old "candy_test_interval_seconds" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldCandyTestIntervalSeconds(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCandyTestIntervalSeconds is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCandyTestIntervalSeconds requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCandyTestIntervalSeconds: %w", err)
+	}
+	return oldValue.CandyTestIntervalSeconds, nil
+}
+
+// AddCandyTestIntervalSeconds adds i to the "candy_test_interval_seconds" field.
+func (m *GroupMutation) AddCandyTestIntervalSeconds(i int) {
+	if m.addcandy_test_interval_seconds != nil {
+		*m.addcandy_test_interval_seconds += i
+	} else {
+		m.addcandy_test_interval_seconds = &i
+	}
+}
+
+// AddedCandyTestIntervalSeconds returns the value that was added to the "candy_test_interval_seconds" field in this mutation.
+func (m *GroupMutation) AddedCandyTestIntervalSeconds() (r int, exists bool) {
+	v := m.addcandy_test_interval_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCandyTestIntervalSeconds resets all changes to the "candy_test_interval_seconds" field.
+func (m *GroupMutation) ResetCandyTestIntervalSeconds() {
+	m.candy_test_interval_seconds = nil
+	m.addcandy_test_interval_seconds = nil
+}
+
+// SetCandyTestModel sets the "candy_test_model" field.
+func (m *GroupMutation) SetCandyTestModel(s string) {
+	m.candy_test_model = &s
+}
+
+// CandyTestModel returns the value of the "candy_test_model" field in the mutation.
+func (m *GroupMutation) CandyTestModel() (r string, exists bool) {
+	v := m.candy_test_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCandyTestModel returns the old "candy_test_model" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldCandyTestModel(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCandyTestModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCandyTestModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCandyTestModel: %w", err)
+	}
+	return oldValue.CandyTestModel, nil
+}
+
+// ResetCandyTestModel resets all changes to the "candy_test_model" field.
+func (m *GroupMutation) ResetCandyTestModel() {
+	m.candy_test_model = nil
+}
+
 // SetDefaultMappedModel sets the "default_mapped_model" field.
 func (m *GroupMutation) SetDefaultMappedModel(s string) {
 	m.default_mapped_model = &s
@@ -26423,7 +26518,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 73)
+	fields := make([]string, 0, 75)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -26610,6 +26705,12 @@ func (m *GroupMutation) Fields() []string {
 	if m.require_privacy_set != nil {
 		fields = append(fields, group.FieldRequirePrivacySet)
 	}
+	if m.candy_test_interval_seconds != nil {
+		fields = append(fields, group.FieldCandyTestIntervalSeconds)
+	}
+	if m.candy_test_model != nil {
+		fields = append(fields, group.FieldCandyTestModel)
+	}
 	if m.default_mapped_model != nil {
 		fields = append(fields, group.FieldDefaultMappedModel)
 	}
@@ -26775,6 +26876,10 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.RequireOauthOnly()
 	case group.FieldRequirePrivacySet:
 		return m.RequirePrivacySet()
+	case group.FieldCandyTestIntervalSeconds:
+		return m.CandyTestIntervalSeconds()
+	case group.FieldCandyTestModel:
+		return m.CandyTestModel()
 	case group.FieldDefaultMappedModel:
 		return m.DefaultMappedModel()
 	case group.FieldMessagesDispatchModelConfig:
@@ -26930,6 +27035,10 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldRequireOauthOnly(ctx)
 	case group.FieldRequirePrivacySet:
 		return m.OldRequirePrivacySet(ctx)
+	case group.FieldCandyTestIntervalSeconds:
+		return m.OldCandyTestIntervalSeconds(ctx)
+	case group.FieldCandyTestModel:
+		return m.OldCandyTestModel(ctx)
 	case group.FieldDefaultMappedModel:
 		return m.OldDefaultMappedModel(ctx)
 	case group.FieldMessagesDispatchModelConfig:
@@ -27395,6 +27504,20 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetRequirePrivacySet(v)
 		return nil
+	case group.FieldCandyTestIntervalSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCandyTestIntervalSeconds(v)
+		return nil
+	case group.FieldCandyTestModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCandyTestModel(v)
+		return nil
 	case group.FieldDefaultMappedModel:
 		v, ok := value.(string)
 		if !ok {
@@ -27555,6 +27678,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addsort_order != nil {
 		fields = append(fields, group.FieldSortOrder)
 	}
+	if m.addcandy_test_interval_seconds != nil {
+		fields = append(fields, group.FieldCandyTestIntervalSeconds)
+	}
 	if m.addrpm_limit != nil {
 		fields = append(fields, group.FieldRpmLimit)
 	}
@@ -27622,6 +27748,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedFallbackGroupIDOnInvalidRequest()
 	case group.FieldSortOrder:
 		return m.AddedSortOrder()
+	case group.FieldCandyTestIntervalSeconds:
+		return m.AddedCandyTestIntervalSeconds()
 	case group.FieldRpmLimit:
 		return m.AddedRpmLimit()
 	case group.FieldProfitMinMargin:
@@ -27811,6 +27939,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddSortOrder(v)
+		return nil
+	case group.FieldCandyTestIntervalSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCandyTestIntervalSeconds(v)
 		return nil
 	case group.FieldRpmLimit:
 		v, ok := value.(int)
@@ -28192,6 +28327,12 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldRequirePrivacySet:
 		m.ResetRequirePrivacySet()
+		return nil
+	case group.FieldCandyTestIntervalSeconds:
+		m.ResetCandyTestIntervalSeconds()
+		return nil
+	case group.FieldCandyTestModel:
+		m.ResetCandyTestModel()
 		return nil
 	case group.FieldDefaultMappedModel:
 		m.ResetDefaultMappedModel()

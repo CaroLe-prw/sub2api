@@ -156,6 +156,8 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 		RequireOAuthOnly:                source.RequireOAuthOnly,
 		RequirePrivacySet:               source.RequirePrivacySet,
 		DefaultMappedModel:              source.DefaultMappedModel,
+		CandyTestModel:                  source.CandyTestModel,
+		CandyTestIntervalSeconds:        source.CandyTestIntervalSeconds,
 		MessagesDispatchModelConfig:     cloneGroupMessagesDispatchModelConfig(source.MessagesDispatchModelConfig),
 		ModelAllowlist: GroupModelAllowlist{
 			Enabled: source.ModelAllowlist.Enabled,

@@ -73,6 +73,7 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 }
 
 var schedulerNeutralExtraKeys = map[string]struct{}{
+	"candy_test":                 {},
 	"codex_usage_updated_at":     {},
 	"codex_credits_snapshot":     {},
 	"codex_referral_snapshot":    {},
@@ -4543,4 +4544,26 @@ func (r *accountRepository) ListShadowsByParent(ctx context.Context, parentID in
 		out = append(out, accountEntityToService(m))
 	}
 	return out, nil
+}
+
+// ListCandyTestAccounts avoids loading credentials, proxies and all group edges
+// on the one-second diagnostic timer. Execution reloads the full account and
+// verifies group membership/configuration under the per-account lock.
+func (r *accountRepository) ListCandyTestAccounts(ctx context.Context, groupID int64) ([]service.Account, error) {
+	accounts, err := r.client.Account.Query().
+		Where(dbaccount.DeletedAtIsNil(), dbaccount.PlatformEQ(service.PlatformOpenAI),
+			dbaccount.TypeEQ(service.AccountTypeOAuth), dbaccount.StatusEQ(service.StatusActive),
+			dbaccount.ParentAccountIDIsNil(), dbaccount.HasAccountGroupsWith(dbaccountgroup.GroupIDEQ(groupID))).
+		Select(dbaccount.FieldID, dbaccount.FieldPlatform, dbaccount.FieldType, dbaccount.FieldStatus,
+			dbaccount.FieldExtra, dbaccount.FieldExpiresAt).
+		Order(dbent.Asc(dbaccount.FieldID)).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]service.Account, 0, len(accounts))
+	for _, account := range accounts {
+		result = append(result, service.Account{ID: account.ID, Platform: account.Platform, Type: account.Type,
+			Status: account.Status, Extra: account.Extra, ExpiresAt: account.ExpiresAt})
+	}
+	return result, nil
 }

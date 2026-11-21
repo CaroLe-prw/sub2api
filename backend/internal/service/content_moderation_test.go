@@ -405,6 +405,24 @@ func (c *contentModerationTestHashCache) snapshotDeleted() []string {
 	return out
 }
 
+// The log excerpt must not be mistaken for the complete input sent to audit.
+func TestContentModerationLogExcerptDoesNotRepresentFullAuditInput(t *testing.T) {
+	prefix := strings.Repeat("前", maxModerationExcerptRunes)
+	fullText := prefix + "后续用户内容"
+	body, err := json.Marshal(map[string]any{"messages": []map[string]string{{"role": "user", "content": fullText}}})
+	require.NoError(t, err)
+	input := ExtractContentModerationInput(ContentModerationProtocolOpenAIChat, body)
+	require.Equal(t, fullText, input.ModerationInput())
+	log := (&ContentModerationService{}).buildLog(ContentModerationCheckInput{}, defaultContentModerationConfig(), ContentModerationActionAllow, false, "", 0, nil, input.ExcerptText(), nil, nil, "")
+	require.Equal(t, prefix, log.InputExcerpt)
+	trialInput, _, err := buildModerationTestInput(log.InputExcerpt, nil)
+	require.NoError(t, err)
+	require.NotEqual(t, input.ModerationInput(), trialInput)
+	fullTrialInput, _, err := buildModerationTestInput(fullText, nil)
+	require.NoError(t, err)
+	require.Equal(t, input.ModerationInput(), fullTrialInput)
+}
+
 func TestBuildContentModerationLog_RedactsInputExcerpt(t *testing.T) {
 	svc := &ContentModerationService{}
 	cfg := defaultContentModerationConfig()

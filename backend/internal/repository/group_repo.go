@@ -149,6 +149,8 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetRequireOauthOnly(groupIn.RequireOAuthOnly).
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
+		SetCandyTestModel(groupIn.CandyTestModel).
+		SetCandyTestIntervalSeconds(groupIn.CandyTestIntervalSeconds).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
 		SetModelAllowlist(service.DomainGroupModelAllowlist(groupIn.ModelAllowlist)).
 		SetCodexModelsManifestConfig(groupIn.CodexModelsManifestConfig).
@@ -338,6 +340,8 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetRequireOauthOnly(groupIn.RequireOAuthOnly).
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
+		SetCandyTestModel(groupIn.CandyTestModel).
+		SetCandyTestIntervalSeconds(groupIn.CandyTestIntervalSeconds).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
 		SetModelAllowlist(service.DomainGroupModelAllowlist(groupIn.ModelAllowlist)).
 		SetCodexModelsManifestConfig(groupIn.CodexModelsManifestConfig).
@@ -1253,4 +1257,22 @@ func (r *groupRepository) UpdateSortOrders(ctx context.Context, updates []servic
 		}
 	}
 	return nil
+}
+
+// ListCandyTestGroups reads only enabled OpenAI schedules, without expensive
+// account counts or unrelated model-pricing configuration on each timer tick.
+func (r *groupRepository) ListCandyTestGroups(ctx context.Context) ([]service.Group, error) {
+	groups, err := r.client.Group.Query().
+		Where(group.StatusEQ(service.StatusActive), group.PlatformEQ(service.PlatformOpenAI), group.CandyTestIntervalSecondsGT(0)).
+		Select(group.FieldID, group.FieldPlatform, group.FieldStatus, group.FieldCandyTestModel, group.FieldCandyTestIntervalSeconds).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]service.Group, 0, len(groups))
+	for _, g := range groups {
+		result = append(result, service.Group{ID: g.ID, Platform: g.Platform, Status: g.Status,
+			CandyTestModel: g.CandyTestModel, CandyTestIntervalSeconds: g.CandyTestIntervalSeconds})
+	}
+	return result, nil
 }

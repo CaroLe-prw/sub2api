@@ -73,6 +73,7 @@ const DataTableStub = defineComponent({
     <div>
       <template v-if="!loading"><div v-for="row in data" :key="row.id" :data-account-name="row.name">
         <slot name="cell-groups" :row="row" />
+        <slot name="cell-schedulable" :row="row" />
         <slot name="cell-usage" :row="row" />
         <slot name="cell-actions" :row="row" />
       </div></template>
@@ -220,6 +221,17 @@ describe('admin AccountsView lite account list', () => {
     await vi.advanceTimersByTimeAsync(6000)
     await flushPromises()
     expect(getBatchUsage).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('renders candy checks only above the OpenAI OAuth scheduling switch', async () => {
+    listAccounts.mockResolvedValue({ items: [listRow, { ...listRow, id: 43, name: 'api', type: 'apikey' }, { ...listRow, id: 44, name: 'claude', platform: 'anthropic' }], total: 3, page: 1, page_size: 20, pages: 1 })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="account-candy-test"]')).toHaveLength(1)
+    expect(wrapper.get('[data-account-name="compact row"]').find('[data-testid="account-candy-test"]').exists()).toBe(true)
+    expect(wrapper.get('[data-account-name="api"]').find('[data-testid="account-candy-test"]').exists()).toBe(false)
+    expect(wrapper.get('[data-account-name="claude"]').find('[data-testid="account-candy-test"]').exists()).toBe(false)
     wrapper.unmount()
   })
 

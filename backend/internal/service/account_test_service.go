@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -295,6 +296,9 @@ func accountTestGeminiUsage(data map[string]any) UsageTokens {
 type AccountTestOptions struct {
 	ImageDataURL string
 	AudioDataURL string
+	// ExactModel is internal-only: fixed-model diagnostics must not silently
+	// become a different test through an account's model aliases.
+	ExactModel bool
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -389,6 +393,9 @@ type AccountTestService struct {
 	// two model probes at once.
 	backgroundProbeLimiterOnce sync.Once
 	backgroundProbeLimiter     *accountProbeConcurrencyLimiter
+	candyTestsInFlight         sync.Map // one manual or automatic candy test per account per instance
+	candyTestLockCache         LeaderLockCache
+	candyTestLockDB            *sql.DB
 }
 
 func (s *AccountTestService) SetSettingService(settingService *SettingService) {
@@ -635,7 +642,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		case APIProtocolAdaptive:
 			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
 		case APIProtocolResponses:
-			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
+			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode), testOpts)
 		case APIProtocolChatCompletions:
 			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
 		case APIProtocolAnthropic:
@@ -644,7 +651,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.IsOpenAI() {
-		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
+		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode), testOpts)
 	}
 
 	if account.IsGemini() {
@@ -1051,7 +1058,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 }
 
 // testOpenAIAccountConnection tests an OpenAI account's connection
-func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string) error {
+func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
 	ctx := c.Request.Context()
 	mode = normalizeAccountTestMode(mode)
 
@@ -1065,7 +1072,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// account model mapping. Native remote compaction v2 rides the ordinary
 	// /responses wire and does NOT apply the legacy compact-only mapping
 	// (post-#5641 semantics: compact_model_mapping is /responses/compact-only).
-	testModelID = account.GetMappedModel(testModelID)
+	if !firstAccountTestOptions(opts).ExactModel {
+		testModelID = account.GetMappedModel(testModelID)
+	}
 	if mode == AccountTestModeCompact {
 		return s.testOpenAICompactConnection(c, account, testModelID)
 	}
@@ -1144,7 +1153,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if isOAuth {
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
-	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
+	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth, prompt)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -1227,7 +1236,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 				return s.sendErrorAndEnd(c, fmt.Sprintf("Agent Identity task recovery failed: %s", err.Error()))
 			}
 			c.Request = c.Request.WithContext(markAgentIdentityTaskRecoveryTried(ctx))
-			return s.testOpenAIAccountConnection(c, account, modelID, prompt, mode)
+			return s.testOpenAIAccountConnection(c, account, modelID, prompt, mode, opts...)
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
@@ -3060,8 +3069,15 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 	}
 }
 
-// createOpenAITestPayload creates a test payload for OpenAI Responses API
-func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
+func accountTestPrompt(prompts []string) string {
+	if len(prompts) > 0 && strings.TrimSpace(prompts[0]) != "" {
+		return strings.TrimSpace(prompts[0])
+	}
+	return "hi"
+}
+
+// createOpenAITestPayload creates a test payload for OpenAI Responses API.
+func createOpenAITestPayload(modelID string, isOAuth bool, prompts ...string) map[string]any {
 	payload := map[string]any{
 		"model": modelID,
 		"input": []map[string]any{
@@ -3070,7 +3086,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 				"content": []map[string]any{
 					{
 						"type": "input_text",
-						"text": "hi",
+						"text": accountTestPrompt(prompts),
 					},
 				},
 			},
@@ -3255,6 +3271,7 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
 	seenCompleted := false
+	seenText := false
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -3294,10 +3311,30 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 		case "response.output_text.delta":
 			// OpenAI Responses API uses "delta" field for text content
 			if delta, ok := data["delta"].(string); ok && delta != "" {
+				seenText = true
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
 			if responseData := accountTestJSONMap(data, "response"); responseData != nil {
+				if !seenText {
+					output, _ := responseData["output"].([]any)
+					for _, item := range output {
+						message, ok := item.(map[string]any)
+						if !ok || message["type"] != "message" || message["role"] != "assistant" {
+							continue
+						}
+						content, _ := message["content"].([]any)
+						for _, part := range content {
+							text, ok := part.(map[string]any)
+							if !ok || text["type"] != "output_text" {
+								continue
+							}
+							if value, ok := text["text"].(string); ok && value != "" {
+								s.sendEvent(c, TestEvent{Type: "content", Text: value})
+							}
+						}
+					}
+				}
 				if usage := accountTestJSONMap(responseData, "usage"); usage != nil {
 					observeAccountTestUsage(c, accountTestOpenAIUsage(usage))
 				}
@@ -3660,6 +3697,10 @@ func (s *AccountTestService) RunChannelMonitorProbeBackground(ctx context.Contex
 }
 
 func (s *AccountTestService) runTestBackground(ctx context.Context, accountID int64, modelID string, recordProbe bool) (*ScheduledTestResult, error) {
+	return s.runTestBackgroundWithPrompt(ctx, accountID, modelID, "", recordProbe)
+}
+
+func (s *AccountTestService) runTestBackgroundWithPrompt(ctx context.Context, accountID int64, modelID, prompt string, recordProbe bool, opts ...AccountTestOptions) (*ScheduledTestResult, error) {
 	// Acquire before starting the timing tracker: time spent waiting behind the
 	// per-account probe cap is scheduler delay, not upstream TTFT/latency.
 	s.backgroundProbeLimiterOnce.Do(func() {
@@ -3682,7 +3723,7 @@ func (s *AccountTestService) runTestBackground(ctx context.Context, accountID in
 	ginCtx.Set(accountTestTimingTrackerKey, timingTracker)
 	ginCtx.Set(accountTestBackgroundKey, true)
 
-	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault)
+	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, prompt, AccountTestModeDefault, opts...)
 
 	finishedAt := time.Now()
 	body := w.Body.String()

@@ -140,6 +140,10 @@ const (
 	FieldRequireOauthOnly = "require_oauth_only"
 	// FieldRequirePrivacySet holds the string denoting the require_privacy_set field in the database.
 	FieldRequirePrivacySet = "require_privacy_set"
+	// FieldCandyTestIntervalSeconds holds the string denoting the candy_test_interval_seconds field in the database.
+	FieldCandyTestIntervalSeconds = "candy_test_interval_seconds"
+	// FieldCandyTestModel holds the string denoting the candy_test_model field in the database.
+	FieldCandyTestModel = "candy_test_model"
 	// FieldDefaultMappedModel holds the string denoting the default_mapped_model field in the database.
 	FieldDefaultMappedModel = "default_mapped_model"
 	// FieldMessagesDispatchModelConfig holds the string denoting the messages_dispatch_model_config field in the database.
@@ -299,6 +303,8 @@ var Columns = []string{
 	FieldFreeOpenaiFast,
 	FieldRequireOauthOnly,
 	FieldRequirePrivacySet,
+	FieldCandyTestIntervalSeconds,
+	FieldCandyTestModel,
 	FieldDefaultMappedModel,
 	FieldMessagesDispatchModelConfig,
 	FieldModelAllowlist,
@@ -439,6 +445,14 @@ var (
 	DefaultRequireOauthOnly bool
 	// DefaultRequirePrivacySet holds the default value on creation for the "require_privacy_set" field.
 	DefaultRequirePrivacySet bool
+	// DefaultCandyTestIntervalSeconds holds the default value on creation for the "candy_test_interval_seconds" field.
+	DefaultCandyTestIntervalSeconds int
+	// CandyTestIntervalSecondsValidator is a validator for the "candy_test_interval_seconds" field. It is called by the builders before save.
+	CandyTestIntervalSecondsValidator func(int) error
+	// DefaultCandyTestModel holds the default value on creation for the "candy_test_model" field.
+	DefaultCandyTestModel string
+	// CandyTestModelValidator is a validator for the "candy_test_model" field. It is called by the builders before save.
+	CandyTestModelValidator func(string) error
 	// DefaultDefaultMappedModel holds the default value on creation for the "default_mapped_model" field.
 	DefaultDefaultMappedModel string
 	// DefaultMappedModelValidator is a validator for the "default_mapped_model" field. It is called by the builders before save.
@@ -750,6 +764,16 @@ func ByRequireOauthOnly(opts ...sql.OrderTermOption) OrderOption {
 // ByRequirePrivacySet orders the results by the require_privacy_set field.
 func ByRequirePrivacySet(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRequirePrivacySet, opts...).ToFunc()
+}
+
+// ByCandyTestIntervalSeconds orders the results by the candy_test_interval_seconds field.
+func ByCandyTestIntervalSeconds(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCandyTestIntervalSeconds, opts...).ToFunc()
+}
+
+// ByCandyTestModel orders the results by the candy_test_model field.
+func ByCandyTestModel(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCandyTestModel, opts...).ToFunc()
 }
 
 // ByDefaultMappedModel orders the results by the default_mapped_model field.

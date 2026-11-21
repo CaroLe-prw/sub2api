@@ -330,6 +330,16 @@ func RequirePrivacySet(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRequirePrivacySet, v))
 }
 
+// CandyTestIntervalSeconds applies equality check predicate on the "candy_test_interval_seconds" field. It's identical to CandyTestIntervalSecondsEQ.
+func CandyTestIntervalSeconds(v int) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCandyTestIntervalSeconds, v))
+}
+
+// CandyTestModel applies equality check predicate on the "candy_test_model" field. It's identical to CandyTestModelEQ.
+func CandyTestModel(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCandyTestModel, v))
+}
+
 // DefaultMappedModel applies equality check predicate on the "default_mapped_model" field. It's identical to DefaultMappedModelEQ.
 func DefaultMappedModel(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDefaultMappedModel, v))
@@ -2488,6 +2498,111 @@ func RequirePrivacySetEQ(v bool) predicate.Group {
 // RequirePrivacySetNEQ applies the NEQ predicate on the "require_privacy_set" field.
 func RequirePrivacySetNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldRequirePrivacySet, v))
+}
+
+// CandyTestIntervalSecondsEQ applies the EQ predicate on the "candy_test_interval_seconds" field.
+func CandyTestIntervalSecondsEQ(v int) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCandyTestIntervalSeconds, v))
+}
+
+// CandyTestIntervalSecondsNEQ applies the NEQ predicate on the "candy_test_interval_seconds" field.
+func CandyTestIntervalSecondsNEQ(v int) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldCandyTestIntervalSeconds, v))
+}
+
+// CandyTestIntervalSecondsIn applies the In predicate on the "candy_test_interval_seconds" field.
+func CandyTestIntervalSecondsIn(vs ...int) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldCandyTestIntervalSeconds, vs...))
+}
+
+// CandyTestIntervalSecondsNotIn applies the NotIn predicate on the "candy_test_interval_seconds" field.
+func CandyTestIntervalSecondsNotIn(vs ...int) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldCandyTestIntervalSeconds, vs...))
+}
+
+// CandyTestIntervalSecondsGT applies the GT predicate on the "candy_test_interval_seconds" field.
+func CandyTestIntervalSecondsGT(v int) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldCandyTestIntervalSeconds, v))
+}
+
+// CandyTestIntervalSecondsGTE applies the GTE predicate on the "candy_test_interval_seconds" field.
+func CandyTestIntervalSecondsGTE(v int) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldCandyTestIntervalSeconds, v))
+}
+
+// CandyTestIntervalSecondsLT applies the LT predicate on the "candy_test_interval_seconds" field.
+func CandyTestIntervalSecondsLT(v int) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldCandyTestIntervalSeconds, v))
+}
+
+// CandyTestIntervalSecondsLTE applies the LTE predicate on the "candy_test_interval_seconds" field.
+func CandyTestIntervalSecondsLTE(v int) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldCandyTestIntervalSeconds, v))
+}
+
+// CandyTestModelEQ applies the EQ predicate on the "candy_test_model" field.
+func CandyTestModelEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCandyTestModel, v))
+}
+
+// CandyTestModelNEQ applies the NEQ predicate on the "candy_test_model" field.
+func CandyTestModelNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldCandyTestModel, v))
+}
+
+// CandyTestModelIn applies the In predicate on the "candy_test_model" field.
+func CandyTestModelIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldCandyTestModel, vs...))
+}
+
+// CandyTestModelNotIn applies the NotIn predicate on the "candy_test_model" field.
+func CandyTestModelNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldCandyTestModel, vs...))
+}
+
+// CandyTestModelGT applies the GT predicate on the "candy_test_model" field.
+func CandyTestModelGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldCandyTestModel, v))
+}
+
+// CandyTestModelGTE applies the GTE predicate on the "candy_test_model" field.
+func CandyTestModelGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldCandyTestModel, v))
+}
+
+// CandyTestModelLT applies the LT predicate on the "candy_test_model" field.
+func CandyTestModelLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldCandyTestModel, v))
+}
+
+// CandyTestModelLTE applies the LTE predicate on the "candy_test_model" field.
+func CandyTestModelLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldCandyTestModel, v))
+}
+
+// CandyTestModelContains applies the Contains predicate on the "candy_test_model" field.
+func CandyTestModelContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldCandyTestModel, v))
+}
+
+// CandyTestModelHasPrefix applies the HasPrefix predicate on the "candy_test_model" field.
+func CandyTestModelHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldCandyTestModel, v))
+}
+
+// CandyTestModelHasSuffix applies the HasSuffix predicate on the "candy_test_model" field.
+func CandyTestModelHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldCandyTestModel, v))
+}
+
+// CandyTestModelEqualFold applies the EqualFold predicate on the "candy_test_model" field.
+func CandyTestModelEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldCandyTestModel, v))
+}
+
+// CandyTestModelContainsFold applies the ContainsFold predicate on the "candy_test_model" field.
+func CandyTestModelContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldCandyTestModel, v))
 }
 
 // DefaultMappedModelEQ applies the EQ predicate on the "default_mapped_model" field.

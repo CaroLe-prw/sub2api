@@ -510,4 +510,39 @@ describe('GroupsView duplicate action', () => {
     wrapper.unmount()
   })
 
+  it.each([false, true])('creates OpenAI candy schedules in simple mode=%s', async (simple) => {
+    authState.isSimpleMode = simple
+    vi.mocked(adminAPI.groups.create).mockResolvedValue(sourceGroup)
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-tour="groups-create-btn"]').trigger('click')
+    await wrapper.get('[data-tour="group-form-name"]').setValue('Timed candy checks')
+    wrapper.getComponent('[data-tour="group-form-platform"]').vm.$emit('update:modelValue', 'openai')
+    await flushPromises()
+    const interval = wrapper.get('[data-testid="candy-test-interval"]')
+    expect((interval.element as HTMLInputElement).value).toBe('0')
+    await interval.setValue('60')
+    await wrapper.get('#create-group-form').trigger('submit')
+    await flushPromises()
+    expect(adminAPI.groups.create).toHaveBeenCalledWith(expect.objectContaining({
+      platform: 'openai', candy_test_model: 'gpt-6.2-sol', candy_test_interval_seconds: 60
+    }))
+    wrapper.unmount()
+  })
+
+  it('retains interval updates in simple mode', async () => {
+    authState.isSimpleMode = true
+    listGroups.mockResolvedValue({items: [{...sourceGroup,candy_test_interval_seconds: 120}],total:1,page:1,page_size:20,pages:1})
+    const wrapper = mountView()
+    await flushPromises()
+    const editButton = wrapper.findAll('button').find(button => button.text().includes('common.edit'))!
+    await editButton.trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="candy-test-interval"]').setValue('300')
+    await wrapper.get('#edit-group-form').trigger('submit')
+    await flushPromises()
+    expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({ candy_test_interval_seconds: 300 }))
+    wrapper.unmount()
+  })
+
 })

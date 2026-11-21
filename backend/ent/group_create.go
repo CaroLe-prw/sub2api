@@ -842,6 +842,34 @@ func (_c *GroupCreate) SetNillableRequirePrivacySet(v *bool) *GroupCreate {
 	return _c
 }
 
+// SetCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field.
+func (_c *GroupCreate) SetCandyTestIntervalSeconds(v int) *GroupCreate {
+	_c.mutation.SetCandyTestIntervalSeconds(v)
+	return _c
+}
+
+// SetNillableCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableCandyTestIntervalSeconds(v *int) *GroupCreate {
+	if v != nil {
+		_c.SetCandyTestIntervalSeconds(*v)
+	}
+	return _c
+}
+
+// SetCandyTestModel sets the "candy_test_model" field.
+func (_c *GroupCreate) SetCandyTestModel(v string) *GroupCreate {
+	_c.mutation.SetCandyTestModel(v)
+	return _c
+}
+
+// SetNillableCandyTestModel sets the "candy_test_model" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableCandyTestModel(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetCandyTestModel(*v)
+	}
+	return _c
+}
+
 // SetDefaultMappedModel sets the "default_mapped_model" field.
 func (_c *GroupCreate) SetDefaultMappedModel(v string) *GroupCreate {
 	_c.mutation.SetDefaultMappedModel(v)
@@ -1269,6 +1297,14 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultRequirePrivacySet
 		_c.mutation.SetRequirePrivacySet(v)
 	}
+	if _, ok := _c.mutation.CandyTestIntervalSeconds(); !ok {
+		v := group.DefaultCandyTestIntervalSeconds
+		_c.mutation.SetCandyTestIntervalSeconds(v)
+	}
+	if _, ok := _c.mutation.CandyTestModel(); !ok {
+		v := group.DefaultCandyTestModel
+		_c.mutation.SetCandyTestModel(v)
+	}
 	if _, ok := _c.mutation.DefaultMappedModel(); !ok {
 		v := group.DefaultDefaultMappedModel
 		_c.mutation.SetDefaultMappedModel(v)
@@ -1491,6 +1527,22 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.RequirePrivacySet(); !ok {
 		return &ValidationError{Name: "require_privacy_set", err: errors.New(`ent: missing required field "Group.require_privacy_set"`)}
+	}
+	if _, ok := _c.mutation.CandyTestIntervalSeconds(); !ok {
+		return &ValidationError{Name: "candy_test_interval_seconds", err: errors.New(`ent: missing required field "Group.candy_test_interval_seconds"`)}
+	}
+	if v, ok := _c.mutation.CandyTestIntervalSeconds(); ok {
+		if err := group.CandyTestIntervalSecondsValidator(v); err != nil {
+			return &ValidationError{Name: "candy_test_interval_seconds", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_interval_seconds": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.CandyTestModel(); !ok {
+		return &ValidationError{Name: "candy_test_model", err: errors.New(`ent: missing required field "Group.candy_test_model"`)}
+	}
+	if v, ok := _c.mutation.CandyTestModel(); ok {
+		if err := group.CandyTestModelValidator(v); err != nil {
+			return &ValidationError{Name: "candy_test_model", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_model": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.DefaultMappedModel(); !ok {
 		return &ValidationError{Name: "default_mapped_model", err: errors.New(`ent: missing required field "Group.default_mapped_model"`)}
@@ -1814,6 +1866,14 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RequirePrivacySet(); ok {
 		_spec.SetField(group.FieldRequirePrivacySet, field.TypeBool, value)
 		_node.RequirePrivacySet = value
+	}
+	if value, ok := _c.mutation.CandyTestIntervalSeconds(); ok {
+		_spec.SetField(group.FieldCandyTestIntervalSeconds, field.TypeInt, value)
+		_node.CandyTestIntervalSeconds = value
+	}
+	if value, ok := _c.mutation.CandyTestModel(); ok {
+		_spec.SetField(group.FieldCandyTestModel, field.TypeString, value)
+		_node.CandyTestModel = value
 	}
 	if value, ok := _c.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
@@ -3020,6 +3080,36 @@ func (u *GroupUpsert) SetRequirePrivacySet(v bool) *GroupUpsert {
 // UpdateRequirePrivacySet sets the "require_privacy_set" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateRequirePrivacySet() *GroupUpsert {
 	u.SetExcluded(group.FieldRequirePrivacySet)
+	return u
+}
+
+// SetCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field.
+func (u *GroupUpsert) SetCandyTestIntervalSeconds(v int) *GroupUpsert {
+	u.Set(group.FieldCandyTestIntervalSeconds, v)
+	return u
+}
+
+// UpdateCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateCandyTestIntervalSeconds() *GroupUpsert {
+	u.SetExcluded(group.FieldCandyTestIntervalSeconds)
+	return u
+}
+
+// AddCandyTestIntervalSeconds adds v to the "candy_test_interval_seconds" field.
+func (u *GroupUpsert) AddCandyTestIntervalSeconds(v int) *GroupUpsert {
+	u.Add(group.FieldCandyTestIntervalSeconds, v)
+	return u
+}
+
+// SetCandyTestModel sets the "candy_test_model" field.
+func (u *GroupUpsert) SetCandyTestModel(v string) *GroupUpsert {
+	u.Set(group.FieldCandyTestModel, v)
+	return u
+}
+
+// UpdateCandyTestModel sets the "candy_test_model" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateCandyTestModel() *GroupUpsert {
+	u.SetExcluded(group.FieldCandyTestModel)
 	return u
 }
 
@@ -4394,6 +4484,41 @@ func (u *GroupUpsertOne) SetRequirePrivacySet(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateRequirePrivacySet() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRequirePrivacySet()
+	})
+}
+
+// SetCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field.
+func (u *GroupUpsertOne) SetCandyTestIntervalSeconds(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCandyTestIntervalSeconds(v)
+	})
+}
+
+// AddCandyTestIntervalSeconds adds v to the "candy_test_interval_seconds" field.
+func (u *GroupUpsertOne) AddCandyTestIntervalSeconds(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddCandyTestIntervalSeconds(v)
+	})
+}
+
+// UpdateCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateCandyTestIntervalSeconds() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCandyTestIntervalSeconds()
+	})
+}
+
+// SetCandyTestModel sets the "candy_test_model" field.
+func (u *GroupUpsertOne) SetCandyTestModel(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCandyTestModel(v)
+	})
+}
+
+// UpdateCandyTestModel sets the "candy_test_model" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateCandyTestModel() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCandyTestModel()
 	})
 }
 
@@ -5959,6 +6084,41 @@ func (u *GroupUpsertBulk) SetRequirePrivacySet(v bool) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateRequirePrivacySet() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRequirePrivacySet()
+	})
+}
+
+// SetCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field.
+func (u *GroupUpsertBulk) SetCandyTestIntervalSeconds(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCandyTestIntervalSeconds(v)
+	})
+}
+
+// AddCandyTestIntervalSeconds adds v to the "candy_test_interval_seconds" field.
+func (u *GroupUpsertBulk) AddCandyTestIntervalSeconds(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddCandyTestIntervalSeconds(v)
+	})
+}
+
+// UpdateCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateCandyTestIntervalSeconds() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCandyTestIntervalSeconds()
+	})
+}
+
+// SetCandyTestModel sets the "candy_test_model" field.
+func (u *GroupUpsertBulk) SetCandyTestModel(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCandyTestModel(v)
+	})
+}
+
+// UpdateCandyTestModel sets the "candy_test_model" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateCandyTestModel() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCandyTestModel()
 	})
 }
 

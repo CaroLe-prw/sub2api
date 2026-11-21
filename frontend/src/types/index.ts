@@ -647,6 +647,8 @@ export interface Group {
 }
 
 export interface AdminGroup extends Group {
+  candy_test_model?: string
+  candy_test_interval_seconds?: number
   // Independent absolute account scheduling cost ceiling; null means no absolute ceiling.
   max_account_cost_multiplier: number | null
   openai_scheduler_profile: OpenAISchedulerProfile
@@ -848,6 +850,8 @@ export interface UpdateApiKeyRequest {
 }
 
 export interface CreateGroupRequest {
+  candy_test_model?: string
+  candy_test_interval_seconds?: number
   name: string
   description?: string | null
   i18n?: GroupI18n
@@ -920,6 +924,8 @@ export interface CreateGroupRequest {
 }
 
 export interface UpdateGroupRequest {
+  candy_test_model?: string
+  candy_test_interval_seconds?: number
   name?: string
   description?: string | null
   i18n?: GroupI18n
@@ -1449,6 +1455,7 @@ export interface Account {
   opencode_go_usage?: OpenCodeGoUsageState
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
   extra?: (CodexUsageSnapshot & OpenAICompactState & {
+    candy_test?: import('./candyTest').CandyTestSnapshot
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
     upstream_billing_probe_enabled?: boolean

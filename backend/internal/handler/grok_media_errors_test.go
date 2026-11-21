@@ -179,10 +179,31 @@ func (*grokMediaValidationSettingsRepo) SetMultiple(context.Context, map[string]
 func enableGrokMediaValidationTestScheduler(t *testing.T) {
 	t.Helper()
 	settings := service.NewSettingService(&grokMediaValidationSettingsRepo{}, nil)
-	require.NoError(t, settings.UpdateSettings(context.Background(), &service.SystemSettings{OpenAIAdvancedSchedulerEnabled: true}))
+	// UpdateSettings replaces the shared runtime cache, so retain the default
+	// observability setting both here and during cleanup for subsequent tests.
+	require.NoError(t, settings.UpdateSettings(context.Background(), &service.SystemSettings{
+		OpenAIAdvancedSchedulerEnabled:      true,
+		OpenAISchedulerObservabilityEnabled: true,
+	}))
 	t.Cleanup(func() {
-		require.NoError(t, settings.UpdateSettings(context.Background(), &service.SystemSettings{}))
+		require.NoError(t, settings.UpdateSettings(context.Background(), &service.SystemSettings{
+			OpenAISchedulerObservabilityEnabled: true,
+		}))
 	})
+}
+
+func TestGrokMediaValidationSchedulerKeepsObservabilityEnabled(t *testing.T) {
+	gateway := &service.OpenAIGatewayService{}
+	assertEnabled := func(t *testing.T) {
+		t.Helper()
+		snapshot := gateway.GetOpenAISchedulerObservabilitySnapshot(context.Background(), service.OpenAISchedulerObservabilityQuery{})
+		require.True(t, snapshot.Enabled, "media validation setup and cleanup must keep the default observability setting")
+	}
+	t.Run("scheduler enabled", func(t *testing.T) {
+		enableGrokMediaValidationTestScheduler(t)
+		assertEnabled(t)
+	})
+	assertEnabled(t)
 }
 
 func TestGrokImagesPreservesUpstreamErrorOnSyncAndAsyncRoutes(t *testing.T) {

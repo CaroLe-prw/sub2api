@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -132,8 +133,8 @@ func TestReadOpenAICompatBufferedTerminal_EmptyTerminalOutputGainsHostedItems(t 
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1}
 
-	response, _, acc, _, err := (&OpenAIGatewayService{}).readOpenAICompatBufferedTerminal(
-		bufferedHostedItemsSSEResponse(bufferedHostedItemsSSE), c, account, "openai chat buffered", "req-1")
+	response, _, acc, _, err := (&OpenAIGatewayService{}).readOpenAICompatBufferedTerminalWithFirstOutput(
+		bufferedHostedItemsSSEResponse(bufferedHostedItemsSSE), c, "openai chat buffered", "req-1", account, time.Time{}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, response)
 
@@ -160,8 +161,8 @@ func TestReadOpenAICompatBufferedTerminal_HostedItemsWithoutOutputIndexKeepArriv
 		bufferedHostedItemsCompleted,
 	)
 
-	response, _, _, _, err := (&OpenAIGatewayService{}).readOpenAICompatBufferedTerminal(
-		bufferedHostedItemsSSEResponse(sse), c, account, "openai chat buffered", "req-1")
+	response, _, _, _, err := (&OpenAIGatewayService{}).readOpenAICompatBufferedTerminalWithFirstOutput(
+		bufferedHostedItemsSSEResponse(sse), c, "openai chat buffered", "req-1", account, time.Time{}, nil)
 	require.NoError(t, err)
 
 	var ids []string
@@ -352,8 +353,8 @@ func readBufferedOutputItems(t *testing.T, sse string) []string {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1}
-	response, _, _, _, err := (&OpenAIGatewayService{}).readOpenAICompatBufferedTerminal(
-		bufferedHostedItemsSSEResponse(sse), c, account, "openai chat buffered", "req-1")
+	response, _, _, _, err := (&OpenAIGatewayService{}).readOpenAICompatBufferedTerminalWithFirstOutput(
+		bufferedHostedItemsSSEResponse(sse), c, "openai chat buffered", "req-1", account, time.Time{}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, response)
 	var items []string

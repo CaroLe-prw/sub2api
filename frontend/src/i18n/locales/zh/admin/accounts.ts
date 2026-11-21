@@ -1,5 +1,19 @@
 export default {
     accounts: {
+      candyTest: {
+        title: '糖果检测',
+        untested: '未检测',
+        running: '检测中',
+        passed: '通过',
+        failed: '未通过',
+        error: '接口异常',
+        counts: '通过 {passed}/{total} · 接口异常 {errors}',
+        history: '最近 12 次糖果检测记录（绿：通过，红：未通过，黄：接口异常）',
+        run: '对账号「{name}」运行一次糖果检测',
+        hint: '仅 OpenAI OAuth：点击按分组配置的模型运行一次糖果题检测（未配置时为 gpt-6.2-sol），会消耗上游额度；回答中出现独立的 21 即通过。只记录检测结果，不切换调度；绿/红/黄分别表示通过/未通过/接口异常。',
+        groupRequired: '该账号所属分组配置了不同的糖果检测模型，请先在账号列表筛选一个分组再检测',
+        requestFailed: '糖果检测请求失败或结果保存失败，请刷新列表后重试'
+      },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',

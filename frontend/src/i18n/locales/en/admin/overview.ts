@@ -1339,6 +1339,15 @@ export default {
         fallbackHint: 'Non-Claude Code requests will use this group. Leave empty to reject directly.',
         noFallback: 'No Fallback (Reject)'
       },
+      candyTestInterval: {
+        invalid: 'Enter a whole number from 0 to 86400 seconds; 0 disables automatic checks.',
+        label: 'Candy test interval (seconds)',
+        hint: '0 disables automatic checks; use 1–86400 seconds to enable. The server checks active primary OpenAI OAuth accounts with this group’s model, even when this page is closed, consuming quota. Intervals start after completion; checks on the same account never overlap. Each group has its own schedule.'
+      },
+      candyTestModel: {
+        label: 'Candy test model',
+        hint: 'Only for candy checks on OpenAI OAuth accounts in this group; normal requests are unchanged. Blank defaults to gpt-6.2-sol. Use an upstream text model ID; model aliases are not applied. If groups disagree, select a group in the account list first.'
+      },
       openaiMessages: {
         title: 'OpenAI Messages Dispatch',
         allowDispatch: 'Allow /v1/messages dispatch',

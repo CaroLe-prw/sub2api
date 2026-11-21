@@ -323,4 +323,64 @@ describe("GroupsView OpenAI forced service tier", () => {
 
     wrapper.unmount();
   });
+  it("defaults the OpenAI candy test model and saves an edited model", async () => {
+    const wrapper = await openEditDialog(sourceGroup);
+    const input = wrapper.get('[data-testid="candy-test-model"]');
+    expect((input.element as HTMLInputElement).value).toBe("gpt-6.2-sol");
+    await input.setValue("gpt-6.1-sol");
+    expect(await submit(wrapper)).toMatchObject({ candy_test_model: "gpt-6.1-sol" });
+    wrapper.unmount();
+  });
+
+  it("hydrates the saved candy model and allows clearing to the default", async () => {
+    const wrapper = await openEditDialog({ ...sourceGroup, candy_test_model: "gpt-6.1-sol" });
+    const input = wrapper.get('[data-testid="candy-test-model"]');
+    expect((input.element as HTMLInputElement).value).toBe("gpt-6.1-sol");
+    await input.setValue("");
+    expect(await submit(wrapper)).toMatchObject({ candy_test_model: "" });
+    wrapper.unmount();
+  });
+
+  it("hides candy settings outside OpenAI and clears stale model configuration", async () => {
+    const wrapper = await openEditDialog({ ...sourceGroup, platform: "anthropic", candy_test_model: "gpt-6.1-sol" });
+    expect(wrapper.find('[data-testid="candy-test-model"]').exists()).toBe(false);
+    expect(await submit(wrapper)).toMatchObject({ candy_test_model: "" });
+    wrapper.unmount();
+  });
+
+  it("defaults automatic candy checks to disabled and saves whole seconds", async () => {
+    const wrapper = await openEditDialog(sourceGroup);
+    const input = wrapper.get('[data-testid="candy-test-interval"]');
+    expect((input.element as HTMLInputElement).value).toBe("0");
+    expect(input.attributes()).toMatchObject({ min: "0", max: "86400", step: "1" });
+    await input.setValue("60");
+    expect(await submit(wrapper)).toMatchObject({ candy_test_interval_seconds: 60 });
+    wrapper.unmount();
+  });
+
+  it("hydrates a saved interval and allows disabling automatic checks", async () => {
+    const wrapper = await openEditDialog({ ...sourceGroup, candy_test_interval_seconds: 300 });
+    const input = wrapper.get('[data-testid="candy-test-interval"]');
+    expect((input.element as HTMLInputElement).value).toBe("300");
+    await input.setValue("0");
+    expect(await submit(wrapper)).toMatchObject({ candy_test_interval_seconds: 0 });
+    wrapper.unmount();
+  });
+
+  it.each(["-1", "1.5", "86401", ""])("rejects invalid interval %s", async (value) => {
+    const wrapper = await openEditDialog(sourceGroup);
+    await wrapper.get('[data-testid="candy-test-interval"]').setValue(value);
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(updateGroup).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("hides and clears stale automatic checks on non-OpenAI groups", async () => {
+    const wrapper = await openEditDialog({ ...sourceGroup, platform: "anthropic", candy_test_interval_seconds: 60 });
+    expect(wrapper.find('[data-testid="candy-test-interval"]').exists()).toBe(false);
+    expect(await submit(wrapper)).toMatchObject({ candy_test_interval_seconds: 0 });
+    wrapper.unmount();
+  });
+
 });

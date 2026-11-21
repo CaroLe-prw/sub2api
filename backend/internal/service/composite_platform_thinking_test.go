@@ -70,11 +70,23 @@ func TestCompositeRewriteToSonnet55SendsDisabledThinkingAsBetweenTools(t *testin
 	require.Equal(t, "between_tools", gjson.GetBytes(upstream.lastBody, "thinking.type").String())
 }
 
-// Without a model rewrite the client's own invalid thinking mode is still
-// rejected.
-func TestDirectOpus55RequestWithEnabledThinkingIsStillRejected(t *testing.T) {
+// Direct requests also normalize legacy budget thinking before validation.
+func TestDirectOpus55RequestWithEnabledThinkingIsNormalized(t *testing.T) {
 	rec, upstream, err := forwardCompositeThinkingRequest(t, "claude-opus-5-5", "claude-opus-5-5",
 		`{"model":"claude-opus-5-5","max_tokens":64,"stream":false,"thinking":{"type":"enabled","budget_tokens":4096},"messages":[{"role":"user","content":"hi"}]}`)
+
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "claude-opus-5-5", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "adaptive", gjson.GetBytes(upstream.lastBody, "thinking.type").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "thinking.budget_tokens").Exists())
+}
+
+// Unsupported thinking modes must still be rejected before reaching upstream.
+func TestDirectOpus55RequestWithDisabledThinkingIsStillRejected(t *testing.T) {
+	rec, upstream, err := forwardCompositeThinkingRequest(t, "claude-opus-5-5", "claude-opus-5-5",
+		`{"model":"claude-opus-5-5","max_tokens":64,"stream":false,"thinking":{"type":"disabled"},"messages":[{"role":"user","content":"hi"}]}`)
 
 	require.ErrorContains(t, err, "claude-opus-5-5 requires adaptive thinking")
 	require.Equal(t, http.StatusBadRequest, rec.Code)

@@ -666,6 +666,36 @@
           </select>
           <p class="input-hint">{{ t("admin.groups.copyAccounts.hint") }}</p>
         </div>
+        <div
+          v-if="createForm.platform === 'openai'"
+          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+        >
+          <label for="createForm-candy-test-model" class="input-label">{{ t("admin.groups.candyTestModel.label") }}</label>
+          <input
+            id="createForm-candy-test-model"
+            v-model.trim="createForm.candy_test_model"
+            type="text"
+            maxlength="100"
+            class="input"
+            placeholder="gpt-6.2-sol"
+            data-testid="candy-test-model"
+          />
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.candyTestModel.hint") }}</p>
+          <label for="createForm-candy-test-interval" class="input-label mt-4">{{ t("admin.groups.candyTestInterval.label") }}</label>
+          <input
+            id="createForm-candy-test-interval"
+            v-model.number="createForm.candy_test_interval_seconds"
+            type="number"
+            min="0"
+            max="86400"
+            step="1"
+            required
+            class="input"
+            data-testid="candy-test-interval"
+          />
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.candyTestInterval.hint") }}</p>
+        </div>
+
         <template v-if="!authStore.isSimpleMode">
         <div>
           <label class="input-label">{{
@@ -2209,6 +2239,36 @@
           />
           <p class="input-hint">{{ t("admin.groups.platformNotEditable") }}</p>
         </div>
+        <div
+          v-if="editForm.platform === 'openai'"
+          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+        >
+          <label for="editForm-candy-test-model" class="input-label">{{ t("admin.groups.candyTestModel.label") }}</label>
+          <input
+            id="editForm-candy-test-model"
+            v-model.trim="editForm.candy_test_model"
+            type="text"
+            maxlength="100"
+            class="input"
+            placeholder="gpt-6.2-sol"
+            data-testid="candy-test-model"
+          />
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.candyTestModel.hint") }}</p>
+          <label for="editForm-candy-test-interval" class="input-label mt-4">{{ t("admin.groups.candyTestInterval.label") }}</label>
+          <input
+            id="editForm-candy-test-interval"
+            v-model.number="editForm.candy_test_interval_seconds"
+            type="number"
+            min="0"
+            max="86400"
+            step="1"
+            required
+            class="input"
+            data-testid="candy-test-interval"
+          />
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.candyTestInterval.hint") }}</p>
+        </div>
+
         <template v-if="!authStore.isSimpleMode">
         <!-- 从分组复制账号（编辑时） -->
         <div v-if="copyAccountsGroupOptionsForEdit.length > 0">
@@ -5093,6 +5153,8 @@ const createForm = reactive({
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
   allow_live: false,
+  candy_test_model: "gpt-6.2-sol",
+  candy_test_interval_seconds: 0,
   opus_mapped_model: createMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: createMessagesDispatchDefaults.haiku_mapped_model,
@@ -5466,6 +5528,8 @@ const editForm = reactive({
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
   allow_live: false,
+  candy_test_model: "gpt-6.2-sol",
+  candy_test_interval_seconds: 0,
   default_mapped_model: '',
   opus_mapped_model: editMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: editMessagesDispatchDefaults.sonnet_mapped_model,
@@ -5939,6 +6003,8 @@ const closeCreateModal = () => {
   createForm.fallback_group_id_on_invalid_request = null;
   resetMessagesDispatchFormState(createForm);
   createForm.allow_live = false;
+  createForm.candy_test_model = "gpt-6.2-sol";
+  createForm.candy_test_interval_seconds = 0;
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
   createForm.supported_model_scopes = ["claude", "gemini_text", "gemini_image"];
@@ -6023,6 +6089,10 @@ const handleCreateGroup = async () => {
     appStore.showError(t("admin.groups.modelMapping.invalid"));
     return;
   }
+  if (createForm.platform === "openai" && (!Number.isInteger(createForm.candy_test_interval_seconds) || createForm.candy_test_interval_seconds < 0 || createForm.candy_test_interval_seconds > 86400)) {
+    appStore.showError(t("admin.groups.candyTestInterval.invalid"));
+    return;
+  }
   if (!validateProfitControlForm(createForm)) {
     return;
   }
@@ -6075,6 +6145,8 @@ const handleCreateGroup = async () => {
       ...(Object.keys(videoModelPrices).length > 0
         ? { video_model_prices: videoModelPrices }
         : {}),
+      candy_test_model: createForm.platform === "openai" ? createForm.candy_test_model.trim() : "",
+      candy_test_interval_seconds: createForm.platform === "openai" ? createForm.candy_test_interval_seconds : 0,
       model_mapping: serializeGroupModelMapping(createModelMappingRows.value),
       model_routing: convertRoutingRulesToApiFormat(
         createModelRoutingRules.value,
@@ -6163,6 +6235,7 @@ const handleCreateGroup = async () => {
           description: createForm.description,
           i18n: createForm.i18n,
           platform: createForm.platform,
+          ...(createForm.platform === "openai" ? { candy_test_model: createForm.candy_test_model.trim(), candy_test_interval_seconds: createForm.candy_test_interval_seconds } : {}),
         }
       : requestData;
     await adminAPI.groups.create(payload);
@@ -6262,6 +6335,8 @@ const handleEdit = async (group: AdminGroup) => {
     group.allow_messages_dispatch ||
     messagesDispatchFormState.allow_messages_dispatch;
   editForm.allow_live = group.allow_live ?? false;
+  editForm.candy_test_model = group.candy_test_model || "gpt-6.2-sol";
+  editForm.candy_test_interval_seconds = group.candy_test_interval_seconds ?? 0;
   editForm.opus_mapped_model = messagesDispatchFormState.opus_mapped_model;
   editForm.sonnet_mapped_model = messagesDispatchFormState.sonnet_mapped_model;
   editForm.haiku_mapped_model = messagesDispatchFormState.haiku_mapped_model;
@@ -6363,6 +6438,8 @@ const closeEditModal = () => {
   editForm.audio_stt_price_per_hour = null;
   resetMessagesDispatchFormState(editForm);
   editForm.allow_live = false;
+  editForm.candy_test_model = "gpt-6.2-sol";
+  editForm.candy_test_interval_seconds = 0;
   resetModelAllowlistState(editModelAllowlistState);
   editCodexManifestConfig.value = createCodexManifestDefaults();
   editCodexManifestAccountNames.value = {};
@@ -6384,6 +6461,10 @@ const handleUpdateGroup = async () => {
   }
   if (!validGroupModelMapping(editModelMappingRows.value)) {
     appStore.showError(t("admin.groups.modelMapping.invalid"));
+    return;
+  }
+  if (editForm.platform === "openai" && (!Number.isInteger(editForm.candy_test_interval_seconds) || editForm.candy_test_interval_seconds < 0 || editForm.candy_test_interval_seconds > 86400)) {
+    appStore.showError(t("admin.groups.candyTestInterval.invalid"));
     return;
   }
   if (!validateProfitControlForm(editForm)) {
@@ -6448,6 +6529,8 @@ const handleUpdateGroup = async () => {
         editForm.fallback_group_id_on_invalid_request === null
           ? 0
           : editForm.fallback_group_id_on_invalid_request,
+      candy_test_model: editForm.platform === "openai" ? editForm.candy_test_model.trim() : "",
+      candy_test_interval_seconds: editForm.platform === "openai" ? editForm.candy_test_interval_seconds : 0,
       model_mapping: serializeGroupModelMapping(editModelMappingRows.value),
       model_routing: convertRoutingRulesToApiFormat(
         editModelRoutingRules.value,
@@ -6544,6 +6627,7 @@ const handleUpdateGroup = async () => {
           name: editForm.name,
           description: editForm.description,
           i18n: editForm.i18n,
+          ...(editForm.platform === "openai" ? { candy_test_model: editForm.candy_test_model.trim(), candy_test_interval_seconds: editForm.candy_test_interval_seconds } : {}),
         }
       : payload;
     await adminAPI.groups.update(editingGroup.value.id, requestData);

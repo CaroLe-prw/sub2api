@@ -392,6 +392,7 @@ func normalizeCreateGroupInputForSimpleMode(input *CreateGroupInput) {
 	}
 	*input = CreateGroupInput{
 		Name: input.Name, Description: input.Description, I18n: input.I18n, Platform: input.Platform,
+		CandyTestModel: input.CandyTestModel, CandyTestIntervalSeconds: input.CandyTestIntervalSeconds,
 		RateMultiplier: 1, SubscriptionType: SubscriptionTypeStandard,
 	}
 }
@@ -400,7 +401,7 @@ func normalizeUpdateGroupInputForSimpleMode(input *UpdateGroupInput) {
 	if input == nil {
 		return
 	}
-	*input = UpdateGroupInput{Name: input.Name, Description: input.Description, I18n: input.I18n}
+	*input = UpdateGroupInput{Name: input.Name, Description: input.Description, I18n: input.I18n, CandyTestModel: input.CandyTestModel, CandyTestIntervalSeconds: input.CandyTestIntervalSeconds}
 }
 
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
@@ -451,6 +452,15 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	reasoningEffortMappings, err := NormalizeReasoningEffortMappings(platform, input.ReasoningEffortMappings)
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_REASONING_EFFORT_MAPPING", "%v", err)
+	}
+
+	candyTestInterval, err := normalizeCandyTestInterval(platform, input.CandyTestIntervalSeconds)
+	if err != nil {
+		return nil, err
+	}
+	candyTestModel, err := normalizeCandyTestModel(platform, input.CandyTestModel)
+	if err != nil {
+		return nil, err
 	}
 
 	subscriptionType := input.SubscriptionType
@@ -659,6 +669,8 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		RequireOAuthOnly:                input.RequireOAuthOnly,
 		RequirePrivacySet:               input.RequirePrivacySet,
 		DefaultMappedModel:              input.DefaultMappedModel,
+		CandyTestModel:                  candyTestModel,
+		CandyTestIntervalSeconds:        candyTestInterval,
 		MessagesDispatchModelConfig:     normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
 		ModelAllowlist:                  modelAllowlist,
 		// 固定账号 manifest 配置：账号绑定发生在分组创建之后，创建路径禁止开启，
@@ -1087,6 +1099,26 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.RequirePrivacySet != nil {
 		group.RequirePrivacySet = *input.RequirePrivacySet
+	}
+	if input.CandyTestIntervalSeconds != nil || group.Platform != PlatformOpenAI {
+		interval := group.CandyTestIntervalSeconds
+		if input.CandyTestIntervalSeconds != nil {
+			interval = *input.CandyTestIntervalSeconds
+		}
+		group.CandyTestIntervalSeconds, err = normalizeCandyTestInterval(group.Platform, interval)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if input.CandyTestModel != nil || group.Platform != PlatformOpenAI {
+		model := group.CandyTestModel
+		if input.CandyTestModel != nil {
+			model = *input.CandyTestModel
+		}
+		group.CandyTestModel, err = normalizeCandyTestModel(group.Platform, model)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if input.DefaultMappedModel != nil {
 		group.DefaultMappedModel = *input.DefaultMappedModel

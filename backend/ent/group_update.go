@@ -1146,6 +1146,41 @@ func (_u *GroupUpdate) SetNillableRequirePrivacySet(v *bool) *GroupUpdate {
 	return _u
 }
 
+// SetCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field.
+func (_u *GroupUpdate) SetCandyTestIntervalSeconds(v int) *GroupUpdate {
+	_u.mutation.ResetCandyTestIntervalSeconds()
+	_u.mutation.SetCandyTestIntervalSeconds(v)
+	return _u
+}
+
+// SetNillableCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableCandyTestIntervalSeconds(v *int) *GroupUpdate {
+	if v != nil {
+		_u.SetCandyTestIntervalSeconds(*v)
+	}
+	return _u
+}
+
+// AddCandyTestIntervalSeconds adds value to the "candy_test_interval_seconds" field.
+func (_u *GroupUpdate) AddCandyTestIntervalSeconds(v int) *GroupUpdate {
+	_u.mutation.AddCandyTestIntervalSeconds(v)
+	return _u
+}
+
+// SetCandyTestModel sets the "candy_test_model" field.
+func (_u *GroupUpdate) SetCandyTestModel(v string) *GroupUpdate {
+	_u.mutation.SetCandyTestModel(v)
+	return _u
+}
+
+// SetNillableCandyTestModel sets the "candy_test_model" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableCandyTestModel(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetCandyTestModel(*v)
+	}
+	return _u
+}
+
 // SetDefaultMappedModel sets the "default_mapped_model" field.
 func (_u *GroupUpdate) SetDefaultMappedModel(v string) *GroupUpdate {
 	_u.mutation.SetDefaultMappedModel(v)
@@ -1639,6 +1674,16 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "audio_stt_price_per_hour", err: fmt.Errorf(`ent: validator failed for field "Group.audio_stt_price_per_hour": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.CandyTestIntervalSeconds(); ok {
+		if err := group.CandyTestIntervalSecondsValidator(v); err != nil {
+			return &ValidationError{Name: "candy_test_interval_seconds", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_interval_seconds": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CandyTestModel(); ok {
+		if err := group.CandyTestModelValidator(v); err != nil {
+			return &ValidationError{Name: "candy_test_model", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_model": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.DefaultMappedModel(); ok {
 		if err := group.DefaultMappedModelValidator(v); err != nil {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
@@ -2005,6 +2050,15 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.RequirePrivacySet(); ok {
 		_spec.SetField(group.FieldRequirePrivacySet, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.CandyTestIntervalSeconds(); ok {
+		_spec.SetField(group.FieldCandyTestIntervalSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedCandyTestIntervalSeconds(); ok {
+		_spec.AddField(group.FieldCandyTestIntervalSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.CandyTestModel(); ok {
+		_spec.SetField(group.FieldCandyTestModel, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
@@ -3476,6 +3530,41 @@ func (_u *GroupUpdateOne) SetNillableRequirePrivacySet(v *bool) *GroupUpdateOne 
 	return _u
 }
 
+// SetCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field.
+func (_u *GroupUpdateOne) SetCandyTestIntervalSeconds(v int) *GroupUpdateOne {
+	_u.mutation.ResetCandyTestIntervalSeconds()
+	_u.mutation.SetCandyTestIntervalSeconds(v)
+	return _u
+}
+
+// SetNillableCandyTestIntervalSeconds sets the "candy_test_interval_seconds" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableCandyTestIntervalSeconds(v *int) *GroupUpdateOne {
+	if v != nil {
+		_u.SetCandyTestIntervalSeconds(*v)
+	}
+	return _u
+}
+
+// AddCandyTestIntervalSeconds adds value to the "candy_test_interval_seconds" field.
+func (_u *GroupUpdateOne) AddCandyTestIntervalSeconds(v int) *GroupUpdateOne {
+	_u.mutation.AddCandyTestIntervalSeconds(v)
+	return _u
+}
+
+// SetCandyTestModel sets the "candy_test_model" field.
+func (_u *GroupUpdateOne) SetCandyTestModel(v string) *GroupUpdateOne {
+	_u.mutation.SetCandyTestModel(v)
+	return _u
+}
+
+// SetNillableCandyTestModel sets the "candy_test_model" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableCandyTestModel(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetCandyTestModel(*v)
+	}
+	return _u
+}
+
 // SetDefaultMappedModel sets the "default_mapped_model" field.
 func (_u *GroupUpdateOne) SetDefaultMappedModel(v string) *GroupUpdateOne {
 	_u.mutation.SetDefaultMappedModel(v)
@@ -3982,6 +4071,16 @@ func (_u *GroupUpdateOne) check() error {
 			return &ValidationError{Name: "audio_stt_price_per_hour", err: fmt.Errorf(`ent: validator failed for field "Group.audio_stt_price_per_hour": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.CandyTestIntervalSeconds(); ok {
+		if err := group.CandyTestIntervalSecondsValidator(v); err != nil {
+			return &ValidationError{Name: "candy_test_interval_seconds", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_interval_seconds": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CandyTestModel(); ok {
+		if err := group.CandyTestModelValidator(v); err != nil {
+			return &ValidationError{Name: "candy_test_model", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_model": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.DefaultMappedModel(); ok {
 		if err := group.DefaultMappedModelValidator(v); err != nil {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
@@ -4365,6 +4464,15 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.RequirePrivacySet(); ok {
 		_spec.SetField(group.FieldRequirePrivacySet, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.CandyTestIntervalSeconds(); ok {
+		_spec.SetField(group.FieldCandyTestIntervalSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedCandyTestIntervalSeconds(); ok {
+		_spec.AddField(group.FieldCandyTestIntervalSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.CandyTestModel(); ok {
+		_spec.SetField(group.FieldCandyTestModel, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.DefaultMappedModel(); ok {
 		_spec.SetField(group.FieldDefaultMappedModel, field.TypeString, value)
