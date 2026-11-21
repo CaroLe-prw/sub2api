@@ -30,6 +30,74 @@ describe('AccountCandyTestCell', () => {
     expect(runCandyTest).not.toHaveBeenCalled()
     wrapper.unmount()
   })
+  it('opens a historical wrong answer without rerunning the test or changing scheduling', async () => {
+    const saved = result()
+    saved.recent[1].response_text = '最少需要 34 个糖果。'
+    const original = account({ schedulable: true, extra: { candy_test: saved } })
+    const wrapper = mount(AccountCandyTestCell, {
+      props: { account: original }, global: { stubs: { teleport: true } }
+    })
+    const record = wrapper.get('button[data-status="failed"]')
+    expect(record.attributes('aria-label')).toContain('admin.accounts.candyTest.viewRecord')
+    await record.trigger('click')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('admin.accounts.candyTest.detailsTitle')
+    expect(wrapper.get('[data-testid="candy-record-details"]').text()).toContain('gpt-6.2-sol')
+    expect(wrapper.get('[data-testid="candy-model-answer"]').text()).toBe('最少需要 34 个糖果。')
+    expect(runCandyTest).not.toHaveBeenCalled()
+    expect(wrapper.emitted('updated')).toBeUndefined()
+    expect(original.schedulable).toBe(true)
+    await wrapper.get('button[aria-label="Close modal"]').trigger('click')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+  it('explains that old answers cannot be reconstructed', async () => {
+    const wrapper = mount(AccountCandyTestCell, {
+      props: { account: account({ extra: { candy_test: result() } }) }, global: { stubs: { teleport: true } }
+    })
+    await wrapper.get('button[data-status="failed"]').trigger('click')
+    expect(wrapper.get('[data-testid="candy-answer-unavailable"]').text()).toBe('admin.accounts.candyTest.answerNotRecorded')
+    expect(wrapper.find('[data-testid="candy-model-answer"]').exists()).toBe(false)
+    expect(runCandyTest).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+  it('explains API errors without fabricating a wrong answer', async () => {
+    const wrapper = mount(AccountCandyTestCell, {
+      props: { account: account({ extra: { candy_test: result() } }) }, global: { stubs: { teleport: true } }
+    })
+    await wrapper.get('button[data-status="error"]').trigger('click')
+    expect(wrapper.get('[data-testid="candy-answer-unavailable"]').text()).toBe('admin.accounts.candyTest.noAnswerOnError')
+    expect(wrapper.find('[data-testid="candy-model-answer"]').exists()).toBe(false)
+    expect(runCandyTest).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+  it('renders answers as plain text and marks truncated excerpts', async () => {
+    const saved = result()
+    saved.recent[0].response_text = '<img src=x onerror="alert(1)">21<script>alert(2)</script>'
+    saved.recent[0].response_truncated = true
+    const wrapper = mount(AccountCandyTestCell, {
+      props: { account: account({ extra: { candy_test: saved } }) }, global: { stubs: { teleport: true } }
+    })
+    await wrapper.get('button[data-status="passed"]').trigger('click')
+    const answer = wrapper.get('[data-testid="candy-model-answer"]')
+    expect(answer.text()).toBe(saved.recent[0].response_text)
+    expect(answer.find('img').exists()).toBe(false)
+    expect(answer.find('script').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="candy-response-truncated"]').text()).toBe('admin.accounts.candyTest.answerTruncated')
+    wrapper.unmount()
+  })
+  it('keeps an opened record stable across refreshes and closes it when the account changes', async () => {
+    const saved = result()
+    saved.recent[1].response_text = '答案是34'
+    const wrapper = mount(AccountCandyTestCell, {
+      props: { account: account({ extra: { candy_test: saved } }) }, global: { stubs: { teleport: true } }
+    })
+    await wrapper.get('button[data-status="failed"]').trigger('click')
+    await wrapper.setProps({ account: account({ extra: { candy_test: { ...result(), recent: [] } } }) })
+    expect(wrapper.get('[data-testid="candy-model-answer"]').text()).toBe('答案是34')
+    await wrapper.setProps({ account: account({ id: 43 }) })
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('does not run on mount or fabricate a passing history', () => {
     const wrapper = mount(AccountCandyTestCell, { props: { account: account() } })
     expect(wrapper.text()).toContain('admin.accounts.candyTest.untested')

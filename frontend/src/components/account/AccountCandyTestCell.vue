@@ -21,18 +21,42 @@
         {{ t('admin.accounts.candyTest.counts', { passed: snapshot.passed, total: snapshot.passed + snapshot.failed, errors: snapshot.errors }) }}
       </span>
       <div class="flex gap-0.5" :aria-label="t('admin.accounts.candyTest.history')">
-        <span
+        <button
           v-for="(sample, index) in snapshot.recent"
           :key="`${sample.checked_at}-${index}`"
-          class="h-1.5 w-2 rounded-sm"
-          :class="sample.status === 'passed' ? 'bg-emerald-500' : sample.status === 'failed' ? 'bg-red-500' : 'bg-amber-400'"
-          :title="sampleTitle(sample)"
-          role="img"
-          :aria-label="sampleTitle(sample)"
+          type="button"
+          class="flex h-4 w-3 items-center justify-center rounded hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 dark:hover:bg-dark-700"
+          :title="t('admin.accounts.candyTest.viewRecord', { details: sampleTitle(sample) })"
+          :aria-label="t('admin.accounts.candyTest.viewRecord', { details: sampleTitle(sample) })"
           :data-status="sample.status"
-        />
+          @click.stop="openRecord(sample)"
+        >
+          <span class="h-1.5 w-2 rounded-sm" :class="sample.status === 'passed' ? 'bg-emerald-500' : sample.status === 'failed' ? 'bg-red-500' : 'bg-amber-400'" aria-hidden="true" />
+        </button>
       </div>
     </template>
+    <BaseDialog
+      v-if="selectedSample"
+      :show="detailsOpen"
+      :title="t('admin.accounts.candyTest.detailsTitle')"
+      width="wide"
+      close-on-click-outside
+      @close="detailsOpen = false"
+      @after-leave="selectedSample = null"
+    >
+      <div class="space-y-4" data-testid="candy-record-details">
+        <p class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ account.name }}</p>
+        <p class="break-words text-xs text-gray-500 dark:text-gray-400">{{ sampleTitle(selectedSample) }}</p>
+        <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('admin.accounts.candyTest.answerRule') }}</p>
+        <template v-if="selectedSample.response_text">
+          <h4 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('admin.accounts.candyTest.modelAnswer') }}</h4>
+          <pre class="max-h-96 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-3 text-sm text-gray-800 dark:bg-dark-900 dark:text-gray-200" data-testid="candy-model-answer">{{ selectedSample.response_text }}</pre>
+          <p v-if="selectedSample.response_truncated" class="text-xs text-amber-600 dark:text-amber-400" data-testid="candy-response-truncated">{{ t('admin.accounts.candyTest.answerTruncated') }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.candyTest.answerPrivacy') }}</p>
+        </template>
+        <p v-else class="text-sm text-gray-500 dark:text-gray-400" data-testid="candy-answer-unavailable">{{ t(selectedSample.status === 'error' ? 'admin.accounts.candyTest.noAnswerOnError' : 'admin.accounts.candyTest.answerNotRecorded') }}</p>
+      </div>
+    </BaseDialog>
   </div>
 </template>
 
@@ -40,6 +64,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { runCandyTest } from '@/api/admin/accounts'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorCode } from '@/utils/apiError'
 import type { Account } from '@/types'
@@ -50,6 +75,12 @@ const emit = defineEmits<{ updated: [snapshot: CandyTestSnapshot] }>()
 const { t } = useI18n()
 const appStore = useAppStore()
 const running = ref(false)
+const detailsOpen = ref(false)
+const selectedSample = ref<CandyTestSample | null>(null)
+const openRecord = (sample: CandyTestSample) => {
+  selectedSample.value = sample
+  detailsOpen.value = true
+}
 const localResult = ref<CandyTestSnapshot | null>(null)
 let controller: AbortController | null = null
 const lastSample = (value?: CandyTestSnapshot | null) => value?.recent[value.recent.length - 1]
@@ -102,6 +133,8 @@ async function run() {
   }
 }
 watch(() => props.account.id, () => {
+  detailsOpen.value = false
+  selectedSample.value = null
   controller?.abort()
   controller = null
   running.value = false

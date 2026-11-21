@@ -22,9 +22,11 @@ func TestCandyModelOnlyAppearsInAdminGroup(t *testing.T) {
 
 func TestCandyHistorySurvivesLiteAccountProjection(t *testing.T) {
 	account := &service.Account{ID: 42, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
-		Extra: map[string]any{service.CandyTestExtraKey: service.CandyTestSnapshot{Total: 1, Passed: 1, Recent: []service.CandyTestSample{{Status: "passed", Model: "gpt-6.2-sol"}}}}}
+		Extra: map[string]any{service.CandyTestExtraKey: service.CandyTestSnapshot{Total: 1, Passed: 1, Recent: []service.CandyTestSample{{Status: "passed", Model: "gpt-6.2-sol", ResponseText: "保存的回答：21", ResponseTruncated: true}}}}}
 	item := AccountListItemFromAccount(AccountFromServiceShallow(account))
 	encoded, err := json.Marshal(item)
 	require.NoError(t, err)
 	require.Contains(t, string(encoded), `"candy_test":{"total":1,"passed":1`)
+	require.Contains(t, string(encoded), `"response_text":"保存的回答：21"`)
+	require.Contains(t, string(encoded), `"response_truncated":true`)
 }

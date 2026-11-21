@@ -1,6 +1,14 @@
 export default {
     accounts: {
       candyTest: {
+        viewRecord: '点击查看记录：{details}',
+        detailsTitle: '糖果检测详情',
+        modelAnswer: '模型回答',
+        answerRule: '按完整回答判定：出现独立的 21 即通过，否则为未通过；接口异常不算答错。',
+        answerNotRecorded: '这条记录未保存回答原文，无法还原。更新后新产生的有效检测记录会保存回答；重新检测会新增记录，不会补回旧答案。',
+        noAnswerOnError: '本次未获得可判定的完整回答，按接口异常处理，不算答错。具体错误请查看系统日志。',
+        answerTruncated: '回答较长，仅保留前 4096 个字符；通过或未通过的判定仍基于完整回答。',
+        answerPrivacy: '仅展示模型回答正文，可能的敏感字段会隐藏。',
         title: '糖果检测',
         blocked: '答错，已暂停调度',
         blockedHint: '最近一次有效答案错误，调度会跳过此账号；网络或接口异常不改变答题判定，复测答对后自动解除。不会修改手动调度开关。',

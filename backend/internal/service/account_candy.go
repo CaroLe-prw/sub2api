@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"github.com/google/uuid"
 )
 
@@ -18,9 +19,10 @@ const (
 	CandyTestExtraKey     = "candy_test"
 	// Keep this separate from diagnostic history so only eligibility transitions
 	// invalidate scheduler pools. The manual Schedulable setting is never changed.
-	CandyTestBlockedExtraKey = "candy_test_blocked"
-	candyTestHistoryLimit    = 12
-	candyTestTimeout         = 90 * time.Second
+	CandyTestBlockedExtraKey   = "candy_test_blocked"
+	candyTestHistoryLimit      = 12
+	candyTestResponseRuneLimit = 4096
+	candyTestTimeout           = 90 * time.Second
 	// The answer is deliberately NOT included in the upstream prompt.
 	candyTestPrompt = `不使用任何外部工具回答以下问题：
 
@@ -37,15 +39,18 @@ type CandyTestSample struct {
 	Model     string    `json:"model"`
 	CheckedAt time.Time `json:"checked_at"`
 	LatencyMS int64     `json:"latency_ms"`
+	// Final visible answer only, redacted and bounded; never raw HTTP/error bodies.
+	ResponseText      string `json:"response_text,omitempty"`
+	ResponseTruncated bool   `json:"response_truncated,omitempty"`
 }
 
-// CandyTestSnapshot contains only safe diagnostic metadata, never upstream bodies
-// or credentials. Total includes API errors; those are not wrong answers.
 type CandyTestSchedule struct {
 	Model     string    `json:"model"`
 	CheckedAt time.Time `json:"checked_at"`
 }
 
+// CandyTestSnapshot keeps bounded diagnostic history and final-answer excerpts.
+// Total includes API errors; those are not wrong answers.
 type CandyTestSnapshot struct {
 	// Errors are inconclusive; only a complete answer can change this verdict.
 	LastVerdict string                      `json:"last_verdict,omitempty"`
@@ -69,6 +74,20 @@ func candyAnswerPassed(answer string) bool {
 		}
 	}
 	return false
+}
+
+// Redact before truncation so a clipped secret field cannot evade redaction.
+// Grading uses the full original answer, never this display-only excerpt.
+func candyTestResponseExcerpt(answer string) (string, bool) {
+	answer = logredact.RedactText(answer, "api_key", "authorization")
+	count := 0
+	for offset := range answer {
+		if count == candyTestResponseRuneLimit {
+			return answer[:offset], true
+		}
+		count++
+	}
+	return answer, false
 }
 
 func readCandyTestSnapshot(extra map[string]any) (CandyTestSnapshot, error) {
@@ -219,6 +238,7 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 		if candyAnswerPassed(result.ResponseText) {
 			sample.Status = "passed"
 		}
+		sample.ResponseText, sample.ResponseTruncated = candyTestResponseExcerpt(result.ResponseText)
 	}
 	appendCandyTestSample(&snapshot, sample)
 	if groupID > 0 {

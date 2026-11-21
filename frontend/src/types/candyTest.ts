@@ -3,6 +3,9 @@ export interface CandyTestSample {
   model: string
   checked_at: string
   latency_ms: number
+  // Missing for old records and inconclusive API errors.
+  response_text?: string
+  response_truncated?: boolean
 }
 
 export interface CandyTestSnapshot {

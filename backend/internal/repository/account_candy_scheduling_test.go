@@ -24,7 +24,7 @@ func TestCandySchedulerMetadataPreservesEligibilityWithoutHistory(t *testing.T) 
 		{"untested", nil, false},
 		{"blocked", map[string]any{service.CandyTestBlockedExtraKey: true}, true},
 		{"cleared", map[string]any{service.CandyTestBlockedExtraKey: false}, false},
-		{"legacy wrong then error", map[string]any{service.CandyTestExtraKey: service.CandyTestSnapshot{Total: 2, Failed: 1, Errors: 1, Recent: []service.CandyTestSample{{Status: "failed"}, {Status: "error"}}}}, true},
+		{"legacy wrong then error", map[string]any{service.CandyTestExtraKey: service.CandyTestSnapshot{Total: 2, Failed: 1, Errors: 1, Recent: []service.CandyTestSample{{Status: "failed", ResponseText: "candy-answer-visible-only-to-admin"}, {Status: "error"}}}}, true},
 		{"only errors", map[string]any{service.CandyTestExtraKey: service.CandyTestSnapshot{Total: 1, Errors: 1, Recent: []service.CandyTestSample{{Status: "error"}}}}, false},
 		{"rolled over history", map[string]any{service.CandyTestExtraKey: service.CandyTestSnapshot{LastVerdict: "failed", Total: 15, Failed: 1, Errors: 14, Recent: []service.CandyTestSample{{Status: "error"}}}}, true},
 	} {
@@ -38,6 +38,7 @@ func TestCandySchedulerMetadataPreservesEligibilityWithoutHistory(t *testing.T) 
 			require.Equal(t, tc.blocked, metadata.IsCandyTestBlocked())
 			require.Equal(t, !tc.blocked, metadata.IsSchedulable())
 			require.NotContains(t, metadata.Extra, service.CandyTestExtraKey)
+			require.NotContains(t, payload, "candy-answer-visible-only-to-admin")
 			require.Empty(t, metadata.GetCredential("access_token"))
 		})
 	}

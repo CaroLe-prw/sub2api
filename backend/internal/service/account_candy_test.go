@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
@@ -83,7 +84,10 @@ func TestRunCandyTestPersistsActualResultsAndExactModel(t *testing.T) {
 	require.Equal(t, "unchanged", account.Extra["keep"])
 	persisted, _ := json.Marshal(result)
 	require.NotContains(t, string(persisted), "private-token")
-	require.NotContains(t, string(persisted), "最少")
+	require.Equal(t, "最少21个。", result.Recent[0].ResponseText)
+	require.Equal(t, "34", result.Recent[1].ResponseText)
+	require.Empty(t, result.Recent[2].ResponseText)
+	require.False(t, result.Recent[0].ResponseTruncated)
 	body, err := io.ReadAll(upstream.requests[0].Body)
 	require.NoError(t, err)
 	require.Equal(t, "gpt-6.2-sol", gjson.GetBytes(body, "model").String())
@@ -115,6 +119,7 @@ func TestRunCandyTestIncompleteOrEmptyResponseIsAPIError(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 1, got.Errors)
 		require.Zero(t, got.Passed)
+		require.Empty(t, got.Recent[0].ResponseText, "incomplete answers must not be presented as completed replies")
 	}
 }
 
@@ -200,4 +205,68 @@ func TestRunCandyTestCompletedOnlyAnswer(t *testing.T) {
 	result, err := svc.RunCandyTest(context.Background(), 42, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, result.Passed)
+}
+
+func TestCandyAnswerDetailsPersistAndGradeFullResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name, answer, expected, status string
+		truncated                      bool
+	}{
+		{"wrong answer", "最少需要 34 个糖果。", "最少需要 34 个糖果。", "failed", false},
+		{"passing answer", "最少需要 21 个糖果。", "最少需要 21 个糖果。", "passed", false},
+		{"exact boundary", strings.Repeat("糖", candyTestResponseRuneLimit-2) + "21", strings.Repeat("糖", candyTestResponseRuneLimit-2) + "21", "passed", false},
+		{"answer beyond excerpt", strings.Repeat("糖", candyTestResponseRuneLimit) + "21", strings.Repeat("糖", candyTestResponseRuneLimit), "passed", true},
+		{"unicode excerpt", strings.Repeat("🍬", candyTestResponseRuneLimit+1), strings.Repeat("🍬", candyTestResponseRuneLimit), "failed", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := automaticCandyAccount()
+			repo := &candyAccountRepo{account: account}
+			svc := &AccountTestService{accountRepo: repo, httpUpstream: &queuedHTTPUpstream{responses: []*http.Response{candyResponse(tc.answer)}}}
+			result, err := svc.RunCandyTest(context.Background(), account.ID, 0)
+			require.NoError(t, err)
+			sample := result.Recent[0]
+			require.Equal(t, tc.status, sample.Status)
+			require.Equal(t, tc.expected, sample.ResponseText)
+			require.Equal(t, tc.truncated, sample.ResponseTruncated)
+			require.True(t, utf8.ValidString(sample.ResponseText))
+			require.LessOrEqual(t, utf8.RuneCountInString(sample.ResponseText), candyTestResponseRuneLimit)
+			require.Equal(t, tc.status == "failed", account.IsCandyTestBlocked())
+			reloaded, err := readCandyTestSnapshot(account.Extra)
+			require.NoError(t, err)
+			require.Equal(t, sample.ResponseText, reloaded.Recent[0].ResponseText)
+			require.Equal(t, sample.ResponseTruncated, reloaded.Recent[0].ResponseTruncated)
+		})
+	}
+}
+
+func TestCandyAnswerDetailsRedactSensitiveFieldsBeforePersisting(t *testing.T) {
+	account := candyAccount()
+	repo := &candyAccountRepo{account: account}
+	answer := `{"answer":"34","access_token":"private-token","authorization":"Bearer private-auth","api_key":"private-key"}`
+	svc := &AccountTestService{accountRepo: repo, httpUpstream: &queuedHTTPUpstream{responses: []*http.Response{candyResponse(answer)}}}
+	result, err := svc.RunCandyTest(context.Background(), account.ID, 0)
+	require.NoError(t, err)
+	require.Equal(t, "failed", result.Recent[0].Status)
+	require.Contains(t, result.Recent[0].ResponseText, `"answer":"34"`)
+	persisted, err := json.Marshal(account.Extra)
+	require.NoError(t, err)
+	for _, secret := range []string{"private-token", "private-auth", "private-key"} {
+		require.NotContains(t, string(persisted), secret)
+		require.NotContains(t, result.Recent[0].ResponseText, secret)
+	}
+}
+
+func TestCandyAnswerDetailsDoNotFabricateLegacyAnswers(t *testing.T) {
+	legacy := map[string]any{CandyTestExtraKey: map[string]any{
+		"total": 1, "passed": 0, "failed": 1, "errors": 0,
+		"recent": []any{map[string]any{"status": "failed", "model": "gpt-6.2-sol"}},
+	}}
+	snapshot, err := readCandyTestSnapshot(legacy)
+	require.NoError(t, err)
+	require.Equal(t, "failed", snapshot.LastVerdict)
+	require.Empty(t, snapshot.Recent[0].ResponseText)
+	encoded, err := json.Marshal(snapshot)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "response_text")
+	require.NotContains(t, string(encoded), "response_truncated")
 }

@@ -1,6 +1,14 @@
 export default {
     accounts: {
       candyTest: {
+        viewRecord: 'View check details: {details}',
+        detailsTitle: 'Candy test details',
+        modelAnswer: 'Model answer',
+        answerRule: 'The complete answer passes if it contains a standalone 21; otherwise it fails. API errors are not wrong answers.',
+        answerNotRecorded: 'This record did not retain the answer and cannot be reconstructed. New conclusive checks after the update retain their answers. Retesting creates a new record; it does not recover an old answer.',
+        noAnswerOnError: 'No complete, gradable answer was received. This is an API error, not a wrong answer. Check system logs for the specific error.',
+        answerTruncated: 'Only the first 4096 characters were retained. The verdict is still based on the complete answer.',
+        answerPrivacy: 'Only the visible model answer is shown. Potentially sensitive fields are redacted.',
         title: 'Candy test',
         blocked: 'Wrong answer · scheduling paused',
         blockedHint: 'The latest conclusive answer was wrong, so scheduling skips this account. Network/API errors do not change the verdict; a passing retest clears the block. The manual scheduling switch is unchanged.',
