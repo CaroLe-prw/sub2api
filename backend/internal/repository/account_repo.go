@@ -17,6 +17,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -1072,6 +1073,15 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 	}
 	if _, err := txClient.Account.Delete().Where(dbaccount.IDEQ(id)).Exec(ctx); err != nil {
 		return err
+	}
+	// Account deletion is soft, but candy answers/history must not accumulate on
+	// tombstones. Keep the purge in the same transaction as the account deletion.
+	// The account row is already write-locked, serializing late test-log flushes.
+	if _, err := txClient.ExecContext(ctx, deleteAccountCandyExtraSQL, id); err != nil {
+		return fmt.Errorf("clear deleted account candy history: %w", err)
+	}
+	if _, err := txClient.ExecContext(ctx, deleteAccountTestLogsSQL, id); err != nil {
+		return fmt.Errorf("clear deleted account test logs: %w", err)
 	}
 
 	if tx != nil {

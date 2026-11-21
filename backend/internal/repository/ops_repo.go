@@ -649,6 +649,14 @@ func (r *opsRepository) BatchInsertSystemLogs(ctx context.Context, inputs []*ser
 	if err != nil {
 		return 0, err
 	}
+	// A failed check can finish or sit in the async log queue during deletion.
+	// Hold shared row locks until COPY commits: deletion either removes this
+	// batch afterwards, or wins first and these test logs are skipped below.
+	activeTestAccounts, err := lockActiveAccountTestLogAccounts(ctx, tx, inputs)
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, err
+	}
 	stmt, err := tx.PrepareContext(ctx, pq.CopyIn(
 		"ops_system_logs",
 		"created_at",
@@ -674,6 +682,11 @@ func (r *opsRepository) BatchInsertSystemLogs(ctx context.Context, inputs []*ser
 	for _, input := range inputs {
 		if input == nil {
 			continue
+		}
+		if isAccountTestFailureLog(input) {
+			if _, active := activeTestAccounts[*input.AccountID]; !active {
+				continue
+			}
 		}
 		createdAt := input.CreatedAt
 		if createdAt.IsZero() {
