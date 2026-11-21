@@ -105,7 +105,7 @@ func TestAccountCandyCleanupSerializesLateLogs(t *testing.T) {
 	require.NoError(t, repo.Delete(ctx, account.ID))
 	assertCandyCleanupLogCount(t, integrationDB, account.ID, "service.account_test", 0)
 
-	ops := NewOpsRepository(integrationDB).(*opsRepository)
+	ops := NewOpsRepository(integrationDB)
 	inserted, err := ops.BatchInsertSystemLogs(ctx, []*service.OpsInsertSystemLogInput{input})
 	require.NoError(t, err)
 	require.Zero(t, inserted, "queued failures must not recreate a deleted account's logs")

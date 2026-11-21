@@ -78,7 +78,7 @@ func TestBatchInsertAccountTestLogsSkipsDeletedButKeepsBusinessLogs(t *testing.T
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = db.Close() })
-			repo := NewOpsRepository(db).(*opsRepository)
+			repo := NewOpsRepository(db)
 			active, deleted := int64(41), int64(42)
 			at := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 			business := &service.OpsInsertSystemLogInput{CreatedAt: at, Level: "warn", Component: "openai.gateway", Message: "upstream.failed", AccountID: &deleted}
@@ -112,7 +112,7 @@ func TestAccountTestLogGuardRollsBackOnLookupFailure(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	repo := NewOpsRepository(db).(*opsRepository)
+	repo := NewOpsRepository(db)
 	id := int64(42)
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(lockActiveAccountTestLogAccountsSQL)).WithArgs("{42}").WillReturnError(errors.New("lookup unavailable"))

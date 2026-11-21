@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sort"
 	"strings"
 
@@ -29,7 +30,7 @@ func isAccountTestFailureLog(input *service.OpsInsertSystemLogInput) bool {
 		strings.TrimSpace(input.Message) == "account_test.failed"
 }
 
-func lockActiveAccountTestLogAccounts(ctx context.Context, tx *sql.Tx, inputs []*service.OpsInsertSystemLogInput) (map[int64]struct{}, error) {
+func lockActiveAccountTestLogAccounts(ctx context.Context, tx *sql.Tx, inputs []*service.OpsInsertSystemLogInput) (active map[int64]struct{}, err error) {
 	unique := make(map[int64]struct{})
 	for _, input := range inputs {
 		if isAccountTestFailureLog(input) && *input.AccountID > 0 {
@@ -48,8 +49,12 @@ func lockActiveAccountTestLogAccounts(ctx context.Context, tx *sql.Tx, inputs []
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	active := make(map[int64]struct{}, len(ids))
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	active = make(map[int64]struct{}, len(ids))
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {

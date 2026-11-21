@@ -92,7 +92,7 @@ func TestRunCandyTestPersistsActualResultsAndExactModel(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "gpt-6.2-sol", gjson.GetBytes(body, "model").String())
 	require.Equal(t, candyTestPrompt, gjson.GetBytes(body, "input.0.content.0.text").String())
-	require.Equal(t, "max", gjson.GetBytes(body, "reasoning.effort").String())
+	require.Equal(t, "medium", gjson.GetBytes(body, "reasoning.effort").String())
 	require.False(t, gjson.GetBytes(body, "tools").Exists())
 	require.NotContains(t, candyTestPrompt, "21")
 }
@@ -274,7 +274,7 @@ func TestCandyAnswerDetailsDoNotFabricateLegacyAnswers(t *testing.T) {
 
 // Assert the actual outbound request, not only the internal options, for both
 // candy entry points. Ordinary connectivity probes must retain their defaults.
-func TestCandyTestMaxReasoningIsScopedToDiagnostics(t *testing.T) {
+func TestCandyTestMediumReasoningIsScopedToDiagnostics(t *testing.T) {
 	for _, mode := range []string{"manual", "scheduled", "ordinary"} {
 		t.Run(mode, func(t *testing.T) {
 			account := automaticCandyAccount()
@@ -301,15 +301,15 @@ func TestCandyTestMaxReasoningIsScopedToDiagnostics(t *testing.T) {
 			if mode == "ordinary" {
 				require.False(t, gjson.GetBytes(body, "reasoning").Exists())
 			} else {
-				require.Equal(t, "max", gjson.GetBytes(body, "reasoning.effort").String())
+				require.Equal(t, "medium", gjson.GetBytes(body, "reasoning.effort").String())
 			}
 		})
 	}
 }
 
-func TestCandyTestUnsupportedMaxIsAPIErrorNotWrongAnswer(t *testing.T) {
+func TestCandyTestUnsupportedMediumIsAPIErrorNotWrongAnswer(t *testing.T) {
 	account := candyAccount()
-	upstream := &queuedHTTPUpstream{responses: []*http.Response{newJSONResponse(400, `{"error":{"message":"Unsupported reasoning effort: max"}}`)}}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{newJSONResponse(400, `{"error":{"message":"Unsupported reasoning effort: medium"}}`)}}
 	svc := &AccountTestService{accountRepo: &candyAccountRepo{account: account}, httpUpstream: upstream}
 	result, err := svc.RunCandyTest(context.Background(), account.ID, 0)
 	require.NoError(t, err)

@@ -16,7 +16,7 @@ import (
 
 const (
 	defaultCandyTestModel    = "gpt-6.2-sol"
-	candyTestReasoningEffort = "max"
+	candyTestReasoningEffort = "medium"
 	CandyTestExtraKey        = "candy_test"
 	// Keep this separate from diagnostic history so only eligibility transitions
 	// invalidate scheduler pools. The manual Schedulable setting is never changed.
