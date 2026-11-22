@@ -125,19 +125,24 @@ func TestCandyAPIKeyWrongAnswerBlocksAndScheduledRetestRecovers(t *testing.T) {
 		t.Run(map[bool]string{true: "responses", false: "chat"}[responses], func(t *testing.T) {
 			account := candyAPIKeyAccount(responses)
 			upstream := &queuedHTTPUpstream{responses: []*http.Response{
-				candyAPIKeyResponse(responses, "15"), newJSONResponse(429, "rate limited"), candyAPIKeyResponse(responses, "21"),
+				candyAPIKeyResponse(responses, "15"), candyAPIKeyResponse(responses, "15"), newJSONResponse(429, "rate limited"), candyAPIKeyResponse(responses, "21"),
 			}}
 			svc := &AccountTestService{accountRepo: &candyAccountRepo{account: account}, httpUpstream: upstream, cfg: &config.Config{}}
 			result, err := svc.RunCandyTest(context.Background(), account.ID, 7)
 			require.NoError(t, err)
 			require.Equal(t, "failed", result.LastVerdict)
+			require.True(t, account.IsSchedulable())
+			require.Equal(t, 1, result.ConsecutiveFailures)
+			result, err = svc.RunCandyTest(context.Background(), account.ID, 7)
+			require.NoError(t, err)
+			require.Equal(t, 2, result.ConsecutiveFailures)
 			require.False(t, account.IsSchedulable())
 			require.True(t, account.Schedulable)
 			require.True(t, candyAutomaticAccountEligible(account, time.Now()))
 			result, err = svc.RunCandyTest(context.Background(), account.ID, 7)
 			require.NoError(t, err)
 			require.Equal(t, "failed", result.LastVerdict)
-			require.Equal(t, "error", result.Recent[1].Status)
+			require.Equal(t, "error", result.Recent[2].Status)
 			require.False(t, account.IsSchedulable(), "API errors must not erase a previous wrong answer")
 			result.Schedules[7] = CandyTestSchedule{Model: defaultCandyTestModel, CheckedAt: time.Now().Add(-time.Hour)}
 			account.Extra[CandyTestExtraKey] = result

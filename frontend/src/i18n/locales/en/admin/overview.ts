@@ -1342,7 +1342,7 @@ export default {
       candyTestInterval: {
         invalid: 'Enter a whole number from 0 to 86400 seconds; 0 disables automatic checks.',
         label: 'Candy test interval (seconds)',
-        hint: '0 disables automatic checks; use 1–86400 seconds to enable. The server only checks active primary OpenAI OAuth / API Key accounts whose scheduling switch is on, using this group’s model. Checks continue when this page is closed and consume quota; turning scheduling off prevents new candy tests. Intervals start after completion; checks on the same account never overlap. Each group has its own schedule. Wrong answers block scheduling while retests continue; a passing retest clears the block. Network/API errors leave the previous verdict unchanged.'
+        hint: '0 disables automatic checks; use 1–86400 seconds to enable. The server only checks active primary OpenAI OAuth / API Key accounts whose scheduling switch is on, using this group’s model. Checks continue when this page is closed and consume quota; turning scheduling off prevents new candy tests. Intervals start after completion; checks on the same account never overlap. Each group has its own schedule. Only two consecutive conclusive wrong answers block scheduling while retests continue; a passing retest resets the streak and clears the block. Network/API errors neither increment nor reset the streak.'
       },
       candyTestReasoningEffort: {
         label: 'Candy test reasoning effort',

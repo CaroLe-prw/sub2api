@@ -1394,13 +1394,13 @@ func (c *schedulerCache) mgetChunked(ctx context.Context, keys []string) ([]any,
 
 func buildSchedulerMetadataAccount(account service.Account) service.Account {
 	extra := filterSchedulerExtra(account.Extra)
-	// Project the effective verdict for old snapshots too, without copying the
-	// diagnostic history into every candidate pool. Retests persist the flag.
-	if account.IsCandyTestBlocked() {
+	// Always project the effective gate, including clearing legacy one-failure
+	// flags, without copying diagnostic answers into candidate pools.
+	if _, hasFlag := account.Extra[service.CandyTestBlockedExtraKey]; hasFlag || account.Extra[service.CandyTestExtraKey] != nil {
 		if extra == nil {
 			extra = make(map[string]any)
 		}
-		extra[service.CandyTestBlockedExtraKey] = true
+		extra[service.CandyTestBlockedExtraKey] = account.IsCandyTestBlocked()
 	}
 	return service.Account{
 		ID:                      account.ID,

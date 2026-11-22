@@ -20,9 +20,10 @@ import (
 
 type candyAccountRepo struct {
 	AccountRepository
-	account *Account
-	saveErr error
-	writes  int
+	account     *Account
+	saveErr     error
+	writes      int
+	lastUpdates map[string]any
 }
 
 func (r *candyAccountRepo) GetByID(context.Context, int64) (*Account, error) { return r.account, nil }
@@ -31,6 +32,7 @@ func (r *candyAccountRepo) UpdateExtra(_ context.Context, _ int64, updates map[s
 		return r.saveErr
 	}
 	r.writes++
+	r.lastUpdates = updates
 	if r.account.Extra == nil {
 		r.account.Extra = map[string]any{}
 	}
@@ -231,7 +233,7 @@ func TestCandyAnswerDetailsPersistAndGradeFullResponse(t *testing.T) {
 			require.Equal(t, tc.truncated, sample.ResponseTruncated)
 			require.True(t, utf8.ValidString(sample.ResponseText))
 			require.LessOrEqual(t, utf8.RuneCountInString(sample.ResponseText), candyTestResponseRuneLimit)
-			require.Equal(t, tc.status == "failed", account.IsCandyTestBlocked())
+			require.False(t, account.IsCandyTestBlocked(), "one wrong answer must not block scheduling")
 			reloaded, err := readCandyTestSnapshot(account.Extra)
 			require.NoError(t, err)
 			require.Equal(t, sample.ResponseText, reloaded.Recent[0].ResponseText)

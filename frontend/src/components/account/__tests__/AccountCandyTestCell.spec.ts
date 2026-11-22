@@ -25,7 +25,7 @@ describe('AccountCandyTestCell', () => {
     const wrapper = mount(AccountCandyTestCell, { props: { account: original, groupId: 7 } })
     expect(wrapper.find('[data-testid="account-candy-test"]').exists()).toBe(true)
     expect(wrapper.findAll('[data-status]')).toHaveLength(3)
-    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(false)
     await wrapper.get('button').trigger('click')
     await flushPromises()
     expect(runCandyTest).toHaveBeenCalledTimes(1)
@@ -159,7 +159,7 @@ describe('AccountCandyTestCell', () => {
     const original = account({ schedulable: true, extra: { candy_test: saved } })
     const wrapper = mount(AccountCandyTestCell, { props: { account: original } })
     expect(wrapper.get('[data-testid="candy-test-counts"]').text()).toBe(`admin.accounts.candyTest.counts:${expected}`)
-    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(failed > 0)
+    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-status="error"]')).toHaveLength(1)
     expect(saved.total).toBe(passed + failed + errors)
     expect(original.schedulable).toBe(true)
@@ -211,8 +211,9 @@ describe('AccountCandyTestCell', () => {
     expect(runCandyTest.mock.calls[0][2].aborted).toBe(true)
     expect(showError).not.toHaveBeenCalled()
   })
-  it('shows a scheduling block after a wrong answer even when the latest test is an API error', () => {
-    const wrapper = mount(AccountCandyTestCell, { props: { account: account({ extra: { candy_test: result() } }) } })
+  it('retains a two-failure block when the latest test is an API error', () => {
+    const saved = { ...result(), total: 4, failed: 2, consecutive_failures: 2 }
+    const wrapper = mount(AccountCandyTestCell, { props: { account: account({ extra: { candy_test: saved } }) } })
     expect(wrapper.text()).toContain('admin.accounts.candyTest.error')
     expect(wrapper.get('[data-testid="candy-scheduling-blocked"]').text()).toBe('admin.accounts.candyTest.blocked')
     wrapper.unmount()
@@ -224,11 +225,11 @@ describe('AccountCandyTestCell', () => {
       recent: Array.from({ length: 12 }, () => result().recent[2])
     }
     const wrapper = mount(AccountCandyTestCell, { props: { account: account({ extra: { candy_test: snapshot } }) } })
-    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(verdict === 'failed')
+    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(false)
     wrapper.unmount()
   })
   it('removes the scheduling block after a passing retest without changing the manual switch', async () => {
-    const original = account({ schedulable: true, extra: { candy_test: result() } })
+    const original = account({ schedulable: true, extra: { candy_test: { ...result(), total: 4, failed: 2, consecutive_failures: 2 } } })
     const wrapper = mount(AccountCandyTestCell, { props: { account: original } })
     expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(true)
     const passing: CandyTestSnapshot = {
@@ -260,7 +261,7 @@ describe('AccountCandyTestCell', () => {
     expect(original.extra?.candy_test).toEqual(saved)
     await wrapper.get('button[data-status="failed"]').trigger('click')
     expect(wrapper.find('[data-testid="candy-record-details"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(false)
     expect(runCandyTest).not.toHaveBeenCalled()
     wrapper.unmount()
   })
@@ -284,6 +285,39 @@ describe('AccountCandyTestCell', () => {
     await flushPromises()
     expect(showError).toHaveBeenCalledWith('admin.accounts.candyTest.schedulingDisabled')
     expect(wrapper.emitted('updated')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it.each([
+    { statuses: ['failed'], streak: 1 },
+    { statuses: ['failed', 'error'], streak: 1 },
+    { statuses: ['failed', 'failed'], streak: 2 },
+    { statuses: ['failed', 'error', 'failed'], streak: 2 },
+    { statuses: ['failed', 'passed', 'failed'], streak: 1 },
+    { statuses: ['failed', 'failed', 'passed'], streak: 0 }
+  ] as const)('shows the correct gate for legacy sequence $statuses', ({ statuses, streak }) => {
+    const saved: CandyTestSnapshot = {
+      total: statuses.length,
+      passed: statuses.filter(status => status === 'passed').length,
+      failed: statuses.filter(status => status === 'failed').length,
+      errors: statuses.filter(status => status === 'error').length,
+      recent: statuses.map(status => ({ ...result().recent[0], status }))
+    }
+    const wrapper = mount(AccountCandyTestCell, { props: { account: account({ extra: { candy_test: saved } }) } })
+    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(streak >= 2)
+    expect(wrapper.find('[data-testid="candy-first-failure"]').exists()).toBe(streak === 1)
+    expect(wrapper.get('button').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it.each([1, 2, 3])('uses persisted streak %s after errors replace the entire visible history', (streak) => {
+    const saved: CandyTestSnapshot = {
+      last_verdict: 'failed', consecutive_failures: streak, total: 14 + streak, passed: 0,
+      failed: streak, errors: 14, recent: Array.from({ length: 12 }, () => result().recent[2])
+    }
+    const wrapper = mount(AccountCandyTestCell, { props: { account: account({ extra: { candy_test: saved } }) } })
+    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(streak >= 2)
+    expect(wrapper.find('[data-testid="candy-first-failure"]').exists()).toBe(streak === 1)
     wrapper.unmount()
   })
 

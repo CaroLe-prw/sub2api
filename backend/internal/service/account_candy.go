@@ -59,13 +59,15 @@ type CandyTestSchedule struct {
 // Total includes API errors; those are not wrong answers.
 type CandyTestSnapshot struct {
 	// Errors are inconclusive; only a complete answer can change this verdict.
-	LastVerdict string                      `json:"last_verdict,omitempty"`
-	Total       int                         `json:"total"`
-	Passed      int                         `json:"passed"`
-	Failed      int                         `json:"failed"`
-	Errors      int                         `json:"errors"`
-	Recent      []CandyTestSample           `json:"recent"`
-	Schedules   map[int64]CandyTestSchedule `json:"schedules,omitempty"`
+	LastVerdict string `json:"last_verdict,omitempty"`
+	Total       int    `json:"total"`
+	Passed      int    `json:"passed"`
+	Failed      int    `json:"failed"`
+	Errors      int    `json:"errors"`
+	// Consecutive conclusive failures; API errors leave the streak unchanged.
+	ConsecutiveFailures int                         `json:"consecutive_failures"`
+	Recent              []CandyTestSample           `json:"recent"`
+	Schedules           map[int64]CandyTestSchedule `json:"schedules,omitempty"`
 }
 
 // Match the requested rule: a literal 21 with no adjacent digit. Do not inspect
@@ -122,6 +124,24 @@ func readCandyTestSnapshot(extra map[string]any) (CandyTestSnapshot, error) {
 			}
 		}
 	}
+	if snapshot.ConsecutiveFailures < 0 || snapshot.ConsecutiveFailures > snapshot.Failed {
+		return snapshot, fmt.Errorf("invalid candy test failure streak")
+	}
+	// Legacy rows have no streak. Reconstruct only what retained answers prove.
+	// If errors have displaced every answer, the old verdict proves at most one.
+	if snapshot.ConsecutiveFailures == 0 && snapshot.LastVerdict == "failed" {
+		for i := len(snapshot.Recent) - 1; i >= 0; i-- {
+			if snapshot.Recent[i].Status == "passed" {
+				break
+			}
+			if snapshot.Recent[i].Status == "failed" {
+				snapshot.ConsecutiveFailures++
+			}
+		}
+		if snapshot.ConsecutiveFailures == 0 {
+			snapshot.ConsecutiveFailures = 1
+		}
+	}
 	return snapshot, nil
 }
 
@@ -130,20 +150,34 @@ func supportsCandyTest(account *Account) bool {
 		(account.Type == AccountTypeOAuth || account.Type == AccountTypeAPIKey)
 }
 
-// IsCandyTestBlocked deliberately does not conflate API failures with wrong
-// answers. Legacy snapshots without a dedicated flag use their latest verdict.
+// IsCandyTestBlocked requires two consecutive conclusive wrong answers.
+// Full history takes precedence over old one-failure flags; lightweight scheduler
+// projections retain the dedicated flag without carrying diagnostic answers.
 func (a *Account) IsCandyTestBlocked() bool {
 	if !supportsCandyTest(a) {
 		return false
 	}
-	if blocked, ok := a.Extra[CandyTestBlockedExtraKey].(bool); ok {
-		return blocked
+	// Persisted JSON exposes the new counter directly. Avoid serializing bounded
+	// answer history on the hot scheduling path; only legacy rows need inference.
+	if raw, ok := a.Extra[CandyTestExtraKey].(map[string]any); ok {
+		switch streak := raw["consecutive_failures"].(type) {
+		case float64:
+			if streak >= 0 && streak == float64(int64(streak)) {
+				return streak >= 2
+			}
+		case int:
+			if streak >= 0 {
+				return streak >= 2
+			}
+		}
 	}
-	if a.Extra[CandyTestExtraKey] == nil {
-		return false
+	if a.Extra[CandyTestExtraKey] != nil {
+		if snapshot, err := readCandyTestSnapshot(a.Extra); err == nil {
+			return snapshot.ConsecutiveFailures >= 2
+		}
 	}
-	snapshot, err := readCandyTestSnapshot(a.Extra)
-	return err == nil && snapshot.LastVerdict == "failed"
+	blocked, _ := a.Extra[CandyTestBlockedExtraKey].(bool)
+	return blocked
 }
 
 func appendCandyTestSample(snapshot *CandyTestSnapshot, sample CandyTestSample) {
@@ -152,9 +186,11 @@ func appendCandyTestSample(snapshot *CandyTestSnapshot, sample CandyTestSample) 
 	case "passed":
 		snapshot.LastVerdict = "passed"
 		snapshot.Passed++
+		snapshot.ConsecutiveFailures = 0
 	case "failed":
 		snapshot.LastVerdict = "failed"
 		snapshot.Failed++
+		snapshot.ConsecutiveFailures++
 	default:
 		snapshot.Errors++
 	}
@@ -283,9 +319,12 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 	// Use the parent context so a probe timeout can still be persisted. Never
 	// swallow a database error and report an unpersisted success to the client.
 	updates := map[string]any{CandyTestExtraKey: snapshot}
-	blocked := snapshot.LastVerdict == "failed"
+	blocked := snapshot.ConsecutiveFailures >= 2
 	current, recorded := account.Extra[CandyTestBlockedExtraKey].(bool)
-	if !recorded || current != blocked {
+	if !recorded {
+		current = account.IsCandyTestBlocked()
+	}
+	if current != blocked {
 		// One atomic extra write publishes the verdict and the scheduler gate. The
 		// non-neutral flag creates an outbox event and refreshes cached eligibility.
 		updates[CandyTestBlockedExtraKey] = blocked

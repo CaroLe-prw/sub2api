@@ -16,6 +16,9 @@
     <span v-if="!account.schedulable" class="text-xs text-gray-500 dark:text-gray-400" data-testid="candy-test-disabled">
       {{ t('admin.accounts.candyTest.schedulingDisabled') }}
     </span>
+    <span v-if="consecutiveFailures === 1" class="text-xs text-amber-600 dark:text-amber-400" data-testid="candy-first-failure">
+      {{ t('admin.accounts.candyTest.firstFailure') }}
+    </span>
     <span v-if="schedulingBlocked" class="text-xs text-red-600 dark:text-red-400" :title="t('admin.accounts.candyTest.blockedHint')" data-testid="candy-scheduling-blocked">
       {{ t('admin.accounts.candyTest.blocked') }}
     </span>
@@ -95,11 +98,20 @@ const snapshot = computed(() => {
   return Date.parse(lastSample(persisted)?.checked_at ?? '') >= Date.parse(lastSample(localResult.value)?.checked_at ?? '')
     ? persisted : localResult.value
 })
-const schedulingBlocked = computed(() => {
+const consecutiveFailures = computed(() => {
   const value = snapshot.value
-  const verdict = value?.last_verdict ?? [...(value?.recent ?? [])].reverse().find(sample => sample.status !== 'error')?.status
-  return verdict === 'failed'
+  if (!value) return 0
+  if ((value.consecutive_failures ?? 0) > 0) return value.consecutive_failures!
+  const verdict = value.last_verdict ?? [...value.recent].reverse().find(sample => sample.status !== 'error')?.status
+  if (verdict !== 'failed') return 0
+  let count = 0
+  for (const sample of [...value.recent].reverse()) {
+    if (sample.status === 'passed') break
+    if (sample.status === 'failed') count++
+  }
+  return Math.max(1, count)
 })
+const schedulingBlocked = computed(() => consecutiveFailures.value >= 2)
 const status = computed(() => running.value ? 'running' : lastSample(snapshot.value)?.status ?? 'untested')
 const statusLabel = computed(() => t(`admin.accounts.candyTest.${status.value}`))
 const statusClass = computed(() => ({

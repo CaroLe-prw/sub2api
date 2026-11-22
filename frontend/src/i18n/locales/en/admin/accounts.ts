@@ -1,6 +1,7 @@
 export default {
     accounts: {
       candyTest: {
+        firstFailure: '1 consecutive wrong answer; scheduling not paused',
         schedulingDisabled: 'Scheduling is off; candy tests are paused. Enable scheduling to test this account.',
         viewRecord: 'View check details: {details}',
         detailsTitle: 'Candy test details',
@@ -11,8 +12,8 @@ export default {
         answerTruncated: 'Only the first 4096 characters were retained. The verdict is still based on the complete answer.',
         answerPrivacy: 'Only the visible model answer is shown. Potentially sensitive fields are redacted.',
         title: 'Candy test',
-        blocked: 'Wrong answer · scheduling paused',
-        blockedHint: 'The latest conclusive answer was wrong, so scheduling skips this account. Network/API errors do not change the verdict; a passing retest clears the block. The manual scheduling switch is unchanged.',
+        blocked: 'Consecutive wrong answers · scheduling paused',
+        blockedHint: 'Scheduling skips this account only after two consecutive conclusive wrong answers. One wrong answer does not block it. Network/API errors neither increment nor reset the streak; a passing retest resets it and clears the block. The manual scheduling switch is unchanged.',
         untested: 'Not tested',
         running: 'Testing',
         passed: 'Passed',
@@ -21,7 +22,7 @@ export default {
         counts: 'Passed {passed}/{total} · API errors {errors}',
         history: 'Last 12 candy checks (green: passed, red: failed, yellow: API error)',
         run: 'Run one candy test for {name}',
-        hint: 'OpenAI OAuth / API Key accounts with scheduling enabled only: click to check using the group model (default gpt-6.2-sol); this consumes upstream quota. A standalone 21 passes. Wrong answers block scheduling until a passing retest. Network/API errors are counted separately, excluded from the pass ratio, and leave the previous answer verdict unchanged. The manual scheduling switch is preserved. Green/red/yellow indicate pass/wrong answer/API error.',
+        hint: 'OpenAI OAuth / API Key accounts with scheduling enabled only: click to check using the group model (default gpt-6.2-sol); this consumes upstream quota. A standalone 21 passes. Only two consecutive conclusive wrong answers block scheduling; a passing answer resets the streak and restores scheduling. API errors neither increment nor reset the streak. Network/API errors are counted separately, excluded from the pass ratio, and leave the previous answer verdict unchanged. The manual scheduling switch is preserved. Green/red/yellow indicate pass/wrong answer/API error.',
         groupRequired: 'This account has different candy-test models or reasoning efforts across groups. Filter the account list by a group before testing.',
         requestFailed: 'Candy test request or result saving failed. Refresh the list before retrying.'
       },

@@ -37,7 +37,7 @@ func TestCandySchedulingSwitchSkipsWithoutChangingHistoryAndResumes(t *testing.T
 						account = candyAPIKeyAccount(responses)
 						response = candyAPIKeyResponse(responses, "21")
 					}
-					account.Extra[CandyTestExtraKey] = CandyTestSnapshot{LastVerdict: "failed", Total: 1, Failed: 1,
+					account.Extra[CandyTestExtraKey] = CandyTestSnapshot{LastVerdict: "failed", Total: 2, Failed: 2, ConsecutiveFailures: 2,
 						Recent: []CandyTestSample{{Status: "failed", Model: defaultCandyTestModel, ResponseText: "15"}}}
 					account.Extra[CandyTestBlockedExtraKey] = true
 					before, err := json.Marshal(account.Extra)

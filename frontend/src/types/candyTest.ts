@@ -13,6 +13,8 @@ export interface CandyTestSample {
 
 export interface CandyTestSnapshot {
   last_verdict?: 'passed' | 'failed'
+  // Absent on legacy records. API errors neither increment nor reset the streak.
+  consecutive_failures?: number
   // All attempts, including API errors. The pass ratio uses passed + failed instead.
   total: number
   passed: number

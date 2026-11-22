@@ -19,14 +19,19 @@ func TestCandySchedulingOnlyWrongAnswersBlock(t *testing.T) {
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
 	for _, step := range []struct {
 		name, answer, verdict string
-		status                int
-		blocked               bool
+		status, streak        int
+		blocked, gateChanged  bool
 	}{
-		{"initial API error", "unavailable", "", 503, false},
-		{"wrong answer", "34", "failed", 200, true},
-		{"API error after wrong answer", "unavailable", "failed", 500, true},
-		{"passing retest", "最少 21 个", "passed", 200, false},
-		{"API error after passing", "unavailable", "passed", 502, false},
+		{"initial API error", "unavailable", "", 503, 0, false, false},
+		{"first wrong answer", "34", "failed", 200, 1, false, false},
+		{"API error preserves first failure", "unavailable", "failed", 500, 1, false, false},
+		{"second wrong answer", "15", "failed", 200, 2, true, true},
+		{"API error preserves block", "unavailable", "failed", 500, 2, true, false},
+		{"third wrong answer", "15", "failed", 200, 3, true, false},
+		{"passing retest", "最少 21 个", "passed", 200, 0, false, true},
+		{"first failure after recovery", "34", "failed", 200, 1, false, false},
+		{"pass resets unblocked streak", "21", "passed", 200, 0, false, false},
+		{"API error after passing", "unavailable", "passed", 502, 0, false, false},
 	} {
 		t.Run(step.name, func(t *testing.T) {
 			response := newJSONResponse(step.status, step.answer)
@@ -37,9 +42,13 @@ func TestCandySchedulingOnlyWrongAnswersBlock(t *testing.T) {
 			result, err := svc.RunCandyTest(context.Background(), account.ID, 0)
 			require.NoError(t, err)
 			require.Equal(t, step.verdict, result.LastVerdict)
-			require.Equal(t, step.blocked, account.Extra[CandyTestBlockedExtraKey])
+			require.Equal(t, step.streak, result.ConsecutiveFailures)
+			storedGate, _ := account.Extra[CandyTestBlockedExtraKey].(bool)
+			require.Equal(t, step.blocked, storedGate)
 			require.Equal(t, step.blocked, account.IsCandyTestBlocked())
 			require.Equal(t, !step.blocked, account.IsSchedulable())
+			_, changesGate := repo.lastUpdates[CandyTestBlockedExtraKey]
+			require.Equal(t, step.gateChanged, changesGate, "do not invalidate scheduler pools for a first failure, API error or unchanged verdict")
 			require.True(t, account.Schedulable, "manual switch must be preserved")
 			require.Equal(t, StatusActive, account.Status)
 		})
@@ -89,6 +98,7 @@ func TestCandySchedulingTransportAndAPIErrorDoNotMutateRuntimeState(t *testing.T
 func TestCandySchedulingVerdictSurvivesErrorHistoryRollover(t *testing.T) {
 	snapshot := CandyTestSnapshot{}
 	appendCandyTestSample(&snapshot, CandyTestSample{Status: "failed"})
+	appendCandyTestSample(&snapshot, CandyTestSample{Status: "failed"})
 	for i := 0; i < candyTestHistoryLimit+1; i++ {
 		appendCandyTestSample(&snapshot, CandyTestSample{Status: "error"})
 	}
@@ -107,8 +117,8 @@ func TestCandySchedulingVerdictSurvivesErrorHistoryRollover(t *testing.T) {
 func TestCandySchedulingLegacyHistoryAndPlatformScope(t *testing.T) {
 	account := automaticCandyAccount()
 	account.Extra[CandyTestExtraKey] = CandyTestSnapshot{
-		Total: 2, Failed: 1, Errors: 1,
-		Recent: []CandyTestSample{{Status: "failed"}, {Status: "error"}},
+		Total: 3, Failed: 2, Errors: 1,
+		Recent: []CandyTestSample{{Status: "failed"}, {Status: "error"}, {Status: "failed"}},
 	}
 	require.True(t, account.IsCandyTestBlocked())
 	require.False(t, account.IsSchedulable())
@@ -126,8 +136,13 @@ func TestCandySchedulingLegacyHistoryAndPlatformScope(t *testing.T) {
 func TestScheduledCandyTestRecoversBlockedAccount(t *testing.T) {
 	account := automaticCandyAccount()
 	repo := &candyAccountRepo{account: account}
-	svc := &AccountTestService{accountRepo: repo, httpUpstream: &queuedHTTPUpstream{responses: []*http.Response{candyResponse("34"), candyResponse("21")}}}
+	svc := &AccountTestService{accountRepo: repo, httpUpstream: &queuedHTTPUpstream{responses: []*http.Response{candyResponse("34"), candyResponse("34"), candyResponse("21")}}}
 	result, err := svc.RunScheduledCandyTest(context.Background(), account.ID, 7)
+	require.NoError(t, err)
+	require.True(t, account.IsSchedulable(), "first failure leaves routing and sticky sessions intact")
+	result.Schedules[7] = CandyTestSchedule{Model: defaultCandyTestModel, CheckedAt: time.Now().Add(-time.Hour)}
+	account.Extra[CandyTestExtraKey] = result
+	result, err = svc.RunScheduledCandyTest(context.Background(), account.ID, 7)
 	require.NoError(t, err)
 	require.False(t, account.IsSchedulable())
 	require.True(t, candyAutomaticAccountEligible(account, time.Now()), "blocked accounts must still be retested")
@@ -143,7 +158,7 @@ func TestScheduledCandyTestRecoversBlockedAccount(t *testing.T) {
 func TestCandySchedulingSkipsWrongAnswerEvenWithStaleStickyCache(t *testing.T) {
 	for _, accountType := range []string{AccountTypeOAuth, AccountTypeAPIKey} {
 		for _, advanced := range []string{"true", "false"} {
-			for _, verdict := range []string{"failed", "passed", "error"} {
+			for _, verdict := range []string{"one_wrong", "failed", "passed", "error"} {
 				t.Run(accountType+"/"+advanced+"/"+verdict, func(t *testing.T) {
 					ctx := context.Background()
 					groupID := int64(10103)
@@ -151,8 +166,15 @@ func TestCandySchedulingSkipsWrongAnswerEvenWithStaleStickyCache(t *testing.T) {
 					backup := &Account{ID: 33002, Platform: PlatformOpenAI, Type: accountType, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5, GroupIDs: []int64{groupID}}
 					dbPrimary := *primary
 					snapshot := CandyTestSnapshot{}
-					appendCandyTestSample(&snapshot, CandyTestSample{Status: verdict})
-					dbPrimary.Extra = map[string]any{CandyTestExtraKey: snapshot, CandyTestBlockedExtraKey: verdict == "failed"}
+					answerStatus := verdict
+					if verdict == "one_wrong" {
+						answerStatus = "failed"
+					}
+					appendCandyTestSample(&snapshot, CandyTestSample{Status: answerStatus})
+					if verdict == "failed" {
+						appendCandyTestSample(&snapshot, CandyTestSample{Status: "failed"})
+					}
+					dbPrimary.Extra = map[string]any{CandyTestExtraKey: snapshot, CandyTestBlockedExtraKey: snapshot.ConsecutiveFailures >= 2}
 					svc := &OpenAIGatewayService{
 						accountRepo:      schedulerTestOpenAIAccountRepo{accounts: []Account{dbPrimary, *backup}},
 						cache:            &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:candy_session": primary.ID}},

@@ -24,9 +24,11 @@ func TestCandySchedulerMetadataPreservesEligibilityWithoutHistory(t *testing.T) 
 		{"untested", nil, false},
 		{"blocked", map[string]any{service.CandyTestBlockedExtraKey: true}, true},
 		{"cleared", map[string]any{service.CandyTestBlockedExtraKey: false}, false},
-		{"legacy wrong then error", map[string]any{service.CandyTestExtraKey: service.CandyTestSnapshot{Total: 2, Failed: 1, Errors: 1, Recent: []service.CandyTestSample{{Status: "failed", ResponseText: "candy-answer-visible-only-to-admin"}, {Status: "error"}}}}, true},
+		{"legacy wrong then error", map[string]any{service.CandyTestExtraKey: service.CandyTestSnapshot{Total: 2, Failed: 1, Errors: 1, Recent: []service.CandyTestSample{{Status: "failed", ResponseText: "candy-answer-visible-only-to-admin"}, {Status: "error"}}}}, false},
+		{"two failures survive rollover", map[string]any{service.CandyTestExtraKey: service.CandyTestSnapshot{LastVerdict: "failed", ConsecutiveFailures: 2, Total: 16, Failed: 2, Errors: 14, Recent: []service.CandyTestSample{{Status: "error"}}}}, true},
+		{"clear stale single failure flag", map[string]any{service.CandyTestBlockedExtraKey: true, service.CandyTestExtraKey: service.CandyTestSnapshot{LastVerdict: "failed", Total: 1, Failed: 1, Recent: []service.CandyTestSample{{Status: "failed"}}}}, false},
 		{"only errors", map[string]any{service.CandyTestExtraKey: service.CandyTestSnapshot{Total: 1, Errors: 1, Recent: []service.CandyTestSample{{Status: "error"}}}}, false},
-		{"rolled over history", map[string]any{service.CandyTestExtraKey: service.CandyTestSnapshot{LastVerdict: "failed", Total: 15, Failed: 1, Errors: 14, Recent: []service.CandyTestSample{{Status: "error"}}}}, true},
+		{"rolled over history", map[string]any{service.CandyTestExtraKey: service.CandyTestSnapshot{LastVerdict: "failed", Total: 15, Failed: 1, Errors: 14, Recent: []service.CandyTestSample{{Status: "error"}}}}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			account := service.Account{ID: 42, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true, Extra: tc.extra, Credentials: map[string]any{"access_token": "secret"}}
