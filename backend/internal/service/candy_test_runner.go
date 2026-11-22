@@ -92,7 +92,10 @@ func candyScheduleDueAt(snapshot CandyTestSnapshot, group *Group) time.Time {
 		model = defaultCandyTestModel
 	}
 	last := snapshot.Schedules[group.ID]
-	if last.Model != model {
+	// Old schedules predate configurable effort and were checked with medium.
+	effort, err := normalizeCandyTestReasoningEffort(group.Platform, group.CandyTestReasoningEffort)
+	lastEffort, _ := normalizeCandyTestReasoningEffort(group.Platform, last.ReasoningEffort)
+	if err != nil || last.Model != model || lastEffort != effort {
 		return time.Time{}
 	}
 	return last.CheckedAt.Add(time.Duration(group.CandyTestIntervalSeconds) * time.Second)

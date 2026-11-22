@@ -1048,6 +1048,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		RequirePrivacySet:               g.RequirePrivacySet,
 		DefaultMappedModel:              g.DefaultMappedModel,
 		CandyTestModel:                  g.CandyTestModel,
+		CandyTestReasoningEffort:        g.CandyTestReasoningEffort,
 		CandyTestIntervalSeconds:        g.CandyTestIntervalSeconds,
 		MessagesDispatchModelConfig:     g.MessagesDispatchModelConfig,
 		ModelAllowlist:                  service.GroupModelAllowlistFromDomain(g.ModelAllowlist),

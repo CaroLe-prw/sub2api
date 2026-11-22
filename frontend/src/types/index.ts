@@ -648,6 +648,7 @@ export interface Group {
 
 export interface AdminGroup extends Group {
   candy_test_model?: string
+  candy_test_reasoning_effort?: string
   candy_test_interval_seconds?: number
   // Independent absolute account scheduling cost ceiling; null means no absolute ceiling.
   max_account_cost_multiplier: number | null
@@ -851,6 +852,7 @@ export interface UpdateApiKeyRequest {
 
 export interface CreateGroupRequest {
   candy_test_model?: string
+  candy_test_reasoning_effort?: string
   candy_test_interval_seconds?: number
   name: string
   description?: string | null
@@ -925,6 +927,7 @@ export interface CreateGroupRequest {
 
 export interface UpdateGroupRequest {
   candy_test_model?: string
+  candy_test_reasoning_effort?: string
   candy_test_interval_seconds?: number
   name?: string
   description?: string | null

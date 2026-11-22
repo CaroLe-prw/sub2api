@@ -177,6 +177,7 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 		RequirePrivacySet:               true,
 		DefaultMappedModel:              "gpt-5.4",
 		CandyTestModel:                  "gpt-6.1-sol",
+		CandyTestReasoningEffort:        "high",
 		CandyTestIntervalSeconds:        60,
 		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
 			OpusMappedModel:    "gpt-5.4",
@@ -226,6 +227,7 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 	require.Equal(t, source.ModelMapping, duplicate.ModelMapping)
 	require.Equal(t, source.ModelRouting, duplicate.ModelRouting)
 	require.Equal(t, source.CandyTestModel, duplicate.CandyTestModel)
+	require.Equal(t, source.CandyTestReasoningEffort, duplicate.CandyTestReasoningEffort)
 	require.Equal(t, source.CandyTestIntervalSeconds, duplicate.CandyTestIntervalSeconds)
 	require.Equal(t, source.MessagesDispatchModelConfig, duplicate.MessagesDispatchModelConfig)
 	require.Equal(t, source.ForceOpenAIFast, duplicate.ForceOpenAIFast)

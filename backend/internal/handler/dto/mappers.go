@@ -167,6 +167,7 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		MCPXMLInject:                g.MCPXMLInject,
 		DefaultMappedModel:          g.DefaultMappedModel,
 		CandyTestModel:              g.CandyTestModel,
+		CandyTestReasoningEffort:    g.CandyTestReasoningEffort,
 		CandyTestIntervalSeconds:    g.CandyTestIntervalSeconds,
 		MessagesDispatchModelConfig: g.MessagesDispatchModelConfig,
 		ModelAllowlist:              g.ModelAllowlist,

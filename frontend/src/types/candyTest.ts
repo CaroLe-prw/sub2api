@@ -1,6 +1,9 @@
+export const CANDY_TEST_REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+
 export interface CandyTestSample {
   status: 'passed' | 'failed' | 'error'
   model: string
+  reasoning_effort?: string
   checked_at: string
   latency_ms: number
   // Missing for old records and inconclusive API errors.
@@ -16,5 +19,5 @@ export interface CandyTestSnapshot {
   failed: number
   errors: number
   recent: CandyTestSample[]
-  schedules?: Record<string, { model: string; checked_at: string }>
+  schedules?: Record<string, { model: string; reasoning_effort?: string; checked_at: string }>
 }

@@ -150,6 +150,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
 		SetCandyTestModel(groupIn.CandyTestModel).
+		SetCandyTestReasoningEffort(groupIn.CandyTestReasoningEffort).
 		SetCandyTestIntervalSeconds(groupIn.CandyTestIntervalSeconds).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
 		SetModelAllowlist(service.DomainGroupModelAllowlist(groupIn.ModelAllowlist)).
@@ -341,6 +342,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
 		SetCandyTestModel(groupIn.CandyTestModel).
+		SetCandyTestReasoningEffort(groupIn.CandyTestReasoningEffort).
 		SetCandyTestIntervalSeconds(groupIn.CandyTestIntervalSeconds).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
 		SetModelAllowlist(service.DomainGroupModelAllowlist(groupIn.ModelAllowlist)).
@@ -1264,7 +1266,7 @@ func (r *groupRepository) UpdateSortOrders(ctx context.Context, updates []servic
 func (r *groupRepository) ListCandyTestGroups(ctx context.Context) ([]service.Group, error) {
 	groups, err := r.client.Group.Query().
 		Where(group.StatusEQ(service.StatusActive), group.PlatformEQ(service.PlatformOpenAI), group.CandyTestIntervalSecondsGT(0)).
-		Select(group.FieldID, group.FieldPlatform, group.FieldStatus, group.FieldCandyTestModel, group.FieldCandyTestIntervalSeconds).
+		Select(group.FieldID, group.FieldPlatform, group.FieldStatus, group.FieldCandyTestModel, group.FieldCandyTestReasoningEffort, group.FieldCandyTestIntervalSeconds).
 		All(ctx)
 	if err != nil {
 		return nil, err
@@ -1272,7 +1274,7 @@ func (r *groupRepository) ListCandyTestGroups(ctx context.Context) ([]service.Gr
 	result := make([]service.Group, 0, len(groups))
 	for _, g := range groups {
 		result = append(result, service.Group{ID: g.ID, Platform: g.Platform, Status: g.Status,
-			CandyTestModel: g.CandyTestModel, CandyTestIntervalSeconds: g.CandyTestIntervalSeconds})
+			CandyTestModel: g.CandyTestModel, CandyTestReasoningEffort: g.CandyTestReasoningEffort, CandyTestIntervalSeconds: g.CandyTestIntervalSeconds})
 	}
 	return result, nil
 }

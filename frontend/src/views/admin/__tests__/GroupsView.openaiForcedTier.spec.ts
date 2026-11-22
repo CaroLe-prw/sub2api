@@ -383,4 +383,29 @@ describe("GroupsView OpenAI forced service tier", () => {
     wrapper.unmount();
   });
 
+  it("defaults candy effort to medium and offers all five strengths", async () => {
+    const wrapper = await openEditDialog(sourceGroup);
+    const select = wrapper.get('[data-testid="candy-test-reasoning-effort"]');
+    expect((select.element as HTMLSelectElement).value).toBe("medium");
+    expect(select.findAll("option").map(option => option.attributes("value"))).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(await submit(wrapper)).toMatchObject({ candy_test_reasoning_effort: "medium" });
+    wrapper.unmount();
+  });
+
+  it.each(["low", "medium", "high", "xhigh", "max"])("hydrates and saves candy effort %s", async (effort) => {
+    const wrapper = await openEditDialog({ ...sourceGroup, candy_test_reasoning_effort: "high" });
+    const select = wrapper.get('[data-testid="candy-test-reasoning-effort"]');
+    expect((select.element as HTMLSelectElement).value).toBe("high");
+    await select.setValue(effort);
+    expect(await submit(wrapper)).toMatchObject({ candy_test_reasoning_effort: effort });
+    wrapper.unmount();
+  });
+
+  it("hides and clears stale candy effort on non-OpenAI groups", async () => {
+    const wrapper = await openEditDialog({ ...sourceGroup, platform: "anthropic", candy_test_reasoning_effort: "high" });
+    expect(wrapper.find('[data-testid="candy-test-reasoning-effort"]').exists()).toBe(false);
+    expect(await submit(wrapper)).toMatchObject({ candy_test_reasoning_effort: "" });
+    wrapper.unmount();
+  });
+
 });

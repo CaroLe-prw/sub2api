@@ -22367,6 +22367,7 @@ type GroupMutation struct {
 	require_privacy_set                     *bool
 	candy_test_interval_seconds             *int
 	addcandy_test_interval_seconds          *int
+	candy_test_reasoning_effort             *string
 	candy_test_model                        *string
 	default_mapped_model                    *string
 	messages_dispatch_model_config          *domain.OpenAIMessagesDispatchModelConfig
@@ -25653,6 +25654,42 @@ func (m *GroupMutation) ResetCandyTestIntervalSeconds() {
 	m.addcandy_test_interval_seconds = nil
 }
 
+// SetCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field.
+func (m *GroupMutation) SetCandyTestReasoningEffort(s string) {
+	m.candy_test_reasoning_effort = &s
+}
+
+// CandyTestReasoningEffort returns the value of the "candy_test_reasoning_effort" field in the mutation.
+func (m *GroupMutation) CandyTestReasoningEffort() (r string, exists bool) {
+	v := m.candy_test_reasoning_effort
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCandyTestReasoningEffort returns the old "candy_test_reasoning_effort" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldCandyTestReasoningEffort(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCandyTestReasoningEffort is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCandyTestReasoningEffort requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCandyTestReasoningEffort: %w", err)
+	}
+	return oldValue.CandyTestReasoningEffort, nil
+}
+
+// ResetCandyTestReasoningEffort resets all changes to the "candy_test_reasoning_effort" field.
+func (m *GroupMutation) ResetCandyTestReasoningEffort() {
+	m.candy_test_reasoning_effort = nil
+}
+
 // SetCandyTestModel sets the "candy_test_model" field.
 func (m *GroupMutation) SetCandyTestModel(s string) {
 	m.candy_test_model = &s
@@ -26518,7 +26555,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 75)
+	fields := make([]string, 0, 76)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -26708,6 +26745,9 @@ func (m *GroupMutation) Fields() []string {
 	if m.candy_test_interval_seconds != nil {
 		fields = append(fields, group.FieldCandyTestIntervalSeconds)
 	}
+	if m.candy_test_reasoning_effort != nil {
+		fields = append(fields, group.FieldCandyTestReasoningEffort)
+	}
 	if m.candy_test_model != nil {
 		fields = append(fields, group.FieldCandyTestModel)
 	}
@@ -26878,6 +26918,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.RequirePrivacySet()
 	case group.FieldCandyTestIntervalSeconds:
 		return m.CandyTestIntervalSeconds()
+	case group.FieldCandyTestReasoningEffort:
+		return m.CandyTestReasoningEffort()
 	case group.FieldCandyTestModel:
 		return m.CandyTestModel()
 	case group.FieldDefaultMappedModel:
@@ -27037,6 +27079,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldRequirePrivacySet(ctx)
 	case group.FieldCandyTestIntervalSeconds:
 		return m.OldCandyTestIntervalSeconds(ctx)
+	case group.FieldCandyTestReasoningEffort:
+		return m.OldCandyTestReasoningEffort(ctx)
 	case group.FieldCandyTestModel:
 		return m.OldCandyTestModel(ctx)
 	case group.FieldDefaultMappedModel:
@@ -27510,6 +27554,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetCandyTestIntervalSeconds(v)
+		return nil
+	case group.FieldCandyTestReasoningEffort:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCandyTestReasoningEffort(v)
 		return nil
 	case group.FieldCandyTestModel:
 		v, ok := value.(string)
@@ -28330,6 +28381,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldCandyTestIntervalSeconds:
 		m.ResetCandyTestIntervalSeconds()
+		return nil
+	case group.FieldCandyTestReasoningEffort:
+		m.ResetCandyTestReasoningEffort()
 		return nil
 	case group.FieldCandyTestModel:
 		m.ResetCandyTestModel()

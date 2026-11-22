@@ -335,6 +335,11 @@ func CandyTestIntervalSeconds(v int) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldCandyTestIntervalSeconds, v))
 }
 
+// CandyTestReasoningEffort applies equality check predicate on the "candy_test_reasoning_effort" field. It's identical to CandyTestReasoningEffortEQ.
+func CandyTestReasoningEffort(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCandyTestReasoningEffort, v))
+}
+
 // CandyTestModel applies equality check predicate on the "candy_test_model" field. It's identical to CandyTestModelEQ.
 func CandyTestModel(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldCandyTestModel, v))
@@ -2538,6 +2543,71 @@ func CandyTestIntervalSecondsLT(v int) predicate.Group {
 // CandyTestIntervalSecondsLTE applies the LTE predicate on the "candy_test_interval_seconds" field.
 func CandyTestIntervalSecondsLTE(v int) predicate.Group {
 	return predicate.Group(sql.FieldLTE(FieldCandyTestIntervalSeconds, v))
+}
+
+// CandyTestReasoningEffortEQ applies the EQ predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCandyTestReasoningEffort, v))
+}
+
+// CandyTestReasoningEffortNEQ applies the NEQ predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldCandyTestReasoningEffort, v))
+}
+
+// CandyTestReasoningEffortIn applies the In predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldCandyTestReasoningEffort, vs...))
+}
+
+// CandyTestReasoningEffortNotIn applies the NotIn predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldCandyTestReasoningEffort, vs...))
+}
+
+// CandyTestReasoningEffortGT applies the GT predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldCandyTestReasoningEffort, v))
+}
+
+// CandyTestReasoningEffortGTE applies the GTE predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldCandyTestReasoningEffort, v))
+}
+
+// CandyTestReasoningEffortLT applies the LT predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldCandyTestReasoningEffort, v))
+}
+
+// CandyTestReasoningEffortLTE applies the LTE predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldCandyTestReasoningEffort, v))
+}
+
+// CandyTestReasoningEffortContains applies the Contains predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldCandyTestReasoningEffort, v))
+}
+
+// CandyTestReasoningEffortHasPrefix applies the HasPrefix predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldCandyTestReasoningEffort, v))
+}
+
+// CandyTestReasoningEffortHasSuffix applies the HasSuffix predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldCandyTestReasoningEffort, v))
+}
+
+// CandyTestReasoningEffortEqualFold applies the EqualFold predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldCandyTestReasoningEffort, v))
+}
+
+// CandyTestReasoningEffortContainsFold applies the ContainsFold predicate on the "candy_test_reasoning_effort" field.
+func CandyTestReasoningEffortContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldCandyTestReasoningEffort, v))
 }
 
 // CandyTestModelEQ applies the EQ predicate on the "candy_test_model" field.

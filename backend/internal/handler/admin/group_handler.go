@@ -278,6 +278,7 @@ type CreateGroupRequest struct {
 	RequireOAuthOnly            bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           bool                                      `json:"require_privacy_set"`
 	CandyTestModel              string                                    `json:"candy_test_model" binding:"max=100"`
+	CandyTestReasoningEffort    string                                    `json:"candy_test_reasoning_effort" binding:"max=20"`
 	CandyTestIntervalSeconds    int                                       `json:"candy_test_interval_seconds" binding:"gte=0,lte=86400"`
 	DefaultMappedModel          string                                    `json:"default_mapped_model"`
 	MessagesDispatchModelConfig service.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
@@ -362,6 +363,7 @@ type UpdateGroupRequest struct {
 	RequireOAuthOnly            *bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           *bool                                      `json:"require_privacy_set"`
 	CandyTestModel              *string                                    `json:"candy_test_model" binding:"omitempty,max=100"`
+	CandyTestReasoningEffort    *string                                    `json:"candy_test_reasoning_effort" binding:"omitempty,max=20"`
 	CandyTestIntervalSeconds    *int                                       `json:"candy_test_interval_seconds" binding:"omitempty,gte=0,lte=86400"`
 	DefaultMappedModel          *string                                    `json:"default_mapped_model"`
 	MessagesDispatchModelConfig *service.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
@@ -800,6 +802,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		RequirePrivacySet:               req.RequirePrivacySet,
 		DefaultMappedModel:              req.DefaultMappedModel,
 		CandyTestModel:                  req.CandyTestModel,
+		CandyTestReasoningEffort:        req.CandyTestReasoningEffort,
 		CandyTestIntervalSeconds:        req.CandyTestIntervalSeconds,
 		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
 		ModelAllowlist:                  req.ModelAllowlist,
@@ -956,6 +959,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		RequirePrivacySet:               req.RequirePrivacySet,
 		DefaultMappedModel:              req.DefaultMappedModel,
 		CandyTestModel:                  req.CandyTestModel,
+		CandyTestReasoningEffort:        req.CandyTestReasoningEffort,
 		CandyTestIntervalSeconds:        req.CandyTestIntervalSeconds,
 		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
 		ModelAllowlist:                  req.ModelAllowlist,

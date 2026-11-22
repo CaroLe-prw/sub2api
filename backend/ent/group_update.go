@@ -1167,6 +1167,20 @@ func (_u *GroupUpdate) AddCandyTestIntervalSeconds(v int) *GroupUpdate {
 	return _u
 }
 
+// SetCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field.
+func (_u *GroupUpdate) SetCandyTestReasoningEffort(v string) *GroupUpdate {
+	_u.mutation.SetCandyTestReasoningEffort(v)
+	return _u
+}
+
+// SetNillableCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableCandyTestReasoningEffort(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetCandyTestReasoningEffort(*v)
+	}
+	return _u
+}
+
 // SetCandyTestModel sets the "candy_test_model" field.
 func (_u *GroupUpdate) SetCandyTestModel(v string) *GroupUpdate {
 	_u.mutation.SetCandyTestModel(v)
@@ -1679,6 +1693,11 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "candy_test_interval_seconds", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_interval_seconds": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.CandyTestReasoningEffort(); ok {
+		if err := group.CandyTestReasoningEffortValidator(v); err != nil {
+			return &ValidationError{Name: "candy_test_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_reasoning_effort": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.CandyTestModel(); ok {
 		if err := group.CandyTestModelValidator(v); err != nil {
 			return &ValidationError{Name: "candy_test_model", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_model": %w`, err)}
@@ -2056,6 +2075,9 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedCandyTestIntervalSeconds(); ok {
 		_spec.AddField(group.FieldCandyTestIntervalSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.CandyTestReasoningEffort(); ok {
+		_spec.SetField(group.FieldCandyTestReasoningEffort, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.CandyTestModel(); ok {
 		_spec.SetField(group.FieldCandyTestModel, field.TypeString, value)
@@ -3551,6 +3573,20 @@ func (_u *GroupUpdateOne) AddCandyTestIntervalSeconds(v int) *GroupUpdateOne {
 	return _u
 }
 
+// SetCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field.
+func (_u *GroupUpdateOne) SetCandyTestReasoningEffort(v string) *GroupUpdateOne {
+	_u.mutation.SetCandyTestReasoningEffort(v)
+	return _u
+}
+
+// SetNillableCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableCandyTestReasoningEffort(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetCandyTestReasoningEffort(*v)
+	}
+	return _u
+}
+
 // SetCandyTestModel sets the "candy_test_model" field.
 func (_u *GroupUpdateOne) SetCandyTestModel(v string) *GroupUpdateOne {
 	_u.mutation.SetCandyTestModel(v)
@@ -4076,6 +4112,11 @@ func (_u *GroupUpdateOne) check() error {
 			return &ValidationError{Name: "candy_test_interval_seconds", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_interval_seconds": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.CandyTestReasoningEffort(); ok {
+		if err := group.CandyTestReasoningEffortValidator(v); err != nil {
+			return &ValidationError{Name: "candy_test_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_reasoning_effort": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.CandyTestModel(); ok {
 		if err := group.CandyTestModelValidator(v); err != nil {
 			return &ValidationError{Name: "candy_test_model", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_model": %w`, err)}
@@ -4470,6 +4511,9 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.AddedCandyTestIntervalSeconds(); ok {
 		_spec.AddField(group.FieldCandyTestIntervalSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.CandyTestReasoningEffort(); ok {
+		_spec.SetField(group.FieldCandyTestReasoningEffort, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.CandyTestModel(); ok {
 		_spec.SetField(group.FieldCandyTestModel, field.TypeString, value)

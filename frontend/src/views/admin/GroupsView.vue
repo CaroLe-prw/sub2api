@@ -681,6 +681,18 @@
             data-testid="candy-test-model"
           />
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.candyTestModel.hint") }}</p>
+          <label for="createForm-candy-test-reasoning-effort" class="input-label mt-4">{{ t("admin.groups.candyTestReasoningEffort.label") }}</label>
+          <select
+            id="createForm-candy-test-reasoning-effort"
+            v-model="createForm.candy_test_reasoning_effort"
+            class="input"
+            data-testid="candy-test-reasoning-effort"
+          >
+            <option v-for="effort in CANDY_TEST_REASONING_EFFORTS" :key="effort" :value="effort">
+              {{ t(`admin.groups.candyTestReasoningEffort.${effort}`) }}
+            </option>
+          </select>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.candyTestReasoningEffort.hint") }}</p>
           <label for="createForm-candy-test-interval" class="input-label mt-4">{{ t("admin.groups.candyTestInterval.label") }}</label>
           <input
             id="createForm-candy-test-interval"
@@ -2254,6 +2266,18 @@
             data-testid="candy-test-model"
           />
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.candyTestModel.hint") }}</p>
+          <label for="editForm-candy-test-reasoning-effort" class="input-label mt-4">{{ t("admin.groups.candyTestReasoningEffort.label") }}</label>
+          <select
+            id="editForm-candy-test-reasoning-effort"
+            v-model="editForm.candy_test_reasoning_effort"
+            class="input"
+            data-testid="candy-test-reasoning-effort"
+          >
+            <option v-for="effort in CANDY_TEST_REASONING_EFFORTS" :key="effort" :value="effort">
+              {{ t(`admin.groups.candyTestReasoningEffort.${effort}`) }}
+            </option>
+          </select>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.candyTestReasoningEffort.hint") }}</p>
           <label for="editForm-candy-test-interval" class="input-label mt-4">{{ t("admin.groups.candyTestInterval.label") }}</label>
           <input
             id="editForm-candy-test-interval"
@@ -4393,6 +4417,7 @@
 </template>
 
 <script setup lang="ts">
+import { CANDY_TEST_REASONING_EFFORTS } from "@/types/candyTest";
 import GroupModelMappingEditor from '@/components/group/GroupModelMappingEditor.vue'
 import { loadGroupModelMapping, validGroupModelMapping, serializeGroupModelMapping, type GroupModelMappingRow } from '@/utils/groupModelMapping'
 
@@ -5154,6 +5179,7 @@ const createForm = reactive({
   allow_messages_dispatch: false,
   allow_live: false,
   candy_test_model: "gpt-6.2-sol",
+  candy_test_reasoning_effort: "medium",
   candy_test_interval_seconds: 0,
   opus_mapped_model: createMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
@@ -5529,6 +5555,7 @@ const editForm = reactive({
   allow_messages_dispatch: false,
   allow_live: false,
   candy_test_model: "gpt-6.2-sol",
+  candy_test_reasoning_effort: "medium",
   candy_test_interval_seconds: 0,
   default_mapped_model: '',
   opus_mapped_model: editMessagesDispatchDefaults.opus_mapped_model,
@@ -6004,6 +6031,7 @@ const closeCreateModal = () => {
   resetMessagesDispatchFormState(createForm);
   createForm.allow_live = false;
   createForm.candy_test_model = "gpt-6.2-sol";
+  createForm.candy_test_reasoning_effort = "medium";
   createForm.candy_test_interval_seconds = 0;
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
@@ -6146,6 +6174,7 @@ const handleCreateGroup = async () => {
         ? { video_model_prices: videoModelPrices }
         : {}),
       candy_test_model: createForm.platform === "openai" ? createForm.candy_test_model.trim() : "",
+      candy_test_reasoning_effort: createForm.platform === "openai" ? createForm.candy_test_reasoning_effort : "",
       candy_test_interval_seconds: createForm.platform === "openai" ? createForm.candy_test_interval_seconds : 0,
       model_mapping: serializeGroupModelMapping(createModelMappingRows.value),
       model_routing: convertRoutingRulesToApiFormat(
@@ -6235,7 +6264,7 @@ const handleCreateGroup = async () => {
           description: createForm.description,
           i18n: createForm.i18n,
           platform: createForm.platform,
-          ...(createForm.platform === "openai" ? { candy_test_model: createForm.candy_test_model.trim(), candy_test_interval_seconds: createForm.candy_test_interval_seconds } : {}),
+          ...(createForm.platform === "openai" ? { candy_test_model: createForm.candy_test_model.trim(), candy_test_reasoning_effort: createForm.candy_test_reasoning_effort, candy_test_interval_seconds: createForm.candy_test_interval_seconds } : {}),
         }
       : requestData;
     await adminAPI.groups.create(payload);
@@ -6336,6 +6365,7 @@ const handleEdit = async (group: AdminGroup) => {
     messagesDispatchFormState.allow_messages_dispatch;
   editForm.allow_live = group.allow_live ?? false;
   editForm.candy_test_model = group.candy_test_model || "gpt-6.2-sol";
+  editForm.candy_test_reasoning_effort = group.candy_test_reasoning_effort || "medium";
   editForm.candy_test_interval_seconds = group.candy_test_interval_seconds ?? 0;
   editForm.opus_mapped_model = messagesDispatchFormState.opus_mapped_model;
   editForm.sonnet_mapped_model = messagesDispatchFormState.sonnet_mapped_model;
@@ -6439,6 +6469,7 @@ const closeEditModal = () => {
   resetMessagesDispatchFormState(editForm);
   editForm.allow_live = false;
   editForm.candy_test_model = "gpt-6.2-sol";
+  editForm.candy_test_reasoning_effort = "medium";
   editForm.candy_test_interval_seconds = 0;
   resetModelAllowlistState(editModelAllowlistState);
   editCodexManifestConfig.value = createCodexManifestDefaults();
@@ -6530,6 +6561,7 @@ const handleUpdateGroup = async () => {
           ? 0
           : editForm.fallback_group_id_on_invalid_request,
       candy_test_model: editForm.platform === "openai" ? editForm.candy_test_model.trim() : "",
+      candy_test_reasoning_effort: editForm.platform === "openai" ? editForm.candy_test_reasoning_effort : "",
       candy_test_interval_seconds: editForm.platform === "openai" ? editForm.candy_test_interval_seconds : 0,
       model_mapping: serializeGroupModelMapping(editModelMappingRows.value),
       model_routing: convertRoutingRulesToApiFormat(
@@ -6627,7 +6659,7 @@ const handleUpdateGroup = async () => {
           name: editForm.name,
           description: editForm.description,
           i18n: editForm.i18n,
-          ...(editForm.platform === "openai" ? { candy_test_model: editForm.candy_test_model.trim(), candy_test_interval_seconds: editForm.candy_test_interval_seconds } : {}),
+          ...(editForm.platform === "openai" ? { candy_test_model: editForm.candy_test_model.trim(), candy_test_reasoning_effort: editForm.candy_test_reasoning_effort, candy_test_interval_seconds: editForm.candy_test_interval_seconds } : {}),
         }
       : payload;
     await adminAPI.groups.update(editingGroup.value.id, requestData);

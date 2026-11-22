@@ -107,7 +107,7 @@ const statusClass = computed(() => ({
   untested: 'text-gray-500 dark:text-gray-400'
 })[status.value])
 const sampleTitle = (sample: CandyTestSample) =>
-  `${t(`admin.accounts.candyTest.${sample.status}`)} · ${sample.model} · ${new Date(sample.checked_at).toLocaleString()} · ${(sample.latency_ms / 1000).toFixed(1)}s`
+  `${t(`admin.accounts.candyTest.${sample.status}`)} · ${sample.model}${sample.reasoning_effort ? ` · ${sample.reasoning_effort}` : ''} · ${new Date(sample.checked_at).toLocaleString()} · ${(sample.latency_ms / 1000).toFixed(1)}s`
 
 async function run() {
   if (running.value || props.account.platform !== 'openai' || (props.account.type !== 'oauth' && props.account.type !== 'apikey')) return

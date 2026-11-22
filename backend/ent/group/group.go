@@ -142,6 +142,8 @@ const (
 	FieldRequirePrivacySet = "require_privacy_set"
 	// FieldCandyTestIntervalSeconds holds the string denoting the candy_test_interval_seconds field in the database.
 	FieldCandyTestIntervalSeconds = "candy_test_interval_seconds"
+	// FieldCandyTestReasoningEffort holds the string denoting the candy_test_reasoning_effort field in the database.
+	FieldCandyTestReasoningEffort = "candy_test_reasoning_effort"
 	// FieldCandyTestModel holds the string denoting the candy_test_model field in the database.
 	FieldCandyTestModel = "candy_test_model"
 	// FieldDefaultMappedModel holds the string denoting the default_mapped_model field in the database.
@@ -304,6 +306,7 @@ var Columns = []string{
 	FieldRequireOauthOnly,
 	FieldRequirePrivacySet,
 	FieldCandyTestIntervalSeconds,
+	FieldCandyTestReasoningEffort,
 	FieldCandyTestModel,
 	FieldDefaultMappedModel,
 	FieldMessagesDispatchModelConfig,
@@ -449,6 +452,10 @@ var (
 	DefaultCandyTestIntervalSeconds int
 	// CandyTestIntervalSecondsValidator is a validator for the "candy_test_interval_seconds" field. It is called by the builders before save.
 	CandyTestIntervalSecondsValidator func(int) error
+	// DefaultCandyTestReasoningEffort holds the default value on creation for the "candy_test_reasoning_effort" field.
+	DefaultCandyTestReasoningEffort string
+	// CandyTestReasoningEffortValidator is a validator for the "candy_test_reasoning_effort" field. It is called by the builders before save.
+	CandyTestReasoningEffortValidator func(string) error
 	// DefaultCandyTestModel holds the default value on creation for the "candy_test_model" field.
 	DefaultCandyTestModel string
 	// CandyTestModelValidator is a validator for the "candy_test_model" field. It is called by the builders before save.
@@ -769,6 +776,11 @@ func ByRequirePrivacySet(opts ...sql.OrderTermOption) OrderOption {
 // ByCandyTestIntervalSeconds orders the results by the candy_test_interval_seconds field.
 func ByCandyTestIntervalSeconds(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCandyTestIntervalSeconds, opts...).ToFunc()
+}
+
+// ByCandyTestReasoningEffort orders the results by the candy_test_reasoning_effort field.
+func ByCandyTestReasoningEffort(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCandyTestReasoningEffort, opts...).ToFunc()
 }
 
 // ByCandyTestModel orders the results by the candy_test_model field.

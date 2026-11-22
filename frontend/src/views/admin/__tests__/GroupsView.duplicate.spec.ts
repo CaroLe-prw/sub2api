@@ -522,26 +522,32 @@ describe('GroupsView duplicate action', () => {
     const interval = wrapper.get('[data-testid="candy-test-interval"]')
     expect((interval.element as HTMLInputElement).value).toBe('0')
     await interval.setValue('60')
+    const effort = wrapper.get('[data-testid="candy-test-reasoning-effort"]')
+    expect((effort.element as HTMLSelectElement).value).toBe('medium')
+    await effort.setValue('high')
     await wrapper.get('#create-group-form').trigger('submit')
     await flushPromises()
     expect(adminAPI.groups.create).toHaveBeenCalledWith(expect.objectContaining({
-      platform: 'openai', candy_test_model: 'gpt-6.2-sol', candy_test_interval_seconds: 60
+      platform: 'openai', candy_test_model: 'gpt-6.2-sol', candy_test_interval_seconds: 60, candy_test_reasoning_effort: 'high'
     }))
     wrapper.unmount()
   })
 
   it('retains interval updates in simple mode', async () => {
     authState.isSimpleMode = true
-    listGroups.mockResolvedValue({items: [{...sourceGroup,candy_test_interval_seconds: 120}],total:1,page:1,page_size:20,pages:1})
+    listGroups.mockResolvedValue({items: [{...sourceGroup,candy_test_interval_seconds: 120,candy_test_reasoning_effort: 'max'}],total:1,page:1,page_size:20,pages:1})
     const wrapper = mountView()
     await flushPromises()
     const editButton = wrapper.findAll('button').find(button => button.text().includes('common.edit'))!
     await editButton.trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="candy-test-interval"]').setValue('300')
+    const effort = wrapper.get('[data-testid="candy-test-reasoning-effort"]')
+    expect((effort.element as HTMLSelectElement).value).toBe('max')
+    await effort.setValue('low')
     await wrapper.get('#edit-group-form').trigger('submit')
     await flushPromises()
-    expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({ candy_test_interval_seconds: 300 }))
+    expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({ candy_test_interval_seconds: 300, candy_test_reasoning_effort: 'low' }))
     wrapper.unmount()
   })
 

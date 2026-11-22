@@ -66,12 +66,26 @@ describe('AccountCandyTestCell', () => {
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     wrapper.unmount()
   })
+  it('shows the effort actually used in a saved test record', async () => {
+    const saved = result()
+    saved.recent[1].reasoning_effort = 'high'
+    const wrapper = mount(AccountCandyTestCell, {
+      props: { account: account({ extra: { candy_test: saved } }) }, global: { stubs: { teleport: true } }
+    })
+    const record = wrapper.get('button[data-status="failed"]')
+    expect(record.attributes('title')).toContain('gpt-6.2-sol · high ·')
+    await record.trigger('click')
+    expect(wrapper.get('[data-testid="candy-record-details"]').text()).toContain('gpt-6.2-sol · high ·')
+    expect(runCandyTest).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
   it('explains that old answers cannot be reconstructed', async () => {
     const wrapper = mount(AccountCandyTestCell, {
       props: { account: account({ extra: { candy_test: result() } }) }, global: { stubs: { teleport: true } }
     })
     await wrapper.get('button[data-status="failed"]').trigger('click')
     expect(wrapper.get('[data-testid="candy-answer-unavailable"]').text()).toBe('admin.accounts.candyTest.answerNotRecorded')
+    expect(wrapper.get('[data-testid="candy-record-details"]').text()).not.toContain('medium')
     expect(wrapper.find('[data-testid="candy-model-answer"]').exists()).toBe(false)
     expect(runCandyTest).not.toHaveBeenCalled()
     wrapper.unmount()

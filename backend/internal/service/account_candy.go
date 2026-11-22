@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	defaultCandyTestModel    = "gpt-6.2-sol"
-	candyTestReasoningEffort = "medium"
-	CandyTestExtraKey        = "candy_test"
+	defaultCandyTestModel           = "gpt-6.2-sol"
+	defaultCandyTestReasoningEffort = "medium"
+	CandyTestExtraKey               = "candy_test"
 	// Keep this separate from diagnostic history so only eligibility transitions
 	// invalidate scheduler pools. The manual Schedulable setting is never changed.
 	CandyTestBlockedExtraKey   = "candy_test_blocked"
@@ -36,18 +36,20 @@ const (
 )
 
 type CandyTestSample struct {
-	Status    string    `json:"status"`
-	Model     string    `json:"model"`
-	CheckedAt time.Time `json:"checked_at"`
-	LatencyMS int64     `json:"latency_ms"`
+	Status          string    `json:"status"`
+	Model           string    `json:"model"`
+	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+	CheckedAt       time.Time `json:"checked_at"`
+	LatencyMS       int64     `json:"latency_ms"`
 	// Final visible answer only, redacted and bounded; never raw HTTP/error bodies.
 	ResponseText      string `json:"response_text,omitempty"`
 	ResponseTruncated bool   `json:"response_truncated,omitempty"`
 }
 
 type CandyTestSchedule struct {
-	Model     string    `json:"model"`
-	CheckedAt time.Time `json:"checked_at"`
+	Model           string    `json:"model"`
+	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+	CheckedAt       time.Time `json:"checked_at"`
 }
 
 // CandyTestSnapshot keeps bounded diagnostic history and final-answer excerpts.
@@ -214,7 +216,7 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 			return nil, nil
 		}
 	}
-	model, err := resolveCandyTestModel(account, groupID)
+	testConfig, err := resolveCandyTestConfig(account, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +231,7 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 
 	testCtx, cancel := context.WithTimeout(ctx, candyTestTimeout)
 	defer cancel()
-	result, err := s.runTestBackgroundWithPrompt(testCtx, accountID, model, candyTestPrompt, false, AccountTestOptions{ExactModel: true, PreserveAccountState: true, ReasoningEffort: candyTestReasoningEffort})
+	result, err := s.runTestBackgroundWithPrompt(testCtx, accountID, testConfig.Model, candyTestPrompt, false, AccountTestOptions{ExactModel: true, PreserveAccountState: true, ReasoningEffort: testConfig.ReasoningEffort})
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +239,7 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	sample := CandyTestSample{Status: "error", Model: firstNonEmptyString(result.UpstreamModel, model),
+	sample := CandyTestSample{Status: "error", Model: firstNonEmptyString(result.UpstreamModel, testConfig.Model), ReasoningEffort: testConfig.ReasoningEffort,
 		CheckedAt: result.FinishedAt, LatencyMS: result.LatencyMs}
 	if result.Status == "success" && strings.TrimSpace(result.ResponseText) != "" {
 		sample.Status = "failed"
@@ -251,7 +253,7 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 		if snapshot.Schedules == nil {
 			snapshot.Schedules = make(map[int64]CandyTestSchedule)
 		}
-		snapshot.Schedules[groupID] = CandyTestSchedule{Model: model, CheckedAt: sample.CheckedAt}
+		snapshot.Schedules[groupID] = CandyTestSchedule{Model: testConfig.Model, ReasoningEffort: testConfig.ReasoningEffort, CheckedAt: sample.CheckedAt}
 	}
 	// Drop obsolete bindings; persisted schedule size stays bounded by memberships.
 	attached := make(map[int64]bool, len(account.Groups))

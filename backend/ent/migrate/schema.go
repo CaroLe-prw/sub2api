@@ -969,6 +969,7 @@ var (
 		{Name: "require_oauth_only", Type: field.TypeBool, Default: false},
 		{Name: "require_privacy_set", Type: field.TypeBool, Default: false},
 		{Name: "candy_test_interval_seconds", Type: field.TypeInt, Default: 0},
+		{Name: "candy_test_reasoning_effort", Type: field.TypeString, Size: 20, Default: "medium"},
 		{Name: "candy_test_model", Type: field.TypeString, Size: 100, Default: ""},
 		{Name: "default_mapped_model", Type: field.TypeString, Size: 100, Default: ""},
 		{Name: "messages_dispatch_model_config", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},

@@ -150,28 +150,28 @@ func TestCandyHistoryIsBoundedAndCountersSurviveJSON(t *testing.T) {
 
 func TestCandyTestGroupModelResolution(t *testing.T) {
 	account := candyAccount()
-	model, err := resolveCandyTestModel(account, 0)
+	model, err := resolveCandyTestConfig(account, 0)
 	require.NoError(t, err)
-	require.Equal(t, "gpt-6.2-sol", model)
+	require.Equal(t, "gpt-6.2-sol", model.Model)
 	account.Groups = []*Group{{ID: 1, Platform: PlatformOpenAI, CandyTestModel: " gpt-6.1-sol "}}
-	model, err = resolveCandyTestModel(account, 0)
+	model, err = resolveCandyTestConfig(account, 0)
 	require.NoError(t, err)
-	require.Equal(t, "gpt-6.1-sol", model)
+	require.Equal(t, "gpt-6.1-sol", model.Model)
 	account.Groups = append(account.Groups, &Group{ID: 2, Platform: PlatformOpenAI})
-	_, err = resolveCandyTestModel(account, 0)
+	_, err = resolveCandyTestConfig(account, 0)
 	require.True(t, infraerrors.IsBadRequest(err))
-	model, err = resolveCandyTestModel(account, 1)
+	model, err = resolveCandyTestConfig(account, 1)
 	require.NoError(t, err)
-	require.Equal(t, "gpt-6.1-sol", model)
-	model, err = resolveCandyTestModel(account, 2)
+	require.Equal(t, "gpt-6.1-sol", model.Model)
+	model, err = resolveCandyTestConfig(account, 2)
 	require.NoError(t, err)
-	require.Equal(t, "gpt-6.2-sol", model)
-	_, err = resolveCandyTestModel(account, 99)
+	require.Equal(t, "gpt-6.2-sol", model.Model)
+	_, err = resolveCandyTestConfig(account, 99)
 	require.True(t, infraerrors.IsBadRequest(err))
 	account.Groups[1].CandyTestModel = "gpt-6.1-sol"
-	model, err = resolveCandyTestModel(account, 0)
+	model, err = resolveCandyTestConfig(account, 0)
 	require.NoError(t, err)
-	require.Equal(t, "gpt-6.1-sol", model)
+	require.Equal(t, "gpt-6.1-sol", model.Model)
 }
 
 func TestCandyTestUsesSelectedGroupModel(t *testing.T) {

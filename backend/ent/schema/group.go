@@ -288,6 +288,10 @@ func (Group) Fields() []ent.Field {
 			Min(0).
 			Max(86400).
 			Comment("OpenAI OAuth 糖果自动检测间隔（秒）；0 表示关闭"),
+		field.String("candy_test_reasoning_effort").
+			MaxLen(20).
+			Default("medium").
+			Comment("OpenAI 糖果检测思考强度；默认 medium，仅影响检测请求"),
 		field.String("candy_test_model").
 			MaxLen(100).
 			Default("").

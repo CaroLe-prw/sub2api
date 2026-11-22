@@ -9,13 +9,15 @@ import (
 )
 
 func TestCandyModelOnlyAppearsInAdminGroup(t *testing.T) {
-	group := &service.Group{ID: 7, Platform: service.PlatformOpenAI, CandyTestModel: "gpt-6.1-sol", CandyTestIntervalSeconds: 60}
+	group := &service.Group{ID: 7, Platform: service.PlatformOpenAI, CandyTestModel: "gpt-6.1-sol", CandyTestIntervalSeconds: 60, CandyTestReasoningEffort: "high"}
 	admin, err := json.Marshal(GroupFromServiceAdmin(group))
 	require.NoError(t, err)
 	require.Contains(t, string(admin), `"candy_test_model":"gpt-6.1-sol"`)
 	user, err := json.Marshal(GroupFromService(group))
 	require.NoError(t, err)
 	require.NotContains(t, string(user), "candy_test_model")
+	require.NotContains(t, string(user), "candy_test_reasoning_effort")
+	require.Contains(t, string(admin), `"candy_test_reasoning_effort":"high"`)
 	require.NotContains(t, string(user), "candy_test_interval_seconds")
 	require.Contains(t, string(admin), `"candy_test_interval_seconds":60`)
 }

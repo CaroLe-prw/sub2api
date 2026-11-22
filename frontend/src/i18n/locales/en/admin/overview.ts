@@ -1344,6 +1344,15 @@ export default {
         label: 'Candy test interval (seconds)',
         hint: '0 disables automatic checks; use 1–86400 seconds to enable. The server checks active primary OpenAI OAuth / API Key accounts with this group’s model, even when this page is closed, consuming quota. Intervals start after completion; checks on the same account never overlap. Each group has its own schedule. Wrong answers block scheduling while retests continue; a passing retest clears the block. Network/API errors leave the previous verdict unchanged.'
       },
+      candyTestReasoningEffort: {
+        label: 'Candy test reasoning effort',
+        hint: 'Manual and automatic tests use this group’s effort (default: medium), without changing normal requests. Applies to OpenAI OAuth / API Key accounts. Higher effort may take longer and consume more quota. Unsupported upstream settings count as API errors, not wrong answers. Select a group first if models or efforts differ across groups.',
+        low: 'Low (low)',
+        medium: 'Medium (medium, default)',
+        high: 'High (high)',
+        xhigh: 'Extra high (xhigh)',
+        max: 'Maximum (max)'
+      },
       candyTestModel: {
         label: 'Candy test model',
         hint: 'Only sets the candy-check model for OpenAI OAuth / API Key accounts in this group; normal request models are unchanged. Blank defaults to gpt-6.2-sol. Use an upstream text model ID; model aliases are not applied. If groups disagree, select a group in the account list first.'

@@ -856,6 +856,20 @@ func (_c *GroupCreate) SetNillableCandyTestIntervalSeconds(v *int) *GroupCreate 
 	return _c
 }
 
+// SetCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field.
+func (_c *GroupCreate) SetCandyTestReasoningEffort(v string) *GroupCreate {
+	_c.mutation.SetCandyTestReasoningEffort(v)
+	return _c
+}
+
+// SetNillableCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableCandyTestReasoningEffort(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetCandyTestReasoningEffort(*v)
+	}
+	return _c
+}
+
 // SetCandyTestModel sets the "candy_test_model" field.
 func (_c *GroupCreate) SetCandyTestModel(v string) *GroupCreate {
 	_c.mutation.SetCandyTestModel(v)
@@ -1301,6 +1315,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultCandyTestIntervalSeconds
 		_c.mutation.SetCandyTestIntervalSeconds(v)
 	}
+	if _, ok := _c.mutation.CandyTestReasoningEffort(); !ok {
+		v := group.DefaultCandyTestReasoningEffort
+		_c.mutation.SetCandyTestReasoningEffort(v)
+	}
 	if _, ok := _c.mutation.CandyTestModel(); !ok {
 		v := group.DefaultCandyTestModel
 		_c.mutation.SetCandyTestModel(v)
@@ -1534,6 +1552,14 @@ func (_c *GroupCreate) check() error {
 	if v, ok := _c.mutation.CandyTestIntervalSeconds(); ok {
 		if err := group.CandyTestIntervalSecondsValidator(v); err != nil {
 			return &ValidationError{Name: "candy_test_interval_seconds", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_interval_seconds": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.CandyTestReasoningEffort(); !ok {
+		return &ValidationError{Name: "candy_test_reasoning_effort", err: errors.New(`ent: missing required field "Group.candy_test_reasoning_effort"`)}
+	}
+	if v, ok := _c.mutation.CandyTestReasoningEffort(); ok {
+		if err := group.CandyTestReasoningEffortValidator(v); err != nil {
+			return &ValidationError{Name: "candy_test_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "Group.candy_test_reasoning_effort": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.CandyTestModel(); !ok {
@@ -1870,6 +1896,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.CandyTestIntervalSeconds(); ok {
 		_spec.SetField(group.FieldCandyTestIntervalSeconds, field.TypeInt, value)
 		_node.CandyTestIntervalSeconds = value
+	}
+	if value, ok := _c.mutation.CandyTestReasoningEffort(); ok {
+		_spec.SetField(group.FieldCandyTestReasoningEffort, field.TypeString, value)
+		_node.CandyTestReasoningEffort = value
 	}
 	if value, ok := _c.mutation.CandyTestModel(); ok {
 		_spec.SetField(group.FieldCandyTestModel, field.TypeString, value)
@@ -3098,6 +3128,18 @@ func (u *GroupUpsert) UpdateCandyTestIntervalSeconds() *GroupUpsert {
 // AddCandyTestIntervalSeconds adds v to the "candy_test_interval_seconds" field.
 func (u *GroupUpsert) AddCandyTestIntervalSeconds(v int) *GroupUpsert {
 	u.Add(group.FieldCandyTestIntervalSeconds, v)
+	return u
+}
+
+// SetCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field.
+func (u *GroupUpsert) SetCandyTestReasoningEffort(v string) *GroupUpsert {
+	u.Set(group.FieldCandyTestReasoningEffort, v)
+	return u
+}
+
+// UpdateCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateCandyTestReasoningEffort() *GroupUpsert {
+	u.SetExcluded(group.FieldCandyTestReasoningEffort)
 	return u
 }
 
@@ -4505,6 +4547,20 @@ func (u *GroupUpsertOne) AddCandyTestIntervalSeconds(v int) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateCandyTestIntervalSeconds() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateCandyTestIntervalSeconds()
+	})
+}
+
+// SetCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field.
+func (u *GroupUpsertOne) SetCandyTestReasoningEffort(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCandyTestReasoningEffort(v)
+	})
+}
+
+// UpdateCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateCandyTestReasoningEffort() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCandyTestReasoningEffort()
 	})
 }
 
@@ -6105,6 +6161,20 @@ func (u *GroupUpsertBulk) AddCandyTestIntervalSeconds(v int) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateCandyTestIntervalSeconds() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateCandyTestIntervalSeconds()
+	})
+}
+
+// SetCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field.
+func (u *GroupUpsertBulk) SetCandyTestReasoningEffort(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCandyTestReasoningEffort(v)
+	})
+}
+
+// UpdateCandyTestReasoningEffort sets the "candy_test_reasoning_effort" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateCandyTestReasoningEffort() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCandyTestReasoningEffort()
 	})
 }
 

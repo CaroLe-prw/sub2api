@@ -392,7 +392,7 @@ func normalizeCreateGroupInputForSimpleMode(input *CreateGroupInput) {
 	}
 	*input = CreateGroupInput{
 		Name: input.Name, Description: input.Description, I18n: input.I18n, Platform: input.Platform,
-		CandyTestModel: input.CandyTestModel, CandyTestIntervalSeconds: input.CandyTestIntervalSeconds,
+		CandyTestModel: input.CandyTestModel, CandyTestReasoningEffort: input.CandyTestReasoningEffort, CandyTestIntervalSeconds: input.CandyTestIntervalSeconds,
 		RateMultiplier: 1, SubscriptionType: SubscriptionTypeStandard,
 	}
 }
@@ -401,7 +401,7 @@ func normalizeUpdateGroupInputForSimpleMode(input *UpdateGroupInput) {
 	if input == nil {
 		return
 	}
-	*input = UpdateGroupInput{Name: input.Name, Description: input.Description, I18n: input.I18n, CandyTestModel: input.CandyTestModel, CandyTestIntervalSeconds: input.CandyTestIntervalSeconds}
+	*input = UpdateGroupInput{Name: input.Name, Description: input.Description, I18n: input.I18n, CandyTestModel: input.CandyTestModel, CandyTestReasoningEffort: input.CandyTestReasoningEffort, CandyTestIntervalSeconds: input.CandyTestIntervalSeconds}
 }
 
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
@@ -455,6 +455,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	candyTestInterval, err := normalizeCandyTestInterval(platform, input.CandyTestIntervalSeconds)
+	if err != nil {
+		return nil, err
+	}
+	candyTestReasoningEffort, err := normalizeCandyTestReasoningEffort(platform, input.CandyTestReasoningEffort)
 	if err != nil {
 		return nil, err
 	}
@@ -670,6 +674,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		RequirePrivacySet:               input.RequirePrivacySet,
 		DefaultMappedModel:              input.DefaultMappedModel,
 		CandyTestModel:                  candyTestModel,
+		CandyTestReasoningEffort:        candyTestReasoningEffort,
 		CandyTestIntervalSeconds:        candyTestInterval,
 		MessagesDispatchModelConfig:     normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
 		ModelAllowlist:                  modelAllowlist,
@@ -1106,6 +1111,16 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 			interval = *input.CandyTestIntervalSeconds
 		}
 		group.CandyTestIntervalSeconds, err = normalizeCandyTestInterval(group.Platform, interval)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if input.CandyTestReasoningEffort != nil || group.Platform != PlatformOpenAI {
+		effort := group.CandyTestReasoningEffort
+		if input.CandyTestReasoningEffort != nil {
+			effort = *input.CandyTestReasoningEffort
+		}
+		group.CandyTestReasoningEffort, err = normalizeCandyTestReasoningEffort(group.Platform, effort)
 		if err != nil {
 			return nil, err
 		}

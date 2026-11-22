@@ -1342,9 +1342,18 @@ export default {
         label: '糖果检测间隔（秒）',
         hint: '0 关闭自动检测，1–86400 秒开启。后台按本分组模型检测启用中的 OpenAI OAuth / API Key 主账号，关闭页面仍会执行并消耗额度。间隔从上次检测完成起计算，同一账号不并发检测；跨分组分别计时。答错会暂停该账号调度并继续复测，答对后解除；网络或接口异常不改变已有答题判定。'
       },
+      candyTestReasoningEffort: {
+        label: '糖果检测思考强度',
+        hint: '手动和自动检测均按本分组强度执行，默认 medium，不改变正常请求。适用于 OpenAI OAuth / API Key 账号。强度越高可能耗时和用量越多；上游不支持所选强度时记为接口异常，不算答错。跨分组的模型或强度不同时，请先筛选分组。',
+        low: '低（low）',
+        medium: '中等（medium，默认）',
+        high: '高（high）',
+        xhigh: '超高（xhigh）',
+        max: '最高（max）'
+      },
       candyTestModel: {
         label: '糖果检测模型',
-        hint: '仅配置本分组 OpenAI OAuth / API Key 账号的糖果检测模型，不改变正常请求的模型。留空默认 gpt-6.2-sol，填写上游实际文本模型 ID；检测不会应用模型别名映射。账号跨分组且模型不同时，请先按分组筛选再检测。'
+        hint: '仅配置本分组 OpenAI OAuth / API Key 账号的糖果检测模型，不改变正常请求的模型。留空默认 gpt-6.2-sol，填写上游实际文本模型 ID；检测不会应用模型别名映射。账号跨分组且模型或强度不同时，请先按分组筛选再检测。'
       },
       openaiMessages: {
         title: 'OpenAI Messages 调度配置',

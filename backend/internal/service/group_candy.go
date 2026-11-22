@@ -18,36 +18,60 @@ func normalizeCandyTestModel(platform, model string) (string, error) {
 	return model, nil
 }
 
-// A selected account-list group wins. With no group filter, only infer a model
-// when all attached OpenAI groups agree; never pick an arbitrary group's model.
-func resolveCandyTestModel(account *Account, groupID int64) (string, error) {
-	model := ""
+func normalizeCandyTestReasoningEffort(platform, effort string) (string, error) {
+	if platform != PlatformOpenAI {
+		return "", nil
+	}
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort == "" {
+		return defaultCandyTestReasoningEffort, nil
+	}
+	switch effort {
+	case "low", "medium", "high", "xhigh", "max":
+		return effort, nil
+	default:
+		return "", infraerrors.BadRequest("INVALID_CANDY_TEST_REASONING_EFFORT", "Candy test reasoning effort must be low, medium, high, xhigh, or max")
+	}
+}
+
+type candyTestConfig struct {
+	Model           string
+	ReasoningEffort string
+}
+
+// A selected group wins. Without a group filter, all attached OpenAI groups
+// must agree on both settings; never arbitrarily select a group's effort.
+func resolveCandyTestConfig(account *Account, groupID int64) (candyTestConfig, error) {
+	config := candyTestConfig{Model: defaultCandyTestModel, ReasoningEffort: defaultCandyTestReasoningEffort}
+	found := false
 	for _, group := range account.Groups {
 		if group == nil || group.Platform != PlatformOpenAI || (groupID > 0 && group.ID != groupID) {
 			continue
 		}
-		candidate, err := normalizeCandyTestModel(group.Platform, group.CandyTestModel)
+		model, err := normalizeCandyTestModel(group.Platform, group.CandyTestModel)
 		if err != nil {
-			return "", err
+			return candyTestConfig{}, err
 		}
-		if candidate == "" {
-			candidate = defaultCandyTestModel
+		if model == "" {
+			model = defaultCandyTestModel
 		}
+		effort, err := normalizeCandyTestReasoningEffort(group.Platform, group.CandyTestReasoningEffort)
+		if err != nil {
+			return candyTestConfig{}, err
+		}
+		candidate := candyTestConfig{Model: model, ReasoningEffort: effort}
 		if groupID > 0 {
 			return candidate, nil
 		}
-		if model != "" && model != candidate {
-			return "", infraerrors.BadRequest("CANDY_TEST_GROUP_REQUIRED", "This account has different candy-test models across groups. Select a group in the account list before testing.")
+		if found && config != candidate {
+			return candyTestConfig{}, infraerrors.BadRequest("CANDY_TEST_GROUP_REQUIRED", "This account has different candy-test models or reasoning efforts across groups. Select a group in the account list before testing.")
 		}
-		model = candidate
+		config, found = candidate, true
 	}
 	if groupID > 0 {
-		return "", infraerrors.BadRequest("CANDY_TEST_GROUP_INVALID", "Account does not belong to the selected OpenAI group")
+		return candyTestConfig{}, infraerrors.BadRequest("CANDY_TEST_GROUP_INVALID", "Account does not belong to the selected OpenAI group")
 	}
-	if model == "" {
-		model = defaultCandyTestModel
-	}
-	return model, nil
+	return config, nil
 }
 
 // Zero keeps automatic checks disabled; existing groups never consume quota by default.

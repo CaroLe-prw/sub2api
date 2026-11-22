@@ -41,6 +41,9 @@ func TestCandyAPIKeyManualScheduledAndOrdinaryRequests(t *testing.T) {
 			t.Run(protocol+"/"+mode, func(t *testing.T) {
 				responses := protocol == "responses"
 				account := candyAPIKeyAccount(responses)
+				if mode == "ordinary" {
+					account.Groups[0].CandyTestReasoningEffort = "high"
+				}
 				upstream := &queuedHTTPUpstream{responses: []*http.Response{candyAPIKeyResponse(responses, "最少 21 个")}}
 				svc := &AccountTestService{accountRepo: &candyAccountRepo{account: account}, httpUpstream: upstream, cfg: &config.Config{}}
 				switch mode {

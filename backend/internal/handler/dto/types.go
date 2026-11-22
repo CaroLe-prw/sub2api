@@ -205,6 +205,7 @@ type AdminGroup struct {
 
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	CandyTestModel              string                                   `json:"candy_test_model"`
+	CandyTestReasoningEffort    string                                   `json:"candy_test_reasoning_effort"`
 	CandyTestIntervalSeconds    int                                      `json:"candy_test_interval_seconds"`
 	DefaultMappedModel          string                                   `json:"default_mapped_model"`
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`

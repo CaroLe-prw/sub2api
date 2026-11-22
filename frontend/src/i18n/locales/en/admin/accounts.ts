@@ -21,7 +21,7 @@ export default {
         history: 'Last 12 candy checks (green: passed, red: failed, yellow: API error)',
         run: 'Run one candy test for {name}',
         hint: 'OpenAI OAuth / API Key only: click to check using the group model (default gpt-6.2-sol); this consumes upstream quota. A standalone 21 passes. Wrong answers block scheduling until a passing retest. Network/API errors are counted separately, excluded from the pass ratio, and leave the previous answer verdict unchanged. The manual scheduling switch is preserved. Green/red/yellow indicate pass/wrong answer/API error.',
-        groupRequired: 'This account has different candy-test models across groups. Filter the account list by a group before testing.',
+        groupRequired: 'This account has different candy-test models or reasoning efforts across groups. Filter the account list by a group before testing.',
         requestFailed: 'Candy test request or result saving failed. Refresh the list before retrying.'
       },
       title: 'Account Management',

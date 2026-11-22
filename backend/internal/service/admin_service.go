@@ -303,6 +303,7 @@ type CreateGroupInput struct {
 	FreeOpenAIFast              bool
 	DefaultMappedModel          string
 	CandyTestModel              string
+	CandyTestReasoningEffort    string
 	CandyTestIntervalSeconds    int
 	RequireOAuthOnly            bool
 	RequirePrivacySet           bool
@@ -394,6 +395,7 @@ type UpdateGroupInput struct {
 	FreeOpenAIFast              *bool
 	DefaultMappedModel          *string
 	CandyTestModel              *string
+	CandyTestReasoningEffort    *string
 	CandyTestIntervalSeconds    *int
 	RequireOAuthOnly            *bool
 	RequirePrivacySet           *bool
