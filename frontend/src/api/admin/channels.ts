@@ -70,6 +70,7 @@ export interface AccountStatsPricingRule {
 }
 
 export interface Channel {
+  price_currency?: string
   id: number
   name: string
   description: string
@@ -87,6 +88,7 @@ export interface Channel {
 }
 
 export interface CreateChannelRequest {
+  price_currency?: string
   name: string
   description?: string
   group_ids?: number[]
@@ -100,6 +102,7 @@ export interface CreateChannelRequest {
 }
 
 export interface UpdateChannelRequest {
+  price_currency?: string
   name?: string
   description?: string
   status?: string

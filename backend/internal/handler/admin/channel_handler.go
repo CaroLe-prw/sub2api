@@ -29,6 +29,7 @@ func NewChannelHandler(channelService *service.ChannelService, billingService *s
 // --- Request / Response types ---
 
 type createChannelRequest struct {
+	PriceCurrency              string                           `json:"price_currency"`
 	Name                       string                           `json:"name" binding:"required,max=100"`
 	Description                string                           `json:"description"`
 	GroupIDs                   []int64                          `json:"group_ids"`
@@ -43,6 +44,7 @@ type createChannelRequest struct {
 }
 
 type updateChannelRequest struct {
+	PriceCurrency              *string                           `json:"price_currency"`
 	Name                       string                            `json:"name" binding:"omitempty,max=100"`
 	Description                *string                           `json:"description"`
 	Status                     string                            `json:"status" binding:"omitempty,oneof=active disabled"`
@@ -116,6 +118,7 @@ type accountStatsPricingRuleRequest struct {
 }
 
 type channelResponse struct {
+	PriceCurrency              string                            `json:"price_currency"`
 	ID                         int64                             `json:"id"`
 	Name                       string                            `json:"name"`
 	Description                string                            `json:"description"`
@@ -211,6 +214,7 @@ func channelToResponse(ch *service.Channel) *channelResponse {
 		CreatedAt:      ch.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:      ch.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 	}
+	resp.PriceCurrency = ch.EffectivePriceCurrency()
 	resp.BillingModelSource = ch.BillingModelSource
 	if resp.GroupIDs == nil {
 		resp.GroupIDs = []int64{}
@@ -510,6 +514,7 @@ func (h *ChannelHandler) Create(c *gin.Context) {
 		GroupIDs:                   req.GroupIDs,
 		ModelPricing:               pricing,
 		ModelMapping:               req.ModelMapping,
+		PriceCurrency:              req.PriceCurrency,
 		BillingModelSource:         req.BillingModelSource,
 		RestrictModels:             req.RestrictModels,
 		Features:                   req.Features,
@@ -546,6 +551,7 @@ func (h *ChannelHandler) Update(c *gin.Context) {
 		Status:                     req.Status,
 		GroupIDs:                   req.GroupIDs,
 		ModelMapping:               req.ModelMapping,
+		PriceCurrency:              req.PriceCurrency,
 		BillingModelSource:         req.BillingModelSource,
 		RestrictModels:             req.RestrictModels,
 		Features:                   req.Features,

@@ -124,9 +124,10 @@ type userChannelPlatformSection struct {
 // 每个渠道聚合为一条记录，内嵌 platforms 子数组：每个 section 对应一个平台，
 // 包含该平台的 groups 和 supported_models。
 type userAvailableChannel struct {
-	Name        string                       `json:"name"`
-	Description string                       `json:"description"`
-	Platforms   []userChannelPlatformSection `json:"platforms"`
+	PriceCurrency string                       `json:"price_currency"`
+	Name          string                       `json:"name"`
+	Description   string                       `json:"description"`
+	Platforms     []userChannelPlatformSection `json:"platforms"`
 }
 
 // List 列出当前用户可见的「可用渠道」。
@@ -177,9 +178,10 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 			continue
 		}
 		out = append(out, userAvailableChannel{
-			Name:        ch.Name,
-			Description: ch.Description,
-			Platforms:   sections,
+			PriceCurrency: ch.PriceCurrency,
+			Name:          ch.Name,
+			Description:   ch.Description,
+			Platforms:     sections,
 		})
 	}
 

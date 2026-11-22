@@ -30,6 +30,7 @@ type AvailableGroupRef struct {
 // AvailableChannel 可用渠道视图：用于「可用渠道」页面展示渠道基础信息 +
 // 关联的分组 + 推导出的支持模型列表（无通配符）。
 type AvailableChannel struct {
+	PriceCurrency      string
 	ID                 int64
 	Name               string
 	Description        string
@@ -93,9 +94,13 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 		ch.normalizeBillingModelSource()
 
 		supported := ch.SupportedModels()
-		fillGlobalPricingFallback(s.pricingService, supported)
+		// Global catalog prices are USD. Do not relabel them as native currency.
+		if ch.EffectivePriceCurrency() == DefaultChannelPriceCurrency {
+			fillGlobalPricingFallback(s.pricingService, supported)
+		}
 
 		out = append(out, AvailableChannel{
+			PriceCurrency:      ch.EffectivePriceCurrency(),
 			ID:                 ch.ID,
 			Name:               ch.Name,
 			Description:        ch.Description,

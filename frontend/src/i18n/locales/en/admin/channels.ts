@@ -102,6 +102,7 @@ export default {
       },
       deleteConfirm: 'Are you sure you want to delete channel "{name}"? This cannot be undone.',
       columns: {
+        currency: 'Currency',
         name: 'Name',
         description: 'Description',
         status: 'Status',
@@ -116,7 +117,24 @@ export default {
         image: 'Image (Per Request)',
         video: 'Video (Per Second)'
       },
+      currencies: {
+        USD: 'USD · US dollar',
+        CNY: 'CNY · Renminbi / RMB',
+        EUR: 'EUR · Euro',
+        GBP: 'GBP · Pound sterling',
+        JPY: 'JPY · Japanese yen',
+        HKD: 'HKD · Hong Kong dollar',
+        SGD: 'SGD · Singapore dollar',
+        AUD: 'AUD · Australian dollar',
+        CAD: 'CAD · Canadian dollar',
+        CHF: 'CHF · Swiss franc',
+        KRW: 'KRW · South Korean won',
+      },
       form: {
+        priceCurrency: 'Price currency',
+        priceCurrencyHint: 'Channel prices and Available Channels use this denomination without FX conversion. Changing currency does not change existing numbers.',
+        priceCurrencyFallbackHint: 'Non-USD channels do not auto-fill USD reference prices. Unconfigured prices are shown as unavailable.',
+
         name: 'Name',
         namePlaceholder: 'Enter channel name',
         description: 'Description',

@@ -632,6 +632,21 @@ export default {
     public: 'Public',
     exclusiveTooltip: 'Exclusive groups granted to you by an admin',
     publicTooltip: 'Groups open to all users',
+    catalog: {
+      filters: 'Platform and group filters',
+      allPlatforms: 'All platforms',
+      allGroups: 'All groups',
+      groupLabel: 'Groups',
+      groupHint: 'Explore models and pricing available in each group',
+      modelCount: '{count} models',
+      showRates: 'Show rate multipliers',
+      detailsHint: 'Base prices; expand for tiers, time pricing and channel rules',
+      basePriceNote: 'Channel base prices before group or personal rate multipliers. Actual charges also depend on tiers, time pricing, reasoning effort and peak-hour rules.',
+      reasoningMultipliers: 'Reasoning effort multipliers',
+      noResults: 'No matching models. Try adjusting your filters.',
+      resetFilters: 'Reset filters',
+      loadFailed: 'Unable to load available channels. Please try again.'
+    },
     columns: {
       name: 'Channel',
       description: 'Description',
@@ -640,6 +655,10 @@ export default {
       supportedModels: 'Supported Models'
     },
     pricing: {
+      unitPerMillionShort: '/ 1M',
+      unitPerImage: '/ image',
+      cacheWriteShort: 'Write',
+      cacheReadShort: 'Read',
       billingMode: 'Billing Mode',
       billingModeToken: 'Per Token',
       billingModePerRequest: 'Per Request',

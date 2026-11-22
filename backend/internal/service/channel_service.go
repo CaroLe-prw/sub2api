@@ -859,6 +859,10 @@ func formatMaxTokens(max *int) string {
 
 // Create 创建渠道
 func (s *ChannelService) Create(ctx context.Context, input *CreateChannelInput) (*Channel, error) {
+	currency, err := NormalizeChannelPriceCurrency(input.PriceCurrency)
+	if err != nil {
+		return nil, err
+	}
 	exists, err := s.repo.ExistsByName(ctx, input.Name)
 	if err != nil {
 		return nil, fmt.Errorf("check channel exists: %w", err)
@@ -872,6 +876,7 @@ func (s *ChannelService) Create(ctx context.Context, input *CreateChannelInput) 
 	}
 
 	channel := &Channel{
+		PriceCurrency:              currency,
 		Name:                       input.Name,
 		Description:                input.Description,
 		Status:                     StatusActive,
@@ -955,6 +960,13 @@ func (s *ChannelService) Update(ctx context.Context, id int64, input *UpdateChan
 
 // applyUpdateInput 将更新请求的字段应用到渠道实体上。
 func (s *ChannelService) applyUpdateInput(ctx context.Context, channel *Channel, input *UpdateChannelInput) error {
+	if input.PriceCurrency != nil {
+		currency, err := NormalizeChannelPriceCurrency(*input.PriceCurrency)
+		if err != nil {
+			return err
+		}
+		channel.PriceCurrency = currency
+	}
 	if input.Name != "" && input.Name != channel.Name {
 		exists, err := s.repo.ExistsByNameExcluding(ctx, input.Name, channel.ID)
 		if err != nil {
@@ -1244,6 +1256,7 @@ func detectConflicts(entries []modelEntry, platform, errCode, label string) erro
 
 // CreateChannelInput 创建渠道输入
 type CreateChannelInput struct {
+	PriceCurrency              string
 	Name                       string
 	Description                string
 	GroupIDs                   []int64
@@ -1259,6 +1272,7 @@ type CreateChannelInput struct {
 
 // UpdateChannelInput 更新渠道输入
 type UpdateChannelInput struct {
+	PriceCurrency              *string
 	Name                       string
 	Description                *string
 	Status                     string

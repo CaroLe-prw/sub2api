@@ -90,6 +90,10 @@
             </span>
           </template>
 
+          <template #cell-price_currency="{ row }">
+            <span class="rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 dark:bg-dark-700 dark:text-gray-200">{{ priceCurrencyLabel(row.price_currency) }}</span>
+          </template>
+
           <template #cell-created_at="{ value }">
             <span class="text-sm text-gray-600 dark:text-gray-400">
               {{ formatDate(value) }}
@@ -196,6 +200,13 @@
                 class="input"
                 :placeholder="t('admin.channels.form.descriptionPlaceholder', 'Optional description')"
               ></textarea>
+            </div>
+
+            <div>
+              <label for="channel-price-currency" class="input-label">{{ t('admin.channels.form.priceCurrency') }}</label>
+              <Select id="channel-price-currency" v-model="form.price_currency" :options="priceCurrencyOptions" :aria-label="t('admin.channels.form.priceCurrency')" />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channels.form.priceCurrencyHint') }}</p>
+              <p v-if="form.price_currency !== 'USD'" class="mt-1 text-xs text-amber-600 dark:text-amber-400">{{ t('admin.channels.form.priceCurrencyFallbackHint') }}</p>
             </div>
 
             <!-- Status (edit only) -->
@@ -446,6 +457,7 @@
                 <PricingEntryCard
                   v-for="(entry, idx) in section.model_pricing"
                   :key="idx"
+                  :price-currency="form.price_currency"
                   :entry="entry"
                   :platform="section.platform"
                   enable-time-pricing
@@ -578,6 +590,7 @@
                     <PricingEntryCard
                       v-for="(entry, pIdx) in rule.pricing"
                       :key="pIdx"
+                      :price-currency="form.price_currency"
                       :entry="entry"
                       :platform="section.platform"
                       :hide-time-pricing="true"
@@ -632,6 +645,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { CHANNEL_PRICE_CURRENCIES, normalizePriceCurrency, priceCurrencyLabel } from '@/utils/channelCurrency'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
 import type { Channel, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
@@ -713,6 +727,7 @@ const columns = computed<Column[]>(() => [
   { key: 'description', label: t('admin.channels.columns.description', 'Description'), sortable: false },
   { key: 'status', label: t('admin.channels.columns.status', 'Status'), sortable: true },
   { key: 'group_count', label: t('admin.channels.columns.groups', 'Groups'), sortable: false },
+  { key: 'price_currency', label: t('admin.channels.columns.currency'), sortable: false },
   { key: 'pricing_count', label: t('admin.channels.columns.pricing', 'Pricing'), sortable: false },
   { key: 'created_at', label: t('admin.channels.columns.createdAt', 'Created'), sortable: true },
   { key: 'actions', label: t('admin.channels.columns.actions', 'Actions'), sortable: false }
@@ -728,6 +743,10 @@ const statusEditOptions = computed(() => [
   { value: 'active', label: t('admin.channels.statusActive', 'Active') },
   { value: 'disabled', label: t('admin.channels.statusDisabled', 'Disabled') }
 ])
+
+const priceCurrencyOptions = computed(() => CHANNEL_PRICE_CURRENCIES.map(value => ({
+  value, label: t(`admin.channels.currencies.${value}`)
+})))
 
 const billingModelSourceOptions = computed(() => [
   { value: 'channel_mapped', label: t('admin.channels.form.billingModelSourceChannelMapped', 'Bill by channel-mapped model') },
@@ -771,6 +790,7 @@ const form = reactive({
   name: '',
   description: '',
   status: 'active',
+  price_currency: 'USD',
   restrict_models: false,
   billing_model_source: 'channel_mapped' as string,
   platforms: [] as PlatformSection[],
@@ -1373,6 +1393,7 @@ function resetForm() {
   form.name = ''
   form.description = ''
   form.status = 'active'
+  form.price_currency = 'USD'
   form.restrict_models = false
   form.billing_model_source = 'channel_mapped'
   form.platforms = []
@@ -1395,6 +1416,7 @@ async function openEditDialog(channel: Channel) {
   form.name = channel.name
   form.description = channel.description || ''
   form.status = channel.status
+  form.price_currency = normalizePriceCurrency(channel.price_currency)
   form.restrict_models = channel.restrict_models || false
   form.billing_model_source = channel.billing_model_source || 'channel_mapped'
   form.apply_pricing_to_account_stats = channel.apply_pricing_to_account_stats || false
@@ -1625,6 +1647,7 @@ async function handleSubmit() {
     if (editingChannel.value) {
       const req: UpdateChannelRequest = {
         name: form.name.trim(),
+        price_currency: form.price_currency,
         description: form.description.trim() || undefined,
         status: form.status,
         group_ids,
@@ -1641,6 +1664,7 @@ async function handleSubmit() {
     } else {
       const req: CreateChannelRequest = {
         name: form.name.trim(),
+        price_currency: form.price_currency,
         description: form.description.trim() || undefined,
         group_ids,
         model_pricing,

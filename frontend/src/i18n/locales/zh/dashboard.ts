@@ -637,6 +637,21 @@ export default {
     public: '公开',
     exclusiveTooltip: '管理员授权给你的专属分组',
     publicTooltip: '对所有用户公开的分组',
+    catalog: {
+      filters: '平台与分组筛选',
+      allPlatforms: '全部平台',
+      allGroups: '全部分组',
+      groupLabel: '分组',
+      groupHint: '查看该分组支持的模型与价格',
+      modelCount: '{count} 个模型',
+      showRates: '显示折扣倍率',
+      detailsHint: '基础价格，阶梯、分时及渠道规则见下方明细',
+      basePriceNote: '此处展示渠道基础价格，未乘分组或用户专属倍率。实际费用还受阶梯、分时、思考等级及高峰规则影响。',
+      reasoningMultipliers: '思考等级倍率',
+      noResults: '没有匹配的模型，试试其他筛选条件',
+      resetFilters: '重置筛选',
+      loadFailed: '加载可用渠道失败，请重试'
+    },
     columns: {
       name: '渠道名',
       description: '描述',
@@ -645,6 +660,10 @@ export default {
       supportedModels: '支持模型'
     },
     pricing: {
+      unitPerMillionShort: '/ 1M',
+      unitPerImage: '/ 张',
+      cacheWriteShort: '写入',
+      cacheReadShort: '读取',
       billingMode: '计费模式',
       billingModeToken: '按 Token',
       billingModePerRequest: '按次',

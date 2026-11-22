@@ -104,7 +104,7 @@
           <!-- Default prices (fallback when no interval matches) -->
           <label class="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
             {{ t('admin.channels.form.defaultPrices') }}
-            <span class="ml-1 font-normal text-gray-400">$/MTok</span>
+            <span class="ml-1 font-normal text-gray-400">{{ priceCurrency }} / MTok</span>
           </label>
           <div class="pricing-default-grid mt-1 grid gap-2">
             <div>
@@ -182,6 +182,7 @@
               <IntervalRow
                 v-for="(iv, idx) in entry.intervals"
                 :key="idx"
+                :price-currency="priceCurrency"
                 :interval="iv"
                 :platform="props.platform"
                 :mode="entry.billing_mode"
@@ -204,7 +205,7 @@
           <!-- Default per-request price -->
           <label class="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
             {{ t('admin.channels.form.defaultPerRequestPrice') }}
-            <span class="ml-1 font-normal text-gray-400">$</span>
+            <span class="ml-1 font-normal text-gray-400">{{ priceCurrency }}</span>
           </label>
           <div class="mt-1 w-48">
             <input :value="entry.per_request_price" @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
@@ -224,6 +225,7 @@
             <IntervalRow
               v-for="(iv, idx) in entry.intervals"
               :key="idx"
+              :price-currency="priceCurrency"
               :interval="iv"
               :mode="entry.billing_mode"
               @update="updateInterval(idx, $event)"
@@ -240,7 +242,7 @@
           <!-- Default image price (per-request, same as per_request mode) -->
           <label class="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
             {{ entry.billing_mode === 'video' ? t('admin.channels.form.defaultVideoPrice') : t('admin.channels.form.defaultImagePrice') }}
-            <span class="ml-1 font-normal text-gray-400">$</span>
+            <span class="ml-1 font-normal text-gray-400">{{ priceCurrency }}</span>
           </label>
           <div class="mt-1 w-48">
             <input :value="entry.per_request_price" @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
@@ -260,6 +262,7 @@
             <IntervalRow
               v-for="(iv, idx) in entry.intervals"
               :key="idx"
+              :price-currency="priceCurrency"
               :interval="iv"
               :mode="entry.billing_mode"
               @update="updateInterval(idx, $event)"
@@ -327,11 +330,13 @@ const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   entry: PricingFormEntry
+  priceCurrency?: string
   platform?: string
   hideTokenIntervals?: boolean
   enableTimePricing?: boolean
   enableTierMultipliers?: boolean
 }>(), {
+  priceCurrency: 'USD',
   hideTokenIntervals: false,
   enableTimePricing: false,
   enableTierMultipliers: false,
@@ -428,7 +433,7 @@ async function onModelsUpdate(newModels: string[]) {
   // 条目已有模型时（即使价格留空、按各模型的官方默认价回退）追加模型不应改写整条价格，
   // 一次加入多个模型也不应把第一个模型的价格套用到整条，否则条目内所有模型都会被静默改价。
   const addedModels = newModels.filter(m => !oldModels.includes(m))
-  if (oldModels.length !== 0 || addedModels.length !== 1) return
+  if (oldModels.length !== 0 || addedModels.length !== 1 || props.priceCurrency !== 'USD') return
 
   // 检查是否所有价格字段都为空
   const e = props.entry
@@ -439,7 +444,8 @@ async function onModelsUpdate(newModels: string[]) {
   // 查询第一个新增模型的默认价格
   try {
     const result = await channelsAPI.getModelDefaultPricing(addedModels[0])
-    if (result.found) {
+    // Global reference prices are USD: never relabel them as another currency.
+    if (result.found && props.priceCurrency === 'USD') {
       emit('update', {
         ...props.entry,
         models: newModels,

@@ -85,6 +85,7 @@ export interface UserChannelPlatformSection {
 }
 
 export interface UserAvailableChannel {
+  price_currency?: string
   name: string
   description: string
   platforms: UserChannelPlatformSection[]

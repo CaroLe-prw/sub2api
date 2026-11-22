@@ -102,6 +102,7 @@ export default {
       },
       deleteConfirm: '确定要删除渠道「{name}」吗？此操作不可撤销。',
       columns: {
+        currency: '币种',
         name: '名称',
         description: '描述',
         status: '状态',
@@ -116,7 +117,24 @@ export default {
         image: '图片（按次）',
         video: '视频（按秒）'
       },
+      currencies: {
+        USD: 'USD · 美元',
+        CNY: 'CNY · 人民币 / RMB',
+        EUR: 'EUR · 欧元',
+        GBP: 'GBP · 英镑',
+        JPY: 'JPY · 日元',
+        HKD: 'HKD · 港币',
+        SGD: 'SGD · 新加坡元',
+        AUD: 'AUD · 澳元',
+        CAD: 'CAD · 加元',
+        CHF: 'CHF · 瑞士法郎',
+        KRW: 'KRW · 韩元',
+      },
       form: {
+        priceCurrency: '价格币种',
+        priceCurrencyHint: '渠道价格及可用渠道按此币种原样展示，不进行汇率换算；切换币种不会修改已有数值。',
+        priceCurrencyFallbackHint: '非美元渠道不自动填入美元参考价，未配置的价格显示为暂无定价。',
+
         name: '名称',
         namePlaceholder: '输入渠道名称',
         description: '描述',

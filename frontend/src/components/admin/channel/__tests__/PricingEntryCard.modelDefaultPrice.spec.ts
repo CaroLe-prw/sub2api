@@ -106,4 +106,25 @@ describe('PricingEntryCard default price auto-fill', () => {
       expect(emitted.input_price).toBe('1.5')
     }
   })
+  it('does not fill USD defaults into CNY prices', async () => {
+    const wrapper = shallowMount(PricingEntryCard, { props: { entry: createEntry(), priceCurrency: 'CNY' } })
+    wrapper.findComponent({ name: 'ModelTagInput' }).vm.$emit('update:models', ['test-model'])
+    await flushPromises()
+    expect(getModelDefaultPricing).not.toHaveBeenCalled()
+    expect(emittedEntries(wrapper).at(-1)?.input_price).toBeNull()
+    expect(wrapper.text()).toContain('CNY / MTok')
+    expect(wrapper.text()).not.toContain('$/MTok')
+  })
+
+  it('ignores an in-flight USD reference when the channel switches currency', async () => {
+    let finish!: (value: { found: boolean; input_price: number }) => void
+    getModelDefaultPricing.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const wrapper = addModels(createEntry(), ['test-model'])
+    await wrapper.setProps({ priceCurrency: 'CNY' })
+    finish({ found: true, input_price: 3e-6 })
+    await flushPromises()
+    expect(emittedEntries(wrapper)).toHaveLength(1)
+    expect(emittedEntries(wrapper)[0].input_price).toBeNull()
+  })
+
 })

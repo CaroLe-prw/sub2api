@@ -65,10 +65,11 @@ func TestToUserSupportedModels_NilAllowedPlatformsKeepsAll(t *testing.T) {
 
 func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 	// 通过序列化 userAvailableChannel 结构体验证响应形状：
-	// 只有 name / description / platforms；不含管理端字段。
+	// 只有 name / description / price_currency / platforms；不含管理端字段。
 	row := userAvailableChannel{
-		Name:        "ch",
-		Description: "d",
+		PriceCurrency: "CNY",
+		Name:          "ch",
+		Description:   "d",
 		Platforms: []userChannelPlatformSection{
 			{
 				Platform:        "anthropic",
@@ -86,10 +87,12 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 		_, exists := decoded[key]
 		require.Falsef(t, exists, "user DTO must not expose %q", key)
 	}
-	for _, key := range []string{"name", "description", "platforms"} {
+	for _, key := range []string{"name", "description", "price_currency", "platforms"} {
 		_, exists := decoded[key]
 		require.Truef(t, exists, "user DTO must expose %q", key)
 	}
+
+	require.Equal(t, "CNY", decoded["price_currency"])
 
 	// 验证 section 的字段（platform / groups / supported_models）。
 	rawSection, err := json.Marshal(row.Platforms[0])

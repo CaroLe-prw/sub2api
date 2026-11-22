@@ -48,6 +48,7 @@ const (
 
 // Channel 渠道实体
 type Channel struct {
+	PriceCurrency      string // Original denomination for configured prices; no currency conversion.
 	ID                 int64
 	Name               string
 	Description        string
