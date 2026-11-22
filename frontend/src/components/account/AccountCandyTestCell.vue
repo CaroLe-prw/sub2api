@@ -1,5 +1,5 @@
 <template>
-  <div v-if="account.platform === 'openai' && account.type === 'oauth'" class="flex flex-col items-start gap-1" data-testid="account-candy-test">
+  <div v-if="account.platform === 'openai' && (account.type === 'oauth' || account.type === 'apikey')" class="flex flex-col items-start gap-1" data-testid="account-candy-test">
     <button
       type="button"
       class="inline-flex items-center gap-1 text-xs font-medium disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
@@ -110,7 +110,7 @@ const sampleTitle = (sample: CandyTestSample) =>
   `${t(`admin.accounts.candyTest.${sample.status}`)} · ${sample.model} · ${new Date(sample.checked_at).toLocaleString()} · ${(sample.latency_ms / 1000).toFixed(1)}s`
 
 async function run() {
-  if (running.value || props.account.platform !== 'openai' || props.account.type !== 'oauth') return
+  if (running.value || props.account.platform !== 'openai' || (props.account.type !== 'oauth' && props.account.type !== 'apikey')) return
   const id = props.account.id
   const request = new AbortController()
   controller = request

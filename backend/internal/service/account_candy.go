@@ -120,10 +120,15 @@ func readCandyTestSnapshot(extra map[string]any) (CandyTestSnapshot, error) {
 	return snapshot, nil
 }
 
+func supportsCandyTest(account *Account) bool {
+	return account != nil && account.Platform == PlatformOpenAI &&
+		(account.Type == AccountTypeOAuth || account.Type == AccountTypeAPIKey)
+}
+
 // IsCandyTestBlocked deliberately does not conflate API failures with wrong
 // answers. Legacy snapshots without a dedicated flag use their latest verdict.
 func (a *Account) IsCandyTestBlocked() bool {
-	if a == nil || a.Platform != PlatformOpenAI || a.Type != AccountTypeOAuth {
+	if !supportsCandyTest(a) {
 		return false
 	}
 	if blocked, ok := a.Extra[CandyTestBlockedExtraKey].(bool); ok {
@@ -191,8 +196,8 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 	if err != nil {
 		return nil, err
 	}
-	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth || account.IsSyntheticUITest() {
-		return nil, infraerrors.BadRequest("CANDY_TEST_OAUTH_ONLY", "Candy tests require a real OpenAI OAuth account")
+	if !supportsCandyTest(account) || account.IsSyntheticUITest() {
+		return nil, infraerrors.BadRequest("CANDY_TEST_OPENAI_ONLY", "Candy tests require a real OpenAI OAuth or API Key account")
 	}
 	var scheduledGroup *Group
 	if automatic {

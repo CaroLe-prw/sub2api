@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CandyTest runs a single explicit OAuth-only reasoning check.
+// CandyTest runs a single explicit OpenAI OAuth/API Key reasoning check.
 // POST /api/v1/admin/accounts/:id/candy-test
 func (h *AccountHandler) CandyTest(c *gin.Context) {
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)

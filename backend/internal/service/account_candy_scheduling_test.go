@@ -109,8 +109,11 @@ func TestCandySchedulingLegacyHistoryAndPlatformScope(t *testing.T) {
 	}
 	require.True(t, account.IsCandyTestBlocked())
 	require.False(t, account.IsSchedulable())
+	account.Type = AccountTypeAPIKey
+	require.True(t, account.IsCandyTestBlocked())
+	require.False(t, account.IsSchedulable())
 	account.Extra[CandyTestBlockedExtraKey] = true
-	for _, pair := range [][2]string{{PlatformOpenAI, AccountTypeAPIKey}, {PlatformAnthropic, AccountTypeOAuth}, {PlatformGemini, AccountTypeOAuth}} {
+	for _, pair := range [][2]string{{PlatformOpenAI, AccountTypeSetupToken}, {PlatformAnthropic, AccountTypeOAuth}, {PlatformGemini, AccountTypeOAuth}} {
 		account.Platform, account.Type = pair[0], pair[1]
 		require.False(t, account.IsCandyTestBlocked())
 		require.True(t, account.IsSchedulable())
@@ -135,44 +138,46 @@ func TestScheduledCandyTestRecoversBlockedAccount(t *testing.T) {
 }
 
 func TestCandySchedulingSkipsWrongAnswerEvenWithStaleStickyCache(t *testing.T) {
-	for _, advanced := range []string{"true", "false"} {
-		for _, verdict := range []string{"failed", "passed", "error"} {
-			t.Run(advanced+"/"+verdict, func(t *testing.T) {
-				ctx := context.Background()
-				groupID := int64(10103)
-				primary := &Account{ID: 33001, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}}
-				backup := &Account{ID: 33002, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5, GroupIDs: []int64{groupID}}
-				dbPrimary := *primary
-				snapshot := CandyTestSnapshot{}
-				appendCandyTestSample(&snapshot, CandyTestSample{Status: verdict})
-				dbPrimary.Extra = map[string]any{CandyTestExtraKey: snapshot, CandyTestBlockedExtraKey: verdict == "failed"}
-				svc := &OpenAIGatewayService{
-					accountRepo:      schedulerTestOpenAIAccountRepo{accounts: []Account{dbPrimary, *backup}},
-					cache:            &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:candy_session": primary.ID}},
-					cfg:              &config.Config{},
-					rateLimitService: newOpenAIAdvancedSchedulerRateLimitService(advanced),
-					schedulerSnapshot: &SchedulerSnapshotService{cache: &openAISnapshotCacheStub{
-						snapshotAccounts: []*Account{primary, backup},
-						accountsByID:     map[int64]*Account{primary.ID: primary, backup.ID: backup},
-					}},
-					concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
-				}
-				expected := primary.ID
-				if verdict == "failed" {
-					expected = backup.ID
-				}
-				selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "candy_session", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
-				require.NoError(t, err)
-				require.NotNil(t, selection)
-				require.Equal(t, expected, selection.Account.ID)
-				if selection.ReleaseFunc != nil {
-					selection.ReleaseFunc()
-				}
-				// The legacy model selector must also recheck stale candidate metadata.
-				selected, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gpt-5.1", nil)
-				require.NoError(t, err)
-				require.Equal(t, expected, selected.ID)
-			})
+	for _, accountType := range []string{AccountTypeOAuth, AccountTypeAPIKey} {
+		for _, advanced := range []string{"true", "false"} {
+			for _, verdict := range []string{"failed", "passed", "error"} {
+				t.Run(accountType+"/"+advanced+"/"+verdict, func(t *testing.T) {
+					ctx := context.Background()
+					groupID := int64(10103)
+					primary := &Account{ID: 33001, Platform: PlatformOpenAI, Type: accountType, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}}
+					backup := &Account{ID: 33002, Platform: PlatformOpenAI, Type: accountType, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5, GroupIDs: []int64{groupID}}
+					dbPrimary := *primary
+					snapshot := CandyTestSnapshot{}
+					appendCandyTestSample(&snapshot, CandyTestSample{Status: verdict})
+					dbPrimary.Extra = map[string]any{CandyTestExtraKey: snapshot, CandyTestBlockedExtraKey: verdict == "failed"}
+					svc := &OpenAIGatewayService{
+						accountRepo:      schedulerTestOpenAIAccountRepo{accounts: []Account{dbPrimary, *backup}},
+						cache:            &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:candy_session": primary.ID}},
+						cfg:              &config.Config{},
+						rateLimitService: newOpenAIAdvancedSchedulerRateLimitService(advanced),
+						schedulerSnapshot: &SchedulerSnapshotService{cache: &openAISnapshotCacheStub{
+							snapshotAccounts: []*Account{primary, backup},
+							accountsByID:     map[int64]*Account{primary.ID: primary, backup.ID: backup},
+						}},
+						concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+					}
+					expected := primary.ID
+					if verdict == "failed" {
+						expected = backup.ID
+					}
+					selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "candy_session", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
+					require.NoError(t, err)
+					require.NotNil(t, selection)
+					require.Equal(t, expected, selection.Account.ID)
+					if selection.ReleaseFunc != nil {
+						selection.ReleaseFunc()
+					}
+					// The legacy model selector must also recheck stale candidate metadata.
+					selected, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gpt-5.1", nil)
+					require.NoError(t, err)
+					require.Equal(t, expected, selected.ID)
+				})
+			}
 		}
 	}
 }

@@ -81,7 +81,7 @@ func (r *CandyTestRunner) Stop() {
 }
 
 func candyAutomaticAccountEligible(account *Account, now time.Time) bool {
-	return account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeOAuth &&
+	return supportsCandyTest(account) &&
 		account.IsActive() && account.ParentAccountID == nil && !account.IsSyntheticUITest() &&
 		(account.ExpiresAt == nil || account.ExpiresAt.After(now))
 }

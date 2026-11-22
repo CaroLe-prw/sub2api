@@ -4562,7 +4562,7 @@ func (r *accountRepository) ListShadowsByParent(ctx context.Context, parentID in
 func (r *accountRepository) ListCandyTestAccounts(ctx context.Context, groupID int64) ([]service.Account, error) {
 	accounts, err := r.client.Account.Query().
 		Where(dbaccount.DeletedAtIsNil(), dbaccount.PlatformEQ(service.PlatformOpenAI),
-			dbaccount.TypeEQ(service.AccountTypeOAuth), dbaccount.StatusEQ(service.StatusActive),
+			dbaccount.TypeIn(service.AccountTypeOAuth, service.AccountTypeAPIKey), dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.ParentAccountIDIsNil(), dbaccount.HasAccountGroupsWith(dbaccountgroup.GroupIDEQ(groupID))).
 		Select(dbaccount.FieldID, dbaccount.FieldPlatform, dbaccount.FieldType, dbaccount.FieldStatus,
 			dbaccount.FieldExtra, dbaccount.FieldExpiresAt).

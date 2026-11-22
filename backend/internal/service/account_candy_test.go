@@ -97,8 +97,8 @@ func TestRunCandyTestPersistsActualResultsAndExactModel(t *testing.T) {
 	require.NotContains(t, candyTestPrompt, "21")
 }
 
-func TestRunCandyTestOnlyOpenAIOAuth(t *testing.T) {
-	for _, pair := range [][2]string{{PlatformOpenAI, AccountTypeAPIKey}, {PlatformOpenAI, AccountTypeSetupToken}, {PlatformAnthropic, AccountTypeOAuth}, {PlatformGemini, AccountTypeOAuth}, {PlatformAntigravity, AccountTypeOAuth}} {
+func TestRunCandyTestRejectsUnsupportedAccounts(t *testing.T) {
+	for _, pair := range [][2]string{{PlatformAnthropic, AccountTypeAPIKey}, {PlatformOpenAI, AccountTypeSetupToken}, {PlatformAnthropic, AccountTypeOAuth}, {PlatformGemini, AccountTypeOAuth}, {PlatformAntigravity, AccountTypeOAuth}} {
 		t.Run(pair[0]+pair[1], func(t *testing.T) {
 			account := candyAccount()
 			account.Platform = pair[0]

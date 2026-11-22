@@ -19,8 +19,24 @@ const result = (): CandyTestSnapshot => ({ total: 3, passed: 1, failed: 1, error
 
 beforeEach(() => { vi.clearAllMocks(); runCandyTest.mockResolvedValue(result()) })
 describe('AccountCandyTestCell', () => {
+  it.each(['oauth', 'apikey'] as const)('runs and displays saved results for OpenAI %s', async (type) => {
+    const saved = result()
+    const original = account({ type, schedulable: true, extra: { candy_test: saved } })
+    const wrapper = mount(AccountCandyTestCell, { props: { account: original, groupId: 7 } })
+    expect(wrapper.find('[data-testid="account-candy-test"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-status]')).toHaveLength(3)
+    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(true)
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(runCandyTest).toHaveBeenCalledTimes(1)
+    expect(runCandyTest.mock.calls[0].slice(0, 2)).toEqual([42, 7])
+    expect(wrapper.emitted('updated')?.[0]).toEqual([result()])
+    expect(original.schedulable).toBe(true)
+    wrapper.unmount()
+  })
+
   it.each([
-    { platform: 'openai', type: 'apikey' },
+    { platform: 'anthropic', type: 'apikey' },
     { platform: 'openai', type: 'setup-token' },
     { platform: 'anthropic', type: 'oauth' },
     { platform: 'gemini', type: 'oauth' }

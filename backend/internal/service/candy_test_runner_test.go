@@ -233,8 +233,8 @@ func TestCandyRunnerFiltersDisabledUnsupportedAndNotDueAccounts(t *testing.T) {
 	runner.scan()
 	runner.wg.Wait()
 	require.Equal(t, 1, accounts.scans)
-	require.Equal(t, 1, tester.count())
-	require.Equal(t, int64(7), tester.calls[0].accountID)
+	require.Equal(t, 2, tester.count())
+	require.ElementsMatch(t, []int64{1, 7}, []int64{tester.calls[0].accountID, tester.calls[1].accountID})
 	runner.Stop()
 }
 

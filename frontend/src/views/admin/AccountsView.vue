@@ -297,7 +297,7 @@
           <template #cell-schedulable="{ row }">
             <div class="flex flex-col items-start gap-1.5">
               <AccountCandyTestCell
-                v-if="row.platform === 'openai' && row.type === 'oauth'"
+                v-if="row.platform === 'openai' && (row.type === 'oauth' || row.type === 'apikey')"
                 :account="row"
                 :group-id="Number(params.group) > 0 ? Number(params.group) : undefined"
                 @updated="handleCandyTestUpdated(row.id, $event)"
