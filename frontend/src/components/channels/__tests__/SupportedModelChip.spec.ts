@@ -68,6 +68,32 @@ describe('SupportedModelChip', () => {
     }
   )
 
+  it.each(['availableChannels.pricing', 'admin.availableChannels.pricing'])(
+    'reads image prices from the per-request field using %s translations', async (pricingKeyPrefix) => {
+      const wrapper = mount(SupportedModelChip, {
+        attachTo: document.body,
+        props: { pricingKeyPrefix, model: { name: 'image-test', platform: '', pricing: {
+          ...tokenPricing, billing_mode: 'image', per_request_price: 0.01, image_output_price: 0.00003
+        } } }
+      })
+      try {
+        await wrapper.find('[tabindex="0"]').trigger('mouseenter')
+        await nextTick()
+        const tooltip = document.body.querySelector('[role="tooltip"]')
+        expect(tooltip?.textContent).toContain('$0.01')
+        expect(tooltip?.textContent).not.toContain('$0.00003')
+        const model = wrapper.props('model')
+        await wrapper.setProps({ model: { ...model, pricing: { ...model.pricing!, per_request_price: 0 } } })
+        expect(wrapper.findComponent({ name: 'PricingRow' }).text()).toContain('$0 ')
+        await wrapper.setProps({ model: { ...model, pricing: { ...model.pricing!, per_request_price: null } } })
+        expect(wrapper.findComponent({ name: 'PricingRow' }).exists()).toBe(false)
+        expect(tooltip?.textContent).not.toContain('$0.00003')
+      } finally {
+        wrapper.unmount()
+      }
+    }
+  )
+
   it('仅配置区间倍率时按基础价展示 token 档位', async () => {
     const wrapper = mount(SupportedModelChip, {
       attachTo: document.body,

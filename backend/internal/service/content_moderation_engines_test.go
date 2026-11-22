@@ -72,7 +72,7 @@ func TestContentModerationTypeSafeAllCategoriesAndImages(t *testing.T) {
 		var request typesafe.Request
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
 		require.Equal(t, "需要审核的文字", request.State)
-		require.Len(t, request.Questions, 13)
+		require.Len(t, request.Questions, 14)
 		answers := map[string]any{}
 		for category := range typeSafeModerationRules {
 			q, ok := request.Questions[category]
@@ -95,7 +95,7 @@ func TestContentModerationTypeSafeAllCategoriesAndImages(t *testing.T) {
 	result, err := s.callModeration(context.Background(), cfg, content.ModerationInput())
 	require.NoError(t, err)
 	require.Equal(t, int32(1), calls.Load())
-	require.Len(t, result.CategoryScores, 13)
+	require.Len(t, result.CategoryScores, 14)
 	require.Equal(t, &ContentModerationEngineMeta{Engine: "typesafe", Model: "jev-fixed", RulesVersion: TypeSafeModerationRulesVersion, SkippedImages: 1}, result.EngineMeta)
 	trial := buildContentModerationTestAuditResult(result, cfg.Thresholds)
 	require.Equal(t, result.EngineMeta, trial.EngineMeta)

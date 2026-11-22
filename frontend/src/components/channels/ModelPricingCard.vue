@@ -112,11 +112,7 @@ const tiers = computed(() => {
     const resolved = {
       ...pricing!,
       ...resolveIntervalPrices(interval, pricing!),
-      per_request_price: interval.per_request_price ?? pricing!.per_request_price,
-      // Image tiers share the per-request override in the API.
-      image_output_price: pricing!.billing_mode === 'image'
-        ? interval.per_request_price ?? pricing!.image_output_price
-        : pricing!.image_output_price
+      per_request_price: interval.per_request_price ?? pricing!.per_request_price
     }
     return {
       label: interval.tier_label || `(${interval.min_tokens.toLocaleString()}, ${interval.max_tokens?.toLocaleString() ?? '∞'}]`,

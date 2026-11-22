@@ -29,7 +29,7 @@ describe('ModelPricingCard', () => {
 
   it.each([
     ['per_request', 'per_request_price', 'unitPerRequest'],
-    ['image', 'image_output_price', 'unitPerImage'],
+    ['image', 'per_request_price', 'unitPerImage'],
     ['video', 'per_request_price', 'unitPerSecond']
   ] as const)('uses the proper %s unit without token scaling', (billing_mode, field, unit) => {
     const wrapper = mountCard({ ...tokenPricing, billing_mode, [field]: 0.05 })
@@ -37,6 +37,44 @@ describe('ModelPricingCard', () => {
     expect(prices.findAll('dd')).toHaveLength(1)
     expect(prices.text()).toContain('$0.05')
     expect(prices.text()).toContain(`availableChannels.pricing.${unit}`)
+  })
+
+  it.each([
+    [0.01, '¥0.01'],
+    [0, '¥0.00'],
+    [null, '-']
+  ] as const)('uses the configured per-image CNY price (%s), not the image token price', (per_request_price, expected) => {
+    const wrapper = mountCard({
+      ...tokenPricing, billing_mode: 'image', per_request_price, image_output_price: 0.00003
+    }, 'CNY')
+    const prices = wrapper.get('[data-testid="base-prices"]')
+    expect(prices.findAll('dd')).toHaveLength(1)
+    expect(prices.get('dd').text()).toContain(expected)
+    expect(prices.text()).toContain('availableChannels.pricing.unitPerImage')
+    expect(wrapper.get('[data-testid="price-currency"]').text()).toBe('CNY / RMB')
+    expect(wrapper.text()).not.toContain('¥0.00003')
+    expect(wrapper.text()).not.toContain('$')
+  })
+
+  it.each([
+    [null, '¥0.01'],
+    [0, '¥0.00'],
+    [0.02, '¥0.02']
+  ] as const)('resolves image tiers from the per-image price without mixing token prices (%s)', (per_request_price, expected) => {
+    const wrapper = mountCard({
+      ...tokenPricing, billing_mode: 'image', per_request_price: 0.01, image_output_price: 0.00003,
+      intervals: [{ min_tokens: 0, max_tokens: null, tier_label: 'small', input_price: null, output_price: null, cache_write_price: null, cache_read_price: null, per_request_price }]
+    }, 'CNY')
+    expect(wrapper.get('details').text()).toContain(expected)
+    expect(wrapper.get('details').text()).not.toContain('¥0.00003')
+  })
+
+  it('still scales image output token prices per million in token billing mode', () => {
+    const wrapper = mountCard({ ...tokenPricing, image_output_price: 0.00003, per_request_price: 0.01 }, 'CNY')
+    const details = wrapper.get('details')
+    expect(details.text()).toContain('¥30.00')
+    expect(details.text()).toContain('availableChannels.pricing.unitPerMillionShort')
+    expect(details.text()).not.toContain('¥0.01')
   })
 
   it('keeps duration prices, resolved tiers, time multipliers and reasoning rules accessible', () => {
@@ -63,7 +101,7 @@ describe('ModelPricingCard', () => {
   it('uses image tier overrides and retains free video tiers', () => {
     for (const mode of ['image', 'video'] as const) {
       const wrapper = mountCard({
-        ...tokenPricing, billing_mode: mode, image_output_price: 0.2, per_request_price: 0.2,
+        ...tokenPricing, billing_mode: mode, image_output_price: 0.00003, per_request_price: 0.2,
         intervals: [{ min_tokens: 0, max_tokens: null, tier_label: 'small', input_price: null, output_price: null, cache_write_price: null, cache_read_price: null, per_request_price: 0 }]
       })
       expect(wrapper.get('details').text()).toContain('small')

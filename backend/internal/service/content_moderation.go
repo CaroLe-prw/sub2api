@@ -106,6 +106,7 @@ var contentModerationCategoryOrder = []string{
 	"hate/threatening",
 	"illicit",
 	"illicit/violent",
+	"cyber_abuse", // Custom TypeSafe rule, not an OpenAI Moderation category.
 	"self-harm",
 	"self-harm/intent",
 	"self-harm/instructions",
@@ -134,6 +135,7 @@ func ContentModerationDefaultThresholds() map[string]float64 {
 		"hate/threatening":               0.65,
 		"illicit":                        0.95,
 		"illicit/violent":                0.95,
+		"cyber_abuse":                    0.95, // Uncalibrated initial value, matching illicit.
 		"self-harm":                      0.65,
 		"self-harm/intent":               0.85,
 		"self-harm/instructions":         0.65,
@@ -2791,7 +2793,11 @@ func evaluateModerationScores(scores map[string]float64, thresholds map[string]f
 	highestCategory := ""
 	highestScore := 0.0
 	for _, category := range contentModerationCategoryOrder {
-		score := scores[category]
+		score, present := scores[category]
+		if !present {
+			// Engines need not support every category; an absent score is not a zero-risk verdict.
+			continue
+		}
 		if score > highestScore || highestCategory == "" {
 			highestScore = score
 			highestCategory = category

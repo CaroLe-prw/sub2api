@@ -74,7 +74,8 @@ func (cfg *ContentModerationConfig) engineProfile(engine string) *ContentModerat
 	}
 	p.ProxyID = cloneInt64Ptr(p.ProxyID)
 	p.APIKeys = append([]string(nil), p.APIKeys...)
-	p.Thresholds = cloneFloatMap(p.Thresholds)
+	// Backfill newly added categories in saved profiles without resetting custom thresholds.
+	p.Thresholds = mergeContentModerationThresholds(ContentModerationDefaultThresholds(), p.Thresholds)
 	return &p
 }
 

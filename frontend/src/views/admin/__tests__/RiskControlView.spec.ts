@@ -300,6 +300,55 @@ describe('admin RiskControlView', () => {
     wrapper.unmount()
   })
 
+  it('keeps the Jev cyber threshold when saving with OpenAI selected', async () => {
+    const wrapper = mount(RiskControlView, { global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } } })
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    expect(wrapper.get('[data-test="audit-cyber-capability-notice"]').text()).toContain('admin.riskControl.openAICyberNotice')
+    wrapper.findComponent('[data-test="audit-engine-select"]').vm.$emit('update:modelValue', 'typesafe')
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.riskThresholds').trigger('click')
+    expect((wrapper.get('[data-test="risk-threshold-cyber_abuse"]').element as HTMLInputElement).value).toBe('95')
+    expect(wrapper.text()).toContain('admin.riskControl.cyberAbuseDescription')
+    await wrapper.get('[data-test="risk-threshold-cyber_abuse"]').setValue('88')
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.basic').trigger('click')
+    wrapper.findComponent('[data-test="audit-engine-select"]').vm.$emit('update:modelValue', 'openai')
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.riskThresholds').trigger('click')
+    expect(wrapper.find('[data-test="risk-threshold-cyber_abuse"]').exists()).toBe(false)
+    await findButtonByText(wrapper, 'admin.riskControl.saveConfig').trigger('click')
+    await flushPromises()
+    const payload = updateConfig.mock.calls[0][0] as UpdateContentModerationConfig
+    expect(payload.thresholds).not.toHaveProperty('cyber_abuse')
+    expect(payload.engine_configs?.openai?.thresholds).not.toHaveProperty('cyber_abuse')
+    expect(payload.engine_configs?.typesafe?.thresholds).toHaveProperty('cyber_abuse', 0.88)
+    expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('restores a saved Jev cyber threshold while OpenAI is initially active', async () => {
+    getConfig.mockResolvedValue({
+      ...baseConfig(), engine: 'openai', engine_configs: {
+        openai: { ...baseConfig(), engine: 'openai' },
+        typesafe: { ...baseConfig(), engine: 'typesafe', model: 'jev-latest', base_url: 'https://api.typesafe.ai', thresholds: { cyber_abuse: 0.81 } },
+      },
+    })
+    const wrapper = mount(RiskControlView, { global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } } })
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    wrapper.findComponent('[data-test="audit-engine-select"]').vm.$emit('update:modelValue', 'typesafe')
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.riskThresholds').trigger('click')
+    expect((wrapper.get('[data-test="risk-threshold-cyber_abuse"]').element as HTMLInputElement).value).toBe('81')
+    await findButtonByText(wrapper, 'admin.riskControl.saveConfig').trigger('click')
+    await flushPromises()
+    const payload = updateConfig.mock.calls[0][0] as UpdateContentModerationConfig
+    expect(payload.thresholds).toHaveProperty('cyber_abuse', 0.81)
+    expect(payload.engine_configs?.typesafe?.thresholds).toHaveProperty('cyber_abuse', 0.81)
+    expect(payload.engine_configs?.openai?.thresholds).not.toHaveProperty('cyber_abuse')
+    wrapper.unmount()
+  })
+
   it('tests the draft engine without switching the active engine', async () => {
     testAPIKeys.mockResolvedValue({ items: [{ status: 'ok', configured: false }], image_count: 0 })
     const wrapper = mount(RiskControlView, { global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } } })

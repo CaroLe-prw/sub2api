@@ -415,6 +415,9 @@
               <div v-if="configForm.engine === 'typesafe'" class="lg:col-span-2 text-sm text-amber-700 dark:text-amber-300" role="status">
                 {{ t('admin.riskControl.typeSafeNotice') }}
               </div>
+              <div v-else class="lg:col-span-2 text-sm text-amber-700 dark:text-amber-300" role="status" data-test="audit-cyber-capability-notice">
+                {{ t('admin.riskControl.openAICyberNotice') }}
+              </div>
               <div>
                 <label class="input-label">{{ t('admin.riskControl.baseUrl') }}</label>
                 <input v-model.trim="configForm.base_url" data-test="audit-base-url" type="url" class="input" :placeholder="configForm.engine === 'typesafe' ? 'https://api.typesafe.ai' : 'https://api.openai.com'" />
@@ -928,6 +931,7 @@
           <div v-else-if="activeSettingsTab === 'riskThresholds'" class="space-y-5">
             <p class="text-sm font-medium">{{ engineLabel(configForm.engine) }}</p>
             <p v-if="configForm.engine === 'typesafe'" class="text-sm text-amber-700 dark:text-amber-300">{{ t('admin.riskControl.typeSafeThresholds') }}</p>
+            <p v-else class="text-sm text-amber-700 dark:text-amber-300" data-test="audit-cyber-capability-notice">{{ t('admin.riskControl.openAICyberNotice') }}</p>
             <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.riskControl.riskThresholds') }}</h3>
@@ -954,6 +958,7 @@
                     <label class="block truncate text-sm font-semibold text-gray-900 dark:text-white" :for="`risk-threshold-${row.category}`">
                       {{ row.category }}
                     </label>
+                    <p v-if="row.category === 'cyber_abuse'" class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.cyberAbuseDescription') }}</p>
                     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       {{ t('admin.riskControl.riskThresholdDefault', { value: formatThresholdPercent(row.defaultValue) }) }}
                     </p>
@@ -1226,6 +1231,7 @@ const openAIRiskThresholdCategories = [
   'violence',
   'violence/graphic',
 ]
+const typeSafeRiskThresholdCategories = [...openAIRiskThresholdCategories, 'cyber_abuse']
 const mistralRiskThresholdCategories = [
   'sexual',
   'hate_and_discrimination',
@@ -1245,6 +1251,7 @@ const riskThresholdDefaults: Record<string, number> = {
   'hate/threatening': 65,
   illicit: 95,
   'illicit/violent': 95,
+  cyber_abuse: 95,
   'self-harm': 65,
   'self-harm/intent': 85,
   'self-harm/instructions': 65,
@@ -1334,13 +1341,16 @@ const configForm = reactive({
   model_filter_models: [] as string[],
 })
 
-const riskThresholdCategories = computed(() => {
-  const model = configForm.model.trim().toLowerCase()
-  const baseURL = configForm.base_url.trim().toLowerCase()
-  return model.startsWith('mistral-moderation') || baseURL.includes('api.mistral.ai')
+function thresholdCategoriesForEngine(engine: ModerationEngine, model: string, baseURL: string): string[] {
+  if (engine === 'typesafe') return typeSafeRiskThresholdCategories
+  return model.trim().toLowerCase().startsWith('mistral-moderation') || baseURL.trim().toLowerCase().includes('api.mistral.ai')
     ? mistralRiskThresholdCategories
     : openAIRiskThresholdCategories
-})
+}
+
+const riskThresholdCategories = computed(() =>
+  thresholdCategoriesForEngine(configForm.engine, configForm.model, configForm.base_url)
+)
 const engineFields = ['base_url', 'model', 'proxy_id', 'api_keys_text', 'api_key_configured', 'api_key_masked', 'api_key_count', 'api_key_masks', 'api_key_statuses', 'api_keys_mode', 'clear_api_key', 'timeout_ms', 'retry_count', 'thresholds'] as const
 type EngineDraft = Pick<typeof configForm, typeof engineFields[number]> & { pendingDeletes: string[] }
 const engineDrafts = ref<Partial<Record<ModerationEngine, EngineDraft>>>({})
@@ -1376,13 +1386,13 @@ function engineDraftFromConfig(config: ContentModerationConfig | undefined, engi
   }
 }
 
-function engineDraftPayload(draft: EngineDraft): UpdateModerationEngineConfig {
+function engineDraftPayload(draft: EngineDraft, engine: ModerationEngine): UpdateModerationEngineConfig {
   const keys = parseApiKeys(draft.api_keys_text)
   if (!draft.clear_api_key && draft.api_keys_mode === 'replace' && keys.length === 0) throw new Error('empty replacement keys')
   return {
     base_url: draft.base_url, model: draft.model, proxy_id: draft.proxy_id ?? 0,
     timeout_ms: draft.timeout_ms, retry_count: draft.retry_count,
-    thresholds: Object.fromEntries(riskThresholdCategories.value.map(k => [k, clampPercent(draft.thresholds[k]) / 100])),
+    thresholds: Object.fromEntries(thresholdCategoriesForEngine(engine, draft.model, draft.base_url).map(k => [k, Number((clampPercent(draft.thresholds[k] ?? riskThresholdDefaults[k]) / 100).toFixed(4))])),
     clear_api_key: draft.clear_api_key, api_keys: keys.length ? keys : undefined,
     api_keys_mode: draft.api_keys_mode, delete_api_key_hashes: draft.pendingDeletes,
   }
@@ -1975,7 +1985,7 @@ async function saveConfig() {
     }
 
     engineDrafts.value[configForm.engine] = captureEngineDraft()
-    payload.engine_configs = Object.fromEntries(Object.entries(engineDrafts.value).map(([engine, draft]) => [engine, engineDraftPayload(draft)]))
+    payload.engine_configs = Object.fromEntries(Object.entries(engineDrafts.value).map(([engine, draft]) => [engine, engineDraftPayload(draft, engine as ModerationEngine)]))
     const updated = await adminAPI.riskControl.updateConfig(payload)
     applyConfig(updated)
     settingsOpen.value = false
@@ -2433,7 +2443,8 @@ function buildModelFilterPayload(): ContentModerationModelFilter {
 
 function riskThresholdsFromConfig(thresholds: Record<string, number> | null | undefined): Record<string, number> {
   const out: Record<string, number> = { ...riskThresholdDefaults }
-  for (const category of riskThresholdCategories.value) {
+  // Restore each saved profile independently of the currently selected engine.
+  for (const category of Object.keys(riskThresholdDefaults)) {
     const value = thresholds?.[category]
     if (Number.isFinite(value)) {
       out[category] = clampPercent(Number(value) * 100)

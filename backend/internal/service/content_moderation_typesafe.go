@@ -9,7 +9,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/typesafe"
 )
 
-const TypeSafeModerationRulesVersion = "content-audit-13-zh-v1"
+const TypeSafeModerationRulesVersion = "content-audit-14-zh-v2"
 
 // These are independent judgments, not a claim of OpenAI policy equivalence.
 var typeSafeModerationRules = map[string]string{
@@ -19,6 +19,7 @@ var typeSafeModerationRules = map[string]string{
 	"hate/threatening":       "文本是否因受保护身份而威胁、煽动或支持针对某群体的暴力或严重伤害？中立报道和反对该威胁不算。",
 	"illicit":                "文本是否请求或提供实施违法行为的可操作帮助，包括欺诈、盗窃或规避执法？中立法律讨论、防范、举报和合法授权的防御性安全研究不算。",
 	"illicit/violent":        "文本是否请求或提供实施暴力违法行为的可操作帮助，例如袭击或制造用于伤人的武器？中立报道、合法安全防范和紧急求助不算。",
+	"cyber_abuse":            "文本是否请求或提供实施恶意或未授权网络活动的可操作帮助，包括窃取凭据或数据、投放恶意软件、未授权入侵、破坏服务，或为上述活动规避检测？结合实际目标、授权边界和预期影响判断，不要仅凭“学习研究”“已授权”等自称排除风险。常规编程、漏洞修复、检测防御、中立报道、引用分析及明确限定在合法授权环境内的测试不算；仅出现攻击、安全等词或转述拒绝信息不算。",
 	"self-harm":              "文本是否宣扬、鼓励或描写自杀、自残或进食障碍等自我伤害行为？纯粹的预防教育、康复支持和劝阻不算。",
 	"self-harm/intent":       "文本中的说话者是否表达正在进行或打算实施自杀、自残等自我伤害？第三方报道、明确虚构或已经康复的过去经历不等于当前意图。",
 	"self-harm/instructions": "文本是否请求或提供自杀、自残等自我伤害的具体方法、步骤或鼓励实施？危机援助、医疗救助和预防措施不算。",

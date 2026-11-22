@@ -79,7 +79,8 @@ export function priceMetrics(pricing: UserSupportedModelPricing): PriceMetric[] 
     case 'per_request':
       return [metric('request', 'perRequestPrice', pricing.per_request_price, 1, 'unitPerRequest')]
     case 'image':
-      return [metric('image', 'imageOutputPrice', pricing.image_output_price, 1, 'unitPerImage')]
+      // Image billing stores the per-image amount in per_request_price; image_output_price is per token.
+      return [metric('image', 'imageOutputPrice', pricing.per_request_price, 1, 'unitPerImage')]
     case 'video':
       return [metric('video', 'videoPrice', pricing.per_request_price, 1, 'unitPerSecond')]
     default:
