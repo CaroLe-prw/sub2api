@@ -833,7 +833,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				Scope:            service.GatewayFailureScopeRequest,
 				Reason:           service.OpenAIHTTPContinuationUnsupportedReason,
 				ClientStatusCode: http.StatusBadRequest,
-				ClientMessage:    "previous_response_id requires an OpenAI API-key account for HTTP requests",
+				ClientMessage:    previousResponseIDRequiresAPIKeyMessage,
 			}
 			reqLog.Debug("openai.account_skipped_http_continuation_unsupported",
 				zap.Int64("account_id", account.ID),
@@ -1950,6 +1950,15 @@ func (h *OpenAIGatewayHandler) ensureAnthropicErrorResponse(c *gin.Context, stre
 	return true
 }
 
+const (
+	// Known Codex context is normalized before validation; unknown unpaired
+	// outputs still need a real call ID on HTTP.
+	functionCallOutputMissingCallIDMessage        = "function_call_output requires call_id on HTTP requests; unpaired tool outputs are only accepted on Responses WebSocket v2. If this comes from Codex Desktop context, update the client or set [features] untrusted_as_tool_output = false, then retry."
+	functionCallOutputMissingItemReferenceMessage = "function_call_output requires item_reference ids matching each call_id on HTTP requests; otherwise include the matching function_call items or a previous_response_id. Unpaired tool outputs are only accepted on Responses WebSocket v2."
+	// HTTP continuation is supported by OpenAI API-key accounts, not OAuth/SetupToken.
+	previousResponseIDRequiresAPIKeyMessage = "previous_response_id requires an OpenAI API-key account on HTTP requests; use an API-key account, a Responses WebSocket v2 connection, or resend the full input without previous_response_id"
+)
+
 func (h *OpenAIGatewayHandler) validateFunctionCallOutputRequest(c *gin.Context, body []byte, reqLog *zap.Logger) bool {
 	if !gjson.GetBytes(body, `input.#(type=="function_call_output")`).Exists() {
 		return true
@@ -1960,16 +1969,39 @@ func (h *OpenAIGatewayHandler) validateFunctionCallOutputRequest(c *gin.Context,
 		return true
 	}
 
-	previousResponseID := gjson.GetBytes(body, "previous_response_id").String()
-	if strings.TrimSpace(previousResponseID) != "" || validation.HasToolCallContext {
+	previousResponseID := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String())
+	if previousResponseID != "" || validation.HasToolCallContext {
+		// Preserve continuation and replayed history. Account selection handles
+		// unsupported OAuth/SetupToken HTTP continuation; the upstream decides
+		// whether unknown call-less context is accepted. Never drop these items.
+		// Validation can stop at paired history, so scan for missing IDs even
+		// when an unpaired context item appears later in the input.
+		if inputIndex := missingToolOutputCallIDIndex(body); inputIndex >= 0 {
+			reason := "function_call_output_missing_call_id_with_tool_call_context"
+			if previousResponseID != "" {
+				reason = "function_call_output_missing_call_id_with_previous_response_id"
+			}
+			reqLog.Warn("openai.request_validation_passthrough",
+				zap.String("reason", reason),
+				zap.Int("input_index", inputIndex),
+			)
+		}
 		return true
 	}
 
 	if validation.HasFunctionCallOutputMissingCallID {
+		// Report the input position, never tool output, arguments or credentials.
+		// Do not synthesize call IDs: an item ID is not its originating call ID.
+		inputIndex := missingToolOutputCallIDIndex(body)
 		reqLog.Warn("openai.request_validation_failed",
 			zap.String("reason", "function_call_output_missing_call_id"),
+			zap.Int("input_index", inputIndex),
 		)
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "function_call_output requires call_id on HTTP requests; continuation via previous_response_id is only supported on Responses WebSocket v2")
+		message := functionCallOutputMissingCallIDMessage
+		if inputIndex >= 0 {
+			message += fmt.Sprintf(" Missing or empty input[%d].call_id; for a real tool result, return the call_id from the corresponding tool call, not the item id.", inputIndex)
+		}
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", message)
 		return false
 	}
 	if validation.HasItemReferenceForAllCallIDs {
@@ -1979,8 +2011,30 @@ func (h *OpenAIGatewayHandler) validateFunctionCallOutputRequest(c *gin.Context,
 	reqLog.Warn("openai.request_validation_failed",
 		zap.String("reason", "function_call_output_missing_item_reference"),
 	)
-	h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "function_call_output requires item_reference ids matching each call_id on HTTP requests; continuation via previous_response_id is only supported on Responses WebSocket v2")
+	h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", functionCallOutputMissingItemReferenceMessage)
 	return false
+}
+
+// missingToolOutputCallIDIndex reports a position for rejection or passthrough diagnostics.
+// Match the tool-output types handled by ValidateFunctionCallOutputContextBytes;
+// do not relax validation or rewrite unknown client-injected context items.
+func missingToolOutputCallIDIndex(body []byte) int {
+	index := -1
+	input := gjson.GetBytes(body, "input")
+	if !input.IsArray() {
+		return index
+	}
+	input.ForEach(func(key, item gjson.Result) bool {
+		switch strings.TrimSpace(item.Get("type").String()) {
+		case "function_call_output", "custom_tool_call_output", "tool_search_output", "mcp_tool_call_output":
+			if strings.TrimSpace(item.Get("call_id").String()) == "" {
+				index = int(key.Int())
+				return false
+			}
+		}
+		return true
+	})
+	return index
 }
 
 func normalizeCodexDelegationBootstrap(body []byte) ([]byte, bool) {
@@ -3971,7 +4025,7 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 	if failoverErr.Reason == service.OpenAIHTTPContinuationUnsupportedReason {
 		message := strings.TrimSpace(failoverErr.ClientMessage)
 		if message == "" {
-			message = "previous_response_id requires an OpenAI API-key account for HTTP requests"
+			message = previousResponseIDRequiresAPIKeyMessage
 		}
 		h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", message, streamStarted)
 		return
