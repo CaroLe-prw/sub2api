@@ -38,6 +38,40 @@ describe('available channel catalog data', () => {
 })
 
 describe('AvailableChannelsCatalog', () => {
+
+  it('renders configured CNY prices when a group has multiplier-based time pricing', async () => {
+    // Match the real API shape: time_pricing is a schedule, not a price array.
+    const schedule = { timezone: 'Asia/Shanghai', weekdays_only: false, periods: [
+      { start_time: '08:00:00', end_time: '12:00:00', multiplier: 2 },
+      { start_time: '14:00:00', end_time: '18:00:00', multiplier: 2 }
+    ] }
+    const flashPricing = { ...tokenPricing, input_price: 1e-6, output_price: 4e-6, cache_write_price: null, cache_read_price: 0.02e-6, time_pricing: schedule }
+    const rows = [{ name: 'DeepSeek channel', description: '', price_currency: 'CNY', platforms: [{
+      platform: 'deepseek',
+      groups: [{ ...group(8, 'deepseek-008', 'deepseek'), rate_multiplier: 0.08 }, { ...group(35, 'deepseek-035', 'deepseek'), rate_multiplier: 0.35 }],
+      supported_models: [
+        ...['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp', 'deepseek-v4.1-flash'].map(name => ({ name, platform: 'deepseek', pricing: flashPricing })),
+        ...['deepseek-v4-pro', 'deepseek-v4-pro-0813'].map(name => ({ name, platform: 'deepseek', pricing: null }))
+      ]
+    }] }]
+    const wrapper = mountCatalog(rows)
+    await wrapper.get('[data-group-id="8"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="model-price-card"]')).toHaveLength(5)
+    const card = wrapper.findAll('[data-testid="model-price-card"]')[0]
+    expect(card.text()).toContain('deepseek-v4-flash')
+    expect(card.get('[data-testid="base-prices"]').text()).toContain('¥1.00')
+    expect(card.get('[data-testid="base-prices"]').text()).toContain('¥4.00')
+    expect(card.get('[data-testid="base-prices"]').text()).toContain('¥0.02')
+    expect(card.get('[data-testid="price-currency"]').text()).toBe('CNY / RMB')
+    expect(card.text()).toContain('08:00:00–12:00:00')
+    expect(card.text()).toContain('14:00:00–18:00:00')
+    expect(card.text()).toContain('×2')
+    expect(card.text()).toContain('Asia/Shanghai')
+    await wrapper.get('[data-group-id="35"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="model-price-card"]')).toHaveLength(5)
+    expect(wrapper.get('[data-testid="model-grid"]').text()).toContain('¥1.00')
+  })
+
   it('shows model cards, narrows by platform and resets the previous group', async () => {
     const wrapper = mountCatalog()
     expect(wrapper.findAll('[data-testid="model-price-card"]')).toHaveLength(3)

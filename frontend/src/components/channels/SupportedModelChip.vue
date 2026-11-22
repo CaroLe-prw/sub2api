@@ -174,23 +174,26 @@
             </div>
 
             <div
-              v-if="model.pricing.time_pricing && model.pricing.time_pricing.length > 0"
+              v-if="model.pricing.time_pricing?.periods?.length"
               class="mt-2 border-t pt-2"
               :class="[popoverBorderClass]"
             >
               <div class="mb-1 font-medium text-gray-600 dark:text-gray-400">
                 {{ t(prefixKey('timePricing')) }}
               </div>
+              <p class="mb-1 text-[11px] text-gray-500 dark:text-gray-400">
+                {{ model.pricing.time_pricing.timezone }} · {{ t(model.pricing.time_pricing.weekdays_only ? 'availableChannels.catalog.timePricingWeekdays' : 'availableChannels.catalog.timePricingEveryDay') }}
+              </p>
               <div class="space-y-1">
                 <div
-                  v-for="(period, idx) in model.pricing.time_pricing"
+                  v-for="(period, idx) in model.pricing.time_pricing.periods"
                   :key="idx"
                   class="flex justify-between gap-3 text-[11px]"
                 >
                   <span class="shrink-0 text-gray-500 dark:text-gray-400">
-                    {{ period.start }}–{{ period.end }}
+                    {{ period.start_time }}–{{ period.end_time }}
                   </span>
-                  <span class="text-right">{{ formatTimePricing(period) }}</span>
+                  <span class="text-right">×{{ period.multiplier }}</span>
                 </div>
               </div>
             </div>
@@ -214,7 +217,7 @@ import {
 } from '@/constants/channel'
 // 复用 api/channels.ts 的用户侧最小形态 DTO。
 // admin 侧 ChannelModelPricing 字段更多，但结构上是用户 DTO 的超集，admin 视图传入可直接通过结构化子类型检查。
-import type { UserPricingInterval, UserSupportedModel, UserTimePricingPeriod, UserSupportedModelPricing } from '@/api/channels'
+import type { UserPricingInterval, UserSupportedModel, UserSupportedModelPricing } from '@/api/channels'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import type { GroupPlatform } from '@/types'
 import { platformBadgeClass, platformBorderClass, platformBadgeLightClass } from '@/utils/platformColors'
@@ -295,12 +298,6 @@ function formatInterval(iv: UserPricingInterval, pricing: UserSupportedModelPric
   const resolved = resolveIntervalPrices(iv, pricing)
   const input = formatScaled(resolved.input_price, perMillionScale)
   const output = formatScaled(resolved.output_price, perMillionScale)
-  return `${input} / ${output}`
-}
-
-function formatTimePricing(period: UserTimePricingPeriod): string {
-  const input = formatScaled(period.input_price, perMillionScale)
-  const output = formatScaled(period.output_price, perMillionScale)
   return `${input} / ${output}`
 }
 

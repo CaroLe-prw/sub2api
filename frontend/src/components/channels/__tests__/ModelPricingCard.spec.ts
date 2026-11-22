@@ -39,12 +39,12 @@ describe('ModelPricingCard', () => {
     expect(prices.text()).toContain(`availableChannels.pricing.${unit}`)
   })
 
-  it('keeps duration prices, resolved tiers, time overrides and reasoning rules accessible', () => {
+  it('keeps duration prices, resolved tiers, time multipliers and reasoning rules accessible', () => {
     const wrapper = mountCard({
       ...tokenPricing, cache_write_1h_price: 4e-6, cache_write_12h_price: 8e-6,
       reasoning_effort_multipliers: { high: 1.5 },
       intervals: [{ min_tokens: 200000, max_tokens: null, input_price: null, output_price: null, cache_write_price: null, cache_read_price: null, per_request_price: null, input_multiplier: 2, output_multiplier: 1.5 }],
-      time_pricing: [{ start: '10:00', end: '12:00', input_price: 0, output_price: null, cache_write_price: null, cache_read_price: null, image_input_price: null, image_output_price: null, per_request_price: null }]
+      time_pricing: { timezone: 'Asia/Shanghai', weekdays_only: true, periods: [{ start_time: '10:00', end_time: '12:00', multiplier: 2 }] }
     })
     const details = wrapper.get('details')
     expect(details.find('summary').exists()).toBe(true)
@@ -53,8 +53,9 @@ describe('ModelPricingCard', () => {
     expect(details.text()).toContain('$4.00')
     expect(details.text()).toContain('$15.00')
     expect(details.text()).toContain('10:00–12:00')
-    expect(details.text()).toContain('$0.00')
-    expect(details.text()).toContain('$10.00')
+    expect(details.text()).toContain('×2')
+    expect(details.text()).toContain('Asia/Shanghai')
+    expect(details.text()).toContain('availableChannels.catalog.timePricingWeekdays')
     expect(details.text()).toContain('high')
     expect(details.text()).toContain('×1.5')
   })
@@ -80,13 +81,13 @@ describe('ModelPricingCard', () => {
     const wrapper = mountCard({
       ...tokenPricing, cache_write_1h_price: 3e-6,
       intervals: [{ min_tokens: 100, max_tokens: null, input_price: 7e-6, output_price: null, cache_write_price: null, cache_read_price: null, per_request_price: null }],
-      time_pricing: [{ start: '09:00', end: '18:00', input_price: 9e-6, output_price: null, cache_write_price: null, cache_read_price: null, image_input_price: null, image_output_price: null, per_request_price: null }]
+      time_pricing: { timezone: 'Asia/Shanghai', periods: [{ start_time: '09:00', end_time: '18:00', multiplier: 2 }] }
     }, 'CNY')
     expect(wrapper.get('[data-testid="price-currency"]').text()).toBe('CNY / RMB')
     expect(wrapper.get('[data-testid="base-prices"]').text()).toContain('¥2.00')
     expect(wrapper.text()).toContain('¥3.00')
     expect(wrapper.text()).toContain('¥7.00')
-    expect(wrapper.text()).toContain('¥9.00')
+    expect(wrapper.get('[data-testid="time-pricing"]').text()).toContain('×2')
     expect(wrapper.text()).not.toContain('$')
   })
 
@@ -97,6 +98,28 @@ describe('ModelPricingCard', () => {
     expect(quotes).toHaveLength(2)
     expect(quotes.map(entry => entry.priceCurrency)).toEqual(['CNY', 'USD'])
     expect(quotes[0].model.pricing?.input_price).toBe(quotes[1].model.pricing?.input_price)
+  })
+
+  it.each([undefined, null, { timezone: 'UTC', periods: [] }, { timezone: 'UTC', periods: null }])(
+    'keeps prices visible when the time schedule is empty: %j', (time_pricing) => {
+      const wrapper = mountCard({ ...tokenPricing, time_pricing }, 'CNY')
+      expect(wrapper.get('[data-testid="base-prices"]').text()).toContain('¥2.00')
+      expect(wrapper.find('[data-testid="time-pricing"]').exists()).toBe(false)
+    }
+  )
+
+  it('does not multiply already-effective prices by the schedule again', () => {
+    const wrapper = mountCard({ ...tokenPricing, input_price: 2e-6, output_price: 8e-6, time_pricing: {
+      timezone: 'America/New_York', weekdays_only: false,
+      periods: [{ start_time: '08:00:00', end_time: '12:00:00', multiplier: 2 }]
+    } }, 'CNY')
+    const prices = wrapper.get('[data-testid="base-prices"]').findAll('dd')
+    expect(prices[0].text()).toContain('¥2.00')
+    expect(prices[1].text()).toContain('¥8.00')
+    const schedule = wrapper.get('[data-testid="time-pricing"]')
+    expect(schedule.text()).toContain('America/New_York')
+    expect(schedule.text()).toContain('availableChannels.catalog.timePricingEveryDay')
+    expect(schedule.text()).toContain('×2')
   })
 
 })

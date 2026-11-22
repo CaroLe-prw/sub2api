@@ -640,8 +640,10 @@ export default {
       groupHint: 'Explore models and pricing available in each group',
       modelCount: '{count} models',
       showRates: 'Show rate multipliers',
-      detailsHint: 'Base prices; expand for tiers, time pricing and channel rules',
-      basePriceNote: 'Channel base prices before group or personal rate multipliers. Actual charges also depend on tiers, time pricing, reasoning effort and peak-hour rules.',
+      detailsHint: 'Current prices; expand for tiers, time pricing and channel rules',
+      basePriceNote: 'Channel prices effective when retrieved, including any active time multiplier, before group or personal rate multipliers. Actual charges also depend on tiers, reasoning effort and peak-hour rules.',
+      timePricingWeekdays: 'Weekdays only (Monday–Friday)',
+      timePricingEveryDay: 'Every day (including weekends)',
       reasoningMultipliers: 'Reasoning effort multipliers',
       noResults: 'No matching models. Try adjusting your filters.',
       resetFilters: 'Reset filters',
@@ -677,7 +679,7 @@ export default {
       imageOutputPrice: 'Image Output',
       perRequestPrice: 'Per Request',
       intervals: 'Tiered Pricing',
-      timePricing: 'Time Pricing (Shanghai)',
+      timePricing: 'Time Pricing',
       unitPerMillion: '/ 1M tokens',
       unitPerRequest: '/ request'
     }

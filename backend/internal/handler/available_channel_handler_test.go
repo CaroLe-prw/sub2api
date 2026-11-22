@@ -274,3 +274,34 @@ func TestBuildPlatformSections_CompositeWithoutModelsKeepsEmptyCompositeSection(
 	require.Len(t, sections[0].Groups, 1)
 	require.Empty(t, sections[0].SupportedModels)
 }
+
+// The frontend consumes an object containing multiplier periods. Guard the wire
+// contract so it is not modeled as an array of absolute-price overrides again.
+func TestToUserPricing_TimePricingScheduleContract(t *testing.T) {
+	input := 1e-6
+	source := &service.ChannelModelPricing{
+		BillingMode: service.BillingModeToken,
+		InputPrice:  &input,
+		TimePricing: &service.ChannelTimePricing{
+			Timezone: "Asia/Shanghai", WeekdaysOnly: true,
+			Periods: []service.ChannelTimePricingPeriod{
+				{StartTime: "08:00:00", EndTime: "12:00:00", Multiplier: 2},
+				{StartTime: "14:00:00", EndTime: "18:00:00", Multiplier: 2},
+			},
+		},
+	}
+	pricing := toUserPricing(source)
+	encoded, err := json.Marshal(pricing)
+	require.NoError(t, err)
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(encoded, &fields))
+	require.JSONEq(t, `{"timezone":"Asia/Shanghai","weekdays_only":true,"periods":[{"start_time":"08:00:00","end_time":"12:00:00","multiplier":2},{"start_time":"14:00:00","end_time":"18:00:00","multiplier":2}]}`, string(fields["time_pricing"]))
+	require.Equal(t, 1e-6, *source.InputPrice, "display must not mutate configured prices")
+	require.JSONEq(t, `[]`, string(fields["intervals"]))
+
+	source.TimePricing = nil
+	encoded, err = json.Marshal(toUserPricing(source))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(encoded, &fields))
+	require.JSONEq(t, `null`, string(fields["time_pricing"]))
+}

@@ -158,6 +158,8 @@ const (
 )
 
 var openAIChatGPTInternalUnsupportedFields = []string{
+	// Codex rejects this top-level field; keep nested tool-schema fields intact.
+	"transformer_metadata",
 	"chat_template_kwargs",
 	"user",
 	"metadata",

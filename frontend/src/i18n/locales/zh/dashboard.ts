@@ -645,8 +645,10 @@ export default {
       groupHint: '查看该分组支持的模型与价格',
       modelCount: '{count} 个模型',
       showRates: '显示折扣倍率',
-      detailsHint: '基础价格，阶梯、分时及渠道规则见下方明细',
-      basePriceNote: '此处展示渠道基础价格，未乘分组或用户专属倍率。实际费用还受阶梯、分时、思考等级及高峰规则影响。',
+      detailsHint: '当前单价，阶梯、分时及渠道规则见下方明细',
+      basePriceNote: '此处展示查询时刻生效的渠道单价，已含当时生效的分时倍率（若有），未乘分组或用户专属倍率。实际费用还受阶梯、思考等级及高峰规则影响。',
+      timePricingWeekdays: '仅工作日（周一至周五）',
+      timePricingEveryDay: '每日生效（含周末）',
       reasoningMultipliers: '思考等级倍率',
       noResults: '没有匹配的模型，试试其他筛选条件',
       resetFilters: '重置筛选',
@@ -682,7 +684,7 @@ export default {
       imageOutputPrice: '图片输出',
       perRequestPrice: '每次请求',
       intervals: '阶梯定价',
-      timePricing: '分时定价（上海时间）',
+      timePricing: '分时定价',
       unitPerMillion: '/ 1M token',
       unitPerRequest: '/ 次'
     }

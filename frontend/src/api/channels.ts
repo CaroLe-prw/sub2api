@@ -39,16 +39,17 @@ export interface UserPricingInterval {
   per_request_price: number | null
 }
 
+/** The API exposes a multiplier schedule, not per-period absolute prices. */
 export interface UserTimePricingPeriod {
-  start: string
-  end: string
-  input_price: number | null
-  output_price: number | null
-  cache_write_price: number | null
-  cache_read_price: number | null
-  image_input_price: number | null
-  image_output_price: number | null
-  per_request_price: number | null
+  start_time: string
+  end_time: string
+  multiplier: number
+}
+
+export interface UserTimePricing {
+  timezone: string
+  weekdays_only?: boolean
+  periods: UserTimePricingPeriod[] | null
 }
 
 export interface UserSupportedModelPricing {
@@ -64,7 +65,8 @@ export interface UserSupportedModelPricing {
   image_output_price: number | null
   per_request_price: number | null
   intervals: UserPricingInterval[]
-  time_pricing?: UserTimePricingPeriod[]
+  /** Numeric prices already include the time multiplier effective at retrieval. */
+  time_pricing?: UserTimePricing | null
 }
 
 export interface UserSupportedModel {

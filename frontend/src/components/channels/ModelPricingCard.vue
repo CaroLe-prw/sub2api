@@ -47,12 +47,15 @@
             </div>
           </dl>
         </section>
-        <section v-for="(period, index) in periods" :key="`period-${index}`" class="space-y-2">
-          <h4 class="font-semibold text-gray-700 dark:text-gray-200">{{ priceLabel('timePricing') }} · {{ period.label }}</h4>
+        <section v-if="timePricing?.periods?.length" class="space-y-2" data-testid="time-pricing">
+          <h4 class="font-semibold text-gray-700 dark:text-gray-200">{{ priceLabel('timePricing') }}</h4>
+          <p class="text-gray-500 dark:text-gray-400">
+            {{ timePricing.timezone }} · {{ t(timePricing.weekdays_only ? 'availableChannels.catalog.timePricingWeekdays' : 'availableChannels.catalog.timePricingEveryDay') }}
+          </p>
           <dl class="space-y-1.5">
-            <div v-for="metric in period.metrics" :key="metric.key" class="flex flex-wrap justify-between gap-2">
-              <dt class="text-gray-500 dark:text-gray-400">{{ priceLabel(metric.label) }}</dt>
-              <dd class="font-mono text-gray-900 dark:text-gray-100">{{ formatScaled(metric.value, metric.scale, 2, entry.priceCurrency) }} {{ priceLabel(metric.unit) }}</dd>
+            <div v-for="(period, index) in timePricing.periods" :key="index" class="flex flex-wrap justify-between gap-2">
+              <dt class="text-gray-500 dark:text-gray-400">{{ period.start_time }}–{{ period.end_time }}</dt>
+              <dd class="font-mono text-gray-900 dark:text-gray-100">×{{ period.multiplier }}</dd>
             </div>
           </dl>
         </section>
@@ -121,14 +124,8 @@ const tiers = computed(() => {
     }
   })
 })
-const periods = computed(() => {
-  const pricing = props.entry.model.pricing
-  return (pricing?.time_pricing ?? []).map((period) => {
-    const resolved = { ...pricing! }
-    for (const field of ['input_price', 'output_price', 'cache_write_price', 'cache_read_price', 'image_input_price', 'image_output_price', 'per_request_price'] as const) {
-      resolved[field] = period[field] ?? pricing![field]
-    }
-    return { label: `${period.start}–${period.end}`, metrics: [...priceMetrics(resolved), ...additionalPriceMetrics(resolved)] }
-  })
-})
+// toUserPricing already applies the current time multiplier. Display the
+// schedule as rules rather than multiplying effective prices a second time.
+const timePricing = computed(() => props.entry.model.pricing?.time_pricing)
+
 </script>
