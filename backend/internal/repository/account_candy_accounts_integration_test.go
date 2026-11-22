@@ -20,6 +20,7 @@ func TestListCandyTestAccountsIncludesAPIKeysAndKeepsScope(t *testing.T) {
 	for _, tc := range []struct {
 		name, platform, kind, status string
 		blocked, deleted, otherGroup bool
+		disabled                     bool
 		include                      bool
 	}{
 		{name: "oauth", platform: service.PlatformOpenAI, kind: service.AccountTypeOAuth, include: true},
@@ -30,6 +31,9 @@ func TestListCandyTestAccountsIncludesAPIKeysAndKeepsScope(t *testing.T) {
 		{name: "other-group-apikey", platform: service.PlatformOpenAI, kind: service.AccountTypeAPIKey, otherGroup: true},
 		{name: "anthropic-apikey", platform: service.PlatformAnthropic, kind: service.AccountTypeAPIKey},
 		{name: "setup-token", platform: service.PlatformOpenAI, kind: service.AccountTypeSetupToken},
+		{name: "disabled-oauth", platform: service.PlatformOpenAI, kind: service.AccountTypeOAuth, disabled: true},
+		{name: "disabled-apikey", platform: service.PlatformOpenAI, kind: service.AccountTypeAPIKey, disabled: true},
+		{name: "disabled-blocked-apikey", platform: service.PlatformOpenAI, kind: service.AccountTypeAPIKey, disabled: true, blocked: true},
 	} {
 		account := mustCreateAccount(t, tx.Client(), &service.Account{
 			Name: tc.name, Platform: tc.platform, Type: tc.kind, Status: tc.status,
@@ -40,6 +44,9 @@ func TestListCandyTestAccountsIncludesAPIKeysAndKeepsScope(t *testing.T) {
 			groupID = other.ID
 		}
 		mustBindAccountToGroup(t, tx.Client(), account.ID, groupID, 1)
+		if tc.disabled {
+			require.NoError(t, tx.Client().Account.UpdateOneID(account.ID).SetSchedulable(false).Exec(ctx))
+		}
 		if tc.deleted {
 			_, err := tx.ExecContext(ctx, `UPDATE accounts SET deleted_at = NOW() WHERE id = $1`, account.ID)
 			require.NoError(t, err)
@@ -54,6 +61,7 @@ func TestListCandyTestAccountsIncludesAPIKeysAndKeepsScope(t *testing.T) {
 	for _, account := range accounts {
 		got = append(got, account.ID)
 		require.Empty(t, account.Credentials, "periodic scan should not load account secrets")
+		require.True(t, account.Schedulable, "periodic scan must project the manual scheduling switch")
 	}
 	require.Equal(t, want, got, "include active OpenAI OAuth/API Key accounts, including blocked accounts for retesting")
 	require.Equal(t, true, accounts[2].Extra[service.CandyTestBlockedExtraKey])

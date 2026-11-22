@@ -81,7 +81,9 @@ func (r *CandyTestRunner) Stop() {
 }
 
 func candyAutomaticAccountEligible(account *Account, now time.Time) bool {
-	return supportsCandyTest(account) &&
+	// Honor the administrator's switch, not IsSchedulable: candy-blocked
+	// accounts with the switch still on must be able to recover through retests.
+	return supportsCandyTest(account) && account.Schedulable &&
 		account.IsActive() && account.ParentAccountID == nil && !account.IsSyntheticUITest() &&
 		(account.ExpiresAt == nil || account.ExpiresAt.After(now))
 }

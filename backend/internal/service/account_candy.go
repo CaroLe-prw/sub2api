@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -34,6 +35,8 @@ const (
 | 圆形 | 7 | 9 | 8 |
 | 五角星 | 7 | 6 | 4 |`
 )
+
+var errCandyTestSchedulingDisabled = infraerrors.BadRequest("CANDY_TEST_SCHEDULING_DISABLED", "Enable this account's scheduling switch before running a candy test")
 
 type CandyTestSample struct {
 	Status          string    `json:"status"`
@@ -201,6 +204,12 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 	if !supportsCandyTest(account) || account.IsSyntheticUITest() {
 		return nil, infraerrors.BadRequest("CANDY_TEST_OPENAI_ONLY", "Candy tests require a real OpenAI OAuth or API Key account")
 	}
+	if !account.Schedulable {
+		if automatic {
+			return nil, nil
+		}
+		return nil, errCandyTestSchedulingDisabled
+	}
 	var scheduledGroup *Group
 	if automatic {
 		if !candyAutomaticAccountEligible(account, time.Now()) {
@@ -231,8 +240,11 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 
 	testCtx, cancel := context.WithTimeout(ctx, candyTestTimeout)
 	defer cancel()
-	result, err := s.runTestBackgroundWithPrompt(testCtx, accountID, testConfig.Model, candyTestPrompt, false, AccountTestOptions{ExactModel: true, PreserveAccountState: true, ReasoningEffort: testConfig.ReasoningEffort})
+	result, err := s.runTestBackgroundWithPrompt(testCtx, accountID, testConfig.Model, candyTestPrompt, false, AccountTestOptions{ExactModel: true, PreserveAccountState: true, RequireScheduling: true, ReasoningEffort: testConfig.ReasoningEffort})
 	if err != nil {
+		if automatic && errors.Is(err, errCandyTestSchedulingDisabled) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	// A canceled client must not be recorded as a model failure.

@@ -2,10 +2,10 @@
   <div v-if="account.platform === 'openai' && (account.type === 'oauth' || account.type === 'apikey')" class="flex flex-col items-start gap-1" data-testid="account-candy-test">
     <button
       type="button"
-      class="inline-flex items-center gap-1 text-xs font-medium disabled:cursor-wait focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
+      class="inline-flex items-center gap-1 text-xs font-medium disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
       :class="statusClass"
-      :disabled="running"
-      :title="t('admin.accounts.candyTest.hint')"
+      :disabled="running || !account.schedulable"
+      :title="t(account.schedulable ? 'admin.accounts.candyTest.hint' : 'admin.accounts.candyTest.schedulingDisabled')"
       :aria-label="t('admin.accounts.candyTest.run', { name: account.name })"
       :aria-busy="running"
       @click.stop="run"
@@ -13,6 +13,9 @@
       <span class="h-1.5 w-1.5 rounded-full bg-current" :class="{ 'animate-pulse': running }" aria-hidden="true" />
       <span aria-live="polite">{{ t('admin.accounts.candyTest.title') }} · {{ statusLabel }}</span>
     </button>
+    <span v-if="!account.schedulable" class="text-xs text-gray-500 dark:text-gray-400" data-testid="candy-test-disabled">
+      {{ t('admin.accounts.candyTest.schedulingDisabled') }}
+    </span>
     <span v-if="schedulingBlocked" class="text-xs text-red-600 dark:text-red-400" :title="t('admin.accounts.candyTest.blockedHint')" data-testid="candy-scheduling-blocked">
       {{ t('admin.accounts.candyTest.blocked') }}
     </span>
@@ -110,7 +113,7 @@ const sampleTitle = (sample: CandyTestSample) =>
   `${t(`admin.accounts.candyTest.${sample.status}`)} · ${sample.model}${sample.reasoning_effort ? ` · ${sample.reasoning_effort}` : ''} · ${new Date(sample.checked_at).toLocaleString()} · ${(sample.latency_ms / 1000).toFixed(1)}s`
 
 async function run() {
-  if (running.value || props.account.platform !== 'openai' || (props.account.type !== 'oauth' && props.account.type !== 'apikey')) return
+  if (running.value || !props.account.schedulable || props.account.platform !== 'openai' || (props.account.type !== 'oauth' && props.account.type !== 'apikey')) return
   const id = props.account.id
   const request = new AbortController()
   controller = request
@@ -122,7 +125,9 @@ async function run() {
     emit('updated', result)
   } catch (error) {
     if (!request.signal.aborted) {
-      const key = extractApiErrorCode(error) === 'CANDY_TEST_GROUP_REQUIRED' ? 'groupRequired' : 'requestFailed'
+      const code = extractApiErrorCode(error)
+      const key = code === 'CANDY_TEST_SCHEDULING_DISABLED' ? 'schedulingDisabled'
+        : code === 'CANDY_TEST_GROUP_REQUIRED' ? 'groupRequired' : 'requestFailed'
       appStore.showError(t(`admin.accounts.candyTest.${key}`))
     }
   } finally {

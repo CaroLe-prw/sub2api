@@ -54,7 +54,7 @@ func TestScheduledCandyTestPersistsDueTimeAndHonorsChanges(t *testing.T) {
 }
 
 func TestScheduledCandyTestRechecksEligibilityAndDisabledGroups(t *testing.T) {
-	for _, scenario := range []string{"disabled", "inactive_group", "removed", "inactive_account", "expired", "shadow", "synthetic"} {
+	for _, scenario := range []string{"disabled", "inactive_group", "removed", "inactive_account", "scheduling_off", "expired", "shadow", "synthetic"} {
 		t.Run(scenario, func(t *testing.T) {
 			account := automaticCandyAccount()
 			switch scenario {
@@ -64,6 +64,8 @@ func TestScheduledCandyTestRechecksEligibilityAndDisabledGroups(t *testing.T) {
 				account.Groups[0].Status = "inactive"
 			case "removed":
 				account.Groups = nil
+			case "scheduling_off":
+				account.Schedulable = false
 			case "inactive_account":
 				account.Status = "inactive"
 			case "expired":
@@ -206,7 +208,7 @@ func TestCandyRunnerFiltersDisabledUnsupportedAndNotDueAccounts(t *testing.T) {
 	group := *automaticCandyAccount().Groups[0]
 	groups := &candyRunnerGroups{groups: []Group{{ID: 8, Platform: PlatformOpenAI, Status: StatusActive}, {ID: 9, Platform: PlatformAnthropic, Status: StatusActive, CandyTestIntervalSeconds: 1}, group}}
 	accounts := &candyRunnerAccounts{}
-	for _, kind := range []string{"apikey", "anthropic", "inactive", "shadow", "expired", "not_due", "eligible"} {
+	for _, kind := range []string{"apikey", "anthropic", "inactive", "shadow", "expired", "not_due", "eligible", "scheduling_off", "blocked_enabled"} {
 		a := *automaticCandyAccount()
 		a.ID = int64(len(accounts.accounts) + 1)
 		switch kind {
@@ -222,6 +224,10 @@ func TestCandyRunnerFiltersDisabledUnsupportedAndNotDueAccounts(t *testing.T) {
 		case "expired":
 			past := time.Now().Add(-time.Second)
 			a.ExpiresAt = &past
+		case "scheduling_off":
+			a.Schedulable = false
+		case "blocked_enabled":
+			a.Extra[CandyTestBlockedExtraKey] = true
 		case "not_due":
 			a.Extra[CandyTestExtraKey] = CandyTestSnapshot{Schedules: map[int64]CandyTestSchedule{7: {Model: defaultCandyTestModel, CheckedAt: time.Now()}}}
 		}
@@ -233,8 +239,8 @@ func TestCandyRunnerFiltersDisabledUnsupportedAndNotDueAccounts(t *testing.T) {
 	runner.scan()
 	runner.wg.Wait()
 	require.Equal(t, 1, accounts.scans)
-	require.Equal(t, 2, tester.count())
-	require.ElementsMatch(t, []int64{1, 7}, []int64{tester.calls[0].accountID, tester.calls[1].accountID})
+	require.Equal(t, 3, tester.count())
+	require.ElementsMatch(t, []int64{1, 7, 9}, []int64{tester.calls[0].accountID, tester.calls[1].accountID, tester.calls[2].accountID})
 	runner.Stop()
 }
 

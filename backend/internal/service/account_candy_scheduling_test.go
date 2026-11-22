@@ -44,11 +44,14 @@ func TestCandySchedulingOnlyWrongAnswersBlock(t *testing.T) {
 			require.Equal(t, StatusActive, account.Status)
 		})
 	}
-	// A correct answer never turns an administrator's switch back on.
+	// Disabling the administrator's switch skips the test without changing history.
 	account.Schedulable = false
 	upstream.responses = []*http.Response{candyResponse("21")}
+	requestsBefore, writesBefore := len(upstream.requests), repo.writes
 	_, err := svc.RunCandyTest(context.Background(), account.ID, 0)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, errCandyTestSchedulingDisabled)
+	require.Len(t, upstream.requests, requestsBefore)
+	require.Equal(t, writesBefore, repo.writes)
 	require.False(t, account.IsCandyTestBlocked())
 	require.False(t, account.Schedulable)
 	require.False(t, account.IsSchedulable())

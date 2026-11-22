@@ -4562,10 +4562,10 @@ func (r *accountRepository) ListShadowsByParent(ctx context.Context, parentID in
 func (r *accountRepository) ListCandyTestAccounts(ctx context.Context, groupID int64) ([]service.Account, error) {
 	accounts, err := r.client.Account.Query().
 		Where(dbaccount.DeletedAtIsNil(), dbaccount.PlatformEQ(service.PlatformOpenAI),
-			dbaccount.TypeIn(service.AccountTypeOAuth, service.AccountTypeAPIKey), dbaccount.StatusEQ(service.StatusActive),
+			dbaccount.TypeIn(service.AccountTypeOAuth, service.AccountTypeAPIKey), dbaccount.StatusEQ(service.StatusActive), dbaccount.SchedulableEQ(true),
 			dbaccount.ParentAccountIDIsNil(), dbaccount.HasAccountGroupsWith(dbaccountgroup.GroupIDEQ(groupID))).
 		Select(dbaccount.FieldID, dbaccount.FieldPlatform, dbaccount.FieldType, dbaccount.FieldStatus,
-			dbaccount.FieldExtra, dbaccount.FieldExpiresAt).
+			dbaccount.FieldExtra, dbaccount.FieldExpiresAt, dbaccount.FieldSchedulable).
 		Order(dbent.Asc(dbaccount.FieldID)).All(ctx)
 	if err != nil {
 		return nil, err
@@ -4573,7 +4573,7 @@ func (r *accountRepository) ListCandyTestAccounts(ctx context.Context, groupID i
 	result := make([]service.Account, 0, len(accounts))
 	for _, account := range accounts {
 		result = append(result, service.Account{ID: account.ID, Platform: account.Platform, Type: account.Type,
-			Status: account.Status, Extra: account.Extra, ExpiresAt: account.ExpiresAt})
+			Status: account.Status, Extra: account.Extra, ExpiresAt: account.ExpiresAt, Schedulable: account.Schedulable})
 	}
 	return result, nil
 }

@@ -10,7 +10,7 @@ vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError }) }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({
   t: (key: string, params?: Record<string, unknown>) => params ? `${key}:${Object.values(params).join(',')}` : key
 }) }))
-const account = (overrides: Partial<Account> = {}) => ({ id: 42, name: 'Codex', platform: 'openai', type: 'oauth', extra: {}, ...overrides } as Account)
+const account = (overrides: Partial<Account> = {}) => ({ id: 42, name: 'Codex', platform: 'openai', type: 'oauth', schedulable: true, extra: {}, ...overrides } as Account)
 const result = (): CandyTestSnapshot => ({ total: 3, passed: 1, failed: 1, errors: 1, recent: [
   { status: 'passed', model: 'gpt-6.2-sol', checked_at: '2026-11-21T01:00:00Z', latency_ms: 2000 },
   { status: 'failed', model: 'gpt-6.2-sol', checked_at: '2026-11-21T02:00:00Z', latency_ms: 2000 },
@@ -228,7 +228,7 @@ describe('AccountCandyTestCell', () => {
     wrapper.unmount()
   })
   it('removes the scheduling block after a passing retest without changing the manual switch', async () => {
-    const original = account({ schedulable: false, extra: { candy_test: result() } })
+    const original = account({ schedulable: true, extra: { candy_test: result() } })
     const wrapper = mount(AccountCandyTestCell, { props: { account: original } })
     expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(true)
     const passing: CandyTestSnapshot = {
@@ -239,7 +239,51 @@ describe('AccountCandyTestCell', () => {
     await wrapper.get('button').trigger('click'); await flushPromises()
     expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(false)
     expect(wrapper.emitted('updated')?.[0]).toEqual([passing])
-    expect(original.schedulable).toBe(false)
+    expect(original.schedulable).toBe(true)
+    wrapper.unmount()
+  })
+
+  it.each(['oauth', 'apikey'] as const)('pauses disabled %s accounts but keeps old records readable', async (type) => {
+    const saved = result()
+    const original = account({ type, schedulable: false, extra: { candy_test: saved } })
+    const wrapper = mount(AccountCandyTestCell, {
+      props: { account: original }, global: { stubs: { teleport: true } }
+    })
+    const button = wrapper.get('button')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.attributes('title')).toBe('admin.accounts.candyTest.schedulingDisabled')
+    expect(wrapper.get('[data-testid="candy-test-disabled"]').text()).toBe('admin.accounts.candyTest.schedulingDisabled')
+    await button.trigger('click')
+    await flushPromises()
+    expect(runCandyTest).not.toHaveBeenCalled()
+    expect(wrapper.emitted('updated')).toBeUndefined()
+    expect(original.extra?.candy_test).toEqual(saved)
+    await wrapper.get('button[data-status="failed"]').trigger('click')
+    expect(wrapper.find('[data-testid="candy-record-details"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="candy-scheduling-blocked"]').exists()).toBe(true)
+    expect(runCandyTest).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('reenables testing when the manual scheduling switch is turned back on', async () => {
+    const wrapper = mount(AccountCandyTestCell, { props: { account: account({ schedulable: false }) } })
+    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
+    await wrapper.setProps({ account: account({ schedulable: true }) })
+    expect(wrapper.find('[data-testid="candy-test-disabled"]').exists()).toBe(false)
+    expect(wrapper.get('button').attributes('disabled')).toBeUndefined()
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(runCandyTest).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('explains a switch disabled on the server since the last list refresh', async () => {
+    runCandyTest.mockRejectedValue({ response: { data: { code: 'CANDY_TEST_SCHEDULING_DISABLED' } } })
+    const wrapper = mount(AccountCandyTestCell, { props: { account: account() } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(showError).toHaveBeenCalledWith('admin.accounts.candyTest.schedulingDisabled')
+    expect(wrapper.emitted('updated')).toBeUndefined()
     wrapper.unmount()
   })
 

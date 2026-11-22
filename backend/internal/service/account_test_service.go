@@ -305,6 +305,9 @@ type AccountTestOptions struct {
 	// PreserveAccountState is internal-only: candy diagnostics must not change
 	// authentication, quota or cooldown state based on inconclusive API errors.
 	PreserveAccountState bool
+	// RequireScheduling is internal-only: candy tests recheck the manual switch
+	// after waiting for a probe slot, before dispatching an upstream request.
+	RequireScheduling bool
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -624,6 +627,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Account not found")
+	}
+	if testOpts.RequireScheduling && !account.Schedulable {
+		return errCandyTestSchedulingDisabled
 	}
 	bindAccountTestPlatform(c, account)
 
@@ -3737,6 +3743,10 @@ func (s *AccountTestService) runTestBackgroundWithPrompt(ctx context.Context, ac
 	ginCtx.Set(accountTestBackgroundKey, true)
 
 	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, prompt, AccountTestModeDefault, opts...)
+	// A switched-off queued candy test is skipped, not recorded as an API error.
+	if errors.Is(testErr, errCandyTestSchedulingDisabled) {
+		return nil, testErr
+	}
 
 	finishedAt := time.Now()
 	body := w.Body.String()

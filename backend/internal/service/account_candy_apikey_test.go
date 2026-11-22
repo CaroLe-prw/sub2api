@@ -43,6 +43,7 @@ func TestCandyAPIKeyManualScheduledAndOrdinaryRequests(t *testing.T) {
 				account := candyAPIKeyAccount(responses)
 				if mode == "ordinary" {
 					account.Groups[0].CandyTestReasoningEffort = "high"
+					account.Schedulable = false // ordinary connectivity tests are not candy tests
 				}
 				upstream := &queuedHTTPUpstream{responses: []*http.Response{candyAPIKeyResponse(responses, "最少 21 个")}}
 				svc := &AccountTestService{accountRepo: &candyAccountRepo{account: account}, httpUpstream: upstream, cfg: &config.Config{}}
