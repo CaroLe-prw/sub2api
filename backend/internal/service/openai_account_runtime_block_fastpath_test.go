@@ -806,20 +806,20 @@ func TestRuntimeBlockKeepsActivePersistedCooldown(t *testing.T) {
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
-func TestShouldStopOpenAIOAuth429Failover_AfterBoundedFullWindows(t *testing.T) {
+func TestShouldStopOpenAIOAuth429Failover_DefersOpenAIToRequestBudget(t *testing.T) {
 	svc := &OpenAIGatewayService{}
-	account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
-	apiKeyAccount := &Account{ID: 43, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
-	var state OpenAIOAuth429FailoverState
-
-	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 1, &state))
-
-	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 1, &state))
-	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 2, &state))
-	require.True(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 3, &state))
-	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(apiKeyAccount, http.StatusTooManyRequests, 1, &state))
-	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusInternalServerError, 1, &state))
-	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 0, &state))
+	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey} {
+		t.Run(accountType, func(t *testing.T) {
+			account := &Account{ID: 42, Platform: PlatformOpenAI, Type: accountType}
+			var state OpenAIOAuth429FailoverState
+			for failedSwitches := 0; failedSwitches <= 8; failedSwitches++ {
+				require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, failedSwitches, &state),
+					"the handler's configured switch/time budget must decide when to stop, not a fixed three-account cap")
+				require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, failedSwitches, nil))
+			}
+			require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusInternalServerError, 3, &state))
+		})
+	}
 }
 
 func TestShouldStopOpenAIOAuth429Failover_TracksOneGrokFollowupAttempt(t *testing.T) {

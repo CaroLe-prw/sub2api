@@ -15,7 +15,6 @@ const (
 	openAIOAuth429RetryWindow             = 2 * time.Minute
 	openAIOAuth429RetryDelay              = 500 * time.Millisecond
 	openAIOAuth429MaxRetryDelay           = 8 * time.Second
-	openAIOAuth429MaxAccountAttempts      = 3
 	openAIStopSchedulingBridgeCooldown    = 2 * time.Minute
 	openAIOAuth429StormWindow             = 10 * time.Second
 	openAIOAuth429StormMaxAccountSwitches = 1
@@ -656,11 +655,10 @@ func (s *OpenAIGatewayService) ShouldStopOpenAIOAuth429Failover(account *Account
 		}
 		return false
 	}
-	if statusCode != http.StatusTooManyRequests || !isOpenAIOAuthAccount(account) {
-		return false
-	}
-	// Each OpenAI OAuth candidate has already consumed its full same-account
-	// retry window before reaching this switch point. A global storm is useful
-	// telemetry, but must not prevent trying the bounded next-account budget.
-	return failedSwitches >= openAIOAuth429MaxAccountAttempts
+	// OpenAI retries are bounded by the caller's configured account-switch
+	// limit and request deadline (plus the HTTP failover time budget). Do not
+	// return a capacity 429 after an arbitrary three accounts while those
+	// budgets still allow another eligible candidate. Grok's separate one-account
+	// follow-up policy above remains unchanged, including mixed-account pools.
+	return false
 }
