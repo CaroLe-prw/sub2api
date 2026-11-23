@@ -36,7 +36,10 @@ const (
 | 五角星 | 7 | 6 | 4 |`
 )
 
-var errCandyTestSchedulingDisabled = infraerrors.BadRequest("CANDY_TEST_SCHEDULING_DISABLED", "Enable this account's scheduling switch before running a candy test")
+var (
+	errCandyTestSchedulingDisabled = infraerrors.BadRequest("CANDY_TEST_SCHEDULING_DISABLED", "Enable this account's scheduling switch before running a candy test")
+	errCandyTestModelNotAllowed    = infraerrors.BadRequest("CANDY_TEST_MODEL_NOT_ALLOWED", "None of the candy test candidate models are allowed by this account's model restrictions. Add an allowed candidate in the group settings.")
+)
 
 type CandyTestSample struct {
 	Status          string    `json:"status"`
@@ -50,7 +53,10 @@ type CandyTestSample struct {
 }
 
 type CandyTestSchedule struct {
-	Model           string    `json:"model"`
+	Model string `json:"model"`
+	// Keep the priority setting separate from the selected model, so a fallback
+	// does not make the automatic runner treat every tick as a config change.
+	ModelCandidates string    `json:"model_candidates,omitempty"`
 	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
 	CheckedAt       time.Time `json:"checked_at"`
 }
@@ -276,7 +282,10 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 
 	testCtx, cancel := context.WithTimeout(ctx, candyTestTimeout)
 	defer cancel()
-	result, err := s.runTestBackgroundWithPrompt(testCtx, accountID, testConfig.Model, candyTestPrompt, false, AccountTestOptions{ExactModel: true, PreserveAccountState: true, RequireScheduling: true, ReasoningEffort: testConfig.ReasoningEffort})
+	result, err := s.runTestBackgroundWithPrompt(testCtx, accountID, testConfig.Model, candyTestPrompt, false, AccountTestOptions{
+		ExactModel: true, PreserveAccountState: true, RequireScheduling: true,
+		RequireModelWhitelist: true, ReasoningEffort: testConfig.ReasoningEffort,
+	})
 	if err != nil {
 		if automatic && errors.Is(err, errCandyTestSchedulingDisabled) {
 			return nil, nil
@@ -301,7 +310,7 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 		if snapshot.Schedules == nil {
 			snapshot.Schedules = make(map[int64]CandyTestSchedule)
 		}
-		snapshot.Schedules[groupID] = CandyTestSchedule{Model: testConfig.Model, ReasoningEffort: testConfig.ReasoningEffort, CheckedAt: sample.CheckedAt}
+		snapshot.Schedules[groupID] = CandyTestSchedule{Model: sample.Model, ModelCandidates: testConfig.Model, ReasoningEffort: testConfig.ReasoningEffort, CheckedAt: sample.CheckedAt}
 	}
 	// Drop obsolete bindings; persisted schedule size stays bounded by memberships.
 	attached := make(map[int64]bool, len(account.Groups))

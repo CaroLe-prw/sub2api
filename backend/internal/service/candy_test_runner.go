@@ -89,15 +89,20 @@ func candyAutomaticAccountEligible(account *Account, now time.Time) bool {
 }
 
 func candyScheduleDueAt(snapshot CandyTestSnapshot, group *Group) time.Time {
-	model := group.CandyTestModel
-	if model == "" {
-		model = defaultCandyTestModel
+	models, err := normalizeCandyTestModel(PlatformOpenAI, group.CandyTestModel)
+	if err != nil {
+		return time.Time{}
+	}
+	if models == "" {
+		models = defaultCandyTestModel
 	}
 	last := snapshot.Schedules[group.ID]
+	// Legacy single-model schedules have no candidate setting.
+	lastModels := firstNonEmptyString(last.ModelCandidates, last.Model)
 	// Old schedules predate configurable effort and were checked with medium.
 	effort, err := normalizeCandyTestReasoningEffort(group.Platform, group.CandyTestReasoningEffort)
 	lastEffort, _ := normalizeCandyTestReasoningEffort(group.Platform, last.ReasoningEffort)
-	if err != nil || last.Model != model || lastEffort != effort {
+	if err != nil || lastModels != models || lastEffort != effort {
 		return time.Time{}
 	}
 	return last.CheckedAt.Add(time.Duration(group.CandyTestIntervalSeconds) * time.Second)

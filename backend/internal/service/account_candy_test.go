@@ -195,7 +195,7 @@ func TestNormalizeCandyTestModel(t *testing.T) {
 	model, err = normalizeCandyTestModel(PlatformAnthropic, "gpt-6.2-sol")
 	require.NoError(t, err)
 	require.Empty(t, model)
-	for _, bad := range []string{"gpt-6.2\nsol", strings.Repeat("a", 101), "gpt-image-1"} {
+	for _, bad := range []string{"gpt-6.2\tsol", strings.Repeat("a", 101), "gpt-image-1"} {
 		_, err = normalizeCandyTestModel(PlatformOpenAI, bad)
 		require.True(t, infraerrors.IsBadRequest(err))
 	}

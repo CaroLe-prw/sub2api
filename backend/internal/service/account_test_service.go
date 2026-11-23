@@ -308,6 +308,9 @@ type AccountTestOptions struct {
 	// RequireScheduling is internal-only: candy tests recheck the manual switch
 	// after waiting for a probe slot, before dispatching an upstream request.
 	RequireScheduling bool
+	// RequireModelWhitelist is internal-only: select the first allowed candy
+	// model from the ordered candidates, even when ExactModel skips aliases.
+	RequireModelWhitelist bool
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -630,6 +633,18 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 	if testOpts.RequireScheduling && !account.Schedulable {
 		return errCandyTestSchedulingDisabled
+	}
+	// Check after acquiring the probe slot and reloading the account, so queued
+	// diagnostics cannot bypass a model restriction changed while they waited.
+	// Use source-key filtering, not mapped-model availability: ExactModel must
+	// keep testing the configured model rather than an account alias target.
+	if testOpts.RequireModelWhitelist {
+		modelID, err = selectCandyTestModel(account, modelID)
+		if err != nil {
+			return err
+		}
+		// Retain the selected model even if authentication fails before test_start.
+		c.Set("account_test_upstream_model", modelID)
 	}
 	bindAccountTestPlatform(c, account)
 
@@ -3743,8 +3758,8 @@ func (s *AccountTestService) runTestBackgroundWithPrompt(ctx context.Context, ac
 	ginCtx.Set(accountTestBackgroundKey, true)
 
 	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, prompt, AccountTestModeDefault, opts...)
-	// A switched-off queued candy test is skipped, not recorded as an API error.
-	if errors.Is(testErr, errCandyTestSchedulingDisabled) {
+	// Ineligible candy tests must not produce API-error history or alter verdicts.
+	if errors.Is(testErr, errCandyTestSchedulingDisabled) || errors.Is(testErr, errCandyTestModelNotAllowed) {
 		return nil, testErr
 	}
 
@@ -3763,7 +3778,7 @@ func (s *AccountTestService) runTestBackgroundWithPrompt(ctx context.Context, ac
 	tokens, media := timingTracker.usageValue()
 	result := &ScheduledTestResult{
 		Status:        status,
-		UpstreamModel: media.UpstreamModel,
+		UpstreamModel: firstNonEmptyString(media.UpstreamModel, AccountTestUpstreamModel(ginCtx)),
 		ResponseText:  responseText,
 		ErrorMessage:  errMsg,
 		TTFTMs:        timingTracker.value(),

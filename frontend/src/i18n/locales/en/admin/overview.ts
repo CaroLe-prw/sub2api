@@ -1354,8 +1354,9 @@ export default {
         max: 'Maximum (max)'
       },
       candyTestModel: {
-        label: 'Candy test model',
-        hint: 'Only sets the candy-check model for OpenAI OAuth / API Key accounts in this group; normal request models are unchanged. Blank defaults to gpt-6.2-sol. Use an upstream text model ID; model aliases are not applied. If groups disagree, select a group in the account list first.'
+        label: 'Candy test candidate models (in order)',
+        placeholder: 'gpt-6.2-sol\ngpt-6.1-sol',
+        hint: 'One model per line or comma-separated, up to 20. Select the first candidate allowed by this account’s current model restrictions and send only that one; send nothing if none are allowed. Wrong answers and API errors do not trigger another candidate. Blank defaults to gpt-6.2-sol. Use upstream text model IDs; aliases are not applied and normal request models are unchanged. Filter by group when candidate lists or reasoning efforts differ.'
       },
       openaiMessages: {
         title: 'OpenAI Messages Dispatch',

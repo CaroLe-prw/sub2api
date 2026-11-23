@@ -323,6 +323,18 @@ describe("GroupsView OpenAI forced service tier", () => {
 
     wrapper.unmount();
   });
+  it("edits ordered candy model candidates without changing priority", async () => {
+    const saved = "gpt-6.2-sol\ngpt-6.1-sol\ngpt-6-sol";
+    const wrapper = await openEditDialog({ ...sourceGroup, candy_test_model: saved });
+    const input = wrapper.get('textarea[data-testid="candy-test-model"]');
+    expect((input.element as HTMLTextAreaElement).value).toBe(saved);
+    expect(input.attributes("maxlength")).toBe("2048");
+    const reordered = "gpt-6.1-sol\ngpt-6.2-sol\ngpt-6-sol";
+    await input.setValue(reordered);
+    expect(await submit(wrapper)).toMatchObject({ candy_test_model: reordered });
+    wrapper.unmount();
+  });
+
   it("defaults the OpenAI candy test model and saves an edited model", async () => {
     const wrapper = await openEditDialog(sourceGroup);
     const input = wrapper.get('[data-testid="candy-test-model"]');

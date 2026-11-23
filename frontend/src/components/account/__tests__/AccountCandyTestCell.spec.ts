@@ -202,6 +202,19 @@ describe('AccountCandyTestCell', () => {
     expect(showError).toHaveBeenCalledWith('admin.accounts.candyTest.groupRequired')
     wrapper.unmount()
   })
+  it.each([
+    { reason: 'CANDY_TEST_MODEL_NOT_ALLOWED' },
+    { response: { data: { code: 'CANDY_TEST_MODEL_NOT_ALLOWED' } } },
+  ])('explains the account model restriction without changing prior results', async (error) => {
+    runCandyTest.mockRejectedValue(error)
+    const wrapper = mount(AccountCandyTestCell, { props: { account: account({ extra: { candy_test: result() } }) } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(showError).toHaveBeenCalledWith('admin.accounts.candyTest.modelNotAllowed')
+    expect(wrapper.emitted('updated')).toBeUndefined()
+    expect(wrapper.findAll('[data-status]')).toHaveLength(3)
+    wrapper.unmount()
+  })
   it('cancels on unmount without showing an error', async () => {
     runCandyTest.mockImplementation((_id, _group, signal: AbortSignal) => new Promise((_resolve, reject) => {
       signal.addEventListener('abort', () => reject(new Error('aborted')))

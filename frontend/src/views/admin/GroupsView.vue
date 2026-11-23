@@ -671,13 +671,13 @@
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <label for="createForm-candy-test-model" class="input-label">{{ t("admin.groups.candyTestModel.label") }}</label>
-          <input
+          <textarea
             id="createForm-candy-test-model"
             v-model.trim="createForm.candy_test_model"
-            type="text"
-            maxlength="100"
-            class="input"
-            placeholder="gpt-6.2-sol"
+            rows="3"
+            maxlength="2048"
+            class="input resize-y"
+            :placeholder="t('admin.groups.candyTestModel.placeholder')"
             data-testid="candy-test-model"
           />
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.candyTestModel.hint") }}</p>
@@ -2256,13 +2256,13 @@
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <label for="editForm-candy-test-model" class="input-label">{{ t("admin.groups.candyTestModel.label") }}</label>
-          <input
+          <textarea
             id="editForm-candy-test-model"
             v-model.trim="editForm.candy_test_model"
-            type="text"
-            maxlength="100"
-            class="input"
-            placeholder="gpt-6.2-sol"
+            rows="3"
+            maxlength="2048"
+            class="input resize-y"
+            :placeholder="t('admin.groups.candyTestModel.placeholder')"
             data-testid="candy-test-model"
           />
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.candyTestModel.hint") }}</p>

@@ -7,15 +7,54 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
+const (
+	maxCandyTestModels            = 20
+	maxCandyTestModelLength       = 100
+	maxCandyTestModelConfigLength = 2048
+)
+
+// Keep the existing string setting compatible with single-model groups. Multiple
+// candidates are normalized to one model per line, preserving priority order.
 func normalizeCandyTestModel(platform, model string) (string, error) {
 	if platform != PlatformOpenAI {
 		return "", nil
 	}
+	invalid := infraerrors.BadRequest("INVALID_CANDY_TEST_MODEL", "Candy tests accept up to 20 text model IDs, each at most 100 characters without whitespace, separated by commas or newlines (2048 characters total)")
 	model = strings.TrimSpace(model)
-	if len(model) > 100 || strings.IndexFunc(model, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 || isOpenAIImageModel(model) {
-		return "", infraerrors.BadRequest("INVALID_CANDY_TEST_MODEL", "Candy test model must be a text model ID of at most 100 characters without whitespace")
+	if len(model) > maxCandyTestModelConfigLength {
+		return "", invalid
 	}
-	return model, nil
+	parts := strings.FieldsFunc(model, func(r rune) bool { return r == ',' || r == '，' || r == '\n' || r == '\r' })
+	models := make([]string, 0, len(parts))
+	seen := make(map[string]bool, len(parts))
+	for _, candidate := range parts {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if len(candidate) > maxCandyTestModelLength || strings.IndexFunc(candidate, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 || isOpenAIImageModel(candidate) {
+			return "", invalid
+		}
+		if !seen[candidate] {
+			models = append(models, candidate)
+			seen[candidate] = true
+		}
+		if len(models) > maxCandyTestModels {
+			return "", invalid
+		}
+	}
+	return strings.Join(models, "\n"), nil
+}
+
+// Select locally from normalized candidates; never probe an unsupported model or
+// fall through after a wrong answer/API error. Each candy run sends one model.
+func selectCandyTestModel(account *Account, candidates string) (string, error) {
+	for _, model := range strings.Split(candidates, "\n") {
+		if account.isModelMappingSupported(model) {
+			return model, nil
+		}
+	}
+	return "", errCandyTestModelNotAllowed.WithMetadata(map[string]string{"models": candidates})
 }
 
 func normalizeCandyTestReasoningEffort(platform, effort string) (string, error) {
@@ -35,6 +74,7 @@ func normalizeCandyTestReasoningEffort(platform, effort string) (string, error) 
 }
 
 type candyTestConfig struct {
+	// Model is the normalized ordered candidate setting, not the selected model.
 	Model           string
 	ReasoningEffort string
 }

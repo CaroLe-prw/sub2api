@@ -139,7 +139,8 @@ async function run() {
     if (!request.signal.aborted) {
       const code = extractApiErrorCode(error)
       const key = code === 'CANDY_TEST_SCHEDULING_DISABLED' ? 'schedulingDisabled'
-        : code === 'CANDY_TEST_GROUP_REQUIRED' ? 'groupRequired' : 'requestFailed'
+        : code === 'CANDY_TEST_GROUP_REQUIRED' ? 'groupRequired'
+          : code === 'CANDY_TEST_MODEL_NOT_ALLOWED' ? 'modelNotAllowed' : 'requestFailed'
       appStore.showError(t(`admin.accounts.candyTest.${key}`))
     }
   } finally {

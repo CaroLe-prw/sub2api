@@ -293,9 +293,9 @@ func (Group) Fields() []ent.Field {
 			Default("medium").
 			Comment("OpenAI 糖果检测思考强度；默认 medium，仅影响检测请求"),
 		field.String("candy_test_model").
-			MaxLen(100).
+			MaxLen(2048).
 			Default("").
-			Comment("OpenAI OAuth 糖果检测模型；空值使用 gpt-6.2-sol"),
+			Comment("OpenAI 糖果检测候选模型，按行排序；空值使用 gpt-6.2-sol"),
 		field.String("default_mapped_model").
 			MaxLen(100).
 			Default("").

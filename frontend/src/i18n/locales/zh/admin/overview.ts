@@ -1352,8 +1352,9 @@ export default {
         max: '最高（max）'
       },
       candyTestModel: {
-        label: '糖果检测模型',
-        hint: '仅配置本分组 OpenAI OAuth / API Key 账号的糖果检测模型，不改变正常请求的模型。留空默认 gpt-6.2-sol，填写上游实际文本模型 ID；检测不会应用模型别名映射。账号跨分组且模型或强度不同时，请先按分组筛选再检测。'
+        label: '糖果检测候选模型（按顺序）',
+        placeholder: 'gpt-6.2-sol\ngpt-6.1-sol',
+        hint: '每行一个，或用逗号分隔，最多 20 个模型。按顺序选择此账号当前模型限制允许的第一个，只请求这一个；均不允许则不发送请求。答错或接口异常不会换模型继续测。留空默认 gpt-6.2-sol；填写上游实际文本模型 ID，不应用模型别名映射，也不改变正常请求的模型。账号跨分组且候选列表或强度不同时，请先按分组筛选。'
       },
       openaiMessages: {
         title: 'OpenAI Messages 调度配置',

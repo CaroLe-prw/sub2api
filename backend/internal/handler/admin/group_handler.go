@@ -277,7 +277,7 @@ type CreateGroupRequest struct {
 	FreeOpenAIFast              bool                                      `json:"free_openai_fast"`
 	RequireOAuthOnly            bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           bool                                      `json:"require_privacy_set"`
-	CandyTestModel              string                                    `json:"candy_test_model" binding:"max=100"`
+	CandyTestModel              string                                    `json:"candy_test_model" binding:"max=2048"`
 	CandyTestReasoningEffort    string                                    `json:"candy_test_reasoning_effort" binding:"max=20"`
 	CandyTestIntervalSeconds    int                                       `json:"candy_test_interval_seconds" binding:"gte=0,lte=86400"`
 	DefaultMappedModel          string                                    `json:"default_mapped_model"`
@@ -362,7 +362,7 @@ type UpdateGroupRequest struct {
 	FreeOpenAIFast              *bool                                      `json:"free_openai_fast"`
 	RequireOAuthOnly            *bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           *bool                                      `json:"require_privacy_set"`
-	CandyTestModel              *string                                    `json:"candy_test_model" binding:"omitempty,max=100"`
+	CandyTestModel              *string                                    `json:"candy_test_model" binding:"omitempty,max=2048"`
 	CandyTestReasoningEffort    *string                                    `json:"candy_test_reasoning_effort" binding:"omitempty,max=20"`
 	CandyTestIntervalSeconds    *int                                       `json:"candy_test_interval_seconds" binding:"omitempty,gte=0,lte=86400"`
 	DefaultMappedModel          *string                                    `json:"default_mapped_model"`

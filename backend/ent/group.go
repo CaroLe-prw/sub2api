@@ -148,7 +148,7 @@ type Group struct {
 	CandyTestIntervalSeconds int `json:"candy_test_interval_seconds,omitempty"`
 	// OpenAI 糖果检测思考强度；默认 medium，仅影响检测请求
 	CandyTestReasoningEffort string `json:"candy_test_reasoning_effort,omitempty"`
-	// OpenAI OAuth 糖果检测模型；空值使用 gpt-6.2-sol
+	// OpenAI 糖果检测候选模型，按行排序；空值使用 gpt-6.2-sol
 	CandyTestModel string `json:"candy_test_model,omitempty"`
 	// 默认映射模型 ID，当账号级映射找不到时使用此值
 	DefaultMappedModel string `json:"default_mapped_model,omitempty"`
