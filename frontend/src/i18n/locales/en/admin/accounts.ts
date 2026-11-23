@@ -316,7 +316,7 @@ export default {
         stickyShort: 'Sticky',
         ungrouped: 'Ungrouped',
         onlySelectedGroup: 'Selected group only',
-        hint: 'Displayed as "group / base score / sticky bonus". The base score is computed within the current filtered candidate set and includes priority, load, queue depth, error rate, first-token latency, reset window, quota headroom, scheduling cost rate, and related factors. The sticky bonus applies only when sticky weighting is enabled for previous_response_id or session_hash. Higher scores are preferred.'
+        hint: 'Displayed as "group / base score / sticky bonus". The base score is computed within the current filtered candidate set and includes priority, load, queue depth, error rate, first-token latency, reset window, quota headroom, scheduling cost rate, and related factors. The sticky bonus applies only when sticky weighting is enabled for previous_response_id or session_hash. Higher scores are generally preferred; OpenAI OAuth accounts with the same priority prefer earlier creation times. Session affinity, availability, and capability restrictions still take precedence.'
       },
       modelAvailability: {
         hint: 'Combines real user calls from the last 30 minutes with the latest active probe. Click to view the source breakdown.',

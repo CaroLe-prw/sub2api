@@ -1996,6 +1996,15 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		}
 		return selectable
 	}
+	creationAccount := func(candidate openAIAccountCandidateScore) *Account {
+		// Keep an explicitly weighted sticky binding in its existing score slot.
+		if req.StickyWeighted && candidate.score > candidate.baseScore &&
+			(candidate.account.ID == req.StickyAccountID ||
+				(req.PreviousResponseCanMove && candidate.account.ID == req.StickyPreviousAccountID)) {
+			return nil
+		}
+		return candidate.account
+	}
 	rankSelectionPool := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
 		pool = selectableCandidates(pool)
 		if len(pool) == 0 || plan.topK <= 0 {
@@ -2007,25 +2016,57 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		}
 		// Every preset applies its non-TTFT policy first. TTFT can break an exact
 		// primary-score tie and then biases the probabilistic draw inside Top-K.
-		ranked := selectTopKOpenAIPrimaryCandidates(pool, groupTopK)
+		creationOrder := needsOpenAIOAuthCreationOrder(pool, creationAccount, req.GroupID, req.RequireCompact)
+		rankCount := groupTopK
+		if creationOrder {
+			// Apply age before Top-K truncation, otherwise a newer OAuth account
+			// with a better load score can exclude an older eligible peer entirely.
+			rankCount = len(pool)
+		}
+		ranked := selectTopKOpenAIPrimaryCandidates(pool, rankCount)
+		if creationOrder {
+			orderOpenAIOAuthByCreation(ranked, creationAccount, req.GroupID, req.RequireCompact)
+			ranked = ranked[:groupTopK]
+		}
 		primary := buildOpenAIWeightedSelectionOrderWithTTFTBias(ranked, req, plan.ttftPreferenceWeight)
-		if !plan.includeOverflowFallback || groupTopK >= len(pool) {
+		if creationOrder {
+			// The probabilistic draw must not undo the OAuth age preference.
+			orderOpenAIOAuthByCreation(primary, creationAccount, req.GroupID, req.RequireCompact)
+		}
+		if (!plan.includeOverflowFallback && !creationOrder) || groupTopK >= len(pool) {
 			return primary
 		}
 
 		selected := make(map[int64]struct{}, len(primary))
+		oauthFallbackGroups := make(map[openAIOAuthCreationGroup]bool)
 		for _, candidate := range primary {
 			selected[candidate.account.ID] = struct{}{}
+			if key, ok := openAIOAuthCreationGroupFor(creationAccount(candidate), req.GroupID, req.RequireCompact); ok {
+				oauthFallbackGroups[key] = true
+			}
 		}
 		overflow := make([]openAIAccountCandidateScore, 0, len(pool)-len(primary))
 		for _, candidate := range pool {
-			if _, ok := selected[candidate.account.ID]; !ok {
-				overflow = append(overflow, candidate)
+			if _, ok := selected[candidate.account.ID]; ok {
+				continue
 			}
+			if !plan.includeOverflowFallback {
+				// Older OAuth accounts may be full or fail the DB recheck. Keep
+				// their same-priority peers reachable without broadening API Key
+				// or unrelated-priority Top-K fallback policy.
+				key, ok := openAIOAuthCreationGroupFor(creationAccount(candidate), req.GroupID, req.RequireCompact)
+				if !ok || !oauthFallbackGroups[key] {
+					continue
+				}
+			}
+			overflow = append(overflow, candidate)
 		}
 		sort.Slice(overflow, func(i, j int) bool {
 			return isOpenAIAccountCandidatePrimaryBetter(overflow[i], overflow[j])
 		})
+		if creationOrder {
+			orderOpenAIOAuthByCreation(overflow, creationAccount, req.GroupID, req.RequireCompact)
+		}
 		return append(primary, overflow...)
 	}
 	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
@@ -2109,6 +2150,7 @@ func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []open
 			return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
 		}
 	})
+	orderOpenAIOAuthByCreation(ordered, func(candidate openAIAccountCandidateScore) *Account { return candidate.account }, nil, true)
 	return ordered
 }
 
@@ -2624,14 +2666,20 @@ func (s *defaultOpenAIAccountScheduler) trySelectByLoadBalancePool(
 }
 
 func openAICostOverflowExpanded(req OpenAIAccountScheduleRequest, plan openAIAccountLoadPlan) bool {
-	if !plan.includeOverflowFallback || plan.topK <= 0 {
+	if plan.topK <= 0 {
 		return false
 	}
+	pool := plan.candidates
+	if !plan.includeOverflowFallback {
+		// Creation-order fallbacks expand only selected OAuth priority groups.
+		// Apply the existing bounded probe budget to that expanded order too.
+		pool = plan.selectionOrder
+	}
 	if !req.RequireCompact {
-		return len(plan.candidates) > plan.topK
+		return len(pool) > plan.topK
 	}
 	supported, unknown := 0, 0
-	for _, candidate := range plan.candidates {
+	for _, candidate := range pool {
 		switch openAICompactSupportTier(candidate.account) {
 		case 2:
 			supported++

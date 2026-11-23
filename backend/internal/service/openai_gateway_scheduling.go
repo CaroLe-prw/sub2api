@@ -1120,6 +1120,7 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 		}
 		return s.isBetterAccount(a, b)
 	})
+	orderOpenAIOAuthByCreation(eligible, openAICreationOrderAccount, nil, requireCompact)
 	return eligible[0], compactBlocked, filterStats
 }
 
@@ -1399,6 +1400,8 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			})
 		}
 
+		orderOpenAIOAuthByCreation(available, openAICreationOrderLoadedAccount, nil, requireCompact)
+
 		selectionOrder := make([]accountWithLoad, 0, len(available))
 		if requireCompact {
 			appendTier := func(out []accountWithLoad, tier int) []accountWithLoad {
@@ -1457,6 +1460,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		if requireCompact {
 			ordered = prioritizeOpenAICompactAccounts(ordered)
 		}
+		orderOpenAIOAuthByCreation(ordered, openAICreationOrderAccount, nil, requireCompact)
 		for _, acc := range ordered {
 			fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, platform, requestedModel, false, requiredCapability)
 			if fresh == nil {
@@ -1507,6 +1511,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	if requireCompact {
 		candidates = prioritizeOpenAICompactAccounts(candidates)
 	}
+	orderOpenAIOAuthByCreation(candidates, openAICreationOrderAccount, nil, requireCompact)
 	for _, acc := range candidates {
 		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, platform, requestedModel, false, requiredCapability)
 		if fresh == nil {
