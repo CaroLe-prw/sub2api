@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"sort"
 	"sync"
@@ -33,29 +34,40 @@ type candyTestJob struct {
 }
 
 type CandyTestRunner struct {
-	groups     GroupRepository
-	accounts   AccountRepository
-	tester     candyScheduledTester
-	ctx        context.Context
-	cancel     context.CancelFunc
-	startOnce  sync.Once
-	stopOnce   sync.Once
-	wg         sync.WaitGroup
-	slots      chan struct{}
-	mu         sync.Mutex
-	running    map[int64]bool
-	retryAfter map[[2]int64]time.Time
+	groups           GroupRepository
+	accounts         AccountRepository
+	tester           candyScheduledTester
+	ctx              context.Context
+	cancel           context.CancelFunc
+	startOnce        sync.Once
+	stopOnce         sync.Once
+	wg               sync.WaitGroup
+	slots            chan struct{}
+	mu               sync.Mutex
+	running          map[int64]bool
+	retryAfter       map[[2]int64]time.Time
+	cleanupLockCache LeaderLockCache
+	cleanupLockDB    *sql.DB
 }
 
 func NewCandyTestRunner(groups GroupRepository, accounts AccountRepository, tester *AccountTestService) *CandyTestRunner {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &CandyTestRunner{groups: groups, accounts: accounts, tester: tester, ctx: ctx, cancel: cancel,
+	runner := &CandyTestRunner{groups: groups, accounts: accounts, tester: tester, ctx: ctx, cancel: cancel,
 		slots: make(chan struct{}, candyTestMaxWorkers), running: make(map[int64]bool), retryAfter: make(map[[2]int64]time.Time)}
+	if tester != nil {
+		runner.cleanupLockCache = tester.candyTestLockCache
+		runner.cleanupLockDB = tester.candyTestLockDB
+	}
+	return runner
 }
 
 func (r *CandyTestRunner) Start() {
 	r.startOnce.Do(func() {
-		r.wg.Add(1)
+		r.wg.Add(2)
+		go func() {
+			defer r.wg.Done()
+			r.cleanupLoop()
+		}()
 		go func() {
 			defer r.wg.Done()
 			ticker := time.NewTicker(time.Second)

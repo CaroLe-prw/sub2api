@@ -9,7 +9,7 @@
     <!-- 全局价格说明(管理员配置,Markdown) -->
     <div
       v-if="descriptionHtml"
-      class="plaza-description rounded-2xl border border-gray-100 bg-white px-5 py-4 text-sm shadow-card dark:border-dark-700/50 dark:bg-dark-800/50"
+      class="plaza-description rounded-2xl border border-gray-200/80 bg-white px-5 py-4 text-sm dark:border-dark-700 dark:bg-dark-800"
       v-html="descriptionHtml"
     ></div>
 
@@ -22,43 +22,50 @@
       {{ t('modelPlaza.anonymousHint') }}
     </p>
 
-    <!-- 加载/错误/空 -->
-    <div v-if="loading" class="flex min-h-[240px] items-center justify-center">
-      <div class="h-8 w-8 animate-spin rounded-full border-2 border-primary-600/25 border-t-primary-600 dark:border-primary-400/25 dark:border-t-primary-400"></div>
-    </div>
-    <div
-      v-else-if="error"
-      class="rounded-2xl border border-red-200 bg-red-50 px-5 py-8 text-center text-sm text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+    <!-- 与可用渠道共用目录外观；广场仍使用公开接口和自己的价格明细。 -->
+    <AvailableChannelsCatalog
+      :rows="catalogRows"
+      :loading="loading"
+      :error="error"
+      :user-group-rates="userGroupRates"
+      :timezone="timezone"
+      :search-placeholder="t('modelPlaza.catalog.searchPlaceholder')"
+      :error-message="t('modelPlaza.loadFailed')"
+      :empty-message="t('modelPlaza.empty')"
+      @refresh="$emit('refresh')"
     >
-      {{ t('modelPlaza.loadFailed') }}
-    </div>
-    <template v-else>
-      <!-- 筛选区:平台 → 分组 → 倍率 -->
-      <PlazaFilterBar
-        :platforms="platforms"
-        :groups="groupOptions"
-        :rates="rates"
-        :platform="selectedPlatform"
-        :group-id="selectedGroupId"
-        :rate="selectedRate"
-        :search="searchQuery"
-        @update:platform="selectedPlatform = $event"
-        @update:group-id="selectedGroupId = $event"
-        @update:rate="selectedRate = $event"
-        @update:search="searchQuery = $event"
-      />
-
-      <!-- 分组分节的模型清单(默认按生效倍率升序) -->
-      <div v-if="filteredGroups.length > 0" class="space-y-5">
-        <PlazaGroupSection v-for="g in filteredGroups" :key="g.id" :group="g" />
-      </div>
-      <div
-        v-else
-        class="rounded-2xl border border-dashed border-gray-300 px-5 py-12 text-center text-sm text-gray-500 dark:border-dark-600 dark:text-dark-400"
-      >
-        {{ searchActive ? t('modelPlaza.noSearchResult') : t('modelPlaza.empty') }}
-      </div>
-    </template>
+      <template #filter-actions>
+        <select
+          v-model="selectedRate"
+          :aria-label="t('modelPlaza.filters.rateLabel')"
+          class="input !w-auto !py-2 !text-xs"
+          data-testid="plaza-rate-filter"
+        >
+          <option value="all">{{ t('modelPlaza.filters.rateLabel') }} · {{ t('modelPlaza.filters.all') }}</option>
+          <option v-for="rate in rates" :key="rate" :value="rate">×{{ rate }}</option>
+        </select>
+      </template>
+      <template #model-card="{ entry, showRates }">
+        <ModelPricingCard
+          :entry="entry"
+          :show-rates="showRates"
+          :user-group-rates="userGroupRates"
+          :timezone="timezone"
+          :details-hint="t('modelPlaza.catalog.detailsHint')"
+        >
+          <template #details="{ open }">
+            <p class="leading-5 text-gray-500 dark:text-gray-400">{{ t('modelPlaza.catalog.basePriceNote') }}</p>
+            <template v-if="open">
+              <PlazaGroupSection
+                v-for="group in detailGroups(entry)"
+                :key="group.id"
+                :group="group"
+              />
+            </template>
+          </template>
+        </ModelPricingCard>
+      </template>
+    </AvailableChannelsCatalog>
   </div>
 </template>
 
@@ -68,9 +75,14 @@ import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import Icon from '@/components/icons/Icon.vue'
-import PlazaFilterBar from './PlazaFilterBar.vue'
+import AvailableChannelsCatalog from '@/components/channels/AvailableChannelsCatalog.vue'
+import ModelPricingCard from '@/components/channels/ModelPricingCard.vue'
+import type { CatalogModel } from '@/components/channels/catalog'
+import { plazaCatalogRows, plazaDetailGroups } from './catalog'
+import { serverTimezoneLabel } from '@/utils/peak-rate'
+import { useAppStore } from '@/stores/app'
 import PlazaGroupSection from './PlazaGroupSection.vue'
-import type { ModelPlazaGroup, ModelPlazaResponse } from '@/api/modelPlaza'
+import type { ModelPlazaResponse } from '@/api/modelPlaza'
 import { useAuthStore } from '@/stores/auth'
 
 const props = defineProps<{
@@ -81,16 +93,15 @@ const props = defineProps<{
   embedded?: boolean
 }>()
 
+defineEmits<{ (e: 'refresh'): void }>()
+
 const { t } = useI18n()
+const appStore = useAppStore()
 const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 
-const selectedPlatform = ref<string>('all')
-const selectedGroupId = ref<number | 'all'>('all')
 const selectedRate = ref<number | 'all'>('all')
-const searchQuery = ref('')
-
-const searchActive = computed(() => searchQuery.value.trim() !== '')
+const timezone = computed(() => serverTimezoneLabel(appStore.cachedPublicSettings?.server_utc_offset))
 
 const descriptionHtml = computed(() => {
   const md = props.response?.description?.trim()
@@ -98,58 +109,26 @@ const descriptionHtml = computed(() => {
   return DOMPurify.sanitize(marked.parse(md) as string)
 })
 
-/** 生效倍率 = 用户专属倍率 ?? 分组默认倍率。 */
-function effectiveRate(g: ModelPlazaGroup): number {
-  return g.user_rate_multiplier ?? g.rate_multiplier
+const groups = computed(() => props.response?.groups ?? [])
+const groupsById = computed(() => new Map(groups.value.map((group) => [group.id, group])))
+const userGroupRates = computed(() => Object.fromEntries(
+  groups.value.flatMap((group) => group.user_rate_multiplier == null ? [] : [[group.id, group.user_rate_multiplier]])
+))
+const rates = computed(() => [...new Set(groups.value.map(
+  (group) => group.user_rate_multiplier ?? group.rate_multiplier
+))].sort((a, b) => a - b))
+
+const catalogRows = computed(() => plazaCatalogRows(groups.value.filter(
+  (group) => selectedRate.value === 'all' || (group.user_rate_multiplier ?? group.rate_multiplier) === selectedRate.value
+)))
+
+function detailGroups(entry: CatalogModel) {
+  return plazaDetailGroups(entry, groupsById.value)
 }
 
-const platforms = computed(() =>
-  [...new Set((props.response?.groups ?? []).map((g) => g.platform).filter(Boolean))].sort()
-)
-
-const groupOptions = computed(() =>
-  (props.response?.groups ?? []).map((g) => ({
-    id: g.id,
-    name: g.name,
-    platform: g.platform,
-    rate: effectiveRate(g)
-  }))
-)
-
-/** 全量生效倍率;当前组合下不可用的项由 FilterBar 置灰而非隐藏。 */
-const rates = computed(() =>
-  [...new Set((props.response?.groups ?? []).map(effectiveRate))].sort((a, b) => a - b)
-)
-
-/** 数据刷新后选中的倍率可能不复存在,重置为全部。 */
+// 刷新后专属倍率可能改变，清除已经不存在的筛选值。
 watch(rates, (list) => {
-  if (selectedRate.value !== 'all' && !list.includes(selectedRate.value)) {
-    selectedRate.value = 'all'
-  }
-})
-
-const filteredGroups = computed(() => {
-  let groups = props.response?.groups ?? []
-  if (selectedPlatform.value !== 'all') {
-    groups = groups.filter((g) => g.platform === selectedPlatform.value)
-  }
-  if (selectedGroupId.value !== 'all') {
-    groups = groups.filter((g) => g.id === selectedGroupId.value)
-  }
-  if (selectedRate.value !== 'all') {
-    groups = groups.filter((g) => effectiveRate(g) === selectedRate.value)
-  }
-  // 模型名搜索:分组内只留命中的模型,整组无命中则隐藏该分组。
-  const q = searchQuery.value.trim().toLowerCase()
-  if (q) {
-    groups = groups
-      .map((g) => ({ ...g, models: g.models.filter((m) => m.name.toLowerCase().includes(q)) }))
-      .filter((g) => g.models.length > 0)
-  }
-  // 专属倍率会改变生效值,不能只依赖后端按默认倍率的排序。
-  return [...groups].sort(
-    (a, b) => effectiveRate(a) - effectiveRate(b) || a.name.localeCompare(b.name)
-  )
+  if (selectedRate.value !== 'all' && !list.includes(selectedRate.value)) selectedRate.value = 'all'
 })
 </script>
 

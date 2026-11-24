@@ -707,6 +707,11 @@ export default {
       searchPlaceholder: '搜索模型名称',
       all: '全部'
     },
+    catalog: {
+      searchPlaceholder: '搜索分组或模型...',
+      detailsHint: '基础单价，分组实付、官方参考与计费规则见明细',
+      basePriceNote: '卡片展示标准时段的基础单价，未乘分组、用户专属或独立图片/视频倍率。下方按分组展示折后实付、官方参考价，以及阶梯、分时和高峰规则。'
+    },
     badges: {
       exclusive: '专属分组',
       subscription: '订阅'

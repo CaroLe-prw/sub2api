@@ -702,6 +702,11 @@ export default {
       searchPlaceholder: 'Search models',
       all: 'All'
     },
+    catalog: {
+      searchPlaceholder: 'Search groups or models...',
+      detailsHint: 'Base prices; group totals, official prices and billing rules in details',
+      basePriceNote: 'Cards show standard-period base prices before group, personal or independent image/video rates. Details show each group’s discounted prices, official reference prices, tiers, time pricing and peak-hour rules.'
+    },
     badges: {
       exclusive: 'Exclusive',
       subscription: 'Subscription'

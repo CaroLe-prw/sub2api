@@ -321,3 +321,24 @@ func TestCandyTestUnsupportedMediumIsAPIErrorNotWrongAnswer(t *testing.T) {
 	require.True(t, account.Schedulable)
 	require.Len(t, upstream.requests, 1, "do not silently retry with lower reasoning")
 }
+
+func TestRunCandyTestDoesNotRestoreExpiredHistory(t *testing.T) {
+	account := candyAccount()
+	old := time.Now().Add(-48 * time.Hour)
+	account.Extra[CandyTestExtraKey] = CandyTestSnapshot{
+		Total: 2, Failed: 2, LastVerdict: "failed", ConsecutiveFailures: 2,
+		Recent: []CandyTestSample{{Status: "failed", CheckedAt: old, ResponseText: "expired answer"}},
+	}
+	repo := &candyAccountRepo{account: account}
+	svc := &AccountTestService{accountRepo: repo, httpUpstream: &queuedHTTPUpstream{responses: []*http.Response{newJSONResponse(500, "failed")}}}
+	result, err := svc.RunCandyTest(context.Background(), account.ID, 0)
+	require.NoError(t, err)
+	require.Len(t, result.Recent, 1)
+	require.Equal(t, "error", result.Recent[0].Status)
+	require.Equal(t, 3, result.Total)
+	require.Equal(t, 2, result.ConsecutiveFailures, "expiration cannot reset the scheduling gate")
+	require.True(t, account.IsCandyTestBlocked())
+	raw, err := json.Marshal(repo.lastUpdates)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "expired answer")
+}

@@ -2,7 +2,7 @@
   <header
     class="glass sticky top-0 z-30 border-b border-gray-200/50 dark:border-dark-700/50"
   >
-    <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
+    <div class="flex items-center justify-between gap-4 px-4 py-3.5 md:px-6 lg:px-8">
       <!-- 左:站点 logo + 名称 -->
       <div class="flex min-w-0 items-center gap-3">
         <template v-if="settings">

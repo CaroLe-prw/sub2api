@@ -40,8 +40,9 @@
         <div class="flex w-full flex-wrap items-center gap-3 sm:w-auto">
           <div class="relative min-w-0 flex-1 sm:w-56 sm:flex-none">
             <Icon name="search" size="sm" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input v-model="searchQuery" type="search" :aria-label="t('availableChannels.searchPlaceholder')" :placeholder="t('availableChannels.searchPlaceholder')" class="input !py-2 pl-9 !text-xs" data-testid="catalog-search" />
+            <input v-model="searchQuery" type="search" :aria-label="searchPlaceholder || t('availableChannels.searchPlaceholder')" :placeholder="searchPlaceholder || t('availableChannels.searchPlaceholder')" class="input !py-2 pl-9 !text-xs" data-testid="catalog-search" />
           </div>
+          <slot name="filter-actions" />
           <div class="flex items-center gap-2">
             <label for="channel-rate-toggle" class="cursor-pointer whitespace-nowrap text-xs font-medium text-gray-600 dark:text-gray-300">{{ t('availableChannels.catalog.showRates') }}</label>
             <Toggle id="channel-rate-toggle" v-model="showRates" :aria-label="t('availableChannels.catalog.showRates')" />
@@ -87,11 +88,15 @@
       <Icon name="refresh" size="lg" class="animate-spin" />{{ t('common.loading') }}
     </div>
     <div v-else-if="error" role="alert" class="rounded-2xl border border-red-200 bg-white px-5 py-12 text-center text-sm text-red-600 dark:border-red-900 dark:bg-dark-800 dark:text-red-400">
-      <p>{{ t('availableChannels.catalog.loadFailed') }}</p>
+      <p>{{ errorMessage || t('availableChannels.catalog.loadFailed') }}</p>
       <button type="button" class="btn btn-secondary mt-4" @click="$emit('refresh')">{{ t('common.refresh') }}</button>
     </div>
     <div v-else-if="filteredModels.length" class="grid grid-cols-1 items-start gap-3 md:grid-cols-2 xl:grid-cols-3" data-testid="model-grid">
-      <ModelPricingCard v-for="entry in filteredModels" :key="entry.key" :entry="entry" :show-rates="showRates" :user-group-rates="userGroupRates" :timezone="timezone" />
+      <template v-for="entry in filteredModels" :key="entry.key">
+        <slot name="model-card" :entry="entry" :show-rates="showRates">
+          <ModelPricingCard :entry="entry" :show-rates="showRates" :user-group-rates="userGroupRates" :timezone="timezone" />
+        </slot>
+      </template>
     </div>
     <div v-else class="rounded-2xl border border-dashed border-gray-300 bg-white/70 px-5 py-16 text-center dark:border-dark-600 dark:bg-dark-800/70" data-testid="catalog-empty">
       <Icon name="inbox" size="xl" class="mx-auto mb-3 text-gray-400" />
@@ -119,6 +124,9 @@ const props = withDefaults(defineProps<{
   error?: boolean
   userGroupRates: Record<number, number>
   timezone?: string
+  searchPlaceholder?: string
+  errorMessage?: string
+  emptyMessage?: string
 }>(), { error: false, timezone: '' })
 defineEmits<{ (e: 'refresh'): void }>()
 const { t } = useI18n()
@@ -152,7 +160,7 @@ const groups = computed(() => {
 const filteredModels = computed(() => filterCatalog(catalog.value, selectedPlatform.value, selectedGroupId.value, searchQuery.value))
 const hasFilters = computed(() => !!selectedPlatform.value || selectedGroupId.value !== null || !!searchQuery.value.trim())
 const emptyLabel = computed(() => {
-  if (!props.rows.length) return t('availableChannels.empty')
+  if (!props.rows.length) return props.emptyMessage || t('availableChannels.empty')
   if (!catalog.value.length || (!searchQuery.value.trim() && selectedGroupId.value !== null)) return t('availableChannels.noModels')
   return t('availableChannels.catalog.noResults')
 })

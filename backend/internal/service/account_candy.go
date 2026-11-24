@@ -23,6 +23,7 @@ const (
 	// invalidate scheduler pools. The manual Schedulable setting is never changed.
 	CandyTestBlockedExtraKey   = "candy_test_blocked"
 	candyTestHistoryLimit      = 12
+	candyTestHistoryRetention  = 24 * time.Hour
 	candyTestResponseRuneLimit = 4096
 	candyTestTimeout           = 90 * time.Second
 	// The answer is deliberately NOT included in the upstream prompt.
@@ -305,6 +306,8 @@ func (s *AccountTestService) runCandyTest(ctx context.Context, accountID int64, 
 		}
 		sample.ResponseText, sample.ResponseTruncated = candyTestResponseExcerpt(result.ResponseText)
 	}
+	// Do not restore expired history if daily cleanup ran during the upstream call.
+	pruneCandyTestSamples(&snapshot, time.Now().Add(-candyTestHistoryRetention))
 	appendCandyTestSample(&snapshot, sample)
 	if groupID > 0 {
 		if snapshot.Schedules == nil {

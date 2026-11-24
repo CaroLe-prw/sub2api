@@ -154,6 +154,7 @@ docs/*
 !docs/group-model-mapping.md
 !docs/gemini-openai-upstream.md
 !docs/ops-error-diagnostics.md
+!docs/candy-test-retention.md
 !docs/response-stream-timing.md
 !docs/cc-switch-usage.md
 !docs/codex-credits.md
