@@ -1163,6 +1163,7 @@ func reconcileCRSUpstreamBillingProbeExtra(
 	for _, key := range []string{
 		UpstreamBillingProbeEnabledExtraKey,
 		UpstreamBillingRateSyncEnabledExtraKey,
+		UpstreamBillingGroupSyncEnabledExtraKey,
 		UpstreamBillingProbeExtraKey,
 		OllamaCloudUsageSessionExtraKey,
 		OllamaCloudUsageAutoRefreshExtraKey,
@@ -1182,6 +1183,9 @@ func reconcileCRSUpstreamBillingProbeExtra(
 		}
 		if _, present := existing.Extra[UpstreamBillingRateSyncEnabledExtraKey]; present || probeEnabled {
 			extra[UpstreamBillingRateSyncEnabledExtraKey] = probeEnabled
+		}
+		if enabled, ok := existing.Extra[UpstreamBillingGroupSyncEnabledExtraKey].(bool); ok {
+			extra[UpstreamBillingGroupSyncEnabledExtraKey] = enabled && probeEnabled
 		}
 		if reflect.DeepEqual(upstreamBillingProbeIdentity(existing), upstreamBillingProbeIdentity(target)) {
 			if snapshot, ok := existing.Extra[UpstreamBillingProbeExtraKey]; ok {

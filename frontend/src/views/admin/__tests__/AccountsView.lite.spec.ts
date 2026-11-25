@@ -17,6 +17,8 @@ const {
   getAllProxies,
   getAllGroups,
   refreshCredentials,
+  previewUpstreamGroup,
+  updateAccount,
   showError,
   showWarning
 } = vi.hoisted(() => ({
@@ -29,6 +31,8 @@ const {
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
   refreshCredentials: vi.fn(),
+  previewUpstreamGroup: vi.fn(),
+  updateAccount: vi.fn(),
   showError: vi.fn(),
   showWarning: vi.fn()
 }))
@@ -46,7 +50,9 @@ vi.mock('@/api/admin', () => ({
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
       toggleSchedulable: vi.fn(),
-      refreshCredentials
+      refreshCredentials,
+      previewUpstreamGroup,
+      update: updateAccount
     },
     proxies: { getAll: getAllProxies },
     groups: { getAll: getAllGroups },
@@ -72,6 +78,7 @@ const DataTableStub = defineComponent({
   template: `
     <div>
       <template v-if="!loading"><div v-for="row in data" :key="row.id" :data-account-name="row.name">
+        <slot name="cell-name" :row="row" :value="row.name" />
         <slot name="cell-groups" :row="row" />
         <slot name="cell-schedulable" :row="row" />
         <slot name="cell-usage" :row="row" />
@@ -185,6 +192,25 @@ describe('admin AccountsView lite account list', () => {
     vi.restoreAllMocks()
   })
 
+  it('syncs the selected row without clearing notes missing from the upstream', async () => {
+    const account = { ...listRow, type: 'apikey', notes: 'local notes' }
+    listAccounts.mockResolvedValue({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+    previewUpstreamGroup.mockResolvedValueOnce({}).mockResolvedValueOnce({ name: 'New group' })
+    updateAccount.mockReset().mockResolvedValue({ ...account, name: 'New group' })
+    const wrapper = mountView()
+    await flushPromises()
+    const sync = wrapper.get('button[aria-label="admin.accounts.upstreamBilling.saveGroup"]')
+    await sync.trigger('click')
+    await flushPromises()
+    expect(updateAccount).not.toHaveBeenCalled()
+    await sync.trigger('click')
+    await flushPromises()
+    expect(previewUpstreamGroup).toHaveBeenLastCalledWith({ account_id: account.id })
+    expect(updateAccount).toHaveBeenCalledWith(account.id, { name: 'New group' })
+    expect(wrapper.find('[data-account-name="New group"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it.each([
     ['anthropic', 'oauth'], ['anthropic', 'setup-token'], ['gemini', 'oauth']
   ])('updates %s %s usage on auto-refresh without force or unrelated probes', async (platform, type) => {
@@ -224,13 +250,13 @@ describe('admin AccountsView lite account list', () => {
     wrapper.unmount()
   })
 
-  it('renders candy checks only above the OpenAI OAuth scheduling switch', async () => {
+  it('renders candy checks for OpenAI OAuth and API key accounts', async () => {
     listAccounts.mockResolvedValue({ items: [listRow, { ...listRow, id: 43, name: 'api', type: 'apikey' }, { ...listRow, id: 44, name: 'claude', platform: 'anthropic' }], total: 3, page: 1, page_size: 20, pages: 1 })
     const wrapper = mountView()
     await flushPromises()
-    expect(wrapper.findAll('[data-testid="account-candy-test"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="account-candy-test"]')).toHaveLength(2)
     expect(wrapper.get('[data-account-name="compact row"]').find('[data-testid="account-candy-test"]').exists()).toBe(true)
-    expect(wrapper.get('[data-account-name="api"]').find('[data-testid="account-candy-test"]').exists()).toBe(false)
+    expect(wrapper.get('[data-account-name="api"]').find('[data-testid="account-candy-test"]').exists()).toBe(true)
     expect(wrapper.get('[data-account-name="claude"]').find('[data-testid="account-candy-test"]').exists()).toBe(false)
     wrapper.unmount()
   })

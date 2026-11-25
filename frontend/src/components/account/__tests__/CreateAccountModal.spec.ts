@@ -12,6 +12,7 @@ const {
   probeUpstreamBillingMock,
   updateNewAPISyncConfigMock,
   syncNewAPIRatioMock,
+  previewUpstreamGroup,
   syncUpstreamModelsMock,
   showWarningMock,
   importCodexSessionMock,
@@ -22,6 +23,7 @@ const {
   probeUpstreamBillingMock: vi.fn(),
   updateNewAPISyncConfigMock: vi.fn(),
   syncNewAPIRatioMock: vi.fn(),
+  previewUpstreamGroup: vi.fn(),
   syncUpstreamModelsMock: vi.fn(),
   showWarningMock: vi.fn(),
   importCodexSessionMock: vi.fn(),
@@ -52,6 +54,7 @@ vi.mock('@/api/admin', () => ({
       probeUpstreamBilling: probeUpstreamBillingMock,
       updateNewAPISyncConfig: updateNewAPISyncConfigMock,
       syncNewAPIRatio: syncNewAPIRatioMock,
+      previewUpstreamGroup,
       syncUpstreamModels: syncUpstreamModelsMock,
       checkMixedChannelRisk: vi.fn().mockResolvedValue({ has_risk: false }),
       importCodexSession: importCodexSessionMock,
@@ -307,6 +310,45 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       platform: 'gemini', type: 'apikey',
       credentials: expect.objectContaining({ api_protocol: 'chat_completions', base_url: 'https://upstream.example.com/v1', api_key: 'upstream-key' })
     }))
+    wrapper.unmount()
+  })
+
+  it('fills the name and notes from the unsaved API key and its adaptive Chat URL', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Kimi')
+    await wrapper.get('[data-testid="cn-adaptive-base-url-chat_completions"]').setValue('https://relay.example/v1')
+    await wrapper.get('form input[type="password"]').setValue('test-key')
+    previewUpstreamGroup.mockResolvedValue({ name: '标准组', notes: '共享账号' })
+
+    await selectButtonByText(wrapper, 'admin.accounts.upstreamBilling.syncGroup')
+    await flushPromises()
+
+    expect(previewUpstreamGroup).toHaveBeenCalledWith({
+      platform: 'kimi', base_url: 'https://relay.example/v1', api_key: 'test-key', proxy_id: null
+    }, expect.anything())
+    expect(wrapper.get<HTMLInputElement>('[data-tour="account-form-name"]').element.value).toBe('标准组')
+    expect(wrapper.get<HTMLTextAreaElement>('textarea').element.value).toBe('共享账号')
+    expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('creates an API key account with group sync only after opt-in', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('[data-tour="account-form-name"]').setValue('local')
+    await wrapper.get('form input[type="password"]').setValue('synthetic-key')
+    const group = wrapper.get('[data-testid="upstream-billing-group-sync"]')
+    const mode = wrapper.get<HTMLSelectElement>('[data-testid="upstream-billing-mode"]')
+    expect(group.attributes('aria-checked')).toBe('false')
+    await mode.setValue('off')
+    await group.trigger('click')
+    expect(mode.element.value).toBe('sub2api')
+    await wrapper.get('#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      upstream_billing_group_sync_enabled: true, upstream_billing_probe_enabled: true
+    })
     wrapper.unmount()
   })
 

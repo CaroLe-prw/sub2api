@@ -169,6 +169,7 @@ func TestNewAPISyncConfigEncryptsAccessTokenMasksOutputAndPreservesEmptyValue(t 
 	require.Nil(t, stored[NewAPISyncIntervalExtraKey])
 	require.Equal(t, false, stored[UpstreamBillingProbeEnabledExtraKey])
 	require.Equal(t, false, stored[UpstreamBillingRateSyncEnabledExtraKey])
+	require.Equal(t, false, stored[UpstreamBillingGroupSyncEnabledExtraKey])
 
 	config, err = service.UpdateNewAPISyncConfig(t.Context(), 1, &NewAPISyncConfigUpdate{
 		Enabled:         true,

@@ -288,6 +288,7 @@ func (s *UpstreamBillingProbeService) UpdateNewAPISyncConfig(
 	if update.Enabled {
 		updates[UpstreamBillingProbeEnabledExtraKey] = false
 		updates[UpstreamBillingRateSyncEnabledExtraKey] = false
+		updates[UpstreamBillingGroupSyncEnabledExtraKey] = false
 	}
 	if identityChanged {
 		updates[NewAPILastSyncAtExtraKey] = nil

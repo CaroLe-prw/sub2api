@@ -151,7 +151,7 @@ func TestAPIKeyDeviceHeaderFinalizationKeepsUAAndConversationHeaders(t *testing.
 		"X-Codex-Turn-State":      {"opaque-turn-state"},
 		"X-Codex-Turn-Metadata":   {`{"installation_id":"client-device","turn_id":"turn-original","n":9007199254740993}`},
 	}
-	account.ApplyHeaderOverrides(headers)
+	account.ApplyHeaderOverrides(context.Background(), headers)
 	// Include a noncanonical duplicate after the configurable override to exercise
 	// the finalizer's casing-independent replacement rather than Header.Set alone.
 	headers["X-CODEX-INSTALLATION-ID"] = []string{"duplicate-after-override"}
